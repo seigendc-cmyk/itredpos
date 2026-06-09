@@ -1,0 +1,293 @@
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600;700;800&family=Share+Tech+Mono&family=Public+Sans:wght@300;400;500;600;700;800&display=swap');
+
+/* --- SCI CORPORATE INDUSTRIAL THEME SPECIFICATION --- */
+:root {
+  --sci-orange: #f97316;          /* Bright high-vis operational orange */
+  --sci-orange-hover: #ea580c;    /* Deep orange hover state */
+  --sci-charcoal: #1e222b;        /* Matte charcoal grey */
+  --sci-charcoal-soft: #2e3542;   /* Soft charcoal for panels/subsections */
+  --sci-bg: #f3f4f6;              /* Off-white / light neutral warm grey */
+  --sci-panel: #ffffff;           /* Clean white panel backgrounds */
+  --sci-border: #b1b5c2;          /* Highly legible charcoal/slate border */
+  --sci-text: #111827;            /* Off-black standard corporate text */
+  --sci-muted: #5e6675;           /* Muted secondary labels */
+}
+
+/* Base resets & overall environment overlay under the light corporate theme */
+body, html {
+  background-color: var(--sci-bg);
+  color: var(--sci-text);
+  font-family: 'Public Sans', 'JetBrains Mono', sans-serif;
+}
+
+/* Ensure outer workspace shell has the corporate background */
+.terminal-overlay {
+  background-color: var(--sci-bg) !important;
+  color: var(--sci-text) !important;
+}
+
+.scan-pulse {
+  display: none !important; /* Professional light theme has no scanline pulses */
+}
+
+/* Font helpers */
+.industrial-font-mono {
+  font-family: 'JetBrains Mono', monospace;
+}
+.industrial-font-tech {
+  font-family: 'Share Tech Mono', sans-serif;
+}
+.industrial-font-sans {
+  font-family: 'Public Sans', sans-serif;
+}
+
+/* Custom Scrollbar */
+.pos-custom-scroll::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+.pos-custom-scroll::-webkit-scrollbar-track {
+  background: var(--sci-bg);
+  border-left: 1px solid var(--sci-border);
+}
+.pos-custom-scroll::-webkit-scrollbar-thumb {
+  background: var(--sci-muted);
+  border: 1px solid var(--sci-bg);
+}
+.pos-custom-scroll::-webkit-scrollbar-thumb:hover {
+  background: var(--sci-charcoal);
+}
+
+/* --- SIDEBAR CUSTOMIZATION: Deep matte charcoal grey --- */
+#pos-sidebar-root {
+  background-color: var(--sci-charcoal) !important;
+  color: #e5e7eb !important;
+  border-right: 1px solid var(--sci-charcoal-soft) !important;
+}
+#pos-sidebar-root .border-b,
+#pos-sidebar-root .border-t,
+#pos-sidebar-root .border-slate-800,
+#pos-sidebar-root .border-slate-900 {
+  border-color: var(--sci-charcoal-soft) !important;
+}
+#pos-sidebar-root .bg-slate-900\/40,
+#pos-sidebar-root .bg-[#0c0e12],
+#pos-sidebar-root .bg-slate-950,
+#pos-sidebar-root .bg-slate-905-6 {
+  background-color: var(--sci-charcoal-soft) !important;
+  color: #f3f4f6 !important;
+}
+#pos-sidebar-root .text-slate-300,
+#pos-sidebar-root .text-slate-400 {
+  color: #d1d5db !important;
+}
+#pos-sidebar-root .text-slate-500,
+#pos-sidebar-root .text-slate-600 {
+  color: #9ca3af !important;
+}
+#pos-sidebar-root .text-\[\#00f0ff\] {
+  color: var(--sci-orange) !important;
+}
+
+/* Sidebar navigation buttons */
+#pos-sidebar-root button[id^='nav-item-'] {
+  color: #d1d5db !important;
+  border-left-width: 3px !important;
+  border-left-color: transparent !important;
+  transition: all 0.15s;
+}
+#pos-sidebar-root button[id^='nav-item-']:hover {
+  background-color: var(--sci-charcoal-soft) !important;
+  color: #ffffff !important;
+}
+#pos-sidebar-root button[id^='nav-item-'].bg-slate-900 {
+  background-color: var(--sci-charcoal-soft) !important;
+  color: var(--sci-orange) !important;
+  border-left-color: var(--sci-orange) !important;
+}
+#pos-sidebar-root button[id^='nav-item-'] svg {
+  color: #9ca3af !important;
+}
+#pos-sidebar-root button[id^='nav-item-'].bg-slate-900 svg {
+  color: var(--sci-orange) !important;
+}
+#pos-sidebar-root .bg-\[\#00f0ff\] {
+  background-color: var(--sci-orange) !important;
+}
+
+/* --- TOPBAR CUSTOMIZATION: White/very light grey with charcoal text --- */
+#pos-topbar {
+  background-color: var(--sci-panel) !important;
+  color: var(--sci-text) !important;
+  border-bottom: 2px solid var(--sci-border) !important;
+}
+#pos-topbar .text-slate-300,
+#pos-topbar .text-slate-100 {
+  color: var(--sci-text) !important;
+}
+#pos-topbar .bg-slate-950,
+#pos-topbar .bg-slate-950\/50,
+#pos-topbar .bg-slate-900,
+#pos-topbar .bg-slate-900\/40 {
+  background-color: var(--sci-bg) !important;
+  border-color: var(--sci-border) !important;
+  color: var(--sci-text) !important;
+}
+#pos-topbar .text-\[\#00f0ff\] {
+  color: var(--sci-orange) !important;
+}
+#pos-topbar .text-emerald-400 {
+  color: var(--sci-charcoal) !important;
+  font-weight: 750 !important;
+}
+#pos-topbar .text-amber-500 {
+  color: var(--sci-orange) !important;
+}
+#pos-topbar .border-slate-800,
+#pos-topbar .border-slate-850 {
+  border-color: var(--sci-border) !important;
+}
+#pos-topbar button {
+  background-color: var(--sci-bg) !important;
+  color: var(--sci-text) !important;
+  border: 1px solid var(--sci-border) !important;
+}
+#pos-topbar button:hover {
+  background-color: var(--sci-panel) !important;
+  border-color: var(--sci-charcoal) !important;
+}
+#pos-topbar .bg-amber-500\/10 {
+  background-color: rgba(249, 115, 22, 0.1) !important;
+  border-color: var(--sci-orange) !important;
+  color: var(--sci-orange) !important;
+}
+
+/* --- WORKSPACE CONTENT & ACTIVE CLERICAL SCREENS --- */
+
+/* Force panels to have a clean, light crisp corporate identity */
+.bg-\[\#0f131a\], 
+.bg-\[\#10141e\], 
+.bg-\[\#141822\], 
+.bg-slate-900, 
+.bg-slate-900\/30,
+.bg-slate-950\/40 {
+  background-color: var(--sci-panel) !important;
+  color: var(--sci-text) !important;
+  border-color: var(--sci-border) !important;
+}
+
+.bg-slate-950, 
+.bg-\[\#07090d\], 
+.bg-[#07090d], 
+.bg-[#0c0e12], 
+.bg-\[\#0c0e12\],
+main {
+  background-color: var(--sci-bg) !important;
+  color: var(--sci-text) !important;
+}
+
+/* Global text color corrections from dark mode classes to clean corporate light text */
+.text-slate-100, 
+.text-slate-200, 
+.text-slate-300, 
+.text-slate-400,
+.text-slate-50,
+.text-white {
+  color: var(--sci-text) !important;
+}
+
+.text-slate-500, 
+.text-slate-600,
+.text-slate-550 {
+  color: var(--sci-muted) !important;
+}
+
+/* Keep precise orange highlights for labels, actions or alerts */
+.text-[#00f0ff],
+.text-[#4df5ff],
+.text-cyan-400,
+.text-emerald-400,
+.text-amber-500 {
+  color: var(--sci-orange) !important;
+}
+
+/* Ensure borders are perfectly visible with sharp square edges */
+.border,
+.border-slate-800,
+.border-slate-900,
+.border-slate-850,
+.border-slate-700 {
+  border-color: var(--sci-border) !important;
+}
+
+/* --- BUTTON OVERRIDES: Beautiful high contrast corporate buttons --- */
+button.bg-amber-500,
+button.bg-emerald-500,
+.bg-amber-500,
+.bg-emerald-500 {
+  background-color: var(--sci-orange) !important;
+  color: #ffffff !important;
+  border: 1px solid var(--sci-orange) !important;
+  font-weight: 700 !important;
+}
+button.bg-amber-500:hover, 
+button.bg-emerald-500:hover,
+.bg-amber-500:hover,
+.bg-emerald-500:hover {
+  background-color: var(--sci-orange-hover) !important;
+  border-color: var(--sci-orange-hover) !important;
+}
+
+/* Secondary outline buttons */
+.sci-btn-outline,
+button.bg-slate-950:not(#pos-sidebar-root button) {
+  background-color: var(--sci-panel) !important;
+  color: var(--sci-text) !important;
+  border: 1px solid var(--sci-border) !important;
+}
+.sci-btn-outline:hover,
+button.bg-slate-950:not(#pos-sidebar-root button):hover {
+  background-color: var(--sci-bg) !important;
+  border-color: var(--sci-charcoal) !important;
+}
+
+/* Inputs and interactive states */
+input, select, textarea {
+  background-color: var(--sci-panel) !important;
+  color: var(--sci-text) !important;
+  border: 1px solid var(--sci-border) !important;
+  border-radius: 0px !important;
+}
+input:focus, select:focus, textarea:focus {
+  border-color: var(--sci-orange) !important;
+  box-shadow: 0 0 0 1px var(--sci-orange) !important;
+  outline: none !important;
+}
+
+/* Alert Boxes standardizations with readable parameters */
+.bg-rose-950\/40, 
+.bg-rose-950\/10,
+.bg-rose-950\/30 {
+  background-color: #fef2f2 !important;
+  border-color: #f87171 !important;
+  color: #991b1b !important;
+}
+.bg-amber-950\/30, 
+.bg-amber-950\/10 {
+  background-color: #fff9eb !important;
+  border-color: #f59e0b !important;
+  color: #78350f !important;
+}
+.bg-emerald-950\/30, 
+.bg-emerald-950\/60 {
+  background-color: #f0fdf4 !important;
+  border-color: #34d399 !important;
+  color: #065f46 !important;
+}
+
+/* Prevent angular mechanical yellow corner tags from sticking out inappropriately */
+div[class*="border-t border-l border-amber"], 
+div[class*="border-b border-r border-amber"],
+div[class*="border-t border-r border-amber"] {
+  border-color: var(--sci-orange) !important;
+}

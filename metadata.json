@@ -1,0 +1,6 @@
+{
+  "name": "Industrial POS Prototype",
+  "description": "A robust, sharp-edged modern industrial POS shell with a command bar, sales terminal, stock control, and cash management interfaces.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
