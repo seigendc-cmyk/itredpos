@@ -417,7 +417,7 @@ export default function PosSyncDesk({ session }: PosSyncDeskProps) {
           { label: 'Pending BI Logs', value: pendingBiCount, comment: 'Compliance/Auditing', color: 'border-l-purple-500 bg-purple-50/10' },
           { label: 'Pending Delivery', value: pendingDeliveryCount, comment: 'Closed proof of codes', color: 'border-l-blue-500 bg-blue-50/10' },
           { label: 'Last Master Sync', value: lastSyncTime, comment: 'UTC network tick', color: 'border-l-[#1e222b] bg-slate-100' },
-          { label: 'Threat Sync Risk', value: riskAssessment, comment: 'Data collidability', color: hasCriticalConflict ? 'border-l-red-600 text-rose-800 font-extrabold bg-red-50/10' : 'border-l-slate-400 text-slate-800' }
+          { label: 'Sync Risk', value: riskAssessment, comment: 'Data conflict risk', color: hasCriticalConflict ? 'border-l-red-600 text-rose-800 font-extrabold bg-red-50/10' : 'border-l-slate-400 text-slate-800' }
         ].map(card => (
           <div key={card.label} className={`bg-white border border-[#b1b5c2] border-l-4 ${card.color} p-3 flex flex-col justify-between h-[85px]`}>
             <span className="text-[8.5px] font-black text-slate-500 uppercase tracking-tight block truncate" title={card.label}>

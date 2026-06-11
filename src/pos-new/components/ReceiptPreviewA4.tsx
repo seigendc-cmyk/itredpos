@@ -13,7 +13,7 @@ export default function ReceiptPreviewA4({ preview, onExport }: ReceiptPreviewA4
       <div className="flex justify-between gap-6 border-b-2 border-[#1e222b] pb-4">
         <div>
           <div className="text-xl font-black uppercase">{receipt.businessDetails.businessName}</div>
-          <div className="text-xs font-bold uppercase text-slate-600">{receipt.businessDetails.tradingName}</div>
+          <div className="text-xs font-bold uppercase text-slate-700">{receipt.businessDetails.tradingName}</div>
           <div className="text-[10px] mt-2">{receipt.businessDetails.address}</div>
           <div className="text-[10px]">Phone: {receipt.businessDetails.phone} | WhatsApp: {receipt.businessDetails.whatsApp}</div>
           {receipt.businessDetails.vatRegistered && <div className="text-[10px] font-bold">VAT No: {receipt.businessDetails.vatNumber}</div>}
@@ -29,13 +29,13 @@ export default function ReceiptPreviewA4({ preview, onExport }: ReceiptPreviewA4
 
       <div className="grid grid-cols-2 gap-4 py-4 text-[10px]">
         <div className="border border-[#b1b5c2] p-3">
-          <div className="font-black uppercase text-slate-500 mb-1">Customer</div>
+          <div className="font-black uppercase text-slate-700 mb-1">Customer</div>
           <div className="font-bold">{receipt.customer.customerName || 'Walk-in Customer'}</div>
           <div>{receipt.customer.customerPhone || 'No phone captured'}</div>
           <div>{receipt.customer.customerTaxNo || 'No customer tax number'}</div>
         </div>
         <div className="border border-[#b1b5c2] p-3">
-          <div className="font-black uppercase text-slate-500 mb-1">Fiscal Placeholder</div>
+          <div className="font-black uppercase text-slate-700 mb-1">Fiscal Status</div>
           <div>Status: <strong>{receipt.fiscalizationStatus}</strong></div>
           <div>Reference: <strong>{receipt.fiscalReferencePlaceholder || 'Not connected'}</strong></div>
           <div>Mode: Disabled In Development</div>
@@ -69,7 +69,7 @@ export default function ReceiptPreviewA4({ preview, onExport }: ReceiptPreviewA4
 
       <div className="grid grid-cols-2 gap-4 mt-4 text-[10px]">
         <div className="border border-[#b1b5c2] p-3">
-          <div className="font-black uppercase text-slate-500 mb-2">Payment Summary</div>
+          <div className="font-black uppercase text-slate-700 mb-2">Payment Summary</div>
           {payments.map((payment) => (
             <div key={payment.id} className="flex justify-between">
               <span>{payment.paymentMode}</span>

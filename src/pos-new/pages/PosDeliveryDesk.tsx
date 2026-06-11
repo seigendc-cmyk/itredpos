@@ -1057,7 +1057,7 @@ export default function PosDeliveryDesk({ session }: PosDeliveryDeskProps) {
                       value={failureForm.notes} 
                       onChange={(e) => setFailureForm({ ...failureForm, notes: e.target.value })}
                       className="w-full px-3 py-2 bg-slate-50 border border-[#b1b5c2] text-xs focus:bg-white text-[#1e222b] h-12"
-                      placeholder="Explain what transpired, conversations had, vehicle telemetry, etc..."
+                      placeholder="Explain what happened, conversations held, vehicle details, and next action..."
                     />
                   </div>
 

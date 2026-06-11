@@ -2241,7 +2241,7 @@ export default function PosStock({
                             <button
                               onClick={() => setSelectedProduct(p)}
                               className="p-1 bg-white text-slate-700 hover:text-orange-500 border border-[#b1b5c2] hover:border-orange-500 cursor-pointer"
-                              title="Display telemetry"
+                              title="View item details"
                             >
                               <Eye className="w-3.5 h-3.5" />
                             </button>
@@ -2285,10 +2285,10 @@ export default function PosStock({
 
         </div>
 
-        {/* Right side activity feed and view telemetry panel */}
+        {/* Right side activity feed and item details panel */}
         <div className="lg:col-span-4 space-y-6">
           
-          {/* Active Product Telemetry Viewer */}
+          {/* Active Product Details Viewer */}
           {selectedProduct && (
             <div className="bg-white border-2 border-[#1e222b] p-4 relative pt-1 border-t-8 border-t-[#1e222b]">
               

@@ -71,21 +71,21 @@ export default function PosSidebar({
         <div className="p-3 bg-slate-950 border-b border-slate-900 text-[10px] space-y-2">
           {session ? (
             <div className="space-y-1.5 border border-slate-800 bg-slate-900/30 p-2 font-mono">
-              <div className="text-[9px] text-amber-500 font-bold uppercase tracking-wider">ACTIVE CONFIG:</div>
+              <div className="text-[9px] text-orange-300 font-bold uppercase tracking-wider">Active Session</div>
               <div className="flex justify-between items-center text-slate-500">
-                <span>VNDR:</span>
+                <span>Vendor:</span>
                 <span className="text-[#00f0ff] font-bold truncate max-w-[130px]" title={session.vendor}>{session.vendor}</span>
               </div>
               <div className="flex justify-between items-center text-slate-500">
-                <span>BRCH:</span>
+                <span>Branch:</span>
                 <span className="text-slate-300 font-bold truncate max-w-[130px]" title={session.branch}>{session.branch}</span>
               </div>
               <div className="flex justify-between items-center text-slate-500">
-                <span>TERM:</span>
+                <span>Terminal:</span>
                 <span className="text-amber-500 font-bold truncate max-w-[130px]" title={session.terminal}>{session.terminal}</span>
               </div>
               <div className="flex justify-between items-center text-slate-500">
-                <span>CLERK:</span>
+                <span>Staff:</span>
                 <span className="text-emerald-400 font-bold" title={`${session.staffName} [${session.role}]`}>{session.staffName}</span>
               </div>
               <div className="flex justify-between items-center text-slate-500">
@@ -95,13 +95,13 @@ export default function PosSidebar({
             </div>
           ) : (
             <div className="flex justify-between items-center text-slate-500">
-              <span>OPERATOR SIGNATURE:</span>
+            <span>Operator:</span>
               <span className="text-[#00f0ff] font-bold">{operatorName || "SYS_ADMIN"}</span>
             </div>
           )}
           
           <div className="flex justify-between items-center text-slate-500">
-            <span>SHIFT HARDWARE GATE:</span>
+            <span>Shift Device Status:</span>
             <span className={`font-bold flex items-center gap-1 ${
               activeShiftStatus === 'ACTIVE' ? 'text-emerald-400' : 'text-rose-500'
             }`}>
@@ -113,7 +113,7 @@ export default function PosSidebar({
         {/* Menu list */}
         <nav className="p-2 space-y-1">
           <div className="text-[9px] text-slate-600 font-bold px-2 py-1.5 uppercase tracking-wider">
-            Main Navigation
+            Main Menu
           </div>
 
           <div className="space-y-0.5">
@@ -165,7 +165,7 @@ export default function PosSidebar({
               className="w-full text-[10px] text-rose-400 hover:text-rose-300 uppercase transition-colors flex items-center gap-1.5 cursor-pointer outline-none font-bold"
             >
               <LogOut className="w-3 h-3 text-rose-500" />
-              Sign Out Staff Identity
+              Switch Staff
             </button>
           )}
 

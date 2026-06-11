@@ -56,7 +56,7 @@ export default function PosDashboard({
   const terminalName = session?.terminal || 'POS-01';
 
   // State to simulate system notification feedback when quick actions are clicked
-  const [consoleNotification, setConsoleNotification] = useState<string>('SYSTEM STATUS: FULLY SYNCHRONIZED AND STABLE');
+  const [consoleNotification, setConsoleNotification] = useState<string>('Sync Status: Fully Synchronized');
   const [notificationType, setNotificationType] = useState<'info' | 'success' | 'warning'>('info');
 
   // Local state for approval queue cards to allow interactive approving
@@ -70,7 +70,7 @@ export default function PosDashboard({
     setConsoleNotification(message);
     setNotificationType(type);
     setTimeout(() => {
-      setConsoleNotification('SYSTEM STATUS: FULLY SYNCHRONIZED AND STABLE');
+      setConsoleNotification('Sync Status: Fully Synchronized');
       setNotificationType('info');
     }, 4000);
   };
@@ -403,7 +403,7 @@ export default function PosDashboard({
 
             <div className="bg-[#0f131a] border border-slate-800 p-4">
               <div className="text-[9px] text-slate-500 uppercase font-black tracking-widest mb-3 leading-none">
-                AUTHORIZATION REQUESTS SENT FROM ACTIVE CLIENT REGISTERS:
+                Approval Requests From Active Terminals:
               </div>
 
               <div className="space-y-2.5">
@@ -483,7 +483,7 @@ export default function PosDashboard({
                     disabled
                     className="bg-slate-850 text-slate-600 px-3 py-1.5 font-bold uppercase transition-colors shrink-0 text-[10px]"
                   >
-                    No Threats
+                    No Alerts
                   </button>
                 </div>
 
@@ -524,13 +524,13 @@ export default function PosDashboard({
               <button
                 onClick={() => {
                   onNavigate('STOCK');
-                  triggerNotification('RECEIVING PORT CHASSIS REGISTERED: Fill incoming logistics data below.', 'info');
+                  triggerNotification('Goods receiving workspace opened. Fill incoming stock details below.', 'info');
                 }}
                 className="bg-[#141822] hover:bg-[#1a2130] border border-slate-800 hover:border-sky-500 p-4 text-center cursor-pointer group transition-all text-slate-200"
               >
                 <Truck className="w-6 h-6 text-sky-400 mx-auto mb-2 group-hover:scale-105 transition-transform" />
                 <span className="block font-bold uppercase text-[10px] tracking-wider text-slate-100">Receive Goods</span>
-                <span className="text-[8.5px] text-slate-550 block mt-1">STOCK INGRESS</span>
+                <span className="text-[8.5px] text-slate-550 block mt-1">STOCK RECEIVING</span>
               </button>
 
               <button
@@ -539,18 +539,18 @@ export default function PosDashboard({
               >
                 <FileCheck className="w-6 h-6 text-emerald-500 mx-auto mb-2 group-hover:scale-105 transition-transform" />
                 <span className="block font-bold uppercase text-[10px] tracking-wider text-slate-100">Cash Count</span>
-                <span className="text-[8.5px] text-slate-550 block mt-1">VERIFY REGISTER FLOAT</span>
+                <span className="text-[8.5px] text-slate-550 block mt-1">VERIFY CASH FLOAT</span>
               </button>
 
               <button
                 onClick={() => {
-                  triggerNotification('APPROVAL REQUEST TRANSMITTED: Pager notification pushed to branch supervisors.', 'warning');
+                  triggerNotification('Approval request sent to branch supervisors.', 'warning');
                 }}
                 className="bg-[#141822] hover:bg-[#1a2130] border border-slate-800 hover:border-amber-400 p-4 text-center cursor-pointer group transition-all text-slate-200"
               >
                 <Zap className="w-6 h-6 text-amber-400 mx-auto mb-2 group-hover:scale-105 transition-transform animate-pulse" />
                 <span className="block font-bold uppercase text-[10px] tracking-wider text-slate-100">Request Approval</span>
-                <span className="text-[8.5px] text-slate-550 block mt-1">SUBMIT OVERRIDE PING</span>
+                <span className="text-[8.5px] text-slate-550 block mt-1">SUBMIT APPROVAL</span>
               </button>
 
               <button
@@ -559,7 +559,7 @@ export default function PosDashboard({
               >
                 <Eye className="w-6 h-6 text-[#00f0ff] mx-auto mb-2 group-hover:scale-105 transition-transform" />
                 <span className="block font-bold uppercase text-[10px] tracking-wider text-slate-100">View BI Desk</span>
-                <span className="text-[8.5px] text-slate-550 block mt-1">SYS TELEMETRY FEEDS</span>
+                <span className="text-[8.5px] text-slate-550 block mt-1">LIVE ACTIVITY FEED</span>
               </button>
 
             </div>
@@ -571,7 +571,7 @@ export default function PosDashboard({
         <div className="space-y-3">
           <h3 className="text-[11px] font-black uppercase text-slate-400 tracking-wider flex items-center gap-2">
             <ShieldAlert className="w-4 h-4 text-rose-500 animate-pulse" />
-            5. Enterprise BI Threat & Event Alerts
+            5. BI Risk Alerts
           </h3>
 
           <div className="bg-[#0f131a] border border-slate-800 p-4 h-[730px] flex flex-col justify-between relative overflow-hidden">
@@ -584,7 +584,7 @@ export default function PosDashboard({
             <div className="space-y-4">
               <div className="border-b border-slate-900 pb-2">
                 <div className="text-[10px] font-black text-slate-100 uppercase tracking-widest flex items-center justify-between">
-                  <span>TELEMETRY BUFFER FILTER</span>
+                  <span>Live Activity Feed</span>
                   <span className="text-[8px] bg-amber-500/10 border border-amber-500/20 text-amber-500 px-1.5 py-0.5 animate-pulse">
                     LIVE STREAM
                   </span>
@@ -670,7 +670,7 @@ export default function PosDashboard({
         <div className="flex items-center gap-3 border-t md:border-t-0 md:border-x border-slate-800 py-2 md:py-0 md:px-4">
           <Database className="w-4 h-4 text-indigo-400 shrink-0" />
           <div>
-            <div className="text-slate-600 text-[9px]">DATA PERSISTENCE SYSTEM</div>
+            <div className="text-slate-600 text-[9px]">Data Storage Status</div>
             <div className="text-slate-200 font-bold">SOLID_STATE LOCALBYPASS BUFFER</div>
           </div>
         </div>
@@ -679,7 +679,7 @@ export default function PosDashboard({
           <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
           <div>
             <div className="text-slate-600 text-[9px]">DIAGNOSTIC STATUS</div>
-            <div className="text-emerald-400 font-bold">SYSTEM REGISTER GATE STANDBY</div>
+            <div className="text-emerald-400 font-bold">Terminal Ready</div>
           </div>
         </div>
       </div>

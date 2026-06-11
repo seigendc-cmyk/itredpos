@@ -1,9 +1,9 @@
 import { useState, useEffect } from 'react';
 import { 
   Clock, 
-  Cpu, 
-  Zap,
+  Cpu,
   LogOut,
+  Zap,
   Wifi,
   WifiOff
 } from 'lucide-react';
@@ -111,13 +111,13 @@ export default function PosTopbar({
 
         {session ? (
           <div className="hidden xl:flex items-center gap-4 text-[9.5px] text-slate-400 bg-slate-950/50 border border-slate-800 px-3 py-1 font-mono uppercase tracking-wide shrink-0">
-            <span className="text-slate-500">VNDR: <strong className="text-amber-500 font-bold">{session.vendor}</strong></span>
+            <span className="text-slate-500">Vendor: <strong className="text-amber-500 font-bold" title={session.vendor}>{session.vendor}</strong></span>
             <span className="text-slate-700">/</span>
-            <span className="text-slate-500">BRCH: <strong className="text-slate-300 font-semibold">{session.branch}</strong></span>
+            <span className="text-slate-500">Branch: <strong className="text-slate-300 font-semibold" title={session.branch}>{session.branch}</strong></span>
             <span className="text-slate-700">/</span>
-            <span className="text-slate-500">TERM: <strong className="text-[#00f0ff] font-semibold">{session.terminal}</strong></span>
+            <span className="text-slate-500">Terminal: <strong className="text-[#00f0ff] font-semibold" title={session.terminal}>{session.terminal}</strong></span>
             <span className="text-slate-700">/</span>
-            <span className="text-slate-500">STAFF: <strong className="text-emerald-400 font-bold">{session.staffName} ({session.role})</strong></span>
+            <span className="text-slate-500">Staff: <strong className="text-emerald-400 font-bold" title={`${session.staffName} (${session.role})`}>{session.staffName} ({session.role})</strong></span>
           </div>
         ) : (
           <span className="text-slate-500 uppercase text-[10px] hidden md:inline truncate max-w-sm">
@@ -141,16 +141,15 @@ export default function PosTopbar({
           <span className="font-bold text-[10px] text-emerald-400 tracking-widest">{timeStr || "TICKING..."}</span>
         </div>
 
-        {/* Hardware telemetry details */}
-        <div className="hidden sm:flex items-center gap-4 text-[10px] text-slate-500 font-mono">
-          <div className="flex items-center gap-1.5">
+        <div className="hidden sm:flex items-center gap-2 text-[10px] text-slate-500 font-mono">
+          <div className="hidden">
             <Cpu className="w-3.5 h-3.5 text-amber-500" />
-            <span>TEMP: <span className="text-slate-300 font-bold">42.8°C</span></span>
+            <span className="sr-only">Device status hidden from topbar</span>
           </div>
 
-          <div className="flex items-center gap-1.5">
+          <div className="hidden">
             <Zap className="w-3.5 h-3.5 text-[#00f0ff]" />
-            <span>POWER: <span className="text-emerald-400 font-bold">MAX_STABLE</span></span>
+            <span className="sr-only">Device power hidden from topbar</span>
           </div>
 
           <div className="flex items-center gap-2">

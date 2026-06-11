@@ -438,12 +438,12 @@ export default function PosSettings({
         <div>
           <div className="text-[10px] text-slate-500 uppercase font-mono tracking-widest flex items-center gap-1.5">
             <Sliders className="w-3.5 h-3.5 text-[#00f0ff]" />
-            ENTERPRISE CALIBRATION UTILITIES
+            Settings
           </div>
-          <h2 className="text-base font-extrabold font-mono text-white mt-1 uppercase">POS COMMAND SETTINGS CONSOLE</h2>
+          <h2 className="text-base font-extrabold font-mono text-white mt-1 uppercase">iTred Commerce POS Settings</h2>
         </div>
         <p className="text-[10px] text-slate-550 font-mono max-w-sm uppercase leading-relaxed text-right">
-          Authorized workspace override. Configure metadata nodes, system hierarchies, operator identities, and hardware. <span className="text-rose-400 font-bold">* OFFLINE MEMORY ENGINE ACTIVE</span>
+          Manage business profile, branches, staff, receipts, taxes, permissions, and terminal devices. <span className="text-orange-700 font-bold">Build Development</span>
         </p>
       </div>
 
@@ -456,7 +456,7 @@ export default function PosSettings({
             exit={{ opacity: 0, y: -10 }}
             className="p-3 bg-emerald-950/80 border border-emerald-500/60 text-emerald-400 font-mono tracking-wider font-bold uppercase rounded-none text-center animate-pulse"
           >
-            [DUMP GATE] {toastMessage}
+            {toastMessage}
           </motion.div>
         )}
       </AnimatePresence>
@@ -467,8 +467,8 @@ export default function PosSettings({
         {/* SUB SIDEBAR CONFIG MENU (4 columns) */}
         <div className="lg:col-span-3 bg-[#11141d] border border-slate-750 p-2 space-y-0.5">
           <div className="text-[10px] text-slate-650 font-bold font-mono py-1 px-2.5 uppercase tracking-wider border-b border-slate-800/80 flex items-center justify-between mb-2">
-            <span>CONFIG CATS RANGE</span>
-            <span className="text-[9px] bg-slate-950 px-1 py-0.2 text-[#00f0ff]">SECURE</span>
+            <span>Settings Menu</span>
+            <span className="text-[9px] bg-slate-950 px-1 py-0.2 text-[#00f0ff]">Local</span>
           </div>
 
           <div className="space-y-1">
@@ -508,9 +508,9 @@ export default function PosSettings({
 
           {/* CLERK DIAL METADATA INDICATOR */}
           <div className="p-3 bg-slate-950 border border-slate-850 mt-4 text-[9px] space-y-1 text-slate-500 font-mono uppercase">
-            <div>WORKSPACE ENGINE ID: <span className="text-[#00f0ff]">GATE_T8712_H</span></div>
-            <div>STRIKE RE-CALIBRATION: PASSED</div>
-            <div>TAX REGL: DIRECT_CAL_VAT</div>
+            <div>Product: <span className="text-[#00f0ff]">iTred Commerce POS</span></div>
+            <div>Mode: Build Development</div>
+            <div>Backend: Mock / Local Services</div>
           </div>
         </div>
 

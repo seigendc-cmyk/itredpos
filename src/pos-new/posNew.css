@@ -2,15 +2,25 @@
 
 /* --- SCI CORPORATE INDUSTRIAL THEME SPECIFICATION --- */
 :root {
-  --sci-orange: #f97316;          /* Bright high-vis operational orange */
-  --sci-orange-hover: #ea580c;    /* Deep orange hover state */
-  --sci-charcoal: #1e222b;        /* Matte charcoal grey */
-  --sci-charcoal-soft: #2e3542;   /* Soft charcoal for panels/subsections */
-  --sci-bg: #f3f4f6;              /* Off-white / light neutral warm grey */
-  --sci-panel: #ffffff;           /* Clean white panel backgrounds */
-  --sci-border: #b1b5c2;          /* Highly legible charcoal/slate border */
-  --sci-text: #111827;            /* Off-black standard corporate text */
-  --sci-muted: #5e6675;           /* Muted secondary labels */
+  --sci-orange: #f26a1b;
+  --sci-orange-dark: #c94f0f;
+  --sci-orange-hover: #c94f0f;
+  --sci-charcoal: #2f3437;
+  --sci-charcoal-dark: #1f2529;
+  --sci-charcoal-soft: #454b4f;
+  --sci-bg: #f3f1ed;
+  --sci-panel: #ffffff;
+  --sci-panel-soft: #f7f6f3;
+  --sci-border: #b8b2aa;
+  --sci-border-strong: #8d8780;
+  --sci-text: #202426;
+  --sci-text-strong: #111518;
+  --sci-muted: #565d61;
+  --sci-muted-strong: #3f474b;
+  --sci-danger: #b42318;
+  --sci-warning: #a15c00;
+  --sci-success: #146c43;
+  --sci-info: #2459a6;
 }
 
 /* Base resets & overall environment overlay under the light corporate theme */
@@ -18,6 +28,12 @@ body, html {
   background-color: var(--sci-bg);
   color: var(--sci-text);
   font-family: 'Public Sans', 'JetBrains Mono', sans-serif;
+}
+
+h1, h2, h3, h4, h5, h6,
+strong,
+th {
+  color: var(--sci-text-strong);
 }
 
 /* Ensure outer workspace shell has the corporate background */
@@ -83,7 +99,7 @@ body, html {
 }
 #pos-sidebar-root .text-slate-500,
 #pos-sidebar-root .text-slate-600 {
-  color: #9ca3af !important;
+  color: #c3c8cc !important;
 }
 #pos-sidebar-root .text-\[\#00f0ff\] {
   color: var(--sci-orange) !important;
@@ -102,7 +118,7 @@ body, html {
 }
 #pos-sidebar-root button[id^='nav-item-'].bg-slate-900 {
   background-color: var(--sci-charcoal-soft) !important;
-  color: var(--sci-orange) !important;
+  color: #ffffff !important;
   border-left-color: var(--sci-orange) !important;
 }
 #pos-sidebar-root button[id^='nav-item-'] svg {
@@ -122,7 +138,10 @@ body, html {
   border-bottom: 2px solid var(--sci-border) !important;
 }
 #pos-topbar .text-slate-300,
-#pos-topbar .text-slate-100 {
+#pos-topbar .text-slate-100,
+#pos-topbar .text-slate-400,
+#pos-topbar .text-slate-500,
+#pos-topbar .text-slate-700 {
   color: var(--sci-text) !important;
 }
 #pos-topbar .bg-slate-950,
@@ -196,8 +215,10 @@ main {
 
 .text-slate-500, 
 .text-slate-600,
-.text-slate-550 {
-  color: var(--sci-muted) !important;
+.text-slate-550,
+.text-slate-450,
+.text-slate-650 {
+  color: var(--sci-muted-strong) !important;
 }
 
 /* Keep precise orange highlights for labels, actions or alerts */
@@ -206,7 +227,7 @@ main {
 .text-cyan-400,
 .text-emerald-400,
 .text-amber-500 {
-  color: var(--sci-orange) !important;
+  color: var(--sci-orange-dark) !important;
 }
 
 /* Ensure borders are perfectly visible with sharp square edges */
@@ -221,17 +242,25 @@ main {
 /* --- BUTTON OVERRIDES: Beautiful high contrast corporate buttons --- */
 button.bg-amber-500,
 button.bg-emerald-500,
+button.bg-orange-500,
+button.bg-orange-600,
 .bg-amber-500,
-.bg-emerald-500 {
+.bg-emerald-500,
+.bg-orange-500,
+.bg-orange-600 {
   background-color: var(--sci-orange) !important;
   color: #ffffff !important;
-  border: 1px solid var(--sci-orange) !important;
+  border: 1px solid var(--sci-orange-dark) !important;
   font-weight: 700 !important;
 }
 button.bg-amber-500:hover, 
 button.bg-emerald-500:hover,
+button.bg-orange-500:hover,
+button.bg-orange-600:hover,
 .bg-amber-500:hover,
-.bg-emerald-500:hover {
+.bg-emerald-500:hover,
+.bg-orange-500:hover,
+.bg-orange-600:hover {
   background-color: var(--sci-orange-hover) !important;
   border-color: var(--sci-orange-hover) !important;
 }
@@ -253,13 +282,50 @@ button.bg-slate-950:not(#pos-sidebar-root button):hover {
 input, select, textarea {
   background-color: var(--sci-panel) !important;
   color: var(--sci-text) !important;
-  border: 1px solid var(--sci-border) !important;
+  border: 1px solid var(--sci-border-strong) !important;
   border-radius: 0px !important;
 }
+input::placeholder,
+textarea::placeholder {
+  color: var(--sci-muted-strong) !important;
+  opacity: 1 !important;
+}
+button:focus-visible,
+a:focus-visible,
 input:focus, select:focus, textarea:focus {
   border-color: var(--sci-orange) !important;
-  box-shadow: 0 0 0 1px var(--sci-orange) !important;
+  box-shadow: 0 0 0 2px rgba(242, 106, 27, 0.35) !important;
   outline: none !important;
+}
+button:disabled,
+[aria-disabled="true"],
+.cursor-not-allowed {
+  opacity: 0.78 !important;
+  color: var(--sci-muted-strong) !important;
+}
+
+table,
+tbody,
+td {
+  color: var(--sci-text) !important;
+}
+thead,
+thead tr,
+thead th {
+  background-color: var(--sci-charcoal-dark) !important;
+  color: #ffffff !important;
+}
+label,
+.text-\[8\.5px\],
+.text-\[9px\],
+.text-\[10px\] {
+  color: inherit;
+}
+
+.bg-slate-50,
+.bg-slate-100,
+.bg-white {
+  color: var(--sci-text) !important;
 }
 
 /* Alert Boxes standardizations with readable parameters */
