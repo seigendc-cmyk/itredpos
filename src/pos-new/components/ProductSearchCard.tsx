@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { Ban, RotateCcw, Search, ShoppingCart } from 'lucide-react';
+import { LayoutGrid, List, RotateCcw, Search, ShoppingCart } from 'lucide-react';
 import { Product } from '../types';
 import { matchesFreeOrderSearch } from '../utils/searchUtils';
 
@@ -13,7 +13,34 @@ interface ProductSearchCardProps {
 }
 
 type StockFilter = 'ALL' | 'IN_STOCK' | 'LOW_STOCK' | 'OUT_OF_STOCK';
+type ViewMode = 'list' | 'grid';
 type QuickCategory = 'ALL' | 'Motor Spares' | 'Hardware' | 'Grocery' | 'Agriculture' | 'Clothing' | 'Furniture' | 'Electronics' | 'Lubricants';
+type ProductFieldKey =
+  | 'sku'
+  | 'productName'
+  | 'brand'
+  | 'manufacturer'
+  | 'supplier'
+  | 'shelf'
+  | 'qty'
+  | 'price'
+  | 'stockStatus'
+  | 'sector'
+  | 'category'
+  | 'alu'
+  | 'productNo'
+  | 'barcode';
+
+interface ProductFieldConfig {
+  key: ProductFieldKey;
+  label: string;
+  className?: string;
+  value: (product: Product) => string;
+}
+
+const VIEW_MODE_KEY = 'itredpos.sales.productViewMode';
+const VISIBLE_FIELDS_KEY = 'itredpos.sales.productVisibleFields';
+const defaultVisibleFields: ProductFieldKey[] = ['sku', 'productName', 'brand', 'shelf', 'qty', 'price', 'stockStatus'];
 
 const quickCategories: QuickCategory[] = [
   'ALL',
@@ -26,6 +53,34 @@ const quickCategories: QuickCategory[] = [
   'Electronics',
   'Lubricants'
 ];
+
+function readStoredViewMode(): ViewMode {
+  try {
+    const stored = localStorage.getItem(VIEW_MODE_KEY);
+    return stored === 'grid' ? 'grid' : 'list';
+  } catch {
+    return 'list';
+  }
+}
+
+function readStoredFields(): ProductFieldKey[] {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(VISIBLE_FIELDS_KEY) || '[]') as ProductFieldKey[];
+    const allowed = new Set<ProductFieldKey>(fieldConfigs.map((field) => field.key));
+    const clean = parsed.filter((field) => allowed.has(field));
+    return clean.length > 0 ? clean : defaultVisibleFields;
+  } catch {
+    return defaultVisibleFields;
+  }
+}
+
+function savePreference(key: string, value: unknown): void {
+  try {
+    localStorage.setItem(key, typeof value === 'string' ? value : JSON.stringify(value));
+  } catch {
+    // Preference persistence is optional.
+  }
+}
 
 function asRecord(product: Product): Record<string, unknown> {
   return product as unknown as Record<string, unknown>;
@@ -53,6 +108,10 @@ function productQty(product: Product): number {
   return product.qtyOnHand ?? product.stock;
 }
 
+function productShelf(product: Product): string {
+  return product.shelfLocation || product.binLocation || '-';
+}
+
 function isLowStock(product: Product): boolean {
   const qty = productQty(product);
   const threshold = product.reorderLevel ?? product.minStock;
@@ -70,6 +129,23 @@ function distinct(values: string[]): string[] {
   return Array.from(new Set(values.filter(Boolean))).sort((a, b) => a.localeCompare(b));
 }
 
+const fieldConfigs: ProductFieldConfig[] = [
+  { key: 'sku', label: 'SKU', className: 'pos-field-sku', value: productSku },
+  { key: 'productName', label: 'Product Name', className: 'pos-field-product-name', value: productName },
+  { key: 'brand', label: 'Brand', className: 'pos-field-compact', value: (product) => product.brand || '-' },
+  { key: 'manufacturer', label: 'Manufacturer', className: 'pos-field-compact', value: (product) => product.manufacturer || '-' },
+  { key: 'supplier', label: 'Supplier', className: 'pos-field-compact', value: (product) => product.supplierName || '-' },
+  { key: 'shelf', label: 'Shelf / Location', className: 'pos-field-compact', value: productShelf },
+  { key: 'qty', label: 'Qty', className: 'pos-field-number', value: (product) => String(productQty(product)) },
+  { key: 'price', label: 'Price', className: 'pos-field-number', value: (product) => `USD ${productPrice(product).toFixed(2)}` },
+  { key: 'stockStatus', label: 'Stock Status', className: 'pos-field-status', value: stockLabel },
+  { key: 'sector', label: 'Sector', className: 'pos-field-compact', value: (product) => product.industrialSector || '-' },
+  { key: 'category', label: 'Category', className: 'pos-field-compact', value: (product) => product.productCategory || product.category },
+  { key: 'alu', label: 'ALU', className: 'pos-field-compact', value: (product) => product.alu || '-' },
+  { key: 'productNo', label: 'Product No.', className: 'pos-field-compact', value: (product) => product.productNumericNumber || product.id },
+  { key: 'barcode', label: 'Barcode', className: 'pos-field-compact', value: (product) => product.barcode || '-' }
+];
+
 export default function ProductSearchCard({
   products,
   branchName,
@@ -85,6 +161,13 @@ export default function ProductSearchCard({
   const [warehouse, setWarehouse] = useState('ALL');
   const [stockFilter, setStockFilter] = useState<StockFilter>('ALL');
   const [message, setMessage] = useState('');
+  const [viewMode, setViewModeState] = useState<ViewMode>(readStoredViewMode);
+  const [visibleFields, setVisibleFieldsState] = useState<ProductFieldKey[]>(readStoredFields);
+
+  const selectedFields = useMemo(
+    () => fieldConfigs.filter((field) => visibleFields.includes(field.key)),
+    [visibleFields]
+  );
 
   const categories = useMemo(
     () => distinct(products.map((product) => product.productCategory || product.category)),
@@ -158,6 +241,25 @@ export default function ProductSearchCard({
     });
   }, [branch, branchName, category, products, query, sector, stockFilter, warehouse, warehouseName]);
 
+  const setViewMode = (nextMode: ViewMode) => {
+    setViewModeState(nextMode);
+    savePreference(VIEW_MODE_KEY, nextMode);
+  };
+
+  const setVisibleFields = (nextFields: ProductFieldKey[]) => {
+    const safeFields = nextFields.length > 0 ? nextFields : defaultVisibleFields;
+    setVisibleFieldsState(safeFields);
+    savePreference(VISIBLE_FIELDS_KEY, safeFields);
+  };
+
+  const toggleField = (field: ProductFieldKey) => {
+    setVisibleFields(
+      visibleFields.includes(field)
+        ? visibleFields.filter((item) => item !== field)
+        : [...visibleFields, field]
+    );
+  };
+
   const clearSearch = () => {
     setQuery('');
     setCategory('ALL');
@@ -183,14 +285,55 @@ export default function ProductSearchCard({
     setMessage('');
   };
 
+  const renderFieldValue = (product: Product, field: ProductFieldConfig) => {
+    if (field.key === 'stockStatus') {
+      const disabled = productQty(product) <= 0;
+      return (
+        <span className={`sci-status-pill sci-status-pill--${disabled ? 'danger' : isLowStock(product) ? 'warning' : 'success'}`}>
+          {stockLabel(product)}
+        </span>
+      );
+    }
+    const value = field.value(product);
+    return <span className="pos-product-value" title={value}>{value}</span>;
+  };
+
+  const renderCartIcon = (product: Product) => {
+    const disabled = productQty(product) <= 0;
+    return (
+      <button
+        type="button"
+        className="cart-icon-cta"
+        onClick={() => handleAdd(product)}
+        disabled={disabled}
+        title={disabled ? 'Out of stock' : 'Add to cart'}
+        aria-label="Add product to cart"
+      >
+        <ShoppingCart size={18} aria-hidden="true" />
+      </button>
+    );
+  };
+
   return (
     <section className="sci-pos-card pos-product-search-card" aria-labelledby="product-search-title">
-      <div className="sci-pos-card__bar">
+      <div className="sci-pos-card__bar pos-product-card-bar">
         <div>
           <p className="sci-pos-eyebrow">Product Search</p>
           <h2 id="product-search-title">Product Search</h2>
         </div>
-        <span className="sci-pos-card__count">{filteredProducts.length} results</span>
+        <div className="pos-product-view-actions">
+          <span className="sci-pos-card__count">{filteredProducts.length} results</span>
+          <div className="pos-view-toggle" aria-label="Product result view mode">
+            <button type="button" className={`industrial-tab ${viewMode === 'list' ? 'active' : ''}`} onClick={() => setViewMode('list')}>
+              <List size={14} aria-hidden="true" />
+              List
+            </button>
+            <button type="button" className={`industrial-tab ${viewMode === 'grid' ? 'active' : ''}`} onClick={() => setViewMode('grid')}>
+              <LayoutGrid size={14} aria-hidden="true" />
+              Grid
+            </button>
+          </div>
+        </div>
       </div>
 
       <div className="pos-search-controls">
@@ -248,76 +391,105 @@ export default function ProductSearchCard({
         })}
       </div>
 
+      <div className="pos-field-chooser">
+        <div className="pos-field-chooser__title">Fields</div>
+        <div className="pos-field-chooser__options">
+          {fieldConfigs.map((field) => (
+            <label key={field.key}>
+              <input
+                type="checkbox"
+                checked={visibleFields.includes(field.key)}
+                onChange={() => toggleField(field.key)}
+              />
+              <span>{field.label}</span>
+            </label>
+          ))}
+        </div>
+      </div>
+
       {message && (
         <div className="sci-pos-alert pos-product-search-message" role="status">
           {message}
         </div>
       )}
 
-      <div className="sci-pos-table-wrap pos-product-results">
-        <table className="sci-pos-table">
-          <thead>
-            <tr>
-              <th>Product No.</th>
-              <th>SKU</th>
-              <th>ALU</th>
-              <th>Product Name</th>
-              <th>Brand</th>
-              <th>Category</th>
-              <th>Shelf/Location</th>
-              <th>Qty</th>
-              <th>Price</th>
-              <th>Status</th>
-              <th>Action</th>
-            </tr>
-          </thead>
-          <tbody>
-            {filteredProducts.map((product) => {
-              const qty = productQty(product);
-              const disabled = qty <= 0;
-              return (
-                <tr
-                  key={product.id}
-                  className={disabled ? 'is-disabled-row' : undefined}
-                  onDoubleClick={() => handleAdd(product)}
-                >
-                  <td>{product.productNumericNumber || product.id}</td>
-                  <td>{productSku(product)}</td>
-                  <td>{product.alu || '-'}</td>
-                  <td className="sci-pos-table__strong">{productName(product)}</td>
-                  <td>{product.brand || product.manufacturer || '-'}</td>
-                  <td>{product.productCategory || product.category}</td>
-                  <td>{product.shelfLocation || product.binLocation || '-'}</td>
-                  <td>{qty}</td>
-                  <td>USD {productPrice(product).toFixed(2)}</td>
-                  <td>
-                    <span className={`sci-status-pill sci-status-pill--${disabled ? 'danger' : isLowStock(product) ? 'warning' : 'success'}`}>
-                      {stockLabel(product)}
-                    </span>
-                  </td>
-                  <td>
-                    <button
-                      type="button"
-                      className={`sci-pos-button ${disabled ? 'sci-pos-button--secondary' : 'sci-pos-button--primary'} pos-add-product-button`}
-                      onClick={() => handleAdd(product)}
-                      disabled={disabled}
-                      title={disabled ? 'Cannot add product. Stock is not available.' : 'Add product'}
-                    >
-                      {disabled ? <Ban size={16} aria-hidden="true" /> : <ShoppingCart size={16} aria-hidden="true" />}
-                      <span>{disabled ? 'Unavailable' : 'Add'}</span>
-                    </button>
-                  </td>
-                </tr>
-              );
-            })}
-            {filteredProducts.length === 0 && (
-              <tr>
-                <td colSpan={11} className="sci-pos-empty-cell">No products match the current search.</td>
-              </tr>
-            )}
-          </tbody>
-        </table>
+      <div className="pos-section-heading">
+        Product Results
       </div>
+
+      {viewMode === 'list' ? (
+        <div className="pos-product-results">
+          <table className="pos-product-compact-table">
+            <thead>
+              <tr>
+                {selectedFields.map((field) => (
+                  <th key={field.key} className={field.className}>{field.label}</th>
+                ))}
+                <th className="pos-field-action">Cart</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filteredProducts.map((product) => {
+                const disabled = productQty(product) <= 0;
+                return (
+                  <tr
+                    key={product.id}
+                    className={disabled ? 'is-disabled-row' : undefined}
+                    onDoubleClick={() => handleAdd(product)}
+                  >
+                    {selectedFields.map((field) => (
+                      <td key={field.key} className={field.className}>
+                        {renderFieldValue(product, field)}
+                      </td>
+                    ))}
+                    <td className="pos-field-action">{renderCartIcon(product)}</td>
+                  </tr>
+                );
+              })}
+              {filteredProducts.length === 0 && (
+                <tr>
+                  <td colSpan={selectedFields.length + 1} className="sci-pos-empty-cell">No products match the current search.</td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      ) : (
+        <div className="pos-product-grid-results">
+          {filteredProducts.map((product) => {
+            const disabled = productQty(product) <= 0;
+            return (
+              <article
+                key={product.id}
+                className={`pos-product-grid-card ${disabled ? 'is-disabled-row' : ''}`}
+                onDoubleClick={() => handleAdd(product)}
+              >
+                <div className="pos-product-grid-card__header">
+                  <strong title={productName(product)}>{productName(product)}</strong>
+                  {renderCartIcon(product)}
+                </div>
+                <div className="pos-product-grid-card__meta">
+                  <span title={productSku(product)}>{productSku(product)}</span>
+                  <span title={product.brand || '-'}>{product.brand || '-'}</span>
+                </div>
+                <div className="pos-product-grid-card__details">
+                  <span>Qty: <strong>{productQty(product)}</strong></span>
+                  <span>{`USD ${productPrice(product).toFixed(2)}`}</span>
+                  <span title={productShelf(product)}>{productShelf(product)}</span>
+                </div>
+                <div>
+                  <span className={`sci-status-pill sci-status-pill--${disabled ? 'danger' : isLowStock(product) ? 'warning' : 'success'}`}>
+                    {stockLabel(product)}
+                  </span>
+                </div>
+              </article>
+            );
+          })}
+          {filteredProducts.length === 0 && (
+            <div className="industrial-empty-state">No products match the current search.</div>
+          )}
+        </div>
+      )}
     </section>
   );
 }

@@ -122,6 +122,16 @@ const deliveryModes: DeliveryMode[] = [
   'iDeliver Service Placeholder'
 ];
 
+const paymentLabels: Record<SalesPaymentMethod, string> = {
+  Cash: 'Cash',
+  EcoCash: 'EcoCash',
+  Swipe: 'Swipe',
+  'Bank Transfer': 'Bank Transfer',
+  'Split Payment': 'Split',
+  'Credit Sale Placeholder': 'Credit',
+  'Store Credit Placeholder': 'Store Credit'
+};
+
 const mockCustomers = [
   'Walk-in Customer',
   'Mary Courier',
@@ -217,6 +227,10 @@ export default function SalesCartCard({
         <span>Branch: {branchName}</span>
       </div>
 
+      <div className="pos-section-heading">
+        <FileText size={17} aria-hidden="true" />
+        Customer
+      </div>
       <div className="pos-form-grid pos-customer-grid">
         <label>
           Customer Type
@@ -263,63 +277,47 @@ export default function SalesCartCard({
             </label>
             <button type="button" className="sci-pos-button sci-pos-button--secondary" onClick={onSaveCustomerRequest}>
               <Save size={16} aria-hidden="true" />
-              Save Customer Request Placeholder
+              Save Customer Request
             </button>
           </>
         )}
       </div>
 
-      <div className="sci-pos-table-wrap pos-cart-items">
-        <table className="sci-pos-table">
-          <thead>
-            <tr>
-              <th>Product</th>
-              <th>Qty</th>
-              <th>Unit Price</th>
-              <th>Discount</th>
-              <th>Tax</th>
-              <th>Line Total</th>
-              <th>Action</th>
-            </tr>
-          </thead>
-          <tbody>
-            {cart.map((item) => (
-              <tr key={item.product.id}>
-                <td className="sci-pos-table__strong">{item.product.productName || item.product.name}</td>
-                <td>
-                  <div className="pos-qty-stepper">
-                    <button type="button" onClick={() => onQuantityChange(item.product.id, -1)} disabled={item.quantity <= 1} aria-label="Decrease quantity">
-                      <Minus size={14} aria-hidden="true" />
-                    </button>
-                    <span>{item.quantity}</span>
-                    <button type="button" onClick={() => onQuantityChange(item.product.id, 1)} aria-label="Increase quantity">
-                      <Plus size={14} aria-hidden="true" />
-                    </button>
-                  </div>
-                </td>
-                <td>{money(unitPrice(item))}</td>
-                <td>
-                  <button type="button" className="sci-pos-link-button" onClick={() => onApplyLineDiscount(item.product.id)}>
-                    {item.discount > 0 ? `${item.discount}%` : 'Apply'}
-                  </button>
-                </td>
-                <td>Included</td>
-                <td>{money(lineTotal(item))}</td>
-                <td>
-                  <button type="button" className="sci-pos-icon-button" onClick={() => onRemoveItem(item.product.id)} title="Remove item">
-                    <Trash2 size={16} aria-hidden="true" />
-                    <span className="sr-only">Remove item</span>
-                  </button>
-                </td>
-              </tr>
-            ))}
-            {cart.length === 0 && (
-              <tr>
-                <td colSpan={7} className="sci-pos-empty-cell">Cart is empty. Add products from the Product Search card.</td>
-              </tr>
-            )}
-          </tbody>
-        </table>
+      <div className="pos-section-heading">
+        <ReceiptText size={17} aria-hidden="true" />
+        Cart Items
+      </div>
+      <div className="pos-cart-items">
+        {cart.map((item) => (
+          <div key={item.product.id} className="pos-cart-line">
+            <div className="pos-cart-line__product">
+              <strong title={item.product.productName || item.product.name}>{item.product.productName || item.product.name}</strong>
+              <span>{item.product.sku || item.product.code} - Tax included</span>
+            </div>
+            <div className="pos-cart-line__controls">
+              <div className="pos-qty-stepper">
+                <button type="button" onClick={() => onQuantityChange(item.product.id, -1)} disabled={item.quantity <= 1} aria-label="Decrease quantity">
+                  <Minus size={14} aria-hidden="true" />
+                </button>
+                <span>{item.quantity}</span>
+                <button type="button" onClick={() => onQuantityChange(item.product.id, 1)} aria-label="Increase quantity">
+                  <Plus size={14} aria-hidden="true" />
+                </button>
+              </div>
+              <span className="pos-cart-line__metric">Unit {money(unitPrice(item))}</span>
+              <button type="button" className="sci-pos-link-button" onClick={() => onApplyLineDiscount(item.product.id)}>
+                {item.discount > 0 ? `Discount ${item.discount}%` : 'Apply Discount'}
+              </button>
+              <strong className="pos-cart-line__total">{money(lineTotal(item))}</strong>
+              <button type="button" className="cart-icon-cta pos-cart-remove" onClick={() => onRemoveItem(item.product.id)} title="Remove item" aria-label="Remove item">
+                <Trash2 size={16} aria-hidden="true" />
+              </button>
+            </div>
+          </div>
+        ))}
+        {cart.length === 0 && (
+          <div className="industrial-empty-state">Cart is empty. Add products from the Product Search card.</div>
+        )}
       </div>
 
       <div className="pos-checkout-section">
@@ -391,12 +389,21 @@ export default function SalesCartCard({
           Payment
         </div>
         <div className="pos-form-grid pos-payment-grid">
-          <label>
-            Payment Method
-            <select value={paymentMethod} onChange={(event) => onPaymentMethodChange(event.target.value as SalesPaymentMethod)}>
-              {paymentMethods.map((method) => <option key={method} value={method}>{method}</option>)}
-            </select>
-          </label>
+          <div className="pos-payment-method-field">
+            <span>Payment Method</span>
+            <div className="pos-payment-methods" role="group" aria-label="Payment Method">
+              {paymentMethods.map((method) => (
+                <button
+                  key={method}
+                  type="button"
+                  className={`industrial-tab ${paymentMethod === method ? 'active' : ''}`}
+                  onClick={() => onPaymentMethodChange(method)}
+                >
+                  {paymentLabels[method]}
+                </button>
+              ))}
+            </div>
+          </div>
           <label>
             Amount Tendered
             <input type="number" min="0" value={paymentAmount} onChange={(event) => onPaymentAmountChange(event.target.value)} />
@@ -426,6 +433,10 @@ export default function SalesCartCard({
         </div>
       </div>
 
+      <div className="pos-section-heading">
+        <FileText size={17} aria-hidden="true" />
+        Cart Summary
+      </div>
       <div className="pos-summary-box" aria-label="Cart Summary">
         <div><span>Subtotal</span><strong>{money(totals.subtotal)}</strong></div>
         <div><span>Discount Total</span><strong>{money(totals.discountTotal)}</strong></div>
