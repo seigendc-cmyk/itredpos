@@ -18,8 +18,8 @@ import {
 const DEFAULT_VENDOR_ID = 'SCI-LOG-ZW';
 
 /**
- * During build-development, Owner has full access. Plan-based feature enforcement
- * will be implemented later from the internal iTredVD Console backend.
+ * During build-development, Owner has full access. Commercial feature enforcement
+ * will be implemented later from internal backend services.
  */
 export function isOwnerBuildDevelopmentBypass(role?: string): boolean {
   return role === 'Owner';

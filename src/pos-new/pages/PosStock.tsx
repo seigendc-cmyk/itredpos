@@ -828,7 +828,7 @@ export default function PosStock({
   const triggerStocktakeModal = (product: StockProduct) => {
     setModalTargetProduct(product);
     setStPhysicalCount(product.stock.toString());
-    setStRemarks('Observed Physical Vault Quantities match.');
+    setStRemarks('Physical count quantities match system balances.');
     setActiveModal('STOCKTAKE');
   };
 
@@ -1181,21 +1181,21 @@ export default function PosStock({
       {/* 1. PROFESSIONAL INDUSTRIAL PAGE HEADER */}
       <div className="bg-white border-2 border-[#b1b5c2] p-5 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
         <div>
-          <div className="text-[9px] font-black text-orange-600 uppercase tracking-widest">SCI LOGISTICS SERVICES</div>
+          <div className="text-[9px] font-black text-orange-600 uppercase tracking-widest">Inventory Operations</div>
           <h1 className="text-sm font-black text-[#1e222b] uppercase flex items-center gap-2 mt-1">
             <Warehouse className="w-5 h-5 text-orange-500" />
-            Stock Control Management Chamber
+            Inventory Control Centre
           </h1>
           
           <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 mt-2 text-[10px] text-slate-500">
             <span className="flex items-center gap-1">
-              <strong>Branch Location:</strong> <span className="bg-slate-100 text-[#1e222b] font-bold px-1.5 py-0.2">{activeBranch}</span>
+              <strong>Branch:</strong> <span className="bg-slate-100 text-[#1e222b] font-bold px-1.5 py-0.2">{activeBranch}</span>
             </span>
             <span className="flex items-center gap-1">
               <strong>Warehouse:</strong> <span className="text-[#1e222b] font-bold">Main Warehouse</span>
             </span>
             <span className="flex items-center gap-1">
-              <strong>Last Sync Status:</strong> <span className="text-slate-700 font-bold">Build Development Data</span>
+              <strong>Data Mode:</strong> <span className="text-slate-700 font-bold">Build Development</span>
             </span>
           </div>
         </div>
@@ -1204,14 +1204,14 @@ export default function PosStock({
         <div className="flex items-center gap-2 px-4 py-2 bg-amber-500/10 border-l-4 border-l-orange-500 border border-[#b1b5c2]">
           <AlertCircle className="w-4 h-4 text-orange-600 animate-pulse" />
           <div>
-            <span className="text-[8px] text-slate-500 font-bold block uppercase tracking-wider">Stock Risk Status</span>
+            <span className="text-[8px] text-slate-600 font-bold block uppercase tracking-wider">Stock Risk</span>
             <span className="text-[10px] font-black text-[#1e222b] uppercase">Review Required</span>
           </div>
         </div>
       </div>
 
       {/* 1B. SOLID TAB NAVIGATION SELECTORS */}
-      <div className="flex flex-wrap bg-[#1e222b] text-white select-none border border-[#b1b5c2]">
+      <div className="industrial-toolbar">
         {(['Stock List', 'Product List', 'Product Ledger', 'Inventory Movements', 'Stock Health', 'Inventory Reports', 'Goods Receiving', 'Purchase Orders', 'Supplier Returns', 'Stock Adjustments', 'Stocktake'] as const).map((tab) => {
           const isActive = activeTab === tab;
           return (
@@ -1219,10 +1219,10 @@ export default function PosStock({
               key={tab}
               type="button"
               onClick={() => setActiveTab(tab)}
-              className={`px-4 py-3 text-[10px] font-black uppercase tracking-wider transition-colors border-r border-[#b1b5c2]/10 rounded-none cursor-pointer hover:bg-zinc-800 ${
+              className={`industrial-tab ${
                 isActive 
-                  ? 'bg-orange-600 text-white font-extrabold border-b-2 border-b-orange-500' 
-                  : 'text-slate-350 bg-slate-800/40'
+                  ? 'active' 
+                  : ''
               }`}
             >
               {tab}
@@ -1577,7 +1577,7 @@ export default function PosStock({
                     <td className="py-2 px-3">
                       <div className="flex justify-center gap-1">
                         <button type="button" onClick={() => void openProductLedger(product)} className="px-2 py-1 border border-[#b1b5c2] hover:border-orange-500 text-[9px] font-black uppercase">View Ledger</button>
-                        <button type="button" className="px-2 py-1 border border-[#b1b5c2] text-[9px] font-black uppercase text-slate-500">Edit Placeholder</button>
+                        <button type="button" className="industrial-secondary-button text-[9px] min-h-[1.8rem] px-2 py-1">Edit Draft</button>
                         <button type="button" onClick={() => openStocktakeForProduct(product)} className="px-2 py-1 border border-[#b1b5c2] hover:border-orange-500 text-[9px] font-black uppercase">Stocktake</button>
                         <button type="button" onClick={() => triggerAdjustmentModal(product)} className="px-2 py-1 border border-[#b1b5c2] hover:border-orange-500 text-[9px] font-black uppercase">Adjustment</button>
                       </div>
@@ -2125,13 +2125,13 @@ export default function PosStock({
               <thead>
                 <tr className="bg-[#1e222b] text-white border-b-2 border-slate-900 uppercase text-[8.5px] font-black h-9 select-none">
                   <th className="py-2 px-3 hover:text-orange-400 cursor-pointer" onClick={() => handleToggleSort('productNumericNumber')}>
-                    <div className="flex items-center gap-1">Product No <ArrowUpDown className="w-3 h-3" /></div>
+                    <div className="flex items-center gap-1">Product No. <ArrowUpDown className="w-3 h-3" /></div>
                   </th>
                   <th className="py-2 px-3 hover:text-orange-400 cursor-pointer" onClick={() => handleToggleSort('code')}>
                     <div className="flex items-center gap-1">SKU <ArrowUpDown className="w-3 h-3" /></div>
                   </th>
                   <th className="py-2 px-3 hover:text-orange-400 cursor-pointer" onClick={() => handleToggleSort('name')}>
-                    <div className="flex items-center gap-1">Part Description <ArrowUpDown className="w-3 h-3" /></div>
+                    <div className="flex items-center gap-1">Product Description <ArrowUpDown className="w-3 h-3" /></div>
                   </th>
                   <th className="py-2 px-3">Sector</th>
                   <th className="py-2 px-3">Category</th>
@@ -2464,7 +2464,7 @@ export default function PosStock({
             <div className="h-10.5 bg-[#1e222b] text-white px-4 flex items-center justify-between shrink-0 border-b-2 border-orange-500">
               <span className="font-black text-[10.5px] uppercase tracking-wider flex items-center gap-1.5">
                 <ClipboardList className="w-4 h-4 text-orange-500" />
-                Physical Stocktake Audit Form
+                Stocktake Audit Form
               </span>
               <button 
                 type="button" 
@@ -2516,7 +2516,7 @@ export default function PosStock({
 
               <div className="space-y-1">
                 <label className="text-[8.5px] uppercase font-black block text-slate-550">
-                  Observed Physical Count Qty
+                  Physical Count Qty
                 </label>
                 <div className="relative">
                   <input
@@ -2774,7 +2774,7 @@ export default function PosStock({
                     <option value="Main Port Whse">Main Port Whse</option>
                     <option value="North Shed">North Shed</option>
                     <option value="Transit Container A">Transit Container A</option>
-                    <option value="Secured Locker B">Secured Locker B</option>
+                    <option value="Protected Locker B">Protected Locker B</option>
                   </select>
                 </div>
               </div>

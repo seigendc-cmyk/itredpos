@@ -400,23 +400,24 @@ export default function PosOwnerDesk({ session }: PosOwnerDeskProps) {
 
   return (
     <div className="space-y-5 font-mono text-xs text-[#111827] select-none pb-12">
-      <div className="bg-white border-2 border-[#b1b5c2] p-5 flex flex-col xl:flex-row xl:items-center justify-between gap-4">
+      <div className="industrial-section p-5 flex flex-col xl:flex-row xl:items-center justify-between gap-4">
         <div>
           <div className="text-[9px] font-black text-orange-600 uppercase tracking-widest">Owner Desk</div>
           <h1 className="text-base font-black text-[#1e222b] uppercase flex items-center gap-2 mt-1">
             <BarChart3 className="w-5 h-5 text-orange-500" />
             EOD Reconciliation and Day Closing Control
           </h1>
-          <div className="flex flex-wrap gap-x-4 gap-y-1.5 mt-2 text-[10px] text-slate-500">
+          <div className="flex flex-wrap gap-x-4 gap-y-1.5 mt-2 text-[10px] text-slate-700">
             <span><strong>Business / Vendor:</strong> <span className="font-bold text-[#1e222b]">{vendorName}</span></span>
             <span><strong>Business Date:</strong> <span className="font-bold text-[#1e222b]">{businessDate}</span></span>
             <span><strong>Status:</strong> <Badge value={eodSession?.status || 'Blocked'} /></span>
             <span><strong>Last Check:</strong> <span className="font-bold text-[#1e222b]">{timeOnly(eodSession?.lastCheckTime)}</span></span>
-            <span><strong>Owner Access:</strong> <span className="bg-orange-50 text-orange-700 border border-orange-200 px-1 font-bold">Full Build Access</span></span>
+            <span><strong>Owner Access:</strong> <span className="industrial-status-badge">Full Build Access</span></span>
           </div>
         </div>
-        <div className="bg-[#1e222b] text-white border-2 border-[#1e222b] px-4 py-3 text-[10px] uppercase font-black">
-          Lock Allowed: <span className="text-orange-400">{failedChecks === 0 && blockingReasons.length === 0 ? 'Yes' : 'No'}</span>
+        <div className="industrial-card p-3 text-[10px] uppercase font-black min-w-[190px]">
+          <span className="block text-slate-600">Day Lock Status</span>
+          <span className="industrial-status-badge mt-1">Lock Allowed: {failedChecks === 0 && blockingReasons.length === 0 ? 'Yes' : 'No'}</span>
         </div>
       </div>
 
@@ -436,15 +437,15 @@ export default function PosOwnerDesk({ session }: PosOwnerDeskProps) {
         </div>
       )}
 
-      <div className="bg-white border-2 border-[#b1b5c2] p-2 flex flex-wrap gap-2">
+      <div className="industrial-toolbar">
         {tabs.map((tab) => (
           <button
             key={tab}
             onClick={() => setActiveTab(tab)}
-            className={`px-3 py-2 text-[9px] font-black uppercase border min-h-[34px] ${
+            className={`industrial-tab ${
               activeTab === tab
-                ? 'bg-orange-600 text-white border-orange-700'
-                : 'bg-slate-50 text-[#1e222b] border-[#b1b5c2] hover:bg-orange-50'
+                ? 'active'
+                : ''
             }`}
           >
             {tab}
@@ -505,9 +506,9 @@ export default function PosOwnerDesk({ session }: PosOwnerDeskProps) {
           <MetricGrid metrics={[
             ['Cash', money(750)], ['EcoCash', money(320)], ['Swipe', money(215)], ['Bank Transfer', money(460)], ['Split Payment', money(200)], ['Credit Sale', money(90)], ['Store Credit', money(42)], ['Refunds', money(10)], ['Net Receipts', money(1227)]
           ]} />
-          <Panel title="Payment Mode Reconciliation" icon={<DollarSign className="w-4 h-4 text-orange-500" />}>
+          <Panel title="Payment Mode Summary" icon={<DollarSign className="w-4 h-4 text-orange-500" />}>
             <Table>
-              <thead><tr><Th>Payment Mode</Th><Th>Receipt Count</Th><Th>Gross Amount</Th><Th>Discounts</Th><Th>Refunds</Th><Th>Net Amount</Th><Th>Expected Settlement</Th><Th>Declared / Confirmed</Th><Th>Variance</Th><Th>Status</Th><Th>Action</Th></tr></thead>
+              <thead><tr><Th>Payment Mode</Th><Th>Receipts</Th><Th>Gross Amount</Th><Th>Discounts</Th><Th>Refunds</Th><Th>Net Amount</Th><Th>Expected Settlement</Th><Th>Declared / Confirmed</Th><Th>Variance</Th><Th>Status</Th><Th>Action</Th></tr></thead>
               <tbody>
                 {payments.map((row) => (
                   <tr key={row.id} className="border-t border-slate-100 hover:bg-slate-50">
@@ -524,7 +525,7 @@ export default function PosOwnerDesk({ session }: PosOwnerDeskProps) {
         <Panel title="Cash Drawer Reconciliation" icon={<DollarSign className="w-4 h-4 text-orange-500" />}>
           <CashFilters branch={branch} setBranch={setBranch} terminal={terminal} setTerminal={setTerminal} cashier={cashier} setCashier={setCashier} />
           <Table>
-            <thead><tr><Th>Branch</Th><Th>Terminal</Th><Th>Cashier</Th><Th>Shift ID</Th><Th>Opening Float</Th><Th>Cash Sales</Th><Th>Cash In</Th><Th>Cash Out</Th><Th>Expected Cash</Th><Th>Declared Cash</Th><Th>Variance</Th><Th>Status</Th><Th>Required Action</Th><Th>Action</Th></tr></thead>
+            <thead><tr><Th>Branch</Th><Th>Terminal</Th><Th>Cashier</Th><Th>Shift</Th><Th>Opening Float</Th><Th>Cash Sales</Th><Th>Cash In</Th><Th>Cash Out</Th><Th>Expected Cash</Th><Th>Declared Cash</Th><Th>Variance</Th><Th>Status</Th><Th>Required Action</Th><Th>Action</Th></tr></thead>
             <tbody>
               {cashRows.map((row) => (
                 <tr key={row.id} className="border-t border-slate-100 hover:bg-slate-50">
@@ -537,7 +538,7 @@ export default function PosOwnerDesk({ session }: PosOwnerDeskProps) {
       )}
 
       {activeTab === 'Shift Closing' && (
-        <Panel title="Shift Closing" icon={<Users className="w-4 h-4 text-orange-500" />}>
+        <Panel title="Shift Closing Review" icon={<Users className="w-4 h-4 text-orange-500" />}>
           <Table>
             <thead><tr><Th>Shift ID</Th><Th>Branch</Th><Th>Terminal</Th><Th>Staff</Th><Th>Opened At</Th><Th>Closed At</Th><Th>Status</Th><Th>Sales Total</Th><Th>Expected Cash</Th><Th>Declared Cash</Th><Th>Variance</Th><Th>Sync Status</Th><Th>Action</Th></tr></thead>
             <tbody>
@@ -573,9 +574,9 @@ export default function PosOwnerDesk({ session }: PosOwnerDeskProps) {
       )}
 
       {activeTab === 'Delivery Closing' && (
-        <Panel title="Delivery Closing" icon={<Truck className="w-4 h-4 text-orange-500" />}>
+        <Panel title="Delivery Closing Review" icon={<Truck className="w-4 h-4 text-orange-500" />}>
           <Table>
-            <thead><tr><Th>Delivery ID</Th><Th>Receipt</Th><Th>Customer</Th><Th>Delivery Method</Th><Th>Driver</Th><Th>Status</Th><Th>Secret Code Status</Th><Th>Completed At</Th><Th>Risk</Th><Th>Required Action</Th><Th>Action</Th></tr></thead>
+            <thead><tr><Th>Delivery ID</Th><Th>Receipt</Th><Th>Customer</Th><Th>Delivery Method</Th><Th>Driver</Th><Th>Delivery Status</Th><Th>Code Status</Th><Th>Completed At</Th><Th>Risk</Th><Th>Required Action</Th><Th>Action</Th></tr></thead>
             <tbody>
               {deliveryRows.map((row) => (
                 <tr key={row.id} className="border-t border-slate-100 hover:bg-slate-50">
@@ -588,7 +589,7 @@ export default function PosOwnerDesk({ session }: PosOwnerDeskProps) {
       )}
 
       {activeTab === 'BI Review' && (
-        <Panel title="BI Review" icon={<ShieldAlert className="w-4 h-4 text-orange-500" />}>
+        <Panel title="BI Risk Review" icon={<ShieldAlert className="w-4 h-4 text-orange-500" />}>
           <Table>
             <thead><tr><Th>BI Event</Th><Th>Domain</Th><Th>Severity</Th><Th>Description</Th><Th>Recommended Action</Th><Th>Status</Th><Th>Reviewed By</Th><Th>Action</Th></tr></thead>
             <tbody>
@@ -604,15 +605,15 @@ export default function PosOwnerDesk({ session }: PosOwnerDeskProps) {
 
       {activeTab === 'Accounting Desk' && (
         <div className="space-y-5">
-          <div className="bg-white border-2 border-[#b1b5c2] p-2 flex flex-wrap gap-2">
+          <div className="industrial-toolbar">
             {accountingTabs.map((tab) => (
               <button
                 key={tab}
                 onClick={() => setActiveAccountingTab(tab)}
-                className={`px-3 py-2 text-[9px] font-black uppercase border min-h-[34px] ${
+                className={`industrial-tab ${
                   activeAccountingTab === tab
-                    ? 'bg-[#1e222b] text-white border-[#1e222b]'
-                    : 'bg-slate-50 text-[#1e222b] border-[#b1b5c2] hover:bg-orange-50'
+                    ? 'active'
+                    : ''
                 }`}
               >
                 {tab}
@@ -640,7 +641,7 @@ export default function PosOwnerDesk({ session }: PosOwnerDeskProps) {
                     {coaAccounts.map((account) => (
                       <tr key={account.id} className="border-t border-slate-100 hover:bg-slate-50">
                         <Td strong>{account.accountCode}</Td><Td>{account.accountName}</Td><Td>{account.accountType}</Td><Td>{account.linkedDomain}</Td><Td><Badge value={account.status} /></Td>
-                        <Td><div className="flex gap-1"><SmallAction onClick={() => undefined}>View</SmallAction><SmallAction onClick={() => undefined}>Edit Placeholder</SmallAction><SmallAction onClick={() => undefined}>Mark Inactive Placeholder</SmallAction></div></Td>
+                        <Td><div className="flex gap-1"><SmallAction onClick={() => undefined}>View</SmallAction><SmallAction onClick={() => undefined}>Edit Draft</SmallAction><SmallAction onClick={() => undefined}>Mark Inactive</SmallAction></div></Td>
                       </tr>
                     ))}
                   </tbody>
@@ -685,7 +686,7 @@ export default function PosOwnerDesk({ session }: PosOwnerDeskProps) {
           {activeAccountingTab === 'Payment Posting' && (
             <Panel title="Payment Posting Summary" icon={<DollarSign className="w-4 h-4 text-orange-500" />}>
               <Table>
-                <thead><tr><Th>Payment Mode</Th><Th>Receipt Count</Th><Th>Gross Amount</Th><Th>Refunds</Th><Th>Net Amount</Th><Th>Control Account</Th><Th>Settlement Status</Th><Th>Variance</Th><Th>Posting Status</Th><Th>Action</Th></tr></thead>
+                <thead><tr><Th>Payment Mode</Th><Th>Receipts</Th><Th>Gross Amount</Th><Th>Refunds</Th><Th>Net Amount</Th><Th>Control Account</Th><Th>Settlement Status</Th><Th>Variance</Th><Th>Posting Status</Th><Th>Action</Th></tr></thead>
                 <tbody>
                   {paymentAccountingRows.map((row) => (
                     <tr key={row.id} className="border-t border-slate-100 hover:bg-slate-50">
@@ -847,8 +848,8 @@ export default function PosOwnerDesk({ session }: PosOwnerDeskProps) {
               <div className="grid grid-cols-1 md:grid-cols-4 gap-2">
                 <ActionButton icon={<RefreshCw className="w-4 h-4" />} onClick={handleRunCheck}>Run EOD Check</ActionButton>
                 <ActionButton icon={<Lock className="w-4 h-4" />} onClick={handleLockDay}>Attempt Lock Day</ActionButton>
-                <ActionButton icon={<Download className="w-4 h-4" />} onClick={handleExport}>Export EOD Report Placeholder</ActionButton>
-                <ActionButton icon={<Eye className="w-4 h-4" />} onClick={() => showFeedback('warning', 'Reopen day placeholder recorded locally.')}>Reopen Day Placeholder</ActionButton>
+                <ActionButton icon={<Download className="w-4 h-4" />} onClick={handleExport}>Prepare EOD Export</ActionButton>
+                <ActionButton icon={<Eye className="w-4 h-4" />} onClick={() => showFeedback('warning', 'Day reopen request recorded locally.')}>Request Day Reopen</ActionButton>
               </div>
             </Panel>
           </div>
@@ -936,13 +937,13 @@ function ActivityFeed({ activity }: { activity: EODActivityEvent[] }) {
     <Panel title="EOD Activity Feed" icon={<CheckCircle2 className="w-4 h-4 text-orange-500" />}>
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3 max-h-[360px] overflow-y-auto pos-custom-scroll">
         {activity.map((event) => (
-          <div key={event.id} className="border-l-4 border-l-orange-500 bg-slate-50 border border-[#b1b5c2] p-3">
+          <div key={event.id} className="industrial-card p-3">
             <div className="flex items-start justify-between gap-2">
-              <span className="font-black text-[#1e222b] uppercase text-[9px]">{event.eventType}</span>
-              <span className="text-[8px] text-slate-400 font-bold">{timeOnly(event.timestamp)}</span>
+              <span className="font-black text-[#1e222b] uppercase text-[10px]">{humanizeEventName(event.eventType)}</span>
+              <span className="text-[9px] text-slate-700 font-bold">{timeOnly(event.timestamp)}</span>
             </div>
-            <p className="text-[10px] text-slate-600 font-semibold mt-1">{event.message}</p>
-            <span className="text-[8px] text-slate-400 uppercase font-black">Operator: {event.operator}</span>
+            <p className="text-[10.5px] text-slate-800 font-semibold mt-1 leading-snug">{event.message}</p>
+            <span className="text-[9px] text-slate-700 uppercase font-black">Operator: {event.operator}</span>
           </div>
         ))}
       </div>
@@ -955,13 +956,13 @@ function AccountingActivityFeed({ activity }: { activity: AccountingActivityEven
     <Panel title="Accounting Activity Feed" icon={<CheckCircle2 className="w-4 h-4 text-orange-500" />}>
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3 max-h-[360px] overflow-y-auto pos-custom-scroll">
         {activity.map((event) => (
-          <div key={event.id} className="border-l-4 border-l-orange-500 bg-slate-50 border border-[#b1b5c2] p-3">
+          <div key={event.id} className="industrial-card p-3">
             <div className="flex items-start justify-between gap-2">
-              <span className="font-black text-[#1e222b] uppercase text-[9px]">{event.eventType}</span>
-              <span className="text-[8px] text-slate-400 font-bold">{timeOnly(event.timestamp)}</span>
+              <span className="font-black text-[#1e222b] uppercase text-[10px]">{humanizeEventName(event.eventType)}</span>
+              <span className="text-[9px] text-slate-700 font-bold">{timeOnly(event.timestamp)}</span>
             </div>
-            <p className="text-[10px] text-slate-600 font-semibold mt-1">{event.message}</p>
-            <span className="text-[8px] text-slate-400 uppercase font-black">Operator: {event.operator}</span>
+            <p className="text-[10.5px] text-slate-800 font-semibold mt-1 leading-snug">{event.message}</p>
+            <span className="text-[9px] text-slate-700 uppercase font-black">Operator: {event.operator}</span>
           </div>
         ))}
       </div>
@@ -971,10 +972,12 @@ function AccountingActivityFeed({ activity }: { activity: AccountingActivityEven
 
 function Panel({ title, icon, children }: { title: string; icon: React.ReactNode; children: React.ReactNode }) {
   return (
-    <div className="bg-white border-2 border-[#b1b5c2] shadow-sm">
-      <div className="bg-[#1e222b] text-white p-3 font-extrabold uppercase text-[9.5px] flex items-center gap-2">
-        {icon}
-        <span>{title}</span>
+    <div className="industrial-section shadow-sm">
+      <div className="industrial-section-header">
+        <div className="flex items-center gap-2">
+          {icon}
+          <span className="industrial-section-title">{title}</span>
+        </div>
       </div>
       <div className="p-4">{children}</div>
     </div>
@@ -982,15 +985,15 @@ function Panel({ title, icon, children }: { title: string; icon: React.ReactNode
 }
 
 function Table({ children }: { children: React.ReactNode }) {
-  return <div className="overflow-x-auto"><table className="w-full text-left border-collapse">{children}</table></div>;
+  return <div className="overflow-x-auto"><table className="industrial-table">{children}</table></div>;
 }
 
 function Th({ children }: { children: React.ReactNode }) {
-  return <th className="p-3 bg-slate-100 text-[8.5px] font-black uppercase text-slate-500 border-b border-[#b1b5c2] whitespace-nowrap">{children}</th>;
+  return <th>{children}</th>;
 }
 
 function Td({ children, strong }: { children: React.ReactNode; strong?: boolean }) {
-  return <td className={`p-3 text-[10px] text-slate-600 whitespace-nowrap ${strong ? 'font-black text-[#1e222b]' : 'font-semibold'}`}>{children}</td>;
+  return <td className={strong ? 'font-black text-[#1e222b]' : 'font-semibold'}>{children}</td>;
 }
 
 function Badge({ value, risk = false }: { value: string; risk?: boolean }) {
@@ -1034,7 +1037,7 @@ function InfoBox({ label, value }: { label: string; value: string }) {
 }
 
 function SmallAction({ children, onClick }: { children: React.ReactNode; onClick: () => void }) {
-  return <button onClick={onClick} className="px-1.5 py-0.5 bg-white border border-[#b1b5c2] hover:bg-orange-50 text-[#1e222b] font-black uppercase text-[8px] whitespace-nowrap">{children}</button>;
+  return <button onClick={onClick} className="industrial-secondary-button text-[8.5px] min-h-[1.85rem] px-2 py-1 whitespace-nowrap">{children}</button>;
 }
 
 function ActionGroup({ id, onReview }: { id: string; onReview: (id: string) => void }) {
@@ -1042,7 +1045,7 @@ function ActionGroup({ id, onReview }: { id: string; onReview: (id: string) => v
     <div className="flex flex-wrap gap-1">
       <SmallAction onClick={() => undefined}>Review</SmallAction>
       <SmallAction onClick={() => onReview(id)}>Mark Reviewed</SmallAction>
-      <SmallAction onClick={() => undefined}>Open Related Page Placeholder</SmallAction>
+      <SmallAction onClick={() => undefined}>Open Related Record</SmallAction>
     </div>
   );
 }
@@ -1081,7 +1084,7 @@ function ShiftActionGroup({
   return (
     <div className="flex flex-wrap gap-1">
       <SmallAction onClick={() => undefined}>Review</SmallAction>
-      <SmallAction onClick={() => onForceClose(`Force close placeholder recorded for ${shiftId}.`)}>Force Close Placeholder</SmallAction>
+      <SmallAction onClick={() => onForceClose(`Force close request recorded for ${shiftId}.`)}>Request Force Close</SmallAction>
       <SmallAction onClick={() => onReview(id)}>Mark Reviewed</SmallAction>
     </div>
   );
@@ -1092,7 +1095,7 @@ function InventoryActionGroup({ id, onReview }: { id: string; onReview: (id: str
     <div className="flex flex-wrap gap-1">
       <SmallAction onClick={() => undefined}>View Ledger</SmallAction>
       <SmallAction onClick={() => onReview(id)}>Mark Reviewed</SmallAction>
-      <SmallAction onClick={() => undefined}>Open Approval Placeholder</SmallAction>
+      <SmallAction onClick={() => undefined}>Open Approval Review</SmallAction>
     </div>
   );
 }
@@ -1112,7 +1115,7 @@ function BIActionGroup({ id, onReview }: { id: string; onReview: (id: string) =>
     <div className="flex flex-wrap gap-1">
       <SmallAction onClick={() => onReview(id)}>Mark Reviewed</SmallAction>
       <SmallAction onClick={() => undefined}>Add Owner Note</SmallAction>
-      <SmallAction onClick={() => undefined}>Open Related Page Placeholder</SmallAction>
+      <SmallAction onClick={() => undefined}>Open Related Record</SmallAction>
     </div>
   );
 }
@@ -1122,18 +1125,27 @@ function AccountingActionGroup({ id, onReview, onReverse }: { id: string; onRevi
     <div className="flex flex-wrap gap-1">
       <SmallAction onClick={() => undefined}>View Posting</SmallAction>
       <SmallAction onClick={() => onReview(id)}>Mark Reviewed</SmallAction>
-      <SmallAction onClick={() => onReverse(id)}>Reverse Placeholder</SmallAction>
+      <SmallAction onClick={() => onReverse(id)}>Request Reverse</SmallAction>
     </div>
   );
 }
 
 function ActionButton({ children, icon, onClick }: { children: React.ReactNode; icon: React.ReactNode; onClick: () => void }) {
   return (
-    <button onClick={onClick} className="w-full min-h-[48px] bg-orange-600 hover:bg-orange-700 text-white border border-orange-700 px-3 py-2 text-left font-black uppercase text-[10px] flex items-center gap-2">
+    <button onClick={onClick} className="industrial-primary-button w-full min-h-[48px] justify-start text-left">
       {icon}
       <span>{children}</span>
     </button>
   );
+}
+
+function humanizeEventName(value: string): string {
+  return value
+    .toLowerCase()
+    .split('_')
+    .filter(Boolean)
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(' ');
 }
 
 function money(value: number): string {

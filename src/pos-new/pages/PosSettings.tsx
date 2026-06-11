@@ -1710,15 +1710,15 @@ export default function PosSettings({
                     <ReadOnlyAccessMetric label="Product" value="iTred Commerce POS" />
                     <ReadOnlyAccessMetric label="Mode" value="Build Development" />
                     <ReadOnlyAccessMetric label="Backend" value="Mock / Local Services" />
-                    <ReadOnlyAccessMetric label="Firebase" value="Not Connected" />
+                    <ReadOnlyAccessMetric label="External Cloud" value="Not Connected" />
                     <ReadOnlyAccessMetric label="Fiscalization" value="Not Connected" />
-                    <ReadOnlyAccessMetric label="Console Access" value="Internal SCI Console Only" />
+                    <ReadOnlyAccessMetric label="Admin Access" value="Internal SCI Tools Only" />
                     <ReadOnlyAccessMetric label="Owner Access" value="Full During Development" />
-                    <ReadOnlyAccessMetric label="Plan Enforcement" value="Deferred" />
+                    <ReadOnlyAccessMetric label="Commercial Gates" value="Deferred" />
                     <ReadOnlyAccessMetric label="Last Build Check" value="Placeholder" />
                   </div>
                   <div className="mt-3 border border-orange-200 bg-orange-50 p-2 text-[10px] text-orange-900 font-bold uppercase">
-                    During build-development, Owner has full access. Plan-based feature enforcement is deferred.
+                    During build-development, Owner has full access. Commercial feature enforcement is deferred.
                   </div>
                 </div>
               </div>

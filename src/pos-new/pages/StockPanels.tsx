@@ -1802,15 +1802,15 @@ export default function StockPanels({
 
 
       {activeTab === 'Stocktake' && (
-        <div className="bg-white border border-[#b1b5c2] p-5 space-y-5">
+        <div className="industrial-section p-5 space-y-5">
           
           <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 border-b border-gray-150 pb-3">
             <div>
               <span className="font-extrabold text-[#111827] text-[11px] uppercase flex items-center gap-2">
                 <ClipboardList className="w-4 h-4 text-orange-500" />
-                Physical Stocktake Spot Check Audits
+                Stocktake Desk
               </span>
-              <p className="text-[9.5px] text-slate-400 mt-0.5 uppercase">Review counted quantities against system balances to sync the general ledger.</p>
+              <p className="text-[9.5px] text-slate-700 mt-0.5 uppercase font-semibold">Count physical stock and review variances before posting.</p>
             </div>
             
             <div className="flex gap-2">
@@ -1826,7 +1826,7 @@ export default function StockPanels({
                 onClick={handleRandomSpotCheck}
                 className="px-3 py-1.5 bg-white hover:bg-slate-50 border border-[#b1b5c2] font-semibold uppercase text-[9.5px] rounded-none cursor-pointer"
               >
-                Simulate Counts
+                Generate Test Counts
               </button>
               <button
                 onClick={handleRecommendMajorAudit}
@@ -1852,21 +1852,21 @@ export default function StockPanels({
           </div>
 
           <div className="overflow-x-auto pos-custom-scroll">
-            <table className="w-full text-[10.5px] text-left border-collapse min-w-[1080px]">
+            <table className="industrial-table min-w-[1080px]">
               <thead>
-                <tr className="bg-[#1e222b] text-white font-black uppercase text-[8px] h-8 select-none">
-                  <th className="py-2 px-3">Product No</th>
+                <tr>
+                  <th>Product No.</th>
                   <th className="py-2 px-3">SKU</th>
                   <th className="py-2 px-3">ALU</th>
-                  <th className="py-2 px-3">Part Description</th>
+                  <th className="py-2 px-3">Product Description</th>
                   <th className="py-2 px-3">Sector / Category</th>
                   <th className="py-2 px-3">Brand</th>
                   <th className="py-2 px-3">Shelf</th>
-                  <th className="py-2 px-3 text-right">System Recorded</th>
-                  <th className="py-2 px-3 text-right w-[140px]">Observed Physical Count</th>
-                  <th className="py-2 px-3 text-right">Delta (Variance)</th>
-                  <th className="py-2 px-3 text-center">Calculated Risk</th>
-                  <th className="py-2 px-3 text-center">Line Status</th>
+                  <th className="py-2 px-3 text-right">System Qty</th>
+                  <th className="py-2 px-3 text-right w-[140px]">Physical Count</th>
+                  <th className="py-2 px-3 text-right">Variance</th>
+                  <th className="py-2 px-3 text-center">Risk</th>
+                  <th className="py-2 px-3 text-center">Status</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-200">
@@ -1879,15 +1879,15 @@ export default function StockPanels({
                     <tr key={line.sku} className="hover:bg-slate-50 transition-colors h-11">
                       <td className="py-2 px-3 font-black text-orange-700 whitespace-nowrap">{line.numericNo || '000000000'}</td>
                       <td className="py-2 px-3 font-bold text-[#1e222b]">{line.sku}</td>
-                      <td className="py-2 px-3 font-bold text-slate-500 whitespace-nowrap">{line.alu || 'ALU-N/A'}</td>
-                      <td className="py-2 px-3 uppercase font-extrabold">{line.productName}</td>
-                      <td className="py-2 px-3 uppercase text-[9px] text-slate-600">
+                      <td className="py-2 px-3 font-bold text-slate-700 whitespace-nowrap">{line.alu || 'ALU-N/A'}</td>
+                      <td className="py-2 px-3 uppercase font-extrabold text-[#1e222b]">{line.productName}</td>
+                      <td className="py-2 px-3 uppercase text-[9px] text-slate-700">
                         <div className="font-black">{line.industrialSector || 'General'}</div>
-                        <div className="text-[8px] text-slate-400">{line.category || 'Uncategorised'}</div>
+                        <div className="text-[8px] text-slate-600">{line.category || 'Uncategorised'}</div>
                       </td>
-                      <td className="py-2 px-3 uppercase text-[9px] text-slate-600">{line.brand || 'N/A'}</td>
-                      <td className="py-2 px-3 uppercase text-[9px] text-slate-600">{line.shelfLocation || 'N/A'}</td>
-                      <td className="py-2 px-3 text-right font-bold text-slate-600">{line.systemQty}</td>
+                      <td className="py-2 px-3 uppercase text-[9px] text-slate-700">{line.brand || 'N/A'}</td>
+                      <td className="py-2 px-3 uppercase text-[9px] text-slate-700">{line.shelfLocation || 'N/A'}</td>
+                      <td className="py-2 px-3 text-right font-bold text-[#1e222b]">{line.systemQty}</td>
                       <td className="py-2 px-3">
                         <input
                           type="number"
@@ -1895,11 +1895,11 @@ export default function StockPanels({
                           min={0}
                           value={line.countedQty}
                           onChange={(e) => handleSpotStocktakeLineChange(line.sku, e.target.value)}
-                          className="w-full bg-white disabled:bg-slate-50 border border-[#b1b5c2] text-right font-black text-xs px-2 py-0.5 rounded-none outline-none focus:border-orange-500"
+                          className="w-full bg-white disabled:bg-slate-50 border border-[#8d8780] text-right font-black text-xs px-2 py-0.5 rounded-none outline-none focus:border-orange-500 text-[#1e222b]"
                         />
                       </td>
                       <td className="py-2 px-3 text-right font-black font-mono">
-                        <span className={line.variance === 0 ? 'text-slate-400' : line.variance > 0 ? 'text-emerald-600' : 'text-rose-600'}>
+                        <span className={line.variance === 0 ? 'text-[#1e222b]' : line.variance > 0 ? 'text-emerald-800' : 'text-rose-800'}>
                           {line.variance > 0 ? `+${line.variance}` : line.variance}
                         </span>
                       </td>
@@ -2067,7 +2067,7 @@ export default function StockPanels({
                     <thead>
                       <tr className="bg-[#1e222b] text-white font-bold uppercase text-[7px] h-7">
                         <th className="py-1 px-2.5">SKU</th>
-                        <th className="py-1 px-2.5">Part Description</th>
+                        <th className="py-1 px-2.5">Product Description</th>
                         <th className="py-1 px-2.5 text-right">Qty</th>
                         <th className="py-1 px-2.5 text-right">Cost</th>
                       </tr>
