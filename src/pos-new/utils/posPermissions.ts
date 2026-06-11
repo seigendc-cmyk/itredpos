@@ -30,6 +30,13 @@ export type PermissionKey =
   | 'inventory.approveImport'
   | 'inventory.adjust'
   | 'inventory.approveAdjustment'
+  | 'purchaseOrders.view'
+  | 'purchaseOrders.create'
+  | 'purchaseOrders.edit'
+  | 'purchaseOrders.approve'
+  | 'purchaseOrders.cancel'
+  | 'purchaseOrders.receive'
+  | 'purchaseOrders.export'
   | 'stocktake.create'
   | 'stocktake.count'
   | 'stocktake.approveAdjustment'
@@ -92,6 +99,13 @@ const ALL_PERMISSIONS: PermissionKey[] = [
   'inventory.approveImport',
   'inventory.adjust',
   'inventory.approveAdjustment',
+  'purchaseOrders.view',
+  'purchaseOrders.create',
+  'purchaseOrders.edit',
+  'purchaseOrders.approve',
+  'purchaseOrders.cancel',
+  'purchaseOrders.receive',
+  'purchaseOrders.export',
   'stocktake.create',
   'stocktake.count',
   'stocktake.approveAdjustment',
@@ -136,6 +150,7 @@ const ROLE_PERMISSIONS: Record<Role, PermissionKey[]> = {
     'terminal.activate', 'terminal.deactivate', 'shift.open', 'shift.close', 'shift.forceClose',
     'customers.createRequest', 'customers.approve',
     'inventory.view', 'inventory.import', 'inventory.approveImport', 'inventory.adjust', 'inventory.approveAdjustment',
+    'purchaseOrders.view', 'purchaseOrders.create', 'purchaseOrders.edit', 'purchaseOrders.approve', 'purchaseOrders.cancel', 'purchaseOrders.receive', 'purchaseOrders.export',
     'stocktake.create', 'stocktake.count', 'stocktake.approveAdjustment',
     'ideliver.createProvider', 'delivery.broadcast', 'delivery.review',
     'tasks.view', 'tasks.assign', 'tasks.close',
@@ -152,6 +167,7 @@ const ROLE_PERMISSIONS: Record<Role, PermissionKey[]> = {
     'shift.open', 'shift.close',
     'customers.createRequest',
     'inventory.view',
+    'purchaseOrders.view', 'purchaseOrders.create', 'purchaseOrders.edit', 'purchaseOrders.receive',
     'stocktake.create', 'stocktake.count',
     'delivery.broadcast', 'delivery.review',
     'tasks.view', 'tasks.assign', 'tasks.close',
@@ -172,6 +188,7 @@ const ROLE_PERMISSIONS: Record<Role, PermissionKey[]> = {
   'Stock Controller': [
     'sales.viewHistory',
     'inventory.view', 'inventory.import', 'inventory.adjust',
+    'purchaseOrders.view', 'purchaseOrders.create', 'purchaseOrders.edit', 'purchaseOrders.receive',
     'stocktake.create', 'stocktake.count',
     'tasks.view',
     'approvals.view',

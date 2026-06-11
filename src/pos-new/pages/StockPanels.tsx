@@ -22,6 +22,13 @@ import {
   Product, 
   Role, 
   PurchaseOrder, 
+  PurchaseOrderActivityEvent,
+  PurchaseOrderFilterState,
+  PurchaseOrderLine,
+  PurchaseOrderPriority,
+  PurchaseOrderSource,
+  PurchaseOrderStatus,
+  PurchaseOrderSummary,
   GRNLine, 
   GoodsReceivedNote, 
   SupplierReturn, 
@@ -30,12 +37,27 @@ import {
   ApprovalRequest, 
   ApprovalRequestType 
 } from '../types';
+import PurchaseOrderForm from '../components/PurchaseOrderForm';
 import {
   postGoodsReceivedMovement,
   postStockAdjustmentMovement,
   postStocktakeAdjustmentMovement,
   postSupplierReturnMovement
 } from '../services/inventoryMovementService';
+import {
+  approvePurchaseOrder,
+  cancelPurchaseOrder,
+  closePurchaseOrder,
+  createGoodsReceivingDraftFromPO,
+  exportPurchaseOrderPlaceholder,
+  getPurchaseOrderActivityEvents,
+  getPurchaseOrderLines,
+  getPurchaseOrders,
+  getPurchaseOrderSummary,
+  markPurchaseOrderSent,
+  submitPurchaseOrderForApproval
+} from '../services/purchaseOrderService';
+import { canPerformAction } from '../utils/posPermissions';
 
 interface StockProduct extends Product {
   riskLevel?: 'Low' | 'Medium' | 'High' | 'Critical';
@@ -82,58 +104,51 @@ export default function StockPanels({
 
   // --- LOCAL PERSISTENCE STORAGE FOR SUB-PAGES ---
   
-  // 1. Purchase Orders State
-  const [purchaseOrders, setPurchaseOrders] = useState<PurchaseOrder[]>(() => {
-    const cached = localStorage.getItem('sci_pos_purchase_orders');
-    return cached ? JSON.parse(cached) : [
-      {
-        poNumber: 'PO-1001',
-        supplierName: 'ABC Motor Spares Supplier',
-        createdDate: '2026-06-07',
-        expectedDate: '2026-06-12',
-        itemsCount: 4,
-        totalCost: 680.00,
-        status: 'Open',
-        items: [
-          { sku: 'BJ-CBHO49', productName: 'Ball Joint Honda Fit GD1', quantity: 20, cost: 7.00 },
-          { sku: 'BP-GD6-F', productName: 'Brake Pads Toyota GD6 Front', quantity: 10, cost: 18.00 },
-          { sku: 'CLT-N16', productName: 'Clutch Plate Nissan N16', quantity: 5, cost: 32.00 },
-          { sku: 'RAD-COROLLA', productName: 'Radiator Toyota Corolla', quantity: 4, cost: 40.00 }
-        ]
-      },
-      {
-        poNumber: 'PO-1002',
-        supplierName: 'Harare Lubricants Ltd',
-        createdDate: '2026-06-06',
-        expectedDate: '2026-06-09',
-        itemsCount: 1,
-        totalCost: 240.00,
-        status: 'Partially Received',
-        items: [
-          { sku: 'SLV-D24', productName: 'Solenoid Valve 24V DC', quantity: 6, cost: 40.00 }
-        ]
-      },
-      {
-        poNumber: 'PO-1003',
-        supplierName: 'Toyota Parts Wholesale',
-        createdDate: '2026-06-01',
-        expectedDate: '2026-06-08',
-        itemsCount: 1,
-        totalCost: 875.00,
-        status: 'Closed',
-        items: [
-          { sku: 'BP-GD6-F', productName: 'Brake Pads Toyota GD6 Front', quantity: 50, cost: 17.50 }
-        ]
-      }
-    ];
+  // 1. Purchase Orders State. PO records are procurement memos only: no stock,
+  // accounting, cashbook, COGS or inventory asset value is posted from this flow.
+  const [purchaseOrders, setPurchaseOrders] = useState<PurchaseOrder[]>([]);
+  const [purchaseOrderLines, setPurchaseOrderLines] = useState<Record<string, PurchaseOrderLine[]>>({});
+  const [purchaseOrderSummary, setPurchaseOrderSummary] = useState<PurchaseOrderSummary>({
+    totalPOs: 0,
+    draftPOs: 0,
+    pendingApproval: 0,
+    approved: 0,
+    sentToSupplier: 0,
+    partiallyReceived: 0,
+    fullyReceived: 0,
+    cancelled: 0,
+    estimatedPOValue: 0,
+    outstandingQty: 0
   });
+  const [purchaseOrderFilters, setPurchaseOrderFilters] = useState<PurchaseOrderFilterState>({
+    status: 'ALL',
+    priority: 'ALL',
+    source: 'ALL'
+  });
+  const [purchaseOrderEvents, setPurchaseOrderEvents] = useState<PurchaseOrderActivityEvent[]>([]);
+  const [selectedPO, setSelectedPO] = useState<PurchaseOrder | null>(null);
+  const [selectedPOLines, setSelectedPOLines] = useState<PurchaseOrderLine[]>([]);
+  const [poFormOpen, setPoFormOpen] = useState(false);
+  const [poFormOrder, setPoFormOrder] = useState<PurchaseOrder | null>(null);
+  const [poFormLines, setPoFormLines] = useState<PurchaseOrderLine[]>([]);
+  const [poFeedback, setPoFeedback] = useState<string | null>(null);
+
+  const refreshPurchaseOrders = async (filters = purchaseOrderFilters) => {
+    const [orders, summary, events] = await Promise.all([
+      getPurchaseOrders(filters),
+      getPurchaseOrderSummary(filters),
+      getPurchaseOrderActivityEvents()
+    ]);
+    const linePairs = await Promise.all(orders.map(async (order) => [order.poId, await getPurchaseOrderLines(order.poId)] as const));
+    setPurchaseOrders(orders);
+    setPurchaseOrderSummary(summary);
+    setPurchaseOrderEvents(events);
+    setPurchaseOrderLines(Object.fromEntries(linePairs));
+  };
 
   useEffect(() => {
-    localStorage.setItem('sci_pos_purchase_orders', JSON.stringify(purchaseOrders));
-  }, [purchaseOrders]);
-
-  // Selected PO details modal target
-  const [selectedPO, setSelectedPO] = useState<PurchaseOrder | null>(null);
+    refreshPurchaseOrders();
+  }, []);
 
   // 2. Goods Receiving Form and Lines State
   const [grnNumber, setGrnNumber] = useState(() => `GRN-2026-${Math.floor(Math.random() * 8999 + 1000)}`);
@@ -386,23 +401,43 @@ export default function StockPanels({
   // SUB-PAGES ACTIONS
   // =========================================================================
 
-  // A. RECEIVE PO DISPATCHER: Prefills GRN Form from a PO and switches tab
-  const handleQuickReceivePO = (po: PurchaseOrder) => {
+  const openPurchaseOrderForm = async (po?: PurchaseOrder) => {
+    if (po && po.status !== 'Draft') {
+      setPoFeedback('Approved or sent Purchase Orders cannot be edited except status actions.');
+      return;
+    }
+    setPoFormOrder(po || null);
+    setPoFormLines(po ? await getPurchaseOrderLines(po.poId) : []);
+    setPoFormOpen(true);
+  };
+
+  const handleViewPurchaseOrder = async (po: PurchaseOrder) => {
+    setSelectedPO(po);
+    setSelectedPOLines(await getPurchaseOrderLines(po.poId));
+  };
+
+  // A. RECEIVE PO DISPATCHER: prepares a GRN draft from a PO and switches tab.
+  // Stock quantity changes only happen later if the Goods Receiving form is posted.
+  const handleQuickReceivePO = async (po: PurchaseOrder) => {
+    const draft = await createGoodsReceivingDraftFromPO(po.poId);
+    if (!draft) return;
     setGrnPoRef(po.poNumber);
     setGrnSupplier(po.supplierName);
-    
-    // Convert PO Items to GRNLine layout matching existing products
-    const loadedLines: GRNLine[] = po.items.map(poItem => {
-      const matchInStock = localStock.find(p => p.code === poItem.sku);
+    setGrnBranch(po.deliveryBranchId);
+    setGrnWarehouse(po.deliveryWarehouseId);
+
+    const loadedLines: GRNLine[] = draft.lines.map((poLine) => {
+      const matchInStock = localStock.find((p) => (p.sku || p.code) === poLine.sku);
+      const outstanding = Math.max(poLine.qtyOutstanding, 0);
       return {
-        sku: poItem.sku,
-        productName: poItem.productName,
-        orderedQty: poItem.quantity,
-        receivedQty: poItem.quantity,
-        costPrice: poItem.cost,
-        prevCostPrice: matchInStock ? matchInStock.cost : poItem.cost - 0.50,
-        currentPrice: matchInStock ? matchInStock.price : poItem.cost * 1.5,
-        suggestedPrice: matchInStock ? matchInStock.price : poItem.cost * 1.5,
+        sku: poLine.sku,
+        productName: poLine.productName,
+        orderedQty: outstanding || poLine.qtyOrdered,
+        receivedQty: outstanding || poLine.qtyOrdered,
+        costPrice: poLine.estimatedUnitCost,
+        prevCostPrice: matchInStock ? (matchInStock.costPrice ?? matchInStock.cost) : (poLine.lastCostPrice || poLine.estimatedUnitCost),
+        currentPrice: matchInStock ? (matchInStock.sellingPrice ?? matchInStock.price) : (poLine.currentSellingPrice || poLine.estimatedUnitCost * 1.5),
+        suggestedPrice: matchInStock ? (matchInStock.sellingPrice ?? matchInStock.price) : (poLine.currentSellingPrice || poLine.estimatedUnitCost * 1.5),
         status: 'Matched',
         accepted: false,
         rejected: false,
@@ -412,21 +447,56 @@ export default function StockPanels({
     });
 
     setGrnLines(loadedLines);
-    setGrnFeedback({ type: 'warning', msg: `Prepopulated Goods Receiving form with ${po.poNumber} items. Edit to register differences.` });
+    setGrnFeedback({ type: 'warning', msg: draft.message });
+    setPoFeedback(draft.message);
     setActiveTab('Goods Receiving');
+    refreshPurchaseOrders();
   };
 
-  // Close PO Action
-  const handleClosePO = (poNo: string) => {
-    setPurchaseOrders(prev => prev.map(p => p.poNumber === poNo ? { ...p, status: 'Closed' } : p));
-    triggerNewActivityEvent('STOCK_TRANSFERRED', `Purchase Order ${poNo} closed by operator manually.`, 'Low');
-  };
-
-  // Flag PO Delay Action
-  const handleFlagPOOverdue = (poNo: string) => {
-    setPurchaseOrders(prev => prev.map(p => p.poNumber === poNo ? { ...p, status: 'Overdue' } : p));
-    triggerNewActivityEvent('LOW_STOCK_REMINDER', `Purchase Order ${poNo} flagged as Delayed (Overdue).`, 'Medium');
-    logGlobalBiEvent('PURCHASE_ORDER_DELAYED', { poNumber: poNo, reason: 'Expected date exceeded supply dock receipt' }, 'WARNING');
+  const handlePOStatusAction = async (po: PurchaseOrder, action: 'submit' | 'approve' | 'sent' | 'cancel' | 'close' | 'export') => {
+    if (action === 'submit') {
+      if (!canPerformAction(simulatedRole, 'purchaseOrders.edit') && !canPerformAction(simulatedRole, 'purchaseOrders.create')) {
+        setPoFeedback('You do not have permission to perform this action.');
+        return;
+      }
+      await submitPurchaseOrderForApproval(po.poId);
+      setPoFeedback(`${po.poNumber} submitted for approval.`);
+    }
+    if (action === 'approve') {
+      if (!canPerformAction(simulatedRole, 'purchaseOrders.approve') && !canPerformAction(simulatedRole, 'approvals.approve')) {
+        setPoFeedback('You do not have permission to perform this action.');
+        return;
+      }
+      await approvePurchaseOrder(po.poId, staffName, 'Approved from Purchase Orders tab.');
+      setPoFeedback(`${po.poNumber} approved. No stock or financial posting was created.`);
+    }
+    if (action === 'sent') {
+      await markPurchaseOrderSent(po.poId, staffName);
+      setPoFeedback(`${po.poNumber} marked Sent To Supplier.`);
+    }
+    if (action === 'cancel') {
+      if (!canPerformAction(simulatedRole, 'purchaseOrders.cancel')) {
+        setPoFeedback('You do not have permission to perform this action.');
+        return;
+      }
+      const reason = window.prompt(`Reason for cancelling ${po.poNumber}?`);
+      if (!reason) return;
+      await cancelPurchaseOrder(po.poId, staffName, reason);
+      setPoFeedback(`${po.poNumber} cancelled.`);
+    }
+    if (action === 'close') {
+      await closePurchaseOrder(po.poId, staffName, 'Closed from Purchase Orders tab.');
+      setPoFeedback(`${po.poNumber} closed.`);
+    }
+    if (action === 'export') {
+      if (!canPerformAction(simulatedRole, 'purchaseOrders.export')) {
+        setPoFeedback('You do not have permission to perform this action.');
+        return;
+      }
+      const result = await exportPurchaseOrderPlaceholder(po.poId);
+      setPoFeedback(result.message);
+    }
+    refreshPurchaseOrders();
   };
 
 
@@ -526,10 +596,7 @@ export default function StockPanels({
           triggerNewActivityEvent('RECOMMEND_MAJOR_STOCKTAKE', `Cost speed spike detected (+15%) on SKU ${spikeLine.sku}`, 'High');
         }
         
-        // Move back PO status to partially received if it exists
-        if (grnPoRef) {
-          setPurchaseOrders(prev => prev.map(p => p.poNumber === grnPoRef ? { ...p, status: 'Partially Received' } : p));
-        }
+        refreshPurchaseOrders();
         return;
       } else {
         // Supervisor role override is active, we can self-approve directly!
@@ -597,10 +664,7 @@ export default function StockPanels({
     triggerNewActivityEvent('GOODS_RECEIVED', `Posted GRN ${grnRef} with ${lines.length} lines. Inventory incremented.`, 'Low');
     logGlobalBiEvent('GOODS_RECEIVED', { grnRef, totalLines: lines.length }, 'INFO');
 
-    // Mark PO closed if it matches
-    if (grnPoRef) {
-      setPurchaseOrders(prev => prev.map(p => p.poNumber === grnPoRef ? { ...p, status: 'Closed' } : p));
-    }
+    refreshPurchaseOrders();
 
     // Reset Form completely
     setGrnNumber(`GRN-2026-${Math.floor(Math.random() * 8999 + 1000)}`);
@@ -1377,86 +1441,137 @@ export default function StockPanels({
 
 
       {activeTab === 'Purchase Orders' && (
-        <div className="bg-white border border-[#b1b5c2] p-5 space-y-4">
-          <div className="flex justify-between items-center border-b border-gray-150 pb-2">
-            <span className="font-extrabold text-[#111827] text-[11px] uppercase flex items-center gap-2">
-              <Clock className="w-4 h-4 text-orange-500" />
-              Active Procurement Purchase Orders
-            </span>
-            <span className="text-[9px] font-bold font-mono text-slate-400">LEDGER PO STATUS</span>
+        <div className="bg-white border border-[#b1b5c2] p-5 space-y-5">
+          <div className="flex flex-col lg:flex-row justify-between gap-4 border-b border-gray-150 pb-3">
+            <div>
+              <span className="font-extrabold text-[#111827] text-[13px] uppercase flex items-center gap-2">
+                <Clock className="w-4 h-4 text-orange-500" />
+                Purchase Orders
+              </span>
+              <p className="text-[9.5px] text-slate-700 mt-1 uppercase font-semibold">
+                Procurement memo documents for supplier ordering. Stock is only updated after Goods Receiving.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => openPurchaseOrderForm()}
+              className="px-4 py-2 bg-orange-600 hover:bg-orange-700 border border-orange-700 text-white font-black uppercase text-[9.5px] rounded-none cursor-pointer flex items-center gap-2 self-start"
+            >
+              <PlusCircle className="w-4 h-4" />
+              New PO Memo
+            </button>
+          </div>
+
+          <div className="border border-orange-300 bg-orange-50 p-3 text-[9.5px] uppercase font-black text-slate-800">
+            Purchase Orders do not post stock or accounting until goods are received. They do not affect cashbook, COGS, supplier liability, inventory asset value, sales, tax ledger or EOD financial totals.
+          </div>
+
+          {poFeedback && (
+            <div className="border border-[#b1b5c2] bg-slate-50 p-3 text-[9.5px] uppercase font-black text-slate-800">
+              {poFeedback}
+            </div>
+          )}
+
+          <div className="grid grid-cols-2 md:grid-cols-5 xl:grid-cols-10 gap-3">
+            <POMetric label="Total POs" value={purchaseOrderSummary.totalPOs} />
+            <POMetric label="Draft POs" value={purchaseOrderSummary.draftPOs} />
+            <POMetric label="Pending Approval" value={purchaseOrderSummary.pendingApproval} />
+            <POMetric label="Approved" value={purchaseOrderSummary.approved} />
+            <POMetric label="Sent To Supplier" value={purchaseOrderSummary.sentToSupplier} />
+            <POMetric label="Partially Received" value={purchaseOrderSummary.partiallyReceived} />
+            <POMetric label="Fully Received" value={purchaseOrderSummary.fullyReceived} />
+            <POMetric label="Cancelled" value={purchaseOrderSummary.cancelled} />
+            <POMetric label="Estimated PO Value" value={`USD ${purchaseOrderSummary.estimatedPOValue.toFixed(2)}`} />
+            <POMetric label="Outstanding Qty" value={purchaseOrderSummary.outstandingQty} />
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3 bg-slate-50 border border-[#b1b5c2] p-3">
+            <POFilterInput label="PO Number" value={purchaseOrderFilters.poNumber || ''} onChange={(value) => setPurchaseOrderFilters((prev) => ({ ...prev, poNumber: value }))} />
+            <POFilterInput label="Supplier" value={purchaseOrderFilters.supplier || ''} onChange={(value) => setPurchaseOrderFilters((prev) => ({ ...prev, supplier: value }))} />
+            <POFilterInput label="Branch" value={purchaseOrderFilters.branch || ''} onChange={(value) => setPurchaseOrderFilters((prev) => ({ ...prev, branch: value }))} />
+            <POFilterInput label="Warehouse" value={purchaseOrderFilters.warehouse || ''} onChange={(value) => setPurchaseOrderFilters((prev) => ({ ...prev, warehouse: value }))} />
+            <POFilterSelect label="Status" value={purchaseOrderFilters.status || 'ALL'} options={['ALL', 'Draft', 'Pending Approval', 'Approved', 'Sent To Supplier', 'Partially Received', 'Fully Received', 'Cancelled', 'Closed']} onChange={(value) => setPurchaseOrderFilters((prev) => ({ ...prev, status: value as PurchaseOrderStatus | 'ALL' }))} />
+            <POFilterSelect label="Priority" value={purchaseOrderFilters.priority || 'ALL'} options={['ALL', 'Low', 'Normal', 'High', 'Urgent']} onChange={(value) => setPurchaseOrderFilters((prev) => ({ ...prev, priority: value as PurchaseOrderPriority | 'ALL' }))} />
+            <POFilterSelect label="Source" value={purchaseOrderFilters.source || 'ALL'} options={['ALL', 'Manual', 'Low Stock Recommendation', 'Stock Health Recommendation', 'Supplier Reorder', 'Import Draft', 'Owner Request']} onChange={(value) => setPurchaseOrderFilters((prev) => ({ ...prev, source: value as PurchaseOrderSource | 'ALL' }))} />
+            <POFilterInput label="Date From" type="date" value={purchaseOrderFilters.dateFrom || ''} onChange={(value) => setPurchaseOrderFilters((prev) => ({ ...prev, dateFrom: value }))} />
+            <POFilterInput label="Date To" type="date" value={purchaseOrderFilters.dateTo || ''} onChange={(value) => setPurchaseOrderFilters((prev) => ({ ...prev, dateTo: value }))} />
+            <POFilterInput label="Expected Delivery From" type="date" value={purchaseOrderFilters.expectedDeliveryFrom || ''} onChange={(value) => setPurchaseOrderFilters((prev) => ({ ...prev, expectedDeliveryFrom: value }))} />
+            <POFilterInput label="Expected Delivery To" type="date" value={purchaseOrderFilters.expectedDeliveryTo || ''} onChange={(value) => setPurchaseOrderFilters((prev) => ({ ...prev, expectedDeliveryTo: value }))} />
+            <button
+              type="button"
+              onClick={() => refreshPurchaseOrders(purchaseOrderFilters)}
+              className="px-3 py-2 bg-[#1e222b] text-white border border-[#1e222b] font-black uppercase text-[9px] rounded-none self-end"
+            >
+              Apply Filters
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                const reset = { status: 'ALL' as const, priority: 'ALL' as const, source: 'ALL' as const };
+                setPurchaseOrderFilters(reset);
+                refreshPurchaseOrders(reset);
+              }}
+              className="px-3 py-2 bg-white text-[#1e222b] border border-[#b1b5c2] font-black uppercase text-[9px] rounded-none self-end"
+            >
+              Clear Filters
+            </button>
           </div>
 
           <div className="overflow-x-auto pos-custom-scroll">
-            <table className="w-full text-[10.5px] text-left border-collapse">
+            <table className="w-full min-w-[1380px] text-[10px] text-left border-collapse">
               <thead>
                 <tr className="bg-[#1e222b] text-white font-black uppercase text-[8px] h-9 select-none">
                   <th className="py-2 px-3">PO Number</th>
-                  <th className="py-2 px-3">Supplier Name</th>
-                  <th className="py-2 px-3">Date Drafted</th>
-                  <th className="py-2 px-3">Expected Intake</th>
-                  <th className="py-2 px-3 text-right">Items Count</th>
-                  <th className="py-2 px-3 text-right">Estimated Cost (USD)</th>
+                  <th className="py-2 px-3">Date</th>
+                  <th className="py-2 px-3">Supplier</th>
+                  <th className="py-2 px-3">Branch</th>
+                  <th className="py-2 px-3">Warehouse</th>
+                  <th className="py-2 px-3">Priority</th>
+                  <th className="py-2 px-3 text-right">Lines</th>
+                  <th className="py-2 px-3 text-right">Estimated Total</th>
+                  <th className="py-2 px-3">Expected Delivery</th>
                   <th className="py-2 px-3 text-center">Status</th>
-                  <th className="py-2 px-3 text-center">Intake Registry Dispatch</th>
+                  <th className="py-2 px-3">Requested By</th>
+                  <th className="py-2 px-3">Approved By</th>
+                  <th className="py-2 px-3 text-center">Action</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-200">
-                {purchaseOrders.map((po) => {
-                  let statusBg = 'bg-gray-100 text-slate-700';
-                  if (po.status === 'Open') statusBg = 'bg-sky-50 text-sky-800 border border-sky-305 font-bold';
-                  else if (po.status === 'Partially Received') statusBg = 'bg-amber-50 text-amber-805 border border-amber-300 font-extrabold';
-                  else if (po.status === 'Closed') statusBg = 'bg-green-50 text-green-800 border border-green-300 font-bold';
-                  else if (po.status === 'Overdue') statusBg = 'bg-red-50 text-red-800 border border-red-300 font-black animate-pulse';
-
+                {purchaseOrders.length === 0 ? (
+                  <tr>
+                    <td colSpan={13} className="py-8 text-center uppercase font-bold text-slate-500">No Purchase Orders match the current filters.</td>
+                  </tr>
+                ) : purchaseOrders.map((po) => {
+                  const lines = purchaseOrderLines[po.poId] || [];
+                  const canReceive = ['Approved', 'Sent To Supplier', 'Partially Received'].includes(po.status);
                   return (
-                    <tr key={po.poNumber} className="hover:bg-slate-50 transition-colors h-11">
-                      <td className="py-2 px-3 font-black text-[#1e222b]">{po.poNumber}</td>
+                    <tr key={po.poId} className="hover:bg-slate-50 transition-colors h-11">
+                      <td className="py-2 px-3 font-black text-orange-700">{po.poNumber}</td>
+                      <td className="py-2 px-3 font-mono text-slate-600">{po.poDate}</td>
                       <td className="py-2 px-3 uppercase font-extrabold text-[#111827]">{po.supplierName}</td>
-                      <td className="py-2 px-3 font-mono text-slate-500">{po.createdDate}</td>
-                      <td className="py-2 px-3 font-mono text-slate-500">{po.expectedDate}</td>
-                      <td className="py-2 px-3 text-right font-bold">{po.itemsCount}</td>
-                      <td className="py-2 px-3 text-right font-black font-mono">USD {po.totalCost.toFixed(2)}</td>
+                      <td className="py-2 px-3 uppercase">{po.branchId}</td>
+                      <td className="py-2 px-3 uppercase">{po.warehouseId}</td>
+                      <td className="py-2 px-3 uppercase font-black">{po.priority}</td>
+                      <td className="py-2 px-3 text-right font-bold">{lines.length}</td>
+                      <td className="py-2 px-3 text-right font-black font-mono">{po.currency} {po.grandTotalEstimate.toFixed(2)}</td>
+                      <td className="py-2 px-3 font-mono text-slate-600">{po.expectedDeliveryDate || 'N/A'}</td>
                       <td className="py-2 px-3 text-center whitespace-nowrap">
-                        <span className={`inline-block px-2 py-0.5 text-[8px] uppercase tracking-wide rounded-none ${statusBg}`}>
+                        <span className={`inline-block px-2 py-0.5 text-[8px] uppercase tracking-wide rounded-none ${poStatusClass(po.status)}`}>
                           {po.status}
                         </span>
                       </td>
-                      <td className="py-2 px-3 text-center">
-                        <div className="flex gap-1.5 justify-center">
-                          <button
-                            onClick={() => setSelectedPO(po)}
-                            className="px-2 py-1 bg-white hover:bg-slate-50 text-slate-700 hover:text-[#1e222b] border border-[#b1b5c2] font-bold uppercase text-[8.5px] rounded-none cursor-pointer"
-                          >
-                            Details
-                          </button>
-                          
-                          {po.status !== 'Closed' && (
-                            <button
-                              onClick={() => handleQuickReceivePO(po)}
-                              className="px-2 py-1 bg-[#f97316] hover:bg-[#ea580c] text-white font-black uppercase text-[8.5px] border border-orange-600 rounded-none cursor-pointer"
-                            >
-                              Receive
-                            </button>
-                          )}
-
-                          {po.status !== 'Closed' && (
-                            <button
-                              onClick={() => handleClosePO(po.poNumber)}
-                              className="px-2 py-1 bg-white hover:bg-red-50 text-red-650 border border-[#b1b5c2] uppercase font-bold text-[8.5px] rounded-none cursor-pointer"
-                            >
-                              Close
-                            </button>
-                          )}
-
-                          {po.status === 'Open' && (
-                            <button
-                              onClick={() => handleFlagPOOverdue(po.poNumber)}
-                              className="px-2 py-1 bg-white text-rose-650 hover:bg-rose-50 border border-red-200 uppercase font-black text-[8.5px] rounded-none cursor-pointer animate-pulse"
-                              title="Flag Intake Delayed"
-                            >
-                              Flag Delay
-                            </button>
-                          )}
+                      <td className="py-2 px-3 uppercase">{po.requestedByStaffName}</td>
+                      <td className="py-2 px-3 uppercase">{po.approvedByStaffName || 'N/A'}</td>
+                      <td className="py-2 px-3">
+                        <div className="flex flex-wrap gap-1 justify-center">
+                          <POAction label="View" onClick={() => handleViewPurchaseOrder(po)} />
+                          {po.status === 'Draft' && <POAction label="Edit Draft" onClick={() => openPurchaseOrderForm(po)} />}
+                          {po.status === 'Draft' && <POAction label="Submit for Approval" onClick={() => handlePOStatusAction(po, 'submit')} />}
+                          {po.status === 'Pending Approval' && <POAction label="Approve" onClick={() => handlePOStatusAction(po, 'approve')} />}
+                          {po.status === 'Approved' && <POAction label="Mark Sent" onClick={() => handlePOStatusAction(po, 'sent')} />}
+                          {canReceive && <POAction label="Receive Goods" primary onClick={() => handleQuickReceivePO(po)} />}
+                          {!['Cancelled', 'Closed', 'Fully Received'].includes(po.status) && <POAction label="Cancel" onClick={() => handlePOStatusAction(po, 'cancel')} />}
+                          <POAction label="Prepare Export" onClick={() => handlePOStatusAction(po, 'export')} />
                         </div>
                       </td>
                     </tr>
@@ -1465,6 +1580,37 @@ export default function StockPanels({
               </tbody>
             </table>
           </div>
+
+          <div className="border border-[#b1b5c2]">
+            <div className="bg-[#1e222b] text-white px-3 py-2 text-[9px] uppercase font-black border-b-2 border-orange-500">
+              Purchase Order Activity Feed
+            </div>
+            <div className="divide-y divide-gray-200 max-h-[220px] overflow-y-auto">
+              {purchaseOrderEvents.slice(0, 8).map((event) => (
+                <div key={event.id} className="p-3 text-[9.5px] uppercase">
+                  <div className="font-black text-[#1e222b]">{event.poNumber} - {event.eventType.replaceAll('_', ' ')}</div>
+                  <div className="text-slate-600 font-semibold">{event.message}</div>
+                  <div className="text-[8px] text-slate-400 font-mono mt-1">{event.createdAt} BY {event.operator}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <PurchaseOrderForm
+            open={poFormOpen}
+            order={poFormOrder}
+            lines={poFormLines}
+            products={localStock}
+            staffName={staffName}
+            staffId={staffName}
+            role={simulatedRole}
+            activeBranch={activeBranch}
+            onClose={() => setPoFormOpen(false)}
+            onChanged={(message) => {
+              setPoFeedback(message);
+              refreshPurchaseOrders();
+            }}
+          />
         </div>
       )}
 
@@ -2053,11 +2199,18 @@ export default function StockPanels({
             </div>
 
             <div className="p-5 space-y-4">
+              <div className="border border-orange-300 bg-orange-50 p-3 text-[9px] uppercase font-black text-slate-800">
+                Purchase Order memo only. No stock, accounting, cashbook, COGS or inventory asset value is posted here.
+              </div>
+
               <div className="grid grid-cols-2 gap-3 text-[10px] text-slate-500 font-mono">
                 <div><strong>SUPPLIER:</strong> <span className="text-[#1e222b] font-bold">{selectedPO.supplierName}</span></div>
-                <div><strong>CREATED AT:</strong> <span>{selectedPO.createdDate}</span></div>
-                <div><strong>EXPECTED DELIV:</strong> <span>{selectedPO.expectedDate}</span></div>
-                <div><strong>EST TOTAL BASIS:</strong> <span className="text-[#1e222b] font-bold">USD {selectedPO.totalCost.toFixed(2)}</span></div>
+                <div><strong>CREATED AT:</strong> <span>{selectedPO.createdAt}</span></div>
+                <div><strong>EXPECTED DELIV:</strong> <span>{selectedPO.expectedDeliveryDate}</span></div>
+                <div><strong>EST TOTAL BASIS:</strong> <span className="text-[#1e222b] font-bold">{selectedPO.currency} {selectedPO.grandTotalEstimate.toFixed(2)}</span></div>
+                <div><strong>STATUS:</strong> <span>{selectedPO.status}</span></div>
+                <div><strong>REQUESTED BY:</strong> <span>{selectedPO.requestedByStaffName}</span></div>
+                <div><strong>APPROVED BY:</strong> <span>{selectedPO.approvedByStaffName || 'N/A'}</span></div>
               </div>
 
               <div className="space-y-1.5">
@@ -2073,12 +2226,12 @@ export default function StockPanels({
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-150">
-                      {selectedPO.items.map((item, i) => (
-                        <tr key={i} className="h-8 hover:bg-slate-50">
+                      {selectedPOLines.map((item) => (
+                        <tr key={item.lineId} className="h-8 hover:bg-slate-50">
                           <td className="py-1 px-2.5 font-bold">{item.sku}</td>
                           <td className="py-1 px-2.5 text-slate-650 uppercase truncate max-w-[150px]">{item.productName}</td>
-                          <td className="py-1 px-2.5 text-right font-bold text-slate-700">{item.quantity}</td>
-                          <td className="py-1 px-2.5 text-right font-mono font-bold">USD {item.cost.toFixed(2)}</td>
+                          <td className="py-1 px-2.5 text-right font-bold text-slate-700">{item.qtyOrdered}</td>
+                          <td className="py-1 px-2.5 text-right font-mono font-bold">{selectedPO.currency} {item.estimatedUnitCost.toFixed(2)}</td>
                         </tr>
                       ))}
                     </tbody>
@@ -2095,7 +2248,7 @@ export default function StockPanels({
               >
                 Close View
               </button>
-              {selectedPO.status !== 'Closed' && (
+              {['Approved', 'Sent To Supplier', 'Partially Received'].includes(selectedPO.status) && (
                 <button
                   type="button"
                   onClick={() => {
@@ -2114,6 +2267,73 @@ export default function StockPanels({
       )}
 
     </div>
+  );
+}
+
+function poStatusClass(status: PurchaseOrderStatus): string {
+  if (status === 'Draft') return 'bg-slate-100 text-slate-700 border border-slate-300';
+  if (status === 'Pending Approval') return 'bg-amber-50 text-amber-800 border border-amber-300 font-black';
+  if (status === 'Approved') return 'bg-sky-50 text-sky-800 border border-sky-300 font-bold';
+  if (status === 'Sent To Supplier') return 'bg-orange-50 text-orange-800 border border-orange-300 font-bold';
+  if (status === 'Partially Received') return 'bg-purple-50 text-purple-800 border border-purple-300 font-bold';
+  if (status === 'Fully Received') return 'bg-emerald-50 text-emerald-800 border border-emerald-300 font-bold';
+  if (status === 'Cancelled') return 'bg-red-50 text-red-800 border border-red-300 font-bold';
+  return 'bg-gray-100 text-slate-700 border border-gray-300';
+}
+
+function POMetric({ label, value }: { label: string; value: string | number }) {
+  return (
+    <div className="bg-white border border-[#b1b5c2] p-3">
+      <div className="text-[8px] text-slate-500 font-black uppercase tracking-wider">{label}</div>
+      <div className="mt-1 text-sm text-[#1e222b] font-black uppercase">{value}</div>
+    </div>
+  );
+}
+
+function POFilterInput({ label, value, onChange, type = 'text' }: { label: string; value: string; onChange: (value: string) => void; type?: string }) {
+  return (
+    <label className="space-y-1 block">
+      <span className="block text-[8px] font-black text-slate-500 uppercase">{label}</span>
+      <input
+        type={type}
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        className="w-full bg-white border border-[#b1b5c2] px-2 py-1.5 text-[10px] font-black uppercase outline-none focus:border-orange-500 rounded-none"
+      />
+    </label>
+  );
+}
+
+function POFilterSelect({ label, value, options, onChange }: { label: string; value: string; options: string[]; onChange: (value: string) => void }) {
+  return (
+    <label className="space-y-1 block">
+      <span className="block text-[8px] font-black text-slate-500 uppercase">{label}</span>
+      <select
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        className="w-full bg-white border border-[#b1b5c2] px-2 py-1.5 text-[10px] font-black uppercase outline-none focus:border-orange-500 rounded-none"
+      >
+        {options.map((option) => (
+          <option key={option} value={option}>{option.toUpperCase()}</option>
+        ))}
+      </select>
+    </label>
+  );
+}
+
+function POAction({ label, onClick, primary = false }: { label: string; onClick: () => void; primary?: boolean }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`px-2 py-1 border font-black uppercase text-[8px] rounded-none cursor-pointer ${
+        primary
+          ? 'bg-orange-600 hover:bg-orange-700 border-orange-700 text-white'
+          : 'bg-white hover:bg-slate-50 border-[#b1b5c2] text-[#1e222b]'
+      }`}
+    >
+      {label}
+    </button>
   );
 }
 

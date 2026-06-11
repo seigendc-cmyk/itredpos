@@ -882,7 +882,8 @@ export type ApprovalRequestType =
   | 'Cost Spike Approval'
   | 'Stock Adjustment Approval'
   | 'Supplier Return Approval'
-  | 'Stocktake Variance Approval';
+  | 'Stocktake Variance Approval'
+  | 'Purchase Order Approval';
 
 export type ApprovalStatus = 'Pending' | 'Approved' | 'Rejected';
 
@@ -896,6 +897,7 @@ export type OperationalApprovalCategory =
   | 'Stock Adjustment'
   | 'Stocktake Variance'
   | 'Inventory Import Approval'
+  | 'Purchase Order'
   | 'Delivery Provider Approval'
   | 'Customer Approval';
 
@@ -1188,20 +1190,162 @@ export interface SalesEvent {
   operator: string;
 }
 
-export interface PurchaseOrder {
-  poNumber: string;
+export type PurchaseOrderStatus =
+  | 'Draft'
+  | 'Pending Approval'
+  | 'Approved'
+  | 'Sent To Supplier'
+  | 'Partially Received'
+  | 'Fully Received'
+  | 'Cancelled'
+  | 'Closed';
+
+export type PurchaseOrderPriority = 'Low' | 'Normal' | 'High' | 'Urgent';
+
+export type PurchaseOrderSource =
+  | 'Manual'
+  | 'Low Stock Recommendation'
+  | 'Stock Health Recommendation'
+  | 'Supplier Reorder'
+  | 'Import Draft'
+  | 'Owner Request';
+
+export type PurchaseOrderLineStatus =
+  | 'Draft'
+  | 'Ordered'
+  | 'Partially Received'
+  | 'Fully Received'
+  | 'Cancelled';
+
+export interface PurchaseOrderSupplierDetails {
+  supplierId: string;
   supplierName: string;
-  createdDate: string;
-  expectedDate: string;
-  itemsCount: number;
-  totalCost: number;
-  status: 'Open' | 'Partially Received' | 'Closed' | 'Overdue';
-  items: {
-    sku: string;
-    productName: string;
-    quantity: number;
-    cost: number;
-  }[];
+  supplierPhone: string;
+  supplierEmail: string;
+  supplierAddress: string;
+  supplierContactPerson: string;
+}
+
+export interface PurchaseOrderDeliveryDetails {
+  deliveryBranchId: string;
+  deliveryWarehouseId: string;
+  deliveryAddress: string;
+  deliveryNotes?: string;
+}
+
+export interface PurchaseOrderApprovalDetails {
+  requestedByStaffId: string;
+  requestedByStaffName: string;
+  approvedByStaffId?: string;
+  approvedByStaffName?: string;
+  approvedAt?: string;
+  approvalNotes?: string;
+}
+
+export interface PurchaseOrder {
+  poId: string;
+  poNumber: string;
+  vendorId: string;
+  branchId: string;
+  warehouseId: string;
+  supplierId: string;
+  supplierName: string;
+  supplierPhone: string;
+  supplierEmail: string;
+  supplierAddress: string;
+  supplierContactPerson: string;
+  requestedByStaffId: string;
+  requestedByStaffName: string;
+  approvedByStaffId?: string;
+  approvedByStaffName?: string;
+  poDate: string;
+  expectedDeliveryDate: string;
+  priority: PurchaseOrderPriority;
+  source: PurchaseOrderSource;
+  status: PurchaseOrderStatus;
+  deliveryBranchId: string;
+  deliveryWarehouseId: string;
+  deliveryAddress: string;
+  currency: string;
+  subtotalEstimate: number;
+  taxEstimate: number;
+  deliveryCostEstimate: number;
+  grandTotalEstimate: number;
+  notes: string;
+  internalMemo: string;
+  termsAndConditions: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface PurchaseOrderLine {
+  lineId: string;
+  poId: string;
+  productId: string;
+  sku: string;
+  productName: string;
+  brand: string;
+  manufacturer: string;
+  supplierItemCode?: string;
+  unitOfMeasure: string;
+  qtyOrdered: number;
+  qtyReceived: number;
+  qtyOutstanding: number;
+  estimatedUnitCost: number;
+  estimatedLineTotal: number;
+  lastCostPrice?: number;
+  currentSellingPrice?: number;
+  shelfLocation?: string;
+  lineStatus: PurchaseOrderLineStatus;
+  notes: string;
+}
+
+export type PurchaseOrderActivityEventType =
+  | 'PURCHASE_ORDER_DRAFT_CREATED'
+  | 'PURCHASE_ORDER_UPDATED'
+  | 'PURCHASE_ORDER_SUBMITTED_FOR_APPROVAL'
+  | 'PURCHASE_ORDER_APPROVED'
+  | 'PURCHASE_ORDER_SENT_TO_SUPPLIER'
+  | 'PURCHASE_ORDER_EXPORT_PREPARED'
+  | 'PURCHASE_ORDER_CANCELLED'
+  | 'PURCHASE_ORDER_RECEIVING_DRAFT_CREATED'
+  | 'PURCHASE_ORDER_CLOSED';
+
+export interface PurchaseOrderActivityEvent {
+  id: string;
+  poId: string;
+  poNumber: string;
+  eventType: PurchaseOrderActivityEventType;
+  message: string;
+  operator: string;
+  createdAt: string;
+}
+
+export interface PurchaseOrderFilterState {
+  poNumber?: string;
+  supplier?: string;
+  branch?: string;
+  warehouse?: string;
+  status?: PurchaseOrderStatus | 'ALL';
+  priority?: PurchaseOrderPriority | 'ALL';
+  source?: PurchaseOrderSource | 'ALL';
+  dateFrom?: string;
+  dateTo?: string;
+  expectedDeliveryFrom?: string;
+  expectedDeliveryTo?: string;
+}
+
+export interface PurchaseOrderSummary {
+  totalPOs: number;
+  draftPOs: number;
+  pendingApproval: number;
+  approved: number;
+  sentToSupplier: number;
+  partiallyReceived: number;
+  fullyReceived: number;
+  cancelled: number;
+  estimatedPOValue: number;
+  outstandingQty: number;
 }
 
 export interface GRNLine {
