@@ -40,6 +40,8 @@ import { Product, CartItem, Transaction, PosSession, PosPageId, Role, ApprovalRe
 import { mockProducts, mockHeldTransactions, mockRecentSales } from '../mock/mockPosData';
 import { canPerformAction } from '../utils/posPermissions';
 import { addLocalQueueItem } from '../utils/localQueueStore';
+import PaymentBreakdownCard from '../components/PaymentBreakdownCard';
+import { postReturnMovement, postInventoryMovement, postSaleMovement } from '../services/inventoryMovementService';
 
 interface PosSalesProps {
   products: Product[];
@@ -665,6 +667,82 @@ export default function PosSales({
       logSalesEvent('VOID_REQUESTED', `VOID_APPROVED: Approved voiding of item ${request.productName} by ${approverName} (${approverRole})`);
     } else if (request.type === 'Return Request') {
       setRecentCompletedSales(prev => prev.map(s => s.invoiceNo === request.receiptNo ? { ...s, status: 'RETURNED' } : s));
+      const returnQtyMatch = request.requestedValue?.match(/Return Qty:\s*(\d+)/);
+      const returnQty = returnQtyMatch ? parseInt(returnQtyMatch[1], 10) : 1;
+      const reasonLower = (request.reason || '').toLowerCase();
+      const isResellable = reasonLower.includes('resellable') || reasonLower.includes('good') ||
+        (!reasonLower.includes('damaged') && !reasonLower.includes('scrap') && !reasonLower.includes('not resellable'));
+      const returnedProduct = localProducts.find((product) => product.id === request.productId);
+      const returnRef = `RET-${request.id}`;
+
+      if (returnedProduct) {
+        if (isResellable) {
+          setLocalProducts((prev) => prev.map((product) =>
+            product.id === returnedProduct.id
+              ? { ...product, stock: product.stock + returnQty }
+              : product
+          ));
+          onProductStockChange(returnedProduct.id, -returnQty);
+          void postReturnMovement({
+            vendorId: 'SCI-LOG-ZW',
+            branchId: returnedProduct.branchId || branchName,
+            warehouseId: returnedProduct.warehouseId || returnedProduct.warehouse || 'Main Warehouse',
+            productId: returnedProduct.id,
+            sku: returnedProduct.sku || returnedProduct.code,
+            alu: returnedProduct.alu,
+            productNumericNumber: returnedProduct.productNumericNumber,
+            productName: returnedProduct.productName || returnedProduct.name,
+            shelfLocation: returnedProduct.shelfLocation,
+            qtyIn: returnQty,
+            qtyOut: 0,
+            balanceBefore: returnedProduct.stock,
+            unitCost: returnedProduct.costPrice ?? returnedProduct.cost,
+            sellingPrice: returnedProduct.sellingPrice ?? returnedProduct.price,
+            salesAccountCOA: returnedProduct.salesAccountCOA,
+            assetAccountCOA: returnedProduct.assetAccountCOA,
+            staffId: approverName,
+            staffName: approverName,
+            terminalId: terminalName,
+            movementDate: new Date().toISOString(),
+            referenceNumber: returnRef,
+            notes: `Return approved for receipt ${request.receiptNo}. ${request.reason || ''}`,
+            riskFlag: 'Low',
+            approvalRequired: false,
+            status: 'Posted'
+          });
+          logLocalBiEvent('RETURN_STOCK_POSTED', `RETURN_STOCK_POSTED: ${returnQty} units of ${request.productName} posted back to stock.`, 'Medium');
+        } else {
+          void postInventoryMovement({
+            vendorId: 'SCI-LOG-ZW',
+            branchId: returnedProduct.branchId || branchName,
+            warehouseId: 'Returns Holding',
+            productId: returnedProduct.id,
+            sku: returnedProduct.sku || returnedProduct.code,
+            alu: returnedProduct.alu,
+            productNumericNumber: returnedProduct.productNumericNumber,
+            productName: returnedProduct.productName || returnedProduct.name,
+            shelfLocation: returnedProduct.shelfLocation,
+            movementType: 'DAMAGE_WRITEOFF',
+            referenceType: 'RETURN',
+            qtyIn: 0,
+            qtyOut: returnQty,
+            balanceBefore: returnedProduct.stock,
+            unitCost: returnedProduct.costPrice ?? returnedProduct.cost,
+            sellingPrice: returnedProduct.sellingPrice ?? returnedProduct.price,
+            staffId: approverName,
+            staffName: approverName,
+            terminalId: terminalName,
+            movementDate: new Date().toISOString(),
+            referenceNumber: returnRef,
+            notes: `Non-resellable return routed to review. ${request.reason || ''}`,
+            riskFlag: 'High',
+            approvalRequired: true,
+            status: 'Pending Approval'
+          });
+          logLocalBiEvent('RETURN_NOT_RESELLABLE_REVIEW_REQUIRED', `RETURN_NOT_RESELLABLE_REVIEW_REQUIRED: ${request.productName} not returned to sellable stock.`, 'High');
+        }
+      }
+
       logLocalBiEvent('RETURN_APPROVED', `RETURN_APPROVED: Receipt ${request.receiptNo} return request approved by ${approverName} (${approverRole})`, 'Medium');
       logSalesEvent('RETURN_APPROVED', `RETURN_APPROVED: Supervisor ${approverName} (${approverRole}) finalized Return for ${request.receiptNo}`);
     } else if (request.type === 'Refund Request') {
@@ -733,6 +811,21 @@ export default function PosSales({
       return;
     }
 
+    const insufficientStockLine = cart.find((item) => {
+      const currentProduct = localProducts.find((product) => product.id === item.product.id);
+      return !currentProduct || currentProduct.stock < item.quantity;
+    });
+    if (insufficientStockLine) {
+      logLocalBiEvent(
+        'SALE_BLOCKED_ZERO_STOCK',
+        `SALE_BLOCKED_ZERO_STOCK: ${insufficientStockLine.product.name} has insufficient stock for checkout quantity ${insufficientStockLine.quantity}.`,
+        'Critical'
+      );
+      logSalesEvent('SALE_BLOCKED_ZERO_STOCK' as any, `SALE_BLOCKED_ZERO_STOCK: Blocked insufficient stock sale for ${insufficientStockLine.product.code}`);
+      alert(`[SALE BLOCKED] Insufficient stock for ${insufficientStockLine.product.name}.`);
+      return;
+    }
+
     // Simulate inventory deductions locally
     const updatedProducts = localProducts.map(p => {
       const soldItem = cart.find(c => c.product.id === p.id);
@@ -787,6 +880,35 @@ export default function PosSales({
 
     cart.forEach(item => {
       onProductStockChange(item.product.id, item.quantity);
+      const currentProduct = localProducts.find((product) => product.id === item.product.id) || item.product;
+      const balanceBefore = currentProduct.stock;
+      void postSaleMovement({
+        vendorId: 'SCI-LOG-ZW',
+        branchId: currentProduct.branchId || branchName,
+        warehouseId: currentProduct.warehouseId || currentProduct.warehouse || 'Main Warehouse',
+        productId: currentProduct.id,
+        sku: currentProduct.sku || currentProduct.code,
+        alu: currentProduct.alu,
+        productNumericNumber: currentProduct.productNumericNumber,
+        productName: currentProduct.productName || currentProduct.name,
+        shelfLocation: currentProduct.shelfLocation,
+        qtyIn: 0,
+        qtyOut: item.quantity,
+        balanceBefore,
+        unitCost: currentProduct.costPrice ?? currentProduct.cost,
+        sellingPrice: item.overriddenPrice ?? currentProduct.sellingPrice ?? currentProduct.price,
+        salesAccountCOA: currentProduct.salesAccountCOA,
+        assetAccountCOA: currentProduct.assetAccountCOA,
+        staffId: staffName,
+        staffName,
+        terminalId: terminalName,
+        movementDate: txnRecord.date,
+        referenceNumber: txnRecord.invoiceNo,
+        notes: 'Sale completed from Sales Terminal.',
+        riskFlag: 'None',
+        approvalRequired: false,
+        status: 'Posted'
+      });
     });
 
     logLocalBiEvent(
@@ -2690,6 +2812,8 @@ export default function PosSales({
           </div>
         </div>
       )}
+
+      <PaymentBreakdownCard operatorName={staffName} />
 
       {/* Corporate bottom bar */}
       <div className="border border-[#b1b5c2] p-4 bg-white font-mono text-[9.5px] uppercase text-slate-500 flex flex-wrap justify-between items-center mt-8 gap-4 select-none">

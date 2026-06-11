@@ -58,6 +58,39 @@ export interface Product {
   stock: number;
   minStock: number;
   unit: string;
+  vendorId?: string;
+  branchId?: string;
+  warehouseId?: string;
+  industrialSector?: string;
+  productCategory?: string;
+  productSubCategory?: string;
+  sku?: string;
+  barcode?: string;
+  alu?: string;
+  productNumericNumber?: string;
+  productName?: string;
+  brand?: string;
+  manufacturer?: string;
+  supplierId?: string;
+  supplierName?: string;
+  shelfLocation?: string;
+  binLocation?: string;
+  serialNumber?: string;
+  batchNumber?: string;
+  unitOfMeasure?: string;
+  qtyOnHand?: number;
+  reorderLevel?: number;
+  costPrice?: number;
+  sellingPrice?: number;
+  salesAccountCOA?: string;
+  assetAccountCOA?: string;
+  stockStatus?: StockStatus;
+  riskLevel?: RiskLevel;
+  isSerialized?: boolean;
+  isActive?: boolean;
+  createdByStaffId?: string;
+  createdAt?: string;
+  updatedAt?: string;
   branch?: string;
   warehouse?: string;
   lastMovementDate?: string;
@@ -181,13 +214,7 @@ export interface POSSession {
 }
 
 export interface POSSettings {
-  businessProfile: {
-    legalName: string;
-    taxNo: string;
-    regNo: string;
-    address: string;
-    currency: string;
-  };
+  businessProfile: BusinessProfile;
   hardwareSetting: {
     laserFocus: string;
     drawerSignal: string;
@@ -206,23 +233,458 @@ export interface POSSettings {
 }
 
 export interface BusinessProfile {
+  businessName?: string;
+  tradingName?: string;
+  businessType?: string;
+  industrialSector?: string;
+  cityTown?: string;
+  district?: string;
+  suburb?: string;
   legalName: string;
   taxNo: string;
   regNo: string;
   address: string;
+  country?: string;
+  phoneNumber1?: string;
+  phoneNumber2?: string;
+  phoneNumber3?: string;
+  whatsAppNumber1?: string;
+  whatsAppNumber2?: string;
+  whatsAppNumber3?: string;
+  primaryEmail?: string;
+  supportEmail?: string;
+  websitePlaceholder?: string;
+  isBusinessRegistered?: boolean;
+  registeredBusinessName?: string;
+  companyRegistrationNumber?: string;
+  registrationDate?: string;
+  registrationAuthority?: string;
+  taxIdentificationNumber?: string;
+  vatRegistered?: boolean;
+  vatNumber?: string;
+  taxCollectorName?: string;
+  taxCollectorContactNumber?: string;
+  taxCollectorEmail?: string;
+  taxOfficeRegion?: string;
+  taxNotes?: string;
+  ownerFullName?: string;
+  ownerNationalIdPlaceholder?: string;
+  ownerPhone?: string;
+  ownerWhatsApp?: string;
+  ownerEmail?: string;
+  ownerRoleTitle?: string;
   currency: string;
+  receiptBusinessName?: string;
+  receiptFooterMessage?: string;
+  businessStatus?: string;
 }
 
 export interface BranchSetting {
   id: string;
   name: string;
   location: string;
+  vendorId?: string;
+  branchCode?: string;
+  branchType?: 'Main Branch' | 'Retail Branch' | 'Warehouse Branch' | 'Mobile Branch' | 'Admin Office' | 'Distribution Point' | string;
+  cityTown?: string;
+  district?: string;
+  suburb?: string;
+  physicalAddress?: string;
+  phoneNumber1?: string;
+  phoneNumber2?: string;
+  whatsAppNumber?: string;
+  email?: string;
+  branchManager?: string;
+  status?: string;
+  notes?: string;
+  createdByStaffId?: string;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export type ProductLedgerMovementType =
+  | 'Opening Balance'
+  | 'Sale'
+  | 'Return'
+  | 'Goods Received'
+  | 'Stock Adjustment'
+  | 'Stocktake Adjustment'
+  | 'Transfer In'
+  | 'Transfer Out'
+  | 'Supplier Return'
+  | 'Damage / Write-Off'
+  | 'Correction';
+
+export type ProductLedgerReferenceType =
+  | 'Receipt'
+  | 'GRN'
+  | 'Stocktake'
+  | 'Adjustment'
+  | 'Transfer'
+  | 'Return'
+  | 'Supplier Return'
+  | 'Manual';
+
+export interface ProductLedgerEntry {
+  id: string;
+  vendorId: string;
+  productId: string;
+  sku: string;
+  productNumericNumber?: string;
+  alu?: string;
+  dateTime: string;
+  movementType: ProductLedgerMovementType;
+  referenceType: ProductLedgerReferenceType;
+  referenceNo: string;
+  branch: string;
+  warehouse: string;
+  shelfLocation: string;
+  qtyIn: number;
+  qtyOut: number;
+  balanceAfter: number;
+  unitCost: number;
+  sellingPrice: number;
+  staffId?: string;
+  staffName: string;
+  notes: string;
+  riskFlag: 'None' | 'Low' | 'Medium' | 'High' | 'Critical';
+}
+
+export interface ProductLedgerFilters {
+  dateFrom?: string;
+  dateTo?: string;
+  branch?: string;
+  warehouse?: string;
+  shelfLocation?: string;
+  movementType?: 'ALL' | ProductLedgerMovementType | InventoryMovementType;
+  referenceType?: 'ALL' | ProductLedgerReferenceType | InventoryReferenceType;
+  staff?: string;
+  status?: 'ALL' | InventoryMovementStatus;
+}
+
+export interface ProductListSearchState {
+  query: string;
+  branch: string;
+  warehouse: string;
+  sector: string;
+  category: string;
+  shelfLocation: string;
+}
+
+export interface ProductLedgerSummary {
+  openingBalance: number;
+  totalQtyIn: number;
+  totalQtyOut: number;
+  closingBalance: number;
+  salesMovements: number;
+  returnMovements: number;
+  goodsReceivedMovements: number;
+  adjustmentMovements: number;
+  stocktakeVariances: number;
+  transferMovements: number;
+  lastMovementDate: string;
+  currentSystemQty: number;
+}
+
+export type InventoryMovementType =
+  | 'OPENING_BALANCE'
+  | 'SALE'
+  | 'SALE_RETURN'
+  | 'GOODS_RECEIVED'
+  | 'STOCK_ADJUSTMENT_IN'
+  | 'STOCK_ADJUSTMENT_OUT'
+  | 'STOCKTAKE_ADJUSTMENT_IN'
+  | 'STOCKTAKE_ADJUSTMENT_OUT'
+  | 'TRANSFER_IN'
+  | 'TRANSFER_OUT'
+  | 'SUPPLIER_RETURN'
+  | 'DAMAGE_WRITEOFF'
+  | 'MANUAL_CORRECTION';
+
+export type InventoryReferenceType =
+  | 'RECEIPT'
+  | 'RETURN'
+  | 'GRN'
+  | 'STOCKTAKE'
+  | 'ADJUSTMENT'
+  | 'TRANSFER'
+  | 'SUPPLIER_RETURN'
+  | 'DAMAGE'
+  | 'MANUAL';
+
+export type InventoryMovementStatus = 'Draft' | 'Posted' | 'Pending Approval' | 'Reversed' | 'Rejected';
+
+export interface InventoryMovement {
+  movementId: string;
+  vendorId: string;
+  branchId: string;
+  warehouseId: string;
+  productId: string;
+  sku: string;
+  alu?: string;
+  productNumericNumber?: string;
+  productName: string;
+  shelfLocation?: string;
+  movementType: InventoryMovementType;
+  referenceType: InventoryReferenceType;
+  referenceNumber: string;
+  transferId?: string;
+  qtyIn: number;
+  qtyOut: number;
+  balanceBefore: number;
+  balanceAfter: number;
+  unitCost: number;
+  sellingPrice: number;
+  totalCostImpact: number;
+  salesAccountCOA?: string;
+  assetAccountCOA?: string;
+  staffId: string;
+  staffName: string;
+  terminalId?: string;
+  movementDate: string;
+  notes: string;
+  riskFlag: 'None' | 'Low' | 'Medium' | 'High' | 'Critical';
+  approvalRequired: boolean;
+  status: InventoryMovementStatus;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface InventoryMovementFilters {
+  vendorId?: string;
+  productId?: string;
+  sku?: string;
+  dateFrom?: string;
+  dateTo?: string;
+  branchId?: string;
+  warehouseId?: string;
+  shelfLocation?: string;
+  movementType?: 'ALL' | InventoryMovementType;
+  referenceType?: 'ALL' | InventoryReferenceType;
+  staffName?: string;
+  status?: 'ALL' | InventoryMovementStatus;
+  sector?: string;
+  category?: string;
+}
+
+export type InventoryMovementPayload = Omit<InventoryMovement, 'movementId' | 'createdAt' | 'updatedAt' | 'balanceAfter' | 'totalCostImpact' | 'movementType' | 'referenceType'> & {
+  movementId?: string;
+  movementType?: InventoryMovementType;
+  referenceType?: InventoryReferenceType;
+  balanceAfter?: number;
+  totalCostImpact?: number;
+};
+
+export interface InventoryMovementSummary {
+  totalSaleQtyOut: number;
+  totalReturnQtyIn: number;
+  totalGoodsReceivedQtyIn: number;
+  totalAdjustmentQtyIn: number;
+  totalAdjustmentQtyOut: number;
+  totalTransferIn: number;
+  totalTransferOut: number;
+  totalSupplierReturnQtyOut: number;
+  netMovement: number;
+  highRiskMovements: number;
+}
+
+export type MovementClass = 'Fast Moving' | 'Normal Moving' | 'Slow Moving' | 'Dead Stock' | 'No Movement Data';
+
+export type RecommendedStockAction =
+  | 'Reorder'
+  | 'Reorder / Stock Review'
+  | 'Stop Reordering'
+  | 'Discount / Clearance'
+  | 'Check Shelf'
+  | 'Stocktake Required'
+  | 'Supplier Follow-Up'
+  | 'Review Price'
+  | 'Review Supplier Performance'
+  | 'Immediate Stock Review'
+  | 'No Action';
+
+export interface StockHealthFilters {
+  vendorId?: string;
+  branch?: string;
+  warehouse?: string;
+  industrialSector?: string;
+  category?: string;
+  brand?: string;
+  supplier?: string;
+  shelfLocation?: string;
+  stockStatus?: string;
+  riskLevel?: string;
+  movementPeriod?: 'Today' | 'Last 7 Days' | 'Last 30 Days' | 'Last 90 Days' | 'Custom';
+  includeSerialized?: boolean;
+  dateFrom?: string;
+  dateTo?: string;
+}
+
+export interface StockHealthSummary {
+  totalProducts: number;
+  totalStockUnits: number;
+  inventoryValueAtCost: number;
+  inventoryValueAtSellingPrice: number;
+  lowStockItems: number;
+  outOfStockItems: number;
+  deadStockItems: number;
+  slowMovingItems: number;
+  fastMovingItems: number;
+  varianceRiskItems: number;
+  serializedItems: number;
+  productsWithoutShelfLocation: number;
+}
+
+export interface StockHealthRow {
+  productId: string;
+  numericNo: string;
+  sku: string;
+  alu: string;
+  productName: string;
+  sector: string;
+  category: string;
+  brand: string;
+  supplier: string;
+  branch: string;
+  warehouse: string;
+  shelfLocation: string;
+  qtyOnHand: number;
+  reorderLevel: number;
+  lastSaleDate: string;
+  lastReceivedDate: string;
+  daysSinceLastSale: number | null;
+  stockStatus: string;
+  movementClass: MovementClass;
+  riskLevel: 'Low' | 'Medium' | 'High' | 'Critical';
+  recommendedAction: RecommendedStockAction;
+}
+
+export type InventoryReportType =
+  | 'Stock Valuation'
+  | 'Movement Summary'
+  | 'Low Stock Report'
+  | 'Out of Stock Report'
+  | 'Dead Stock Report'
+  | 'Slow Moving Stock Report'
+  | 'Fast Moving Stock Report'
+  | 'Variance Risk Report'
+  | 'Supplier Stock Report'
+  | 'Shelf / Location Report'
+  | 'COA Inventory Report';
+
+export interface InventoryReportFilters {
+  vendorId?: string;
+  branch?: string;
+  warehouse?: string;
+  industrialSector?: string;
+  category?: string;
+  brand?: string;
+  supplier?: string;
+  shelfLocation?: string;
+  dateFrom?: string;
+  dateTo?: string;
+  reportType?: InventoryReportType;
+}
+
+export interface StockValuationRow {
+  numericNo: string;
+  sku: string;
+  productName: string;
+  sector: string;
+  brand: string;
+  supplier: string;
+  branch: string;
+  warehouse: string;
+  qtyOnHand: number;
+  unitCost: number;
+  sellingPrice: number;
+  totalCostValue: number;
+  totalSellingValue: number;
+  marginValue: number;
+  marginPct: number;
+  assetAccountCOA: string;
+  salesAccountCOA: string;
+}
+
+export interface MovementSummaryRow {
+  productId: string;
+  product: string;
+  openingBalance: number;
+  qtyIn: number;
+  qtyOut: number;
+  transferIn: number;
+  transferOut: number;
+  returnsIn: number;
+  supplierReturnsOut: number;
+  adjustmentsIn: number;
+  adjustmentsOut: number;
+  closingBalance: number;
+  netMovement: number;
+  risk: string;
+}
+
+export interface MovementSummaryReportTotals {
+  totalQtyIn: number;
+  totalQtyOut: number;
+  netMovement: number;
+  highRiskMovements: number;
+  reversalCount: number;
+  pendingApprovalMovements: number;
+}
+
+export interface ShelfLocationReportRow {
+  shelfLocation: string;
+  productsCount: number;
+  totalUnits: number;
+  totalCostValue: number;
+  lowStockItems: number;
+  outOfStockItems: number;
+  varianceRiskItems: number;
+  lastStocktakeDate: string;
+  recommendedAction: RecommendedStockAction;
+}
+
+export interface COAInventoryReportRow {
+  coaAccount: string;
+  accountType: 'Asset' | 'Sales';
+  productsCount: number;
+  totalUnits: number;
+  totalCostValue: number;
+  totalSellingValue: number;
+  movementCount: number;
+  lastMovementDate: string;
+}
+
+export interface SupplierStockReportRow {
+  supplier: string;
+  productsCount: number;
+  totalUnits: number;
+  stockValueAtCost: number;
+  lowStockItems: number;
+  deadStockItems: number;
+  lastReceivedDate: string;
+  supplierReturnCount: number;
+  recommendedAction: RecommendedStockAction;
 }
 
 export interface WarehouseSetting {
   id: string;
   name: string;
   branchId: string;
+  vendorId?: string;
+  warehouseCode?: string;
+  warehouseType?: 'Main Warehouse' | 'Retail Stock' | 'Reserve Stock' | 'Returns Holding' | 'Damaged Stock' | 'Consignment Stock' | 'Transit Stock' | string;
+  shelfLocationPrefix?: string;
+  cityTown?: string;
+  district?: string;
+  suburb?: string;
+  physicalAddress?: string;
+  responsibleStaff?: string;
+  status?: string;
+  notes?: string;
+  createdByStaffId?: string;
+  createdAt?: string;
+  updatedAt?: string;
 }
 
 export interface TerminalSetting {
@@ -469,22 +931,45 @@ export interface StockAdjustmentRequest {
 }
 
 export interface StocktakeLine {
+  productId?: string;
+  numericNo?: string;
   sku: string;
+  alu?: string;
   productName: string;
+  industrialSector?: string;
+  category?: string;
+  brand?: string;
+  shelfLocation?: string;
   systemQty: number;
   countedQty: number;
   variance: number;
   riskLevel: 'Low' | 'Medium' | 'High' | 'Critical';
-  status: 'Pending' | 'Counted' | 'Risk Flagged';
+  status: 'Pending' | 'Counted' | 'Risk Flagged' | 'Matched' | 'Short Count' | 'Over Count' | 'Review Required';
+  stocktakeType?: 'Full' | 'Spot' | 'Audit';
+  countedBy?: string;
 }
 
 export interface StocktakeSession {
   id: string;
+  vendorId?: string;
+  branchId?: string;
+  warehouseId?: string;
   startDate: string;
   status: 'In Progress' | 'Completed';
-  type: 'Spot Check' | 'Full Stocktake';
+  type: 'Spot Check' | 'Full Stocktake' | 'Full' | 'Spot' | 'Audit';
   items: StocktakeLine[];
+  createdByStaffId?: string;
+  createdAt?: string;
+  updatedAt?: string;
 }
+
+export type StocktakeActivityEventType =
+  | 'STOCKTAKE_STARTED'
+  | 'STOCKTAKE_COUNT_LOGGED'
+  | 'STOCKTAKE_VARIANCE_FOUND'
+  | 'STOCKTAKE_SUBMITTED'
+  | 'STOCK_ADJUSTMENT_REQUESTED'
+  | 'AUDIT_STOCKTAKE_REVIEW_REQUIRED';
 
 export interface PurchaseDisciplineEvent {
   id: string;
@@ -614,14 +1099,51 @@ export interface SyncActivityEvent {
 
 export type TerminalConnectivityStatus = 'ONLINE' | 'OFFLINE';
 
-export type EODStatus =
+export type EODCheckStatus =
   | 'Passed'
   | 'Warning'
   | 'Failed'
-  | 'Pending'
-  | 'Balanced'
-  | 'Variance'
-  | 'Review';
+  | 'Pending';
+
+export type EODStatus =
+  | 'Open'
+  | 'In Review'
+  | 'Ready To Lock'
+  | 'Locked'
+  | 'Blocked';
+
+export type PaymentMode =
+  | 'Cash'
+  | 'EcoCash'
+  | 'Swipe'
+  | 'Bank Transfer'
+  | 'Split Payment'
+  | 'Credit Sale'
+  | 'Store Credit';
+
+export interface EODSession {
+  id: string;
+  vendorId: string;
+  businessVendor: string;
+  businessDate: string;
+  branch: string;
+  status: Extract<EODStatus, 'Open' | 'In Review' | 'Ready To Lock' | 'Locked' | 'Blocked'>;
+  lastCheckTime: string;
+  todaySales: number;
+  netReceipts: number;
+  cashExpected: number;
+  cashDeclared: number;
+  cashVariance: number;
+  refunds: number;
+  voids: number;
+  openShifts: number;
+  pendingStockMovements: number;
+  pendingDeliveries: number;
+  criticalBIAlerts: number;
+  syncPendingItems: number;
+  lockedAt?: string;
+  lockedBy?: string;
+}
 
 export interface OwnerSummary {
   todaySales: string;
@@ -640,10 +1162,15 @@ export interface OwnerSummary {
 
 export interface EODChecklistItem {
   id: string;
-  label: string;
-  status: Extract<EODStatus, 'Passed' | 'Warning' | 'Failed' | 'Pending'>;
-  ownerAction: string;
-  notes: string;
+  label?: string;
+  check?: string;
+  domain?: string;
+  status: EODCheckStatus;
+  risk?: RiskLevel;
+  requiredAction?: string;
+  reviewedBy?: string;
+  ownerAction?: string;
+  notes?: string;
 }
 
 export interface EODReconciliationRow {
@@ -652,8 +1179,303 @@ export interface EODReconciliationRow {
   expected: string;
   actual: string;
   variance: string;
-  status: Extract<EODStatus, 'Balanced' | 'Variance' | 'Review' | 'Failed'>;
+  status: 'Balanced' | 'Variance' | 'Review' | 'Failed';
   requiredAction: string;
+}
+
+export interface EODPaymentSummary {
+  id: string;
+  paymentMode: PaymentMode | 'Refunds' | 'Net Receipts';
+  receiptCount: number;
+  grossAmount: number;
+  discounts: number;
+  refunds: number;
+  netAmount: number;
+  expectedSettlement: number;
+  declaredOrConfirmed: number | 'Pending';
+  variance: number | 'Pending';
+  status: 'Balanced' | 'Variance' | 'Review';
+}
+
+export interface EODShiftSummary {
+  id: string;
+  shiftId: string;
+  branch: string;
+  terminal: string;
+  staff: string;
+  openedAt: string;
+  closedAt: string;
+  status: 'Open' | 'Closed' | 'Force Closed Placeholder';
+  salesTotal: number;
+  expectedCash: number;
+  declaredCash: number | 'Pending';
+  variance: number | 'Pending';
+  syncStatus: 'Synced' | 'Pending Sync' | 'Conflict';
+  reviewedBy?: string;
+}
+
+export interface EODCashReconciliation {
+  id: string;
+  branch: string;
+  terminal: string;
+  cashier: string;
+  shiftId: string;
+  openingFloat: number;
+  cashSales: number;
+  cashIn: number;
+  cashOut: number;
+  expectedCash: number;
+  declaredCash: number;
+  variance: number;
+  status: 'Balanced' | 'Variance' | 'Reviewed';
+  requiredAction: string;
+  reviewedBy?: string;
+  ownerNote?: string;
+}
+
+export interface EODInventoryClosingRow {
+  id: string;
+  movementId: string;
+  product: string;
+  movementType: string;
+  reference: string;
+  branch: string;
+  warehouse: string;
+  qtyIn: number;
+  qtyOut: number;
+  status: 'Posted' | 'Pending Approval' | 'Reviewed' | 'Reversed';
+  risk: RiskLevel;
+  requiredAction: string;
+  reviewedBy?: string;
+}
+
+export interface EODDeliveryClosingRow {
+  id: string;
+  deliveryId: string;
+  branch?: string;
+  receipt: string;
+  customer: string;
+  deliveryMethod: string;
+  driver: string;
+  status: 'Completed' | 'Pending' | 'Failed' | 'Follow Up';
+  secretCodeStatus: 'Confirmed' | 'Pending' | 'Not Required' | 'Mismatch';
+  completedAt: string;
+  risk: RiskLevel;
+  requiredAction: string;
+  reviewedBy?: string;
+}
+
+export interface EODBIReviewItem {
+  id: string;
+  eventType: string;
+  domain: string;
+  severity: RiskLevel;
+  description: string;
+  recommendedAction: string;
+  status: 'Open' | 'Reviewed' | 'Owner Note Added';
+  reviewedBy?: string;
+}
+
+export type EODActivityEventType =
+  | 'EOD_CHECK_RUN'
+  | 'CASH_VARIANCE_REVIEWED'
+  | 'PAYMENT_SUMMARY_REVIEWED'
+  | 'SHIFT_FORCE_CLOSE_PLACEHOLDER'
+  | 'INVENTORY_CLOSING_REVIEWED'
+  | 'DELIVERY_CLOSING_REVIEWED'
+  | 'BI_REVIEW_COMPLETED'
+  | 'EOD_LOCK_ATTEMPTED'
+  | 'EOD_LOCK_BLOCKED'
+  | 'EOD_DAY_LOCKED'
+  | 'EOD_REPORT_EXPORT_PREPARED';
+
+export interface EODActivityEvent {
+  id: string;
+  timestamp: string;
+  eventType: EODActivityEventType;
+  message: string;
+  operator: string;
+}
+
+export interface DayLockAttempt {
+  success: boolean;
+  message: string;
+  session: EODSession;
+  blockingReasons: string[];
+  activity: EODActivityEvent[];
+}
+
+export type AccountType =
+  | 'Asset'
+  | 'Liability'
+  | 'Equity'
+  | 'Income'
+  | 'Cost of Sales'
+  | 'Expense'
+  | 'Tax'
+  | 'Control';
+
+export type COAAccountStatus = 'Active' | 'Inactive' | 'Draft';
+
+export type PostingStatus =
+  | 'Draft'
+  | 'Posted'
+  | 'Pending Review'
+  | 'Reversed';
+
+export type AccountingSource =
+  | 'Sale'
+  | 'Refund'
+  | 'Void'
+  | 'Cash Movement'
+  | 'Inventory Movement'
+  | 'EOD'
+  | 'Manual Placeholder';
+
+export interface COAAccount {
+  id: string;
+  accountCode: string;
+  accountName: string;
+  accountType: AccountType;
+  linkedDomain: string;
+  status: COAAccountStatus;
+  notes?: string;
+}
+
+export interface AccountingPostingLine {
+  id: string;
+  postingId: string;
+  accountCode: string;
+  accountName: string;
+  debit: number;
+  credit: number;
+  memo: string;
+}
+
+export interface AccountingPosting {
+  id: string;
+  source: AccountingSource;
+  sourceReference: string;
+  businessDate: string;
+  branch: string;
+  postingStatus: PostingStatus;
+  totalDebit: number;
+  totalCredit: number;
+  reviewedBy?: string;
+  reason?: string;
+}
+
+export interface CashbookEntry {
+  id: string;
+  dateTime: string;
+  branch: string;
+  terminal: string;
+  staff: string;
+  movementType: 'Opening Float' | 'Cash Sale' | 'Cash In' | 'Cash Out' | 'Refund' | 'Banking' | 'Owner Withdrawal' | 'Petty Cash' | 'Cash Variance';
+  reference: string;
+  cashIn: number;
+  cashOut: number;
+  balanceAfter: number;
+  account: string;
+  status: PostingStatus;
+  notes: string;
+}
+
+export interface SalesAccountingSummary {
+  id: string;
+  receiptNo: string;
+  dateTime: string;
+  branch: string;
+  terminal: string;
+  cashier: string;
+  grossSale: number;
+  discount: number;
+  vat: number;
+  netSale: number;
+  salesAccount: string;
+  postingStatus: PostingStatus;
+}
+
+export interface PaymentAccountingSummary {
+  id: string;
+  paymentMode: PaymentMode | 'Refunds' | 'Store Credit';
+  receiptCount: number;
+  grossAmount: number;
+  refunds: number;
+  netAmount: number;
+  controlAccount: string;
+  settlementStatus: 'Settled' | 'Pending' | 'Variance' | 'Placeholder';
+  variance: number | 'Pending';
+  postingStatus: PostingStatus;
+}
+
+export interface COGSReserveSummary {
+  id: string;
+  product: string;
+  receiptReference: string;
+  qtySold: number;
+  unitCost: number;
+  sellingPrice: number;
+  estimatedCOGS: number;
+  suggestedReserve: number;
+  reserveStatus: 'Reserved' | 'Pending' | 'Used' | 'Misuse Risk' | 'Review Required';
+}
+
+export interface VATSummary {
+  id: string;
+  receiptNo: string;
+  date: string;
+  grossAmount: number;
+  vatableAmount: number;
+  vatAmount: number;
+  vatMode: 'Inclusive' | 'Exclusive' | 'Not VAT Registered';
+  vatNumber: string;
+  status: PostingStatus;
+}
+
+export interface InventoryAssetPostingRow {
+  id: string;
+  product: string;
+  movementType: string;
+  reference: string;
+  qtyIn: number;
+  qtyOut: number;
+  unitCost: number;
+  costImpact: number;
+  assetAccount: string;
+  cogsAccount: string;
+  salesAccount: string;
+  postingStatus: PostingStatus;
+  risk: RiskLevel;
+}
+
+export interface AccountingReadinessCheck {
+  id: string;
+  check: string;
+  domain: string;
+  status: EODCheckStatus;
+  requiredAction: string;
+}
+
+export type AccountingActivityEventType =
+  | 'SALES_POSTING_REVIEWED'
+  | 'PAYMENT_POSTING_REVIEWED'
+  | 'CASHBOOK_ENTRY_CREATED'
+  | 'VAT_SUMMARY_VIEWED'
+  | 'COGS_RESERVED'
+  | 'COGS_USED'
+  | 'COGS_MISUSE_ATTEMPT'
+  | 'COGS_RESERVE_REVIEW_REQUIRED'
+  | 'INVENTORY_ASSET_POSTING_REVIEWED'
+  | 'ACCOUNTING_READINESS_CHECK_RUN'
+  | 'ACCOUNTING_REPORT_EXPORT_PREPARED';
+
+export interface AccountingActivityEvent {
+  id: string;
+  timestamp: string;
+  eventType: AccountingActivityEventType;
+  message: string;
+  operator: string;
 }
 
 export interface TerminalEODSummary {
@@ -696,6 +1518,8 @@ export type OwnerActivityEventType =
   | 'OWNER_SYNC_REVIEW_STARTED'
   | 'APPROVAL_MARKED_REVIEWED'
   | 'EOD_LOCK_ATTEMPTED'
+  | 'EOD_LOCK_BLOCKED'
+  | 'EOD_DAY_LOCKED'
   | 'EOD_REPORT_EXPORT_PREPARED';
 
 export interface OwnerActivityEvent {
@@ -706,4 +1530,329 @@ export interface OwnerActivityEvent {
   operator: string;
 }
 
+export type POSPlanTier = 'POS Starter' | 'POS Growth' | 'POS Pro' | 'POS Enterprise';
 
+export type POSSubscriptionStatus =
+  | 'Trial'
+  | 'Active'
+  | 'Past Due'
+  | 'Suspended'
+  | 'Expired'
+  | 'Cancelled';
+
+export type POSLicenseStatus =
+  | 'Active'
+  | 'Grace Period'
+  | 'Suspended'
+  | 'Expired'
+  | 'Pending Activation';
+
+export type POSFeatureKey =
+  | 'SALES_TERMINAL'
+  | 'STOCK_CONTROL'
+  | 'SHIFT_CONTROL'
+  | 'CASH_CONTROL'
+  | 'BI_DESK'
+  | 'CUSTOMER_DESK'
+  | 'DELIVERY_DESK'
+  | 'SYNC_DESK'
+  | 'OWNER_DESK'
+  | 'SETTINGS'
+  | 'OFFLINE_QUEUE'
+  | 'RECEIPT_PREVIEW'
+  | 'RETURNS_REFUNDS'
+  | 'GOODS_RECEIVING'
+  | 'STOCKTAKE'
+  | 'ROLE_PERMISSIONS'
+  | 'EOD_RECONCILIATION';
+
+export type POSPlanLimitKey =
+  | 'branches'
+  | 'terminals'
+  | 'staff'
+  | 'products'
+  | 'offlineGraceDays';
+
+export interface POSPlan {
+  tier: POSPlanTier;
+  monthlyPrice: number | 'custom';
+  branchesAllowed: number | 'unlimited';
+  terminalsAllowed: number | 'unlimited';
+  staffAllowed: number | 'unlimited';
+  productsAllowed: number | 'unlimited';
+  enabledFeatures: POSFeatureKey[];
+}
+
+export interface VendorPOSSubscription {
+  vendorId: string;
+  planTier: POSPlanTier;
+  status: POSSubscriptionStatus;
+  trialStartedAt: string;
+  trialEndsAt: string;
+  currentPeriodEndsAt: string;
+  billingCurrency: string;
+  billingSource: string;
+  graceDaysRemaining: number;
+}
+
+export interface VendorPOSLicense {
+  vendorId: string;
+  licenseStatus: POSLicenseStatus;
+  licenseKey: string;
+  activatedAt: string;
+  expiresAt: string;
+  lastCheckedAt: string;
+  activationSource: string;
+  offlineGraceAllowed: boolean;
+  offlineGraceDays: number;
+}
+
+export interface POSFeatureEntitlement {
+  vendorId: string;
+  featureKey: POSFeatureKey;
+  label: string;
+  enabled: boolean;
+  sourcePlan: POSPlanTier;
+  status: 'Enabled' | 'Pro Feature' | 'Not in Plan';
+  uiEffect: string;
+}
+
+export interface POSPlanLimit {
+  key: POSPlanLimitKey;
+  label: string;
+  allowed: number | 'unlimited';
+  currentUsage: number;
+  status: 'Within Limit' | 'At Limit' | 'Over Limit';
+  requiredAction: string;
+}
+
+export interface POSAccessSnapshot {
+  vendorId: string;
+  plan: POSPlan;
+  subscription: VendorPOSSubscription;
+  license: VendorPOSLicense;
+  entitlements: POSFeatureEntitlement[];
+  limits: POSPlanLimit[];
+}
+
+export type ReceiptPaymentType =
+  | 'Cash'
+  | 'EcoCash'
+  | 'Swipe'
+  | 'Bank Transfer'
+  | 'Split Payment'
+  | 'Credit Sale Placeholder'
+  | 'Store Credit Placeholder';
+
+export interface PaymentReceiptRow {
+  id: string;
+  vendorId: string;
+  businessVendor: string;
+  branchId: string;
+  branch: string;
+  terminalId: string;
+  terminal: string;
+  cashierId: string;
+  cashier: string;
+  receiptNo: string;
+  dateTime: string;
+  customer: string;
+  paymentType: ReceiptPaymentType;
+  grossAmount: number;
+  discount: number;
+  refund: number;
+  netAmount: number;
+  status: 'Completed' | 'Refund Partial' | 'Voided' | string;
+  createdByStaffId: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type PaymentReportEventType =
+  | 'PAYMENT_BREAKDOWN_VIEWED'
+  | 'RECEIPTS_FILTER_APPLIED'
+  | 'RECEIPT_REPRINT_PREVIEWED'
+  | 'PAYMENT_REPORT_EXPORT_PREPARED';
+
+export type ReceiptStatus =
+  | 'Draft'
+  | 'Completed'
+  | 'Reprinted'
+  | 'Refunded'
+  | 'Partially Refunded'
+  | 'Voided'
+  | 'Fiscal Pending'
+  | 'Fiscalized'
+  | 'Fiscal Failed';
+
+export type ReceiptFormat = '80mm' | 'A4' | 'PDF Placeholder';
+
+export type VATMode = 'Inclusive' | 'Exclusive' | 'Not VAT Registered';
+
+export type FiscalizationStatus =
+  | 'Not Required'
+  | 'Pending'
+  | 'Queued'
+  | 'Fiscalized'
+  | 'Failed'
+  | 'Offline Pending'
+  | 'Disabled In Development';
+
+export type ReceiptAuditEventType =
+  | 'RECEIPT_CREATED'
+  | 'RECEIPT_PRINTED'
+  | 'RECEIPT_REPRINTED'
+  | 'RECEIPT_VOIDED'
+  | 'RECEIPT_REFUNDED'
+  | 'RECEIPT_SEQUENCE_CHECKED'
+  | 'RECEIPT_GAP_DETECTED'
+  | 'DUPLICATE_RECEIPT_RISK'
+  | 'FISCALIZATION_QUEUED'
+  | 'FISCALIZATION_PLACEHOLDER_CREATED'
+  | 'RECEIPT_PDF_EXPORT_PREPARED';
+
+export interface ReceiptBusinessDetails {
+  businessName: string;
+  tradingName: string;
+  vendorId: string;
+  branch: string;
+  address: string;
+  phone: string;
+  whatsApp: string;
+  vatNumber?: string;
+  vatRegistered: boolean;
+  footerMessage: string;
+}
+
+export interface ReceiptCustomerDetails {
+  customerName: string;
+  customerPhone?: string;
+  customerTaxNo?: string;
+  customerAddress?: string;
+}
+
+export interface ReceiptLine {
+  id: string;
+  receiptNumber: string;
+  productId: string;
+  sku: string;
+  productName: string;
+  quantity: number;
+  unitPrice: number;
+  discountAmount: number;
+  lineNetAmount: number;
+  vatAmount: number;
+  lineTotal: number;
+  salesAccountCOA?: string;
+  assetAccountCOA?: string;
+}
+
+export interface ReceiptPaymentLine {
+  id: string;
+  receiptNumber: string;
+  paymentMode: PaymentMode;
+  amount: number;
+  reference?: string;
+  confirmed: boolean;
+}
+
+export interface ReceiptTaxSummary {
+  receiptNumber: string;
+  vatMode: VATMode;
+  vatRate: number;
+  taxableAmount: number;
+  vatAmount: number;
+  nonTaxableAmount: number;
+  taxLabel: string;
+}
+
+export interface ReceiptRecord {
+  id: string;
+  receiptNumber: string;
+  vendorId: string;
+  businessVendor: string;
+  branchId: string;
+  branch: string;
+  terminalId: string;
+  terminal: string;
+  cashierId: string;
+  cashier: string;
+  businessDate: string;
+  dateTime: string;
+  customer: ReceiptCustomerDetails;
+  businessDetails: ReceiptBusinessDetails;
+  subtotal: number;
+  discountTotal: number;
+  vatTotal: number;
+  grandTotal: number;
+  paymentMode: PaymentMode;
+  status: ReceiptStatus;
+  fiscalizationStatus: FiscalizationStatus;
+  fiscalReferencePlaceholder?: string;
+  originalReceiptNumber?: string;
+  refundReference?: string;
+  voidReference?: string;
+  reprintCount: number;
+  offlineQueued: boolean;
+  createdByStaffId: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ReceiptSequenceControl {
+  id: string;
+  vendorId: string;
+  businessVendor: string;
+  branch: string;
+  terminal: string;
+  prefix: string;
+  lastReceiptNo: string;
+  nextReceiptNo: string;
+  sequenceStatus: 'Healthy' | 'Gap Detected' | 'Duplicate Risk' | 'Offline Pending' | 'Review Required';
+  gapCount: number;
+  duplicateRisk: RiskLevel;
+  lastChecked: string;
+  reviewedBy?: string;
+}
+
+export interface ReceiptPrintPreview {
+  receipt: ReceiptRecord;
+  lines: ReceiptLine[];
+  payments: ReceiptPaymentLine[];
+  taxSummary: ReceiptTaxSummary;
+  format: ReceiptFormat;
+  isReprint: boolean;
+}
+
+export interface ReceiptReprintAudit {
+  id: string;
+  receiptNumber: string;
+  originalPrintedAt: string;
+  reprintedAt: string;
+  reprintedBy: string;
+  reason: string;
+  reprintCount: number;
+  approvalRequired: boolean;
+  status: 'Logged' | 'Review Required' | 'Approved Placeholder';
+}
+
+export interface FiscalizationPlaceholderRecord {
+  id: string;
+  receiptNumber: string;
+  dateTime: string;
+  branch: string;
+  terminal: string;
+  fiscalStatus: FiscalizationStatus;
+  fiscalReferencePlaceholder: string;
+  queueStatus: 'Not Queued' | 'Queued' | 'Retry Pending' | 'Completed Placeholder';
+  errorMessagePlaceholder?: string;
+}
+
+export interface ReceiptAuditEvent {
+  id: string;
+  timestamp: string;
+  eventType: ReceiptAuditEventType;
+  receiptNumber: string;
+  message: string;
+  operator: string;
+}

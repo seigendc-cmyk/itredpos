@@ -1,5 +1,11 @@
 import { Role, PosPageId } from '../types';
 
+/**
+ * During build-development, Owner has full access. Plan-based feature enforcement
+ * will be implemented later from the internal iTredVD Console backend.
+ */
+export const OWNER_BUILD_DEVELOPMENT_FULL_ACCESS = true;
+
 export type PosAction =
   | 'COMPLETE_SALE'
   | 'APPLY_DISCOUNT'

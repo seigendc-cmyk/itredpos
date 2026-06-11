@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { 
   ShieldAlert, 
   Activity, 
@@ -121,6 +121,71 @@ export default function PosBIDesk({
     }
   ]);
 
+  const STOCK_HEALTH_EVENT_TYPES = new Set([
+    'DEAD_STOCK_WARNING',
+    'LOW_STOCK_REMINDER',
+    'VARIANCE_RISK_FOUND',
+    'NEGATIVE_STOCK_ALERT',
+    'FAST_MOVING_REORDER_RECOMMENDED',
+    'OUT_OF_STOCK_ALERT',
+    'SLOW_MOVING_STOCK_WARNING',
+    'MISSING_SHELF_LOCATION',
+    'STOCK_HEALTH_EVALUATED'
+  ]);
+
+  const mapBiEventToAlertRow = (e: BiEvent): BiAlertRow => {
+    let domain: BiAlertRow['domain'] = 'Stock Health';
+    let trigger = 'Stock health rule evaluated';
+    let recommendedAction = 'Review stock position';
+    let actionLabel: BiAlertRow['actionLabel'] = 'Review';
+
+    if (e.eventType === 'DEAD_STOCK_WARNING') {
+      trigger = 'No sale movement for 90+ days with stock on hand';
+      recommendedAction = 'Discount / clearance review';
+    } else if (e.eventType === 'LOW_STOCK_REMINDER') {
+      trigger = 'Quantity on hand at or below reorder level';
+      recommendedAction = 'Create purchase reminder';
+      actionLabel = 'Create Task';
+    } else if (e.eventType === 'VARIANCE_RISK_FOUND') {
+      trigger = 'Stocktake or adjustment movement in last 30 days';
+      recommendedAction = 'Stocktake required';
+      actionLabel = 'Start Stocktake';
+    } else if (e.eventType === 'NEGATIVE_STOCK_ALERT') {
+      trigger = 'Quantity on hand below zero';
+      recommendedAction = 'Immediate stock review';
+    } else if (e.eventType === 'FAST_MOVING_REORDER_RECOMMENDED') {
+      trigger = 'Multiple sale movements in last 7 days';
+      recommendedAction = 'Reorder fast-moving item';
+      actionLabel = 'Create Task';
+    } else if (e.eventType === 'OUT_OF_STOCK_ALERT') {
+      trigger = 'Product quantity is zero';
+      recommendedAction = 'Reorder / stock review';
+    } else if (e.eventType === 'SLOW_MOVING_STOCK_WARNING') {
+      trigger = 'No sale movement for 30-89 days';
+      recommendedAction = 'Review price and demand';
+    } else if (e.eventType === 'MISSING_SHELF_LOCATION') {
+      trigger = 'Shelf / location not assigned';
+      recommendedAction = 'Check shelf assignment';
+    }
+
+    const severity = String(e.severity);
+    const sevMapped = (severity === 'Critical' || severity === 'CRITICAL') ? 'Critical'
+      : (severity === 'High' || severity === 'HIGH') ? 'High'
+      : ((severity === 'Medium' || severity === 'WARNING') ? 'Medium' : 'Low');
+
+    return {
+      id: e.id,
+      eventType: e.eventType,
+      domain,
+      severity: sevMapped as BiAlertRow['severity'],
+      trigger,
+      description: e.payload?.productName || e.payload?.details || 'Stock health event logged',
+      recommendedAction,
+      status: 'Open',
+      actionLabel
+    };
+  };
+
   // --- BI ALERTS TABLE STATE ---
   const [alertsTable, setAlertsTable] = useState<BiAlertRow[]>(() => {
     return mockBIEvents.map(e => {
@@ -184,6 +249,32 @@ export default function PosBIDesk({
       };
     });
   });
+
+  useEffect(() => {
+    const mergeStockHealthEvents = (events: BiEvent[]) => {
+      const stockHealthEvents = events.filter((event) => STOCK_HEALTH_EVENT_TYPES.has(event.eventType));
+      if (stockHealthEvents.length === 0) return;
+      setAlertsTable((current) => {
+        const existingIds = new Set(current.map((row) => row.id));
+        const newRows = stockHealthEvents
+          .filter((event) => !existingIds.has(event.id))
+          .map(mapBiEventToAlertRow);
+        if (newRows.length === 0) return current;
+        setStockFlags((count) => count + newRows.length);
+        return [...newRows, ...current];
+      });
+    };
+
+    mergeStockHealthEvents(biEvents);
+    try {
+      const cached = localStorage.getItem('itred_pos_bi_events');
+      if (cached) {
+        mergeStockHealthEvents(JSON.parse(cached) as BiEvent[]);
+      }
+    } catch {
+      // Local BI event merge is best-effort during build-development.
+    }
+  }, [biEvents]);
 
   // Handle action click
   const handleAlertAction = (rowId: string, actionType: BiAlertRow['actionLabel']) => {

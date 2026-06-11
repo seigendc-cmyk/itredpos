@@ -54,40 +54,73 @@ const INITIAL_TRANSACTIONS: Transaction[] = mockRecentSales;
 // Seed cash drawer logs loaded from mockPosData
 const INITIAL_CASH_LOGS: CashLog[] = mockCashMovements;
 
+function readStoredValue<T>(key: string, fallback: T): T {
+  try {
+    if (typeof localStorage === 'undefined') return fallback;
+    const raw = localStorage.getItem(key);
+    return raw ? (JSON.parse(raw) as T) : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+function readStoredText(key: string, fallback: string): string {
+  try {
+    if (typeof localStorage === 'undefined') return fallback;
+    return localStorage.getItem(key) || fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+function writeStoredValue(key: string, value: unknown): void {
+  try {
+    if (typeof localStorage !== 'undefined') {
+      localStorage.setItem(key, typeof value === 'string' ? value : JSON.stringify(value));
+    }
+  } catch {
+    // Build-development fallback: ignore storage write failures and keep in-memory React state.
+  }
+}
+
+function removeStoredValue(key: string): void {
+  try {
+    if (typeof localStorage !== 'undefined') {
+      localStorage.removeItem(key);
+    }
+  } catch {
+    // Build-development fallback: ignore storage removal failures.
+  }
+}
+
 export default function PosPrototypeApp() {
   const [activePage, setActivePage] = useState<PosPageId>('DASHBOARD');
 
   // Client Session Identity Tracking
   const [activeSession, setActiveSession] = useState<PosSession | null>(() => {
-    const local = localStorage.getItem('itred_pos_active_session');
-    return local ? JSON.parse(local) : null;
+    return readStoredValue<PosSession | null>('itred_pos_active_session', null);
   });
 
   // Shared database states (re-hydrating from localStorage if present to maintain feel)
   const [products, setProducts] = useState<Product[]>(() => {
-    const local = localStorage.getItem('itred_pos_products');
-    return local ? JSON.parse(local) : INITIAL_PRODUCTS;
+    return readStoredValue<Product[]>('itred_pos_products', INITIAL_PRODUCTS);
   });
 
   const [transactions, setTransactions] = useState<Transaction[]>(() => {
-    const local = localStorage.getItem('itred_pos_transactions');
-    return local ? JSON.parse(local) : INITIAL_TRANSACTIONS;
+    return readStoredValue<Transaction[]>('itred_pos_transactions', INITIAL_TRANSACTIONS);
   });
 
   const [cashLogs, setCashLogs] = useState<CashLog[]>(() => {
-    const local = localStorage.getItem('itred_pos_cash_logs');
-    return local ? JSON.parse(local) : INITIAL_CASH_LOGS;
+    return readStoredValue<CashLog[]>('itred_pos_cash_logs', INITIAL_CASH_LOGS);
   });
 
   // Current Shift State
   const [activeShift, setActiveShift] = useState<Shift | null>(() => {
-    const local = localStorage.getItem('itred_pos_active_shift');
-    return local ? JSON.parse(local) : mockShift;
+    return readStoredValue<Shift | null>('itred_pos_active_shift', mockShift);
   });
 
   const [shiftHistory, setShiftHistory] = useState<Shift[]>(() => {
-    const local = localStorage.getItem('itred_pos_shifthistory');
-    return local ? JSON.parse(local) : [
+    return readStoredValue<Shift[]>('itred_pos_shifthistory', [
       {
         id: 'SHIFT-2026-06-07-01',
         operator: 'NIGHT_RECR',
@@ -114,45 +147,48 @@ export default function PosPrototypeApp() {
         salesCount: 8,
         totalSales: 330.00
       }
-    ];
+    ]);
   });
 
   // Business Intelligence Events Cache State
   const [biEvents, setBiEvents] = useState<BiEvent[]>(() => {
-    const local = localStorage.getItem('itred_pos_bi_events');
-    return local ? JSON.parse(local) : mockBIEvents;
+    return readStoredValue<BiEvent[]>('itred_pos_bi_events', mockBIEvents);
   });
 
   // Business Settings States
   const [businessProfile, setBusinessProfile] = useState<BusinessProfile>(() => {
-    const local = localStorage.getItem('itred_pos_business_profile');
-    return local ? JSON.parse(local) : mockSettings.businessProfile;
+    return readStoredValue<BusinessProfile>('itred_pos_business_profile', mockSettings.businessProfile);
   });
 
   const [branches, setBranches] = useState<BranchSetting[]>(() => {
-    const local = localStorage.getItem('itred_pos_branches');
-    return local ? JSON.parse(local) : mockBranches;
+    return readStoredValue<BranchSetting[]>('itred_pos_branches', mockBranches);
   });
 
   const [warehouses, setWarehouses] = useState<WarehouseSetting[]>(() => {
-    const local = localStorage.getItem('itred_pos_warehouses');
-    return local ? JSON.parse(local) : mockWarehouses;
+    return readStoredValue<WarehouseSetting[]>('itred_pos_warehouses', mockWarehouses);
   });
 
   const [terminalsSetting, setTerminalsSetting] = useState<TerminalSetting[]>(() => {
-    const local = localStorage.getItem('itred_pos_terminals');
-    return local ? JSON.parse(local) : mockTerminals;
+    return readStoredValue<TerminalSetting[]>('itred_pos_terminals', mockTerminals);
   });
 
   const [staffSetting, setStaffSetting] = useState<StaffSetting[]>(() => {
-    const local = localStorage.getItem('itred_pos_staff');
-    return local ? JSON.parse(local) : mockStaff;
+    return readStoredValue<StaffSetting[]>('itred_pos_staff', mockStaff);
   });
 
   const [rolePermissions, setRolePermissions] = useState<Record<string, PosPageId[]>>(() => {
-    const local = localStorage.getItem('itred_pos_role_permissions');
-    let parsed = local ? JSON.parse(local) : null;
-    if (!parsed || !parsed['Cashier'] || !parsed['Cashier'].includes('DELIVERY') || !parsed['Owner']?.includes('OWNER_DESK')) {
+    let parsed = readStoredValue<Record<string, PosPageId[]> | null>('itred_pos_role_permissions', null);
+    const validPageIds: PosPageId[] = ['DASHBOARD', 'OWNER_DESK', 'SALES', 'DELIVERY', 'STOCK', 'SHIFT', 'CASH', 'BI_DESK', 'SYNC_DESK', 'SETTINGS'];
+    const hasInvalidPage = Object.values(parsed || {}).some((pages) =>
+      Array.isArray(pages) && pages.some((page) => !validPageIds.includes(page as PosPageId))
+    );
+    if (
+      !parsed ||
+      !parsed['Cashier'] ||
+      !parsed['Cashier'].includes('DELIVERY') ||
+      !parsed['Owner']?.includes('OWNER_DESK') ||
+      hasInvalidPage
+    ) {
       parsed = {
         'Owner': getAllowedMenusForRole('Owner'),
         'SysAdmin': getAllowedMenusForRole('SysAdmin'),
@@ -166,130 +202,127 @@ export default function PosPrototypeApp() {
   });
 
   const [hardwareSetting, setHardwareSetting] = useState<HardwareSetting>(() => {
-    const local = localStorage.getItem('itred_pos_hardware_setting');
-    return local ? JSON.parse(local) : {
+    return readStoredValue<HardwareSetting>('itred_pos_hardware_setting', {
       laserFocus: 'LASER_FOCUS: INTENSE_RED',
       drawerSignal: '12VDC_ELECTRO_M_PULSE'
-    };
+    });
   });
 
   const [taxSetting, setTaxSetting] = useState<TaxSetting>(() => {
-    const local = localStorage.getItem('itred_pos_tax_setting');
-    return local ? JSON.parse(local) : {
+    return readStoredValue<TaxSetting>('itred_pos_tax_setting', {
       vatRatePct: 10,
       surtaxPct: 2,
       inclusive: true
-    };
+    });
   });
 
   const [receiptSetting, setReceiptSetting] = useState<ReceiptSetting>(() => {
-    const local = localStorage.getItem('itred_pos_receipt_setting');
-    return local ? JSON.parse(local) : {
+    return readStoredValue<ReceiptSetting>('itred_pos_receipt_setting', {
       header: 'INDUSTRIAL HEAVY MACHINE SUPPLY',
       footer: 'THANK YOU FOR YOUR PATRONAGE. SECURE TRANSACTION CORES.',
       slipWidth: '32_COLUMNS (STANDARD_SLIP)',
       showTaxBreakdown: true
-    };
+    });
   });
 
   // Setup options (States)
   const [receiptHeader, setReceiptHeader] = useState(() => {
-    return localStorage.getItem('itred_pos_conf_receipt_head') || 'INDUSTRIAL HEAVY MACHINE SUPPLY';
+    return readStoredText('itred_pos_conf_receipt_head', 'INDUSTRIAL HEAVY MACHINE SUPPLY');
   });
 
   const [terminalUnit, setTerminalUnit] = useState(() => {
-    return localStorage.getItem('itred_pos_conf_term_id') || 'REGISTER_UNIT_NORTH_B2';
+    return readStoredText('itred_pos_conf_term_id', 'REGISTER_UNIT_NORTH_B2');
   });
 
   const [activeOperatorName, setActiveOperatorName] = useState(() => {
-    return localStorage.getItem('itred_pos_conf_operator') || 'SYS_ADMIN';
+    return readStoredText('itred_pos_conf_operator', 'SYS_ADMIN');
   });
 
   // Synchronise localStorage writes on mutations
   useEffect(() => {
-    localStorage.setItem('itred_pos_products', JSON.stringify(products));
+    writeStoredValue('itred_pos_products', products);
   }, [products]);
 
   useEffect(() => {
-    localStorage.setItem('itred_pos_transactions', JSON.stringify(transactions));
+    writeStoredValue('itred_pos_transactions', transactions);
   }, [transactions]);
 
   useEffect(() => {
-    localStorage.setItem('itred_pos_cash_logs', JSON.stringify(cashLogs));
+    writeStoredValue('itred_pos_cash_logs', cashLogs);
   }, [cashLogs]);
 
   useEffect(() => {
     if (activeShift) {
-      localStorage.setItem('itred_pos_active_shift', JSON.stringify(activeShift));
+      writeStoredValue('itred_pos_active_shift', activeShift);
     } else {
-      localStorage.removeItem('itred_pos_active_shift');
+      removeStoredValue('itred_pos_active_shift');
     }
   }, [activeShift]);
 
   useEffect(() => {
-    localStorage.setItem('itred_pos_shifthistory', JSON.stringify(shiftHistory));
+    writeStoredValue('itred_pos_shifthistory', shiftHistory);
   }, [shiftHistory]);
 
   useEffect(() => {
-    localStorage.setItem('itred_pos_bi_events', JSON.stringify(biEvents));
+    writeStoredValue('itred_pos_bi_events', biEvents);
   }, [biEvents]);
 
   useEffect(() => {
-    localStorage.setItem('itred_pos_conf_receipt_head', receiptHeader);
+    writeStoredValue('itred_pos_conf_receipt_head', receiptHeader);
   }, [receiptHeader]);
 
   useEffect(() => {
-    localStorage.setItem('itred_pos_conf_term_id', terminalUnit);
+    writeStoredValue('itred_pos_conf_term_id', terminalUnit);
   }, [terminalUnit]);
 
   useEffect(() => {
-    localStorage.setItem('itred_pos_conf_operator', activeOperatorName);
+    writeStoredValue('itred_pos_conf_operator', activeOperatorName);
   }, [activeOperatorName]);
 
   useEffect(() => {
     if (activeSession) {
-      localStorage.setItem('itred_pos_active_session', JSON.stringify(activeSession));
+      writeStoredValue('itred_pos_active_session', activeSession);
       setActiveOperatorName(activeSession.staffName);
       setTerminalUnit(activeSession.terminal);
     } else {
-      localStorage.removeItem('itred_pos_active_session');
+      removeStoredValue('itred_pos_active_session');
     }
   }, [activeSession]);
 
   useEffect(() => {
-    localStorage.setItem('itred_pos_business_profile', JSON.stringify(businessProfile));
+    writeStoredValue('itred_pos_business_profile', businessProfile);
   }, [businessProfile]);
 
   useEffect(() => {
-    localStorage.setItem('itred_pos_branches', JSON.stringify(branches));
+    writeStoredValue('itred_pos_branches', branches);
   }, [branches]);
 
   useEffect(() => {
-    localStorage.setItem('itred_pos_warehouses', JSON.stringify(warehouses));
+    writeStoredValue('itred_pos_warehouses', warehouses);
   }, [warehouses]);
 
   useEffect(() => {
-    localStorage.setItem('itred_pos_terminals', JSON.stringify(terminalsSetting));
+    writeStoredValue('itred_pos_terminals', terminalsSetting);
   }, [terminalsSetting]);
 
   useEffect(() => {
-    localStorage.setItem('itred_pos_staff', JSON.stringify(staffSetting));
+    writeStoredValue('itred_pos_staff', staffSetting);
   }, [staffSetting]);
 
   useEffect(() => {
-    localStorage.setItem('itred_pos_role_permissions', JSON.stringify(rolePermissions));
+    writeStoredValue('itred_pos_role_permissions', rolePermissions);
   }, [rolePermissions]);
 
   useEffect(() => {
-    localStorage.setItem('itred_pos_hardware_setting', JSON.stringify(hardwareSetting));
+    writeStoredValue('itred_pos_hardware_setting', hardwareSetting);
   }, [hardwareSetting]);
 
   useEffect(() => {
-    localStorage.setItem('itred_pos_tax_setting', JSON.stringify(taxSetting));
+    writeStoredValue('itred_pos_tax_setting', taxSetting);
   }, [taxSetting]);
 
   useEffect(() => {
-    localStorage.setItem('itred_pos_receipt_setting', JSON.stringify(receiptSetting));
+    writeStoredValue('itred_pos_receipt_setting', receiptSetting);
   }, [receiptSetting]);
 
   // Dynamic authorization check & routing redirect logic
@@ -534,24 +567,26 @@ export default function PosPrototypeApp() {
 
   // Hard Reset Core
   const handleResetAllState = () => {
-    localStorage.removeItem('itred_pos_products');
-    localStorage.removeItem('itred_pos_transactions');
-    localStorage.removeItem('itred_pos_cash_logs');
-    localStorage.removeItem('itred_pos_active_shift');
-    localStorage.removeItem('itred_pos_shifthistory');
-    localStorage.removeItem('itred_pos_conf_receipt_head');
-    localStorage.removeItem('itred_pos_conf_term_id');
-    localStorage.removeItem('itred_pos_conf_operator');
-    localStorage.removeItem('itred_pos_bi_events');
-    localStorage.removeItem('itred_pos_business_profile');
-    localStorage.removeItem('itred_pos_branches');
-    localStorage.removeItem('itred_pos_warehouses');
-    localStorage.removeItem('itred_pos_terminals');
-    localStorage.removeItem('itred_pos_staff');
-    localStorage.removeItem('itred_pos_role_permissions');
-    localStorage.removeItem('itred_pos_hardware_setting');
-    localStorage.removeItem('itred_pos_tax_setting');
-    localStorage.removeItem('itred_pos_receipt_setting');
+    [
+      'itred_pos_products',
+      'itred_pos_transactions',
+      'itred_pos_cash_logs',
+      'itred_pos_active_shift',
+      'itred_pos_shifthistory',
+      'itred_pos_conf_receipt_head',
+      'itred_pos_conf_term_id',
+      'itred_pos_conf_operator',
+      'itred_pos_bi_events',
+      'itred_pos_business_profile',
+      'itred_pos_branches',
+      'itred_pos_warehouses',
+      'itred_pos_terminals',
+      'itred_pos_staff',
+      'itred_pos_role_permissions',
+      'itred_pos_hardware_setting',
+      'itred_pos_tax_setting',
+      'itred_pos_receipt_setting'
+    ].forEach(removeStoredValue);
 
     setProducts(INITIAL_PRODUCTS);
     setTransactions(INITIAL_TRANSACTIONS);
@@ -856,6 +891,7 @@ export default function PosPrototypeApp() {
           onResetAllState={handleResetAllState}
           activeOperatorName={activeOperatorName}
           onUpdateOperatorName={setActiveOperatorName}
+          activeRole={activeSession?.role}
         />
       )}
         </>

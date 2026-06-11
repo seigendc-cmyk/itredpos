@@ -12,7 +12,7 @@ import {
   Wifi,
   WifiOff
 } from 'lucide-react';
-import { PosPageId, PosSession } from '../types';
+import { PosPageId, PosSession, SyncQueueItem } from '../types';
 
 interface PosTopbarProps {
   terminalId: string;
@@ -39,22 +39,23 @@ export default function PosTopbar({
 
   useEffect(() => {
     const checkSyncStatus = () => {
-      const conn = localStorage.getItem('sci_pos_terminal_connectivity') === 'OFFLINE' ? 'OFFLINE' : 'ONLINE';
-      setConnectivity(conn);
+      try {
+        const conn = localStorage.getItem('sci_pos_terminal_connectivity') === 'OFFLINE' ? 'OFFLINE' : 'ONLINE';
+        setConnectivity(conn);
 
-      const dataStr = localStorage.getItem('sci_pos_sync_queue');
-      if (dataStr) {
-        try {
+        const dataStr = localStorage.getItem('sci_pos_sync_queue');
+        if (dataStr) {
           const items = JSON.parse(dataStr);
           if (Array.isArray(items)) {
-            const pending = items.filter((item: any) => item.syncStatus !== 'Synced').length;
+            const pending = (items as SyncQueueItem[]).filter((item) => item.syncStatus !== 'Synced').length;
             setPendingCount(pending);
           }
-        } catch (e) {
-          // ignore
+        } else {
+          setPendingCount(7);
         }
-      } else {
-        setPendingCount(7);
+      } catch {
+        setConnectivity('ONLINE');
+        setPendingCount(0);
       }
     };
 
@@ -104,7 +105,7 @@ export default function PosTopbar({
         <div className="bg-slate-950 px-2.5 py-1 border border-slate-850 text-[10px] text-amber-500 font-bold uppercase tracking-wider shrink-0">
           ROLE ACCESS: {session ? session.role : 'SysAdmin'}
         </div>
-        
+
         {session ? (
           <div className="hidden xl:flex items-center gap-4 text-[9.5px] text-slate-400 bg-slate-950/50 border border-slate-800 px-3 py-1 font-mono uppercase tracking-wide shrink-0">
             <span className="text-slate-500">VNDR: <strong className="text-amber-500 font-bold">{session.vendor}</strong></span>

@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState } from 'react';
 import { 
   Building, 
   MapPin, 
@@ -33,10 +33,11 @@ import {
   StaffSetting, 
   HardwareSetting, 
   TaxSetting, 
-  ReceiptSetting 
+  ReceiptSetting
 } from '../types';
 import { Role } from '../types';
 import { getAllowedMenusForRole } from '../utils/posPermissions';
+import A5FloatingForm from '../components/A5FloatingForm';
 
 interface PosSettingsProps {
   businessProfile: BusinessProfile;
@@ -66,6 +67,7 @@ interface PosSettingsProps {
   onResetAllState: () => void;
   activeOperatorName: string;
   onUpdateOperatorName: (text: string) => void;
+  activeRole?: string;
 }
 
 type SettingsSectionId = 
@@ -78,6 +80,7 @@ type SettingsSectionId =
   | 'HARDWARE' 
   | 'TAX' 
   | 'RECEIPT'
+  | 'BUILD_STATUS'
   | 'RESET';
 
 export default function PosSettings({
@@ -122,6 +125,14 @@ export default function PosSettings({
   const [profileForm, setProfileForm] = useState<BusinessProfile>({ ...businessProfile });
   const handleSaveProfile = (e: React.FormEvent) => {
     e.preventDefault();
+    if (profileForm.isBusinessRegistered && !profileForm.companyRegistrationNumber?.trim()) {
+      alert("COMPANY REGISTRATION NUMBER IS REQUIRED WHEN BUSINESS REGISTERED IS ENABLED.");
+      return;
+    }
+    if (profileForm.vatRegistered && !profileForm.vatNumber?.trim()) {
+      alert("VAT NUMBER IS REQUIRED WHEN VAT REGISTERED IS ENABLED.");
+      return;
+    }
     onUpdateBusinessProfile(profileForm);
     triggerToast("BUSINESS PROFILE INTEGRITY SPECS UPDATED SUCCESSFULLY.");
   };
@@ -129,6 +140,7 @@ export default function PosSettings({
   // --- SUB-FORM 2: BRANCHES STATES ---
   const [branchForm, setBranchForm] = useState<BranchSetting>({ id: '', name: '', location: '' });
   const [isEditingBranch, setIsEditingBranch] = useState(false);
+  const [branchA5Open, setBranchA5Open] = useState(false);
   const handleAddOrEditBranch = (e: React.FormEvent) => {
     e.preventDefault();
     if (!branchForm.id || !branchForm.name) {
@@ -161,9 +173,33 @@ export default function PosSettings({
     }
   };
 
+  const resetBranchForm = () => {
+    setBranchForm({ id: '', name: '', location: '', status: 'Active' });
+  };
+
+  const handleSaveBranchA5 = () => {
+    const branchId = branchForm.id || branchForm.branchCode || `BR-${Date.now().toString().slice(-5)}`;
+    const nextBranch: BranchSetting = {
+      ...branchForm,
+      id: branchId.toUpperCase(),
+      branchCode: (branchForm.branchCode || branchId).toUpperCase(),
+      name: branchForm.name || branchForm.branchCode || 'New Branch',
+      location: branchForm.location || [branchForm.cityTown, branchForm.district].filter(Boolean).join(', ') || 'Unassigned',
+      vendorId: branchForm.vendorId || 'SCI-LOG-ZW',
+      createdByStaffId: activeOperatorName,
+      createdAt: branchForm.createdAt || new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    };
+    onUpdateBranches([...branches.filter((b) => b.id !== nextBranch.id), nextBranch]);
+    triggerToast('BRANCH_CREATED');
+    setBranchA5Open(false);
+    resetBranchForm();
+  };
+
   // --- SUB-FORM 3: WAREHOUSES STATES ---
   const [warehouseForm, setWarehouseForm] = useState<WarehouseSetting>({ id: '', name: '', branchId: '' });
   const [isEditingWarehouse, setIsEditingWarehouse] = useState(false);
+  const [warehouseA5Open, setWarehouseA5Open] = useState(false);
   const handleAddOrEditWarehouse = (e: React.FormEvent) => {
     e.preventDefault();
     if (!warehouseForm.id || !warehouseForm.name || !warehouseForm.branchId) {
@@ -194,6 +230,29 @@ export default function PosSettings({
       onUpdateWarehouses(warehouses.filter(w => w.id !== id));
       triggerToast(`WAREHOUSE ${id} OFF-LINE UNMOUNTED.`);
     }
+  };
+
+  const resetWarehouseForm = () => {
+    setWarehouseForm({ id: '', name: '', branchId: '', status: 'Active' });
+  };
+
+  const handleSaveWarehouseA5 = () => {
+    const warehouseId = warehouseForm.id || warehouseForm.warehouseCode || `WH-${Date.now().toString().slice(-5)}`;
+    const nextWarehouse: WarehouseSetting = {
+      ...warehouseForm,
+      id: warehouseId.toUpperCase(),
+      warehouseCode: (warehouseForm.warehouseCode || warehouseId).toUpperCase(),
+      name: warehouseForm.name || warehouseForm.warehouseCode || 'New Warehouse',
+      branchId: warehouseForm.branchId || branches[0]?.id || 'BR-HARARE',
+      vendorId: warehouseForm.vendorId || 'SCI-LOG-ZW',
+      createdByStaffId: activeOperatorName,
+      createdAt: warehouseForm.createdAt || new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    };
+    onUpdateWarehouses([...warehouses.filter((w) => w.id !== nextWarehouse.id), nextWarehouse]);
+    triggerToast('WAREHOUSE_CREATED');
+    setWarehouseA5Open(false);
+    resetWarehouseForm();
   };
 
   // --- SUB-FORM 4: TERMINALS STATES ---
@@ -342,6 +401,7 @@ export default function PosSettings({
     { id: 'HARDWARE' as const, label: 'Hardware Config', icon: Cpu, color: 'text-orange-400' },
     { id: 'TAX' as const, label: 'Tax & VAT Settings', icon: Percent, color: 'text-rose-450' },
     { id: 'RECEIPT' as const, label: 'Receipt Blueprint', icon: Receipt, color: 'text-pink-400' },
+    { id: 'BUILD_STATUS' as const, label: 'Build Status', icon: Info, color: 'text-orange-500' },
     { id: 'RESET' as const, label: 'System Maintenance', icon: AlertTriangle, color: 'text-red-500 font-extrabold' },
   ];
 
@@ -450,6 +510,160 @@ export default function PosSettings({
                   Configure corporate identifiers which print immediately on top invoice structures, secure tax audits, and ledger reports.
                 </p>
 
+                <div className="bg-slate-950 border border-slate-850 p-4 space-y-4">
+                  <div className="text-[10px] text-orange-400 font-black uppercase tracking-widest">Industrial Business Registry</div>
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div className="space-y-1">
+                      <label className="block text-slate-500 text-[10px] uppercase font-bold">Business Name</label>
+                      <input
+                        type="text"
+                        value={profileForm.businessName || ''}
+                        onChange={e => setProfileForm({ ...profileForm, businessName: e.target.value, legalName: e.target.value || profileForm.legalName })}
+                        className="w-full bg-slate-900 border border-slate-800 p-2 text-slate-100 text-xs outline-none focus:border-[#00f0ff]"
+                        required
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="block text-slate-500 text-[10px] uppercase font-bold">Trading Name</label>
+                      <input
+                        type="text"
+                        value={profileForm.tradingName || ''}
+                        onChange={e => setProfileForm({ ...profileForm, tradingName: e.target.value })}
+                        className="w-full bg-slate-900 border border-slate-800 p-2 text-slate-100 text-xs outline-none focus:border-[#00f0ff]"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="block text-slate-500 text-[10px] uppercase font-bold">Business Type</label>
+                      <select
+                        value={profileForm.businessType || 'Private Company'}
+                        onChange={e => setProfileForm({ ...profileForm, businessType: e.target.value })}
+                        className="w-full bg-slate-900 border border-slate-800 p-2 text-slate-200 text-xs outline-none"
+                      >
+                        <option>Private Company</option>
+                        <option>Partnership</option>
+                        <option>Sole Proprietor</option>
+                        <option>Cooperative</option>
+                        <option>Government</option>
+                      </select>
+                    </div>
+                    <div className="space-y-1">
+                      <label className="block text-slate-500 text-[10px] uppercase font-bold">Industrial Sector</label>
+                      <input
+                        type="text"
+                        value={profileForm.industrialSector || ''}
+                        onChange={e => setProfileForm({ ...profileForm, industrialSector: e.target.value })}
+                        className="w-full bg-slate-900 border border-slate-800 p-2 text-slate-100 text-xs outline-none focus:border-[#00f0ff]"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="block text-slate-500 text-[10px] uppercase font-bold">City / Town</label>
+                      <input
+                        type="text"
+                        value={profileForm.cityTown || ''}
+                        onChange={e => setProfileForm({ ...profileForm, cityTown: e.target.value })}
+                        className="w-full bg-slate-900 border border-slate-800 p-2 text-slate-100 text-xs outline-none focus:border-[#00f0ff]"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="block text-slate-500 text-[10px] uppercase font-bold">District / Suburb</label>
+                      <input
+                        type="text"
+                        value={[profileForm.district, profileForm.suburb].filter(Boolean).join(' / ')}
+                        onChange={e => setProfileForm({ ...profileForm, district: e.target.value })}
+                        className="w-full bg-slate-900 border border-slate-800 p-2 text-slate-100 text-xs outline-none focus:border-[#00f0ff]"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-4 gap-4 pt-2 border-t border-slate-900">
+                    <label className="flex items-center gap-2 text-[10px] uppercase font-black text-slate-300">
+                      <input
+                        type="checkbox"
+                        checked={!!profileForm.isBusinessRegistered}
+                        onChange={e => setProfileForm({ ...profileForm, isBusinessRegistered: e.target.checked })}
+                        className="accent-orange-500"
+                      />
+                      Registered Business
+                    </label>
+                    <label className="flex items-center gap-2 text-[10px] uppercase font-black text-slate-300">
+                      <input
+                        type="checkbox"
+                        checked={!!profileForm.vatRegistered}
+                        onChange={e => setProfileForm({ ...profileForm, vatRegistered: e.target.checked })}
+                        className="accent-orange-500"
+                      />
+                      VAT Registered
+                    </label>
+                    <label className="flex items-center gap-2 text-[10px] uppercase font-black text-slate-300">
+                      <input
+                        type="checkbox"
+                        checked={!!profileForm.isTaxCollector}
+                        onChange={e => setProfileForm({ ...profileForm, isTaxCollector: e.target.checked })}
+                        className="accent-orange-500"
+                      />
+                      Tax Collector
+                    </label>
+                    <div className="text-[10px] text-emerald-400 uppercase font-black">Status: {profileForm.businessStatus || 'Active'}</div>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div className="space-y-1">
+                      <label className="block text-slate-500 text-[10px] uppercase font-bold">Company Registration No</label>
+                      <input
+                        type="text"
+                        value={profileForm.companyRegistrationNumber || ''}
+                        onChange={e => setProfileForm({ ...profileForm, companyRegistrationNumber: e.target.value, regNo: e.target.value || profileForm.regNo })}
+                        className="w-full bg-slate-900 border border-slate-800 p-2 text-slate-100 text-xs outline-none focus:border-[#00f0ff]"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="block text-slate-500 text-[10px] uppercase font-bold">VAT Number</label>
+                      <input
+                        type="text"
+                        value={profileForm.vatNumber || ''}
+                        onChange={e => setProfileForm({ ...profileForm, vatNumber: e.target.value, taxNo: e.target.value || profileForm.taxNo })}
+                        className="w-full bg-slate-900 border border-slate-800 p-2 text-slate-100 text-xs outline-none focus:border-[#00f0ff]"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="block text-slate-500 text-[10px] uppercase font-bold">Tax Collector Type</label>
+                      <input
+                        type="text"
+                        value={profileForm.taxCollectorType || ''}
+                        onChange={e => setProfileForm({ ...profileForm, taxCollectorType: e.target.value })}
+                        className="w-full bg-slate-900 border border-slate-800 p-2 text-slate-100 text-xs outline-none focus:border-[#00f0ff]"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="block text-slate-500 text-[10px] uppercase font-bold">Owner Full Name</label>
+                      <input
+                        type="text"
+                        value={profileForm.ownerFullName || ''}
+                        onChange={e => setProfileForm({ ...profileForm, ownerFullName: e.target.value })}
+                        className="w-full bg-slate-900 border border-slate-800 p-2 text-slate-100 text-xs outline-none focus:border-[#00f0ff]"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="block text-slate-500 text-[10px] uppercase font-bold">Owner National ID</label>
+                      <input
+                        type="text"
+                        value={profileForm.ownerNationalId || ''}
+                        onChange={e => setProfileForm({ ...profileForm, ownerNationalId: e.target.value })}
+                        className="w-full bg-slate-900 border border-slate-800 p-2 text-slate-100 text-xs outline-none focus:border-[#00f0ff]"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="block text-slate-500 text-[10px] uppercase font-bold">Owner Contact</label>
+                      <input
+                        type="text"
+                        value={profileForm.ownerPhone || ''}
+                        onChange={e => setProfileForm({ ...profileForm, ownerPhone: e.target.value })}
+                        className="w-full bg-slate-900 border border-slate-800 p-2 text-slate-100 text-xs outline-none focus:border-[#00f0ff]"
+                      />
+                    </div>
+                  </div>
+                </div>
+
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div className="space-y-1">
                     <label className="block text-slate-500 text-[10px] uppercase font-bold">CORPORATE REGISTERED NAME</label>
@@ -530,7 +744,20 @@ export default function PosSettings({
                     <MapPin className="w-4 h-4 text-[#00f0ff]" />
                     BRANCHES METRIC REGISTRY [{branches.length} UNITS]
                   </span>
-                  <span className="text-[9px] bg-slate-950 px-1 py-0.2 text-emerald-400">ONLINE REGISTER</span>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        resetBranchForm();
+                        setBranchA5Open(true);
+                      }}
+                      className="bg-orange-600 hover:bg-orange-700 text-white px-3 py-1.5 text-[9px] font-black uppercase flex items-center gap-1.5"
+                    >
+                      <Plus className="w-3 h-3" />
+                      A5 Branch Form
+                    </button>
+                    <span className="text-[9px] bg-slate-950 px-1 py-0.2 text-emerald-400">ONLINE REGISTER</span>
+                  </div>
                 </div>
 
                 {/* Branch Entry Form */}
@@ -639,7 +866,20 @@ export default function PosSettings({
                     <Package className="w-4 h-4 text-purple-400" />
                     WAREHOUSES HUB INVENTORY ARCHIVE [{warehouses.length} HUBS]
                   </span>
-                  <span className="text-[9px] bg-slate-950 px-1 py-0.2 text-[#00f0ff]">SECURES YARD ARRAYS</span>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        resetWarehouseForm();
+                        setWarehouseA5Open(true);
+                      }}
+                      className="bg-orange-600 hover:bg-orange-700 text-white px-3 py-1.5 text-[9px] font-black uppercase flex items-center gap-1.5"
+                    >
+                      <Plus className="w-3 h-3" />
+                      A5 Warehouse Form
+                    </button>
+                    <span className="text-[9px] bg-slate-950 px-1 py-0.2 text-[#00f0ff]">SECURES YARD ARRAYS</span>
+                  </div>
                 </div>
 
                 {/* Warehouse input Form */}
@@ -1388,7 +1628,36 @@ export default function PosSettings({
               </form>
             )}
 
-            {/* TAB 10: WARNING: RESET */}
+            {/* TAB 10: BUILD DEVELOPMENT STATUS */}
+            {activeSection === 'BUILD_STATUS' && (
+              <div className="space-y-5">
+                <div className="border-b border-slate-800 pb-2 flex items-center justify-between">
+                  <span className="text-xs font-bold text-white uppercase tracking-wider flex items-center gap-2">
+                    <Info className="w-4 h-4 text-orange-500" />
+                    BUILD DEVELOPMENT STATUS
+                  </span>
+                  <span className="text-[9px] text-orange-600 uppercase bg-slate-50 px-1 border border-[#b1b5c2]">READ ONLY</span>
+                </div>
+
+                <div className="bg-white border-2 border-[#b1b5c2] p-4 text-[#1e222b]">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3">
+                    <ReadOnlyAccessMetric label="Mode" value="Build Development" />
+                    <ReadOnlyAccessMetric label="Backend" value="Mock / Local Services" />
+                    <ReadOnlyAccessMetric label="Firebase" value="Not Connected" />
+                    <ReadOnlyAccessMetric label="Fiscalization" value="Not Connected" />
+                    <ReadOnlyAccessMetric label="Console Access" value="Internal SCI Console Only" />
+                    <ReadOnlyAccessMetric label="Owner Access" value="Full During Development" />
+                    <ReadOnlyAccessMetric label="Plan Enforcement" value="Deferred" />
+                    <ReadOnlyAccessMetric label="Last Build Check" value="Placeholder" />
+                  </div>
+                  <div className="mt-3 border border-orange-200 bg-orange-50 p-2 text-[10px] text-orange-900 font-bold uppercase">
+                    During build-development, Owner has full access. Plan-based feature enforcement will be implemented later from the internal iTredVD Console backend.
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* TAB 11: WARNING: RESET */}
             {activeSection === 'RESET' && (
               <div className="space-y-5">
                 <div className="border-b border-red-800 pb-2 flex items-center gap-2 text-red-500 font-extrabold">
@@ -1428,6 +1697,132 @@ export default function PosSettings({
 
       </div>
 
+      <A5FloatingForm
+        title="A5 Branch Registration Form"
+        open={branchA5Open}
+        onClose={() => setBranchA5Open(false)}
+        footer={
+          <div className="flex justify-end gap-2">
+            <button type="button" onClick={() => setBranchA5Open(false)} className="px-4 py-2 border border-[#b1b5c2] text-[10px] font-black uppercase">
+              Cancel
+            </button>
+            <button type="button" onClick={handleSaveBranchA5} className="px-4 py-2 bg-orange-600 text-white text-[10px] font-black uppercase">
+              Save Branch
+            </button>
+          </div>
+        }
+      >
+        <div className="space-y-4 font-mono">
+          <div className="grid grid-cols-2 gap-3">
+            <SettingsField label="Vendor ID" value={branchForm.vendorId || 'SCI-LOG-ZW'} onChange={(value) => setBranchForm({ ...branchForm, vendorId: value })} />
+            <SettingsField label="Branch Code" value={branchForm.branchCode || branchForm.id} onChange={(value) => setBranchForm({ ...branchForm, branchCode: value.toUpperCase(), id: value.toUpperCase() })} required />
+            <SettingsField label="Branch Name" value={branchForm.name} onChange={(value) => setBranchForm({ ...branchForm, name: value })} required />
+            <SettingsSelect label="Branch Type" value={branchForm.branchType || 'Retail'} onChange={(value) => setBranchForm({ ...branchForm, branchType: value })} options={['Retail', 'Warehouse', 'Workshop', 'Head Office', 'Mobile']} />
+            <SettingsField label="City / Town" value={branchForm.cityTown || ''} onChange={(value) => setBranchForm({ ...branchForm, cityTown: value })} />
+            <SettingsField label="District" value={branchForm.district || ''} onChange={(value) => setBranchForm({ ...branchForm, district: value })} />
+            <SettingsField label="Suburb" value={branchForm.suburb || ''} onChange={(value) => setBranchForm({ ...branchForm, suburb: value })} />
+            <SettingsField label="Phone" value={branchForm.phone || ''} onChange={(value) => setBranchForm({ ...branchForm, phone: value })} />
+            <SettingsField label="WhatsApp" value={branchForm.whatsapp || ''} onChange={(value) => setBranchForm({ ...branchForm, whatsapp: value })} />
+            <SettingsField label="Email" value={branchForm.email || ''} onChange={(value) => setBranchForm({ ...branchForm, email: value })} />
+            <SettingsField label="Branch Manager" value={branchForm.branchManager || ''} onChange={(value) => setBranchForm({ ...branchForm, branchManager: value })} />
+            <SettingsSelect label="Status" value={branchForm.status || 'Active'} onChange={(value) => setBranchForm({ ...branchForm, status: value })} options={['Active', 'Inactive', 'Suspended']} />
+          </div>
+          <SettingsTextarea label="Physical Address" value={branchForm.physicalAddress || branchForm.location || ''} onChange={(value) => setBranchForm({ ...branchForm, physicalAddress: value, location: value })} />
+          <SettingsTextarea label="Notes" value={branchForm.notes || ''} onChange={(value) => setBranchForm({ ...branchForm, notes: value })} />
+        </div>
+      </A5FloatingForm>
+
+      <A5FloatingForm
+        title="A5 Warehouse Registration Form"
+        open={warehouseA5Open}
+        onClose={() => setWarehouseA5Open(false)}
+        footer={
+          <div className="flex justify-end gap-2">
+            <button type="button" onClick={() => setWarehouseA5Open(false)} className="px-4 py-2 border border-[#b1b5c2] text-[10px] font-black uppercase">
+              Cancel
+            </button>
+            <button type="button" onClick={handleSaveWarehouseA5} className="px-4 py-2 bg-orange-600 text-white text-[10px] font-black uppercase">
+              Save Warehouse
+            </button>
+          </div>
+        }
+      >
+        <div className="space-y-4 font-mono">
+          <div className="grid grid-cols-2 gap-3">
+            <SettingsField label="Vendor ID" value={warehouseForm.vendorId || 'SCI-LOG-ZW'} onChange={(value) => setWarehouseForm({ ...warehouseForm, vendorId: value })} />
+            <SettingsField label="Warehouse Code" value={warehouseForm.warehouseCode || warehouseForm.id} onChange={(value) => setWarehouseForm({ ...warehouseForm, warehouseCode: value.toUpperCase(), id: value.toUpperCase() })} required />
+            <SettingsField label="Warehouse Name" value={warehouseForm.name} onChange={(value) => setWarehouseForm({ ...warehouseForm, name: value })} required />
+            <SettingsSelect label="Warehouse Type" value={warehouseForm.warehouseType || 'Stock Room'} onChange={(value) => setWarehouseForm({ ...warehouseForm, warehouseType: value })} options={['Stock Room', 'Main Depot', 'Cold Room', 'Returns Cage', 'Yard']} />
+            <SettingsSelect label="Branch" value={warehouseForm.branchId} onChange={(value) => setWarehouseForm({ ...warehouseForm, branchId: value })} options={branches.map((branch) => branch.id)} />
+            <SettingsField label="Shelf Prefix" value={warehouseForm.shelfLocationPrefix || ''} onChange={(value) => setWarehouseForm({ ...warehouseForm, shelfLocationPrefix: value.toUpperCase() })} />
+            <SettingsField label="City / Town" value={warehouseForm.cityTown || ''} onChange={(value) => setWarehouseForm({ ...warehouseForm, cityTown: value })} />
+            <SettingsField label="District" value={warehouseForm.district || ''} onChange={(value) => setWarehouseForm({ ...warehouseForm, district: value })} />
+            <SettingsField label="Responsible Staff" value={warehouseForm.responsibleStaff || ''} onChange={(value) => setWarehouseForm({ ...warehouseForm, responsibleStaff: value })} />
+            <SettingsField label="Phone" value={warehouseForm.phone || ''} onChange={(value) => setWarehouseForm({ ...warehouseForm, phone: value })} />
+            <SettingsField label="Email" value={warehouseForm.email || ''} onChange={(value) => setWarehouseForm({ ...warehouseForm, email: value })} />
+            <SettingsSelect label="Status" value={warehouseForm.status || 'Active'} onChange={(value) => setWarehouseForm({ ...warehouseForm, status: value })} options={['Active', 'Inactive', 'Restricted']} />
+          </div>
+          <SettingsTextarea label="Physical Address" value={warehouseForm.physicalAddress || ''} onChange={(value) => setWarehouseForm({ ...warehouseForm, physicalAddress: value })} />
+          <SettingsTextarea label="Notes" value={warehouseForm.notes || ''} onChange={(value) => setWarehouseForm({ ...warehouseForm, notes: value })} />
+        </div>
+      </A5FloatingForm>
+
     </div>
+  );
+}
+
+function ReadOnlyAccessMetric({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="border border-[#b1b5c2] bg-slate-50 p-3">
+      <div className="text-[8.5px] text-slate-500 font-black uppercase tracking-wider">{label}</div>
+      <div className="mt-1 text-sm text-[#1e222b] font-black uppercase">{value}</div>
+    </div>
+  );
+}
+
+function SettingsField({ label, value, onChange, required }: { label: string; value: string; onChange: (value: string) => void; required?: boolean }) {
+  return (
+    <label className="space-y-1 block">
+      <span className="block text-[9px] text-slate-500 font-black uppercase">{label}</span>
+      <input
+        type="text"
+        value={value}
+        required={required}
+        onChange={(event) => onChange(event.target.value)}
+        className="w-full bg-white border border-[#b1b5c2] px-2.5 py-2 text-[11px] font-bold uppercase outline-none focus:border-orange-500"
+      />
+    </label>
+  );
+}
+
+function SettingsSelect({ label, value, onChange, options }: { label: string; value: string; onChange: (value: string) => void; options: string[] }) {
+  return (
+    <label className="space-y-1 block">
+      <span className="block text-[9px] text-slate-500 font-black uppercase">{label}</span>
+      <select
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        className="w-full bg-white border border-[#b1b5c2] px-2.5 py-2 text-[11px] font-bold uppercase outline-none focus:border-orange-500"
+      >
+        <option value="">Select</option>
+        {options.map((option) => (
+          <option key={option} value={option}>{option}</option>
+        ))}
+      </select>
+    </label>
+  );
+}
+
+function SettingsTextarea({ label, value, onChange }: { label: string; value: string; onChange: (value: string) => void }) {
+  return (
+    <label className="space-y-1 block">
+      <span className="block text-[9px] text-slate-500 font-black uppercase">{label}</span>
+      <textarea
+        value={value}
+        rows={3}
+        onChange={(event) => onChange(event.target.value)}
+        className="w-full bg-white border border-[#b1b5c2] px-2.5 py-2 text-[11px] font-bold uppercase outline-none focus:border-orange-500 resize-none"
+      />
+    </label>
   );
 }

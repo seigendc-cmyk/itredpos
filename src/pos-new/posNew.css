@@ -71,7 +71,7 @@ body, html {
   border-color: var(--sci-charcoal-soft) !important;
 }
 #pos-sidebar-root .bg-slate-900\/40,
-#pos-sidebar-root .bg-[#0c0e12],
+#pos-sidebar-root .bg-\[\#0c0e12\],
 #pos-sidebar-root .bg-slate-950,
 #pos-sidebar-root .bg-slate-905-6 {
   background-color: var(--sci-charcoal-soft) !important;
@@ -178,8 +178,6 @@ body, html {
 
 .bg-slate-950, 
 .bg-\[\#07090d\], 
-.bg-[#07090d], 
-.bg-[#0c0e12], 
 .bg-\[\#0c0e12\],
 main {
   background-color: var(--sci-bg) !important;
@@ -203,8 +201,8 @@ main {
 }
 
 /* Keep precise orange highlights for labels, actions or alerts */
-.text-[#00f0ff],
-.text-[#4df5ff],
+.text-\[\#00f0ff\],
+.text-\[\#4df5ff\],
 .text-cyan-400,
 .text-emerald-400,
 .text-amber-500 {

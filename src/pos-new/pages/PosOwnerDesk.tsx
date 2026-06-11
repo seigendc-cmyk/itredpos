@@ -8,42 +8,128 @@ import {
   Download,
   Eye,
   Lock,
+  PackageCheck,
   RefreshCw,
   ShieldAlert,
-  UserCheck,
+  Truck,
+  Users,
   XCircle
 } from 'lucide-react';
 import {
+  EODActivityEvent,
+  EODBIReviewItem,
+  EODCashReconciliation,
   EODChecklistItem,
-  EODReconciliationRow,
-  OwnerActivityEvent,
-  OwnerApprovalItem,
-  OwnerApprovalStatus,
-  OwnerBIAlert,
-  OwnerSummary,
+  EODDeliveryClosingRow,
+  EODInventoryClosingRow,
+  EODPaymentSummary,
+  EODSession,
+  EODShiftSummary,
+  PaymentMode,
   PosSession,
-  TerminalEODSummary
+  AccountType,
+  AccountingActivityEvent,
+  AccountingReadinessCheck,
+  CashbookEntry,
+  COAAccount,
+  COGSReserveSummary,
+  InventoryAssetPostingRow,
+  PaymentAccountingSummary,
+  SalesAccountingSummary,
+  VATSummary
 } from '../types/posTypes';
 import {
-  attemptLockDay,
+  attemptDayLock,
   exportEODReportPlaceholder,
+  getEODActivityEvents,
+  getEODBIReviewItems,
+  getEODCashReconciliation,
   getEODChecklist,
-  getEODReconciliationRows,
-  getOwnerActivityEvents,
-  getOwnerApprovals,
-  getOwnerBIAlerts,
-  getOwnerSummary,
-  getTerminalEODSummary,
-  recordOwnerActivity,
-  runEODCheck,
-  updateOwnerApprovalStatus
-} from '../services/ownerService';
+  getEODDeliveryClosing,
+  getEODInventoryClosing,
+  getEODPaymentSummary,
+  getEODSession,
+  getEODShiftSummaries,
+  markEODItemReviewed,
+  recordEODActivity,
+  runEODReadinessCheck
+} from '../services/eodService';
+import {
+  createAccountingPostingPlaceholder,
+  exportAccountingReportPlaceholder,
+  getAccountingActivityEvents,
+  getAccountingReadinessChecks,
+  getCashbookEntries,
+  getCOAAccounts,
+  getCOGSReserveSummary,
+  getInventoryAssetPosting,
+  getPaymentAccountingSummary,
+  getSalesAccountingSummary,
+  getVATSummary,
+  markAccountingPostingReviewed,
+  reverseAccountingPostingPlaceholder
+} from '../services/accountingService';
+import { getOwnerSummary } from '../services/ownerService';
+import { OwnerSummary } from '../types/posTypes';
 
 interface PosOwnerDeskProps {
   session?: PosSession;
 }
 
 type FeedbackType = 'success' | 'warning' | 'error';
+type OwnerTab =
+  | 'Owner Summary'
+  | 'EOD Reconciliation'
+  | 'Cash Reconciliation'
+  | 'Payment Summary'
+  | 'Shift Closing'
+  | 'Inventory Closing'
+  | 'Delivery Closing'
+  | 'BI Review'
+  | 'Accounting Desk'
+  | 'Day Lock';
+
+type AccountingTab =
+  | 'COA Accounts'
+  | 'Sales Posting'
+  | 'Payment Posting'
+  | 'Cashbook'
+  | 'VAT Summary'
+  | 'COGS Reserve'
+  | 'Inventory Asset Posting'
+  | 'Accounting Readiness';
+
+const tabs: OwnerTab[] = [
+  'Owner Summary',
+  'EOD Reconciliation',
+  'Cash Reconciliation',
+  'Payment Summary',
+  'Shift Closing',
+  'Inventory Closing',
+  'Delivery Closing',
+  'BI Review',
+  'Accounting Desk',
+  'Day Lock'
+];
+
+const accountingTabs: AccountingTab[] = [
+  'COA Accounts',
+  'Sales Posting',
+  'Payment Posting',
+  'Cashbook',
+  'VAT Summary',
+  'COGS Reserve',
+  'Inventory Asset Posting',
+  'Accounting Readiness'
+];
+
+const branches = ['All Branches', 'Harare Main', 'Bulawayo Branch', 'Mutare Branch'];
+const terminals = ['All Terminals', 'POS-01', 'POS-02', 'BACK-01'];
+const cashiers = ['All Staff', 'Admin User', 'Mary Cashier', 'Tawanda Supervisor', 'Blessing Stock'];
+const paymentModes: Array<PaymentMode | 'All'> = ['All', 'Cash', 'EcoCash', 'Swipe', 'Bank Transfer', 'Split Payment', 'Credit Sale', 'Store Credit'];
+const accountTypes: AccountType[] = ['Asset', 'Liability', 'Equity', 'Income', 'Cost of Sales', 'Expense', 'Tax', 'Control'];
+const cashMovementTypes = ['All Movement Types', 'Opening Float', 'Cash Sale', 'Cash In', 'Cash Out', 'Refund', 'Banking', 'Owner Withdrawal', 'Petty Cash', 'Cash Variance'];
+const vatModes = ['All VAT Modes', 'Inclusive', 'Exclusive', 'Not VAT Registered'];
 
 const statusClass: Record<string, string> = {
   Passed: 'bg-emerald-50 text-emerald-800 border-emerald-300',
@@ -53,14 +139,31 @@ const statusClass: Record<string, string> = {
   Balanced: 'bg-emerald-50 text-emerald-800 border-emerald-300',
   Variance: 'bg-amber-50 text-amber-900 border-amber-300',
   Review: 'bg-orange-50 text-orange-800 border-orange-300',
+  Reviewed: 'bg-blue-50 text-blue-800 border-blue-300',
+  Open: 'bg-orange-50 text-orange-800 border-orange-300',
+  Closed: 'bg-emerald-50 text-emerald-800 border-emerald-300',
+  Posted: 'bg-emerald-50 text-emerald-800 border-emerald-300',
+  'Pending Approval': 'bg-amber-50 text-amber-900 border-amber-300',
+  Completed: 'bg-emerald-50 text-emerald-800 border-emerald-300',
+  'Follow Up': 'bg-blue-50 text-blue-800 border-blue-300',
   Synced: 'bg-emerald-50 text-emerald-800 border-emerald-300',
   Conflict: 'bg-rose-50 text-rose-800 border-rose-300',
   'Pending Sync': 'bg-amber-50 text-amber-900 border-amber-300',
-  Open: 'bg-orange-50 text-orange-800 border-orange-300',
-  Approved: 'bg-emerald-50 text-emerald-800 border-emerald-300',
-  Rejected: 'bg-rose-50 text-rose-800 border-rose-300',
-  Reviewed: 'bg-blue-50 text-blue-800 border-blue-300',
-  Escalated: 'bg-amber-50 text-amber-900 border-amber-300'
+  Confirmed: 'bg-emerald-50 text-emerald-800 border-emerald-300',
+  Mismatch: 'bg-rose-50 text-rose-800 border-rose-300',
+  Blocked: 'bg-rose-50 text-rose-800 border-rose-300',
+  Locked: 'bg-emerald-50 text-emerald-800 border-emerald-300',
+  Active: 'bg-emerald-50 text-emerald-800 border-emerald-300',
+  Inactive: 'bg-slate-100 text-slate-700 border-slate-300',
+  Draft: 'bg-slate-100 text-slate-700 border-slate-300',
+  'Pending Review': 'bg-amber-50 text-amber-900 border-amber-300',
+  Reversed: 'bg-slate-100 text-slate-700 border-slate-300',
+  Settled: 'bg-emerald-50 text-emerald-800 border-emerald-300',
+  Placeholder: 'bg-orange-50 text-orange-800 border-orange-300',
+  Reserved: 'bg-emerald-50 text-emerald-800 border-emerald-300',
+  Used: 'bg-blue-50 text-blue-800 border-blue-300',
+  'Misuse Risk': 'bg-rose-50 text-rose-800 border-rose-300',
+  'Review Required': 'bg-amber-50 text-amber-900 border-amber-300'
 };
 
 const riskClass: Record<string, string> = {
@@ -71,55 +174,127 @@ const riskClass: Record<string, string> = {
 };
 
 export default function PosOwnerDesk({ session }: PosOwnerDeskProps) {
-  const [summary, setSummary] = useState<OwnerSummary | null>(null);
+  const [activeTab, setActiveTab] = useState<OwnerTab>('Owner Summary');
+  const [activeAccountingTab, setActiveAccountingTab] = useState<AccountingTab>('COA Accounts');
+  const [ownerSummary, setOwnerSummary] = useState<OwnerSummary | null>(null);
+  const [eodSession, setEODSession] = useState<EODSession | null>(null);
   const [checklist, setChecklist] = useState<EODChecklistItem[]>([]);
-  const [reconciliationRows, setReconciliationRows] = useState<EODReconciliationRow[]>([]);
-  const [terminalRows, setTerminalRows] = useState<TerminalEODSummary[]>([]);
-  const [approvals, setApprovals] = useState<OwnerApprovalItem[]>([]);
-  const [biAlerts, setBIAlerts] = useState<OwnerBIAlert[]>([]);
-  const [activityEvents, setActivityEvents] = useState<OwnerActivityEvent[]>([]);
+  const [payments, setPayments] = useState<EODPaymentSummary[]>([]);
+  const [shifts, setShifts] = useState<EODShiftSummary[]>([]);
+  const [cashRows, setCashRows] = useState<EODCashReconciliation[]>([]);
+  const [inventoryRows, setInventoryRows] = useState<EODInventoryClosingRow[]>([]);
+  const [deliveryRows, setDeliveryRows] = useState<EODDeliveryClosingRow[]>([]);
+  const [biRows, setBIRows] = useState<EODBIReviewItem[]>([]);
+  const [activity, setActivity] = useState<EODActivityEvent[]>([]);
+  const [coaAccounts, setCOAAccounts] = useState<COAAccount[]>([]);
+  const [salesAccountingRows, setSalesAccountingRows] = useState<SalesAccountingSummary[]>([]);
+  const [paymentAccountingRows, setPaymentAccountingRows] = useState<PaymentAccountingSummary[]>([]);
+  const [cashbookRows, setCashbookRows] = useState<CashbookEntry[]>([]);
+  const [vatRows, setVATRows] = useState<VATSummary[]>([]);
+  const [cogsRows, setCOGSRows] = useState<COGSReserveSummary[]>([]);
+  const [inventoryAssetRows, setInventoryAssetRows] = useState<InventoryAssetPostingRow[]>([]);
+  const [accountingReadiness, setAccountingReadiness] = useState<AccountingReadinessCheck[]>([]);
+  const [accountingActivity, setAccountingActivity] = useState<AccountingActivityEvent[]>([]);
+  const [branch, setBranch] = useState('All Branches');
+  const [terminal, setTerminal] = useState('All Terminals');
+  const [cashier, setCashier] = useState('All Staff');
+  const [paymentMode, setPaymentMode] = useState<PaymentMode | 'All'>('All');
+  const [salesAccount, setSalesAccount] = useState('All Sales Accounts');
+  const [cashAccount, setCashAccount] = useState('All Cash Accounts');
+  const [movementType, setMovementType] = useState('All Movement Types');
+  const [vatMode, setVATMode] = useState('Inclusive');
+  const [dateFrom, setDateFrom] = useState('2026-06-09');
+  const [dateTo, setDateTo] = useState('2026-06-09');
   const [feedback, setFeedback] = useState<{ type: FeedbackType; message: string } | null>(null);
 
   const staffName = session?.staffName || 'Admin User';
-  const vendorName = session?.vendor || 'SCI Logistics Ltd';
-  const branchName = session?.branch || 'Harare Main';
-  const terminalName = session?.terminal || 'POS-01';
+  const vendorId = 'SCI-LOG-ZW';
+  const vendorName = 'Demo Vendor';
+  const businessDate = '2026-06-09';
 
-  const failedChecklistCount = useMemo(
-    () => checklist.filter((item) => item.status === 'Failed').length,
-    [checklist]
+  const filters = useMemo(
+    () => ({ vendorId, businessDate, branch, terminal, cashier, paymentMode, dateFrom, dateTo }),
+    [vendorId, branch, terminal, cashier, paymentMode, dateFrom, dateTo]
   );
 
+  const accountingFilters = useMemo(
+    () => ({ vendorId, businessDate, branch, terminal, cashier, dateFrom, dateTo, salesAccount, cashAccount, movementType, vatMode }),
+    [vendorId, branch, terminal, cashier, dateFrom, dateTo, salesAccount, cashAccount, movementType, vatMode]
+  );
+
+  const failedChecks = checklist.filter((item) => item.status === 'Failed').length;
+  const warningChecks = checklist.filter((item) => item.status === 'Warning').length;
+  const pendingReviews = checklist.filter((item) => item.status === 'Pending').length;
+
+  const blockingReasons = useMemo(() => {
+    const reasons = [
+      cashRows.some((row) => row.variance !== 0 && row.status !== 'Reviewed') ? 'Cash variance not reviewed' : '',
+      shifts.some((row) => row.status === 'Open') ? 'Open shift exists' : '',
+      checklist.some((item) => item.domain === 'Sync' && item.status === 'Failed') ? 'Sync queue has critical conflicts' : '',
+      biRows.some((row) => row.severity === 'Critical' && row.status !== 'Reviewed') ? 'Critical BI alerts not reviewed' : '',
+      inventoryRows.some((row) => row.status === 'Pending Approval') ? 'Pending approval inventory movements exist' : '',
+      accountingReadiness.some((row) => row.check.includes('Product Sales Account') && row.status !== 'Passed') ? 'Missing Sales Account COA' : '',
+      accountingReadiness.some((row) => row.check.includes('Product Asset Account') && row.status !== 'Passed') ? 'Missing Asset Account COA' : '',
+      salesAccountingRows.some((row) => row.postingStatus === 'Pending Review') ? 'Unreviewed accounting postings' : ''
+    ];
+    return reasons.filter(Boolean);
+  }, [accountingReadiness, biRows, cashRows, checklist, inventoryRows, salesAccountingRows, shifts]);
+
   useEffect(() => {
-    void loadOwnerDesk();
-  }, []);
+    void loadEOD();
+  }, [filters, accountingFilters]);
 
-  const loadOwnerDesk = async () => {
-    const [
-      nextSummary,
-      nextChecklist,
-      nextReconRows,
-      nextTerminalRows,
-      nextApprovals,
-      nextAlerts,
-      nextActivity
-    ] = await Promise.all([
-      getOwnerSummary(),
-      getEODChecklist(),
-      getEODReconciliationRows(),
-      getTerminalEODSummary(),
-      getOwnerApprovals(),
-      getOwnerBIAlerts(),
-      getOwnerActivityEvents()
-    ]);
+  const loadEOD = async () => {
+    const [summary, nextSession, nextChecklist, nextPayments, nextShifts, nextCash, nextInventory, nextDelivery, nextBI, nextActivity] =
+      await Promise.all([
+        getOwnerSummary(),
+        getEODSession(vendorId, businessDate),
+        getEODChecklist(vendorId, businessDate),
+        getEODPaymentSummary(filters),
+        getEODShiftSummaries(filters),
+        getEODCashReconciliation(filters),
+        getEODInventoryClosing(filters),
+        getEODDeliveryClosing(filters),
+        getEODBIReviewItems(filters),
+        getEODActivityEvents()
+      ]);
 
-    setSummary(nextSummary);
+    setOwnerSummary(summary);
+    setEODSession(nextSession);
     setChecklist(nextChecklist);
-    setReconciliationRows(nextReconRows);
-    setTerminalRows(nextTerminalRows);
-    setApprovals(nextApprovals);
-    setBIAlerts(nextAlerts);
-    setActivityEvents(nextActivity);
+    setPayments(nextPayments);
+    setShifts(nextShifts);
+    setCashRows(nextCash);
+    setInventoryRows(nextInventory);
+    setDeliveryRows(nextDelivery);
+    setBIRows(nextBI);
+    setActivity(nextActivity);
+    await loadAccounting();
+  };
+
+  const loadAccounting = async () => {
+    const [nextCOA, nextSales, nextPayments, nextCashbook, nextVAT, nextCOGS, nextInventoryAsset, nextReadiness, nextActivity] =
+      await Promise.all([
+        getCOAAccounts(),
+        getSalesAccountingSummary(accountingFilters),
+        getPaymentAccountingSummary(accountingFilters),
+        getCashbookEntries(accountingFilters),
+        getVATSummary(accountingFilters),
+        getCOGSReserveSummary(accountingFilters),
+        getInventoryAssetPosting(accountingFilters),
+        getAccountingReadinessChecks(vendorId),
+        getAccountingActivityEvents()
+      ]);
+
+    setCOAAccounts(nextCOA);
+    setSalesAccountingRows(nextSales);
+    setPaymentAccountingRows(nextPayments);
+    setCashbookRows(nextCashbook);
+    setVATRows(nextVAT);
+    setCOGSRows(nextCOGS);
+    setInventoryAssetRows(nextInventoryAsset);
+    setAccountingReadiness(nextReadiness);
+    setAccountingActivity(nextActivity);
   };
 
   const showFeedback = (type: FeedbackType, message: string) => {
@@ -127,78 +302,121 @@ export default function PosOwnerDesk({ session }: PosOwnerDeskProps) {
     setTimeout(() => setFeedback(null), 5000);
   };
 
-  const refreshActivity = async () => {
-    setActivityEvents(await getOwnerActivityEvents());
+  const refreshMutableRows = async () => {
+    const [nextChecklist, nextCash, nextInventory, nextDelivery, nextBI, nextActivity, nextSession] = await Promise.all([
+      getEODChecklist(vendorId, businessDate),
+      getEODCashReconciliation(filters),
+      getEODInventoryClosing(filters),
+      getEODDeliveryClosing(filters),
+      getEODBIReviewItems(filters),
+      getEODActivityEvents(),
+      getEODSession(vendorId, businessDate)
+    ]);
+    setChecklist(nextChecklist);
+    setCashRows(nextCash);
+    setInventoryRows(nextInventory);
+    setDeliveryRows(nextDelivery);
+    setBIRows(nextBI);
+    setActivity(nextActivity);
+    setEODSession(nextSession);
   };
 
-  const handleRunEODCheck = async () => {
-    setChecklist(await runEODCheck(staffName));
-    setActivityEvents(await getOwnerActivityEvents());
-    showFeedback('success', 'EOD readiness checklist refreshed.');
+  const handleRunCheck = async () => {
+    setChecklist(await runEODReadinessCheck(vendorId, businessDate));
+    setActivity(await getEODActivityEvents());
+    showFeedback('success', 'EOD readiness check run for Demo Vendor.');
   };
 
-  const handleRecordAction = async (
-    eventType: 'OWNER_BI_REVIEW_STARTED' | 'OWNER_CASH_VARIANCE_REVIEWED' | 'OWNER_SYNC_REVIEW_STARTED',
-    message: string
-  ) => {
-    setActivityEvents(await recordOwnerActivity(eventType, message, staffName));
-    showFeedback('success', message);
-  };
-
-  const handleApprovalAction = async (approvalId: string, status: OwnerApprovalStatus) => {
-    setApprovals(await updateOwnerApprovalStatus(approvalId, status, staffName));
-    await refreshActivity();
-    showFeedback('success', `Approval ${approvalId} updated to ${status}.`);
+  const handleMarkReviewed = async (itemId: string) => {
+    setActivity(await markEODItemReviewed(itemId));
+    await refreshMutableRows();
+    showFeedback('success', `${itemId} marked reviewed locally.`);
   };
 
   const handleLockDay = async () => {
-    const result = await attemptLockDay(checklist, staffName);
-    setActivityEvents(result.activity);
+    const result = await attemptDayLock(vendorId, businessDate);
+    setEODSession(result.session);
+    setActivity(result.activity);
     showFeedback(result.success ? 'success' : 'error', result.message);
   };
 
-  const handleExportReport = async () => {
-    const result = await exportEODReportPlaceholder(staffName);
-    setActivityEvents(result.activity);
+  const handleExport = async () => {
+    const result = await exportEODReportPlaceholder(filters);
+    setActivity(result.activity);
     showFeedback('success', result.message);
   };
 
-  const metricRows = summary
+  const handleActivityOnly = async (message: string) => {
+    setActivity(await recordEODActivity('SHIFT_FORCE_CLOSE_PLACEHOLDER', message, staffName));
+    showFeedback('warning', message);
+  };
+
+  const handleAccountingReviewed = async (postingId: string) => {
+    setAccountingActivity(await markAccountingPostingReviewed(postingId));
+    await loadAccounting();
+    showFeedback('success', `${postingId} marked reviewed locally.`);
+  };
+
+  const handleAccountingReverse = async (postingId: string) => {
+    setAccountingActivity(await reverseAccountingPostingPlaceholder(postingId, 'Owner Desk reverse placeholder.'));
+    await loadAccounting();
+    showFeedback('warning', `${postingId} reverse placeholder recorded.`);
+  };
+
+  const handleAccountingExport = async (reportType: string) => {
+    const result = await exportAccountingReportPlaceholder(reportType);
+    setAccountingActivity(result.activity);
+    showFeedback('success', result.message);
+  };
+
+  const handleCreatePostingPlaceholder = async () => {
+    await createAccountingPostingPlaceholder({
+      sourceReference: 'MANUAL-PLACEHOLDER',
+      source: 'Manual Placeholder',
+      branch: branch === 'All Branches' ? 'Harare Main' : branch,
+      amount: 0
+    });
+    setAccountingActivity(await getAccountingActivityEvents());
+    showFeedback('success', 'New COA account form placeholder recorded locally.');
+  };
+
+  const eodMetrics: Array<[string, string]> = eodSession
     ? [
-        { label: 'Today Sales', value: summary.todaySales },
-        { label: 'Gross Margin Placeholder', value: summary.grossMarginPlaceholder },
-        { label: 'Cash Expected', value: summary.cashExpected },
-        { label: 'Cash Declared', value: summary.cashDeclared },
-        { label: 'Cash Variance', value: summary.cashVariance },
-        { label: 'Open Approvals', value: summary.openApprovals.toString() },
-        { label: 'Stock Risk Flags', value: summary.stockRiskFlags.toString() },
-        { label: 'Pending Sync Items', value: summary.pendingSyncItems.toString() },
-        { label: 'Completed Deliveries', value: summary.completedDeliveries.toString() },
-        { label: 'WhatsApp Leads', value: summary.whatsAppLeads.toString() },
-        { label: 'Converted Orders', value: summary.convertedOrders.toString() },
-        { label: 'EOD Status', value: summary.eodStatus }
+        ['Today Sales', money(eodSession.todaySales)],
+        ['Net Receipts', money(eodSession.netReceipts)],
+        ['Cash Expected', money(eodSession.cashExpected)],
+        ['Cash Declared', money(eodSession.cashDeclared)],
+        ['Cash Variance', money(eodSession.cashVariance)],
+        ['Refunds', money(eodSession.refunds)],
+        ['Voids', eodSession.voids.toString()],
+        ['Open Shifts', eodSession.openShifts.toString()],
+        ['Pending Stock Movements', eodSession.pendingStockMovements.toString()],
+        ['Pending Deliveries', eodSession.pendingDeliveries.toString()],
+        ['Critical BI Alerts', eodSession.criticalBIAlerts.toString()],
+        ['Sync Pending Items', eodSession.syncPendingItems.toString()],
+        ['EOD Status', eodSession.status]
       ]
     : [];
 
   return (
-    <div className="space-y-6 font-mono text-xs text-[#111827] select-none pb-12">
+    <div className="space-y-5 font-mono text-xs text-[#111827] select-none pb-12">
       <div className="bg-white border-2 border-[#b1b5c2] p-5 flex flex-col xl:flex-row xl:items-center justify-between gap-4">
         <div>
           <div className="text-[9px] font-black text-orange-600 uppercase tracking-widest">Owner Desk</div>
           <h1 className="text-base font-black text-[#1e222b] uppercase flex items-center gap-2 mt-1">
             <BarChart3 className="w-5 h-5 text-orange-500" />
-            Day-End Control and Business Oversight
+            EOD Reconciliation and Day Closing Control
           </h1>
           <div className="flex flex-wrap gap-x-4 gap-y-1.5 mt-2 text-[10px] text-slate-500">
-            <span><strong>Vendor:</strong> <span className="font-bold text-[#1e222b]">{vendorName}</span></span>
-            <span><strong>Branch:</strong> <span className="font-bold text-[#1e222b]">{branchName}</span></span>
-            <span><strong>Terminal:</strong> <span className="font-bold text-[#1e222b]">{terminalName}</span></span>
-            <span><strong>Staff:</strong> <span className="font-bold text-[#1e222b]">{staffName}</span></span>
-            <span><strong>Mode:</strong> <span className="bg-orange-50 text-orange-700 border border-orange-200 px-1 font-bold">Local Prototype</span></span>
+            <span><strong>Business / Vendor:</strong> <span className="font-bold text-[#1e222b]">{vendorName}</span></span>
+            <span><strong>Business Date:</strong> <span className="font-bold text-[#1e222b]">{businessDate}</span></span>
+            <span><strong>Status:</strong> <Badge value={eodSession?.status || 'Blocked'} /></span>
+            <span><strong>Last Check:</strong> <span className="font-bold text-[#1e222b]">{timeOnly(eodSession?.lastCheckTime)}</span></span>
+            <span><strong>Owner Access:</strong> <span className="bg-orange-50 text-orange-700 border border-orange-200 px-1 font-bold">Full Build Access</span></span>
           </div>
         </div>
         <div className="bg-[#1e222b] text-white border-2 border-[#1e222b] px-4 py-3 text-[10px] uppercase font-black">
-          EOD Failed Checks: <span className="text-orange-400">{failedChecklistCount}</span>
+          Lock Allowed: <span className="text-orange-400">{failedChecks === 0 && blockingReasons.length === 0 ? 'Yes' : 'No'}</span>
         </div>
       </div>
 
@@ -218,187 +436,536 @@ export default function PosOwnerDesk({ session }: PosOwnerDeskProps) {
         </div>
       )}
 
-      <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-6 gap-3">
-        {metricRows.map((metric) => (
-          <div key={metric.label} className="bg-white border border-[#b1b5c2] border-l-4 border-l-orange-500 p-3 h-[88px] flex flex-col justify-between">
-            <span className="text-[8.5px] font-black text-slate-500 uppercase tracking-tight truncate" title={metric.label}>{metric.label}</span>
-            <span className="text-base font-black text-[#1e222b] leading-tight truncate" title={metric.value}>{metric.value}</span>
-            <span className="text-[8px] text-slate-400 uppercase">Daily control metric</span>
-          </div>
+      <div className="bg-white border-2 border-[#b1b5c2] p-2 flex flex-wrap gap-2">
+        {tabs.map((tab) => (
+          <button
+            key={tab}
+            onClick={() => setActiveTab(tab)}
+            className={`px-3 py-2 text-[9px] font-black uppercase border min-h-[34px] ${
+              activeTab === tab
+                ? 'bg-orange-600 text-white border-orange-700'
+                : 'bg-slate-50 text-[#1e222b] border-[#b1b5c2] hover:bg-orange-50'
+            }`}
+          >
+            {tab}
+          </button>
         ))}
       </div>
 
-      <div className="grid grid-cols-1 xl:grid-cols-12 gap-6">
-        <div className="xl:col-span-8 space-y-6">
-          <Panel title="Day-End Readiness Checklist" icon={<ClipboardCheck className="w-4 h-4 text-orange-500" />}>
+      {activeTab === 'Owner Summary' && (
+        <div className="space-y-5">
+          <MetricGrid metrics={[
+            ['Today Sales', ownerSummary?.todaySales || money(1245)],
+            ['Cash Expected', ownerSummary?.cashExpected || money(760)],
+            ['Cash Declared', ownerSummary?.cashDeclared || money(755)],
+            ['Cash Variance', ownerSummary?.cashVariance || money(-5)],
+            ['Open Approvals', ownerSummary?.openApprovals.toString() || '6'],
+            ['Pending Sync Items', ownerSummary?.pendingSyncItems.toString() || '23'],
+            ['Completed Deliveries', ownerSummary?.completedDeliveries.toString() || '9'],
+            ['EOD Status', eodSession?.status || 'Blocked']
+          ]} />
+          <Panel title="Owner Control Summary" icon={<ShieldAlert className="w-4 h-4 text-orange-500" />}>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+              <InfoBox label="Access Scope" value="Owner full access during build-development" />
+              <InfoBox label="Tenant Scope" value="Owner Desk local EOD control only" />
+              <InfoBox label="Data Source" value="Mock/local EOD data only" />
+            </div>
+          </Panel>
+        </div>
+      )}
+
+      {activeTab === 'EOD Reconciliation' && (
+        <div className="space-y-5">
+          <Filters branch={branch} setBranch={setBranch} dateFrom={dateFrom} setDateFrom={setDateFrom} dateTo={dateTo} setDateTo={setDateTo} />
+          <MetricGrid metrics={eodMetrics} />
+          <Panel title="EOD Readiness Checklist" icon={<ClipboardCheck className="w-4 h-4 text-orange-500" />}>
             <Table>
-              <thead>
-                <tr>
-                  <Th>Check</Th>
-                  <Th>Status</Th>
-                  <Th>Owner Action</Th>
-                  <Th>Notes</Th>
-                </tr>
-              </thead>
+              <thead><tr><Th>Check</Th><Th>Domain</Th><Th>Status</Th><Th>Risk</Th><Th>Required Action</Th><Th>Reviewed By</Th><Th>Action</Th></tr></thead>
               <tbody>
                 {checklist.map((item) => (
                   <tr key={item.id} className="border-t border-slate-100 hover:bg-slate-50">
-                    <Td strong>{item.label}</Td>
+                    <Td strong>{item.check || item.label}</Td>
+                    <Td>{item.domain || 'EOD'}</Td>
                     <Td><Badge value={item.status} /></Td>
-                    <Td>
-                      <button className="px-2 py-1 bg-orange-600 hover:bg-orange-700 text-white text-[9px] font-black uppercase">
-                        {item.ownerAction}
-                      </button>
-                    </Td>
-                    <Td>{item.notes}</Td>
-                  </tr>
-                ))}
-              </tbody>
-            </Table>
-          </Panel>
-
-          <Panel title="Day-End Reconciliation" icon={<DollarSign className="w-4 h-4 text-orange-500" />}>
-            <Table>
-              <thead>
-                <tr>
-                  <Th>Domain</Th>
-                  <Th>Expected</Th>
-                  <Th>Actual</Th>
-                  <Th>Variance</Th>
-                  <Th>Status</Th>
-                  <Th>Required Action</Th>
-                </tr>
-              </thead>
-              <tbody>
-                {reconciliationRows.map((row) => (
-                  <tr key={row.id} className="border-t border-slate-100 hover:bg-slate-50">
-                    <Td strong>{row.domain}</Td>
-                    <Td>{row.expected}</Td>
-                    <Td>{row.actual}</Td>
-                    <Td>{row.variance}</Td>
-                    <Td><Badge value={row.status} /></Td>
-                    <Td>{row.requiredAction}</Td>
-                  </tr>
-                ))}
-              </tbody>
-            </Table>
-          </Panel>
-
-          <Panel title="Branch and Terminal Summary" icon={<UserCheck className="w-4 h-4 text-orange-500" />}>
-            <Table>
-              <thead>
-                <tr>
-                  <Th>Branch</Th>
-                  <Th>Terminal</Th>
-                  <Th>Staff</Th>
-                  <Th>Shift Status</Th>
-                  <Th>Sales</Th>
-                  <Th>Expected Cash</Th>
-                  <Th>Declared Cash</Th>
-                  <Th>Variance</Th>
-                  <Th>Sync Status</Th>
-                  <Th>Action</Th>
-                </tr>
-              </thead>
-              <tbody>
-                {terminalRows.map((row) => (
-                  <tr key={row.id} className="border-t border-slate-100 hover:bg-slate-50">
-                    <Td strong>{row.branch}</Td>
-                    <Td>{row.terminal}</Td>
-                    <Td>{row.staff}</Td>
-                    <Td><Badge value={row.shiftStatus} /></Td>
-                    <Td>{row.sales}</Td>
-                    <Td>{row.expectedCash}</Td>
-                    <Td>{row.declaredCash}</Td>
-                    <Td>{row.variance}</Td>
-                    <Td><Badge value={row.syncStatus} /></Td>
-                    <Td>{row.action}</Td>
-                  </tr>
-                ))}
-              </tbody>
-            </Table>
-          </Panel>
-
-          <Panel title="Approval Control" icon={<ShieldAlert className="w-4 h-4 text-orange-500" />}>
-            <Table>
-              <thead>
-                <tr>
-                  <Th>Approval ID</Th>
-                  <Th>Type</Th>
-                  <Th>Requested By</Th>
-                  <Th>Amount / Value</Th>
-                  <Th>Risk</Th>
-                  <Th>Status</Th>
-                  <Th>Action</Th>
-                </tr>
-              </thead>
-              <tbody>
-                {approvals.map((approval) => (
-                  <tr key={approval.id} className="border-t border-slate-100 hover:bg-slate-50">
-                    <Td strong>{approval.id}</Td>
-                    <Td>{approval.type}</Td>
-                    <Td>{approval.requestedBy}</Td>
-                    <Td>{approval.amountOrValue}</Td>
-                    <Td><Badge value={approval.risk} risk /></Td>
-                    <Td><Badge value={approval.status} /></Td>
-                    <Td>
-                      <div className="flex flex-wrap gap-1">
-                        <SmallAction onClick={() => handleApprovalAction(approval.id, 'Approved')}>Approve</SmallAction>
-                        <SmallAction onClick={() => handleApprovalAction(approval.id, 'Rejected')}>Reject</SmallAction>
-                        <SmallAction onClick={() => handleApprovalAction(approval.id, 'Reviewed')}>Mark Reviewed</SmallAction>
-                        <SmallAction onClick={() => handleApprovalAction(approval.id, 'Escalated')}>Escalate</SmallAction>
-                      </div>
-                    </Td>
+                    <Td><Badge value={item.risk || 'Low'} risk /></Td>
+                    <Td>{item.requiredAction || item.ownerAction || 'None'}</Td>
+                    <Td>{item.reviewedBy || 'Pending'}</Td>
+                    <Td><ActionGroup id={item.id} onReview={handleMarkReviewed} /></Td>
                   </tr>
                 ))}
               </tbody>
             </Table>
           </Panel>
         </div>
+      )}
 
-        <div className="xl:col-span-4 space-y-6">
-          <Panel title="Owner BI Alerts" icon={<AlertTriangle className="w-4 h-4 text-orange-500" />}>
-            <div className="space-y-3">
-              {biAlerts.map((alert) => (
-                <div key={alert.id} className="border border-[#b1b5c2] bg-slate-50 p-3">
-                  <div className="flex items-start justify-between gap-2">
-                    <span className="font-black text-[#1e222b] uppercase text-[10px] leading-tight">{alert.eventType}</span>
-                    <Badge value={alert.severity} risk />
-                  </div>
-                  <p className="text-[10.5px] text-slate-600 font-semibold mt-2">{alert.message}</p>
-                </div>
-              ))}
-            </div>
-          </Panel>
-
-          <Panel title="EOD Actions" icon={<RefreshCw className="w-4 h-4 text-orange-500" />}>
-            <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-1 gap-2.5">
-              <ActionButton icon={<RefreshCw className="w-4 h-4" />} onClick={handleRunEODCheck}>Run EOD Check</ActionButton>
-              <ActionButton icon={<Eye className="w-4 h-4" />} onClick={() => handleRecordAction('OWNER_BI_REVIEW_STARTED', 'BI review started.')}>Review Critical BI</ActionButton>
-              <ActionButton icon={<DollarSign className="w-4 h-4" />} onClick={() => handleRecordAction('OWNER_CASH_VARIANCE_REVIEWED', 'Cash variance under review.')}>Review Cash Variance</ActionButton>
-              <ActionButton icon={<ClipboardCheck className="w-4 h-4" />} onClick={() => handleRecordAction('OWNER_SYNC_REVIEW_STARTED', 'Sync review started.')}>Review Pending Sync</ActionButton>
-              <ActionButton icon={<Lock className="w-4 h-4" />} onClick={handleLockDay}>Lock Day Placeholder</ActionButton>
-              <ActionButton icon={<Download className="w-4 h-4" />} onClick={handleExportReport}>Export EOD Report Placeholder</ActionButton>
-            </div>
-          </Panel>
-
-          <Panel title="Owner Activity Feed" icon={<CheckCircle2 className="w-4 h-4 text-orange-500" />}>
-            <div className="space-y-3 max-h-[430px] overflow-y-auto pos-custom-scroll">
-              {activityEvents.map((event) => (
-                <div key={event.id} className="border-l-4 border-l-orange-500 bg-slate-50 border border-[#b1b5c2] p-3">
-                  <div className="flex items-start justify-between gap-2">
-                    <span className="font-black text-[#1e222b] uppercase text-[9.5px]">{event.eventType}</span>
-                    <span className="text-[8px] text-slate-400 font-bold">{event.timestamp.includes('T') ? event.timestamp.slice(11, 19) : event.timestamp}</span>
-                  </div>
-                  <p className="text-[10px] text-slate-600 font-semibold mt-1">{event.message}</p>
-                  <span className="text-[8px] text-slate-400 uppercase font-black">Operator: {event.operator}</span>
-                </div>
-              ))}
-            </div>
+      {activeTab === 'Payment Summary' && (
+        <div className="space-y-5">
+          <PaymentFilters branch={branch} setBranch={setBranch} terminal={terminal} setTerminal={setTerminal} cashier={cashier} setCashier={setCashier} dateFrom={dateFrom} setDateFrom={setDateFrom} dateTo={dateTo} setDateTo={setDateTo} paymentMode={paymentMode} setPaymentMode={setPaymentMode} />
+          <MetricGrid metrics={[
+            ['Cash', money(750)], ['EcoCash', money(320)], ['Swipe', money(215)], ['Bank Transfer', money(460)], ['Split Payment', money(200)], ['Credit Sale', money(90)], ['Store Credit', money(42)], ['Refunds', money(10)], ['Net Receipts', money(1227)]
+          ]} />
+          <Panel title="Payment Mode Reconciliation" icon={<DollarSign className="w-4 h-4 text-orange-500" />}>
+            <Table>
+              <thead><tr><Th>Payment Mode</Th><Th>Receipt Count</Th><Th>Gross Amount</Th><Th>Discounts</Th><Th>Refunds</Th><Th>Net Amount</Th><Th>Expected Settlement</Th><Th>Declared / Confirmed</Th><Th>Variance</Th><Th>Status</Th><Th>Action</Th></tr></thead>
+              <tbody>
+                {payments.map((row) => (
+                  <tr key={row.id} className="border-t border-slate-100 hover:bg-slate-50">
+                    <Td strong>{row.paymentMode}</Td><Td>{row.receiptCount}</Td><Td>{money(row.grossAmount)}</Td><Td>{money(row.discounts)}</Td><Td>{money(row.refunds)}</Td><Td>{money(row.netAmount)}</Td><Td>{money(row.expectedSettlement)}</Td><Td>{displayAmount(row.declaredOrConfirmed)}</Td><Td>{displayAmount(row.variance)}</Td><Td><Badge value={row.status} /></Td><Td><PaymentActionGroup id={row.id} onReview={handleMarkReviewed} /></Td>
+                  </tr>
+                ))}
+              </tbody>
+            </Table>
           </Panel>
         </div>
-      </div>
+      )}
+
+      {activeTab === 'Cash Reconciliation' && (
+        <Panel title="Cash Drawer Reconciliation" icon={<DollarSign className="w-4 h-4 text-orange-500" />}>
+          <CashFilters branch={branch} setBranch={setBranch} terminal={terminal} setTerminal={setTerminal} cashier={cashier} setCashier={setCashier} />
+          <Table>
+            <thead><tr><Th>Branch</Th><Th>Terminal</Th><Th>Cashier</Th><Th>Shift ID</Th><Th>Opening Float</Th><Th>Cash Sales</Th><Th>Cash In</Th><Th>Cash Out</Th><Th>Expected Cash</Th><Th>Declared Cash</Th><Th>Variance</Th><Th>Status</Th><Th>Required Action</Th><Th>Action</Th></tr></thead>
+            <tbody>
+              {cashRows.map((row) => (
+                <tr key={row.id} className="border-t border-slate-100 hover:bg-slate-50">
+                  <Td strong>{row.branch}</Td><Td>{row.terminal}</Td><Td>{row.cashier}</Td><Td>{row.shiftId}</Td><Td>{money(row.openingFloat)}</Td><Td>{money(row.cashSales)}</Td><Td>{money(row.cashIn)}</Td><Td>{money(row.cashOut)}</Td><Td>{money(row.expectedCash)}</Td><Td>{money(row.declaredCash)}</Td><Td>{money(row.variance)}</Td><Td><Badge value={row.status} /></Td><Td>{row.requiredAction}</Td><Td><CashActionGroup id={row.id} onReview={handleMarkReviewed} /></Td>
+                </tr>
+              ))}
+            </tbody>
+          </Table>
+        </Panel>
+      )}
+
+      {activeTab === 'Shift Closing' && (
+        <Panel title="Shift Closing" icon={<Users className="w-4 h-4 text-orange-500" />}>
+          <Table>
+            <thead><tr><Th>Shift ID</Th><Th>Branch</Th><Th>Terminal</Th><Th>Staff</Th><Th>Opened At</Th><Th>Closed At</Th><Th>Status</Th><Th>Sales Total</Th><Th>Expected Cash</Th><Th>Declared Cash</Th><Th>Variance</Th><Th>Sync Status</Th><Th>Action</Th></tr></thead>
+            <tbody>
+              {shifts.map((row) => (
+                <tr key={row.id} className="border-t border-slate-100 hover:bg-slate-50">
+                  <Td strong>{row.shiftId}</Td><Td>{row.branch}</Td><Td>{row.terminal}</Td><Td>{row.staff}</Td><Td>{timeOnly(row.openedAt)}</Td><Td>{timeOnly(row.closedAt)}</Td><Td><Badge value={row.status} /></Td><Td>{money(row.salesTotal)}</Td><Td>{money(row.expectedCash)}</Td><Td>{displayAmount(row.declaredCash)}</Td><Td>{displayAmount(row.variance)}</Td><Td><Badge value={row.syncStatus} /></Td>
+                  <Td><ShiftActionGroup id={row.id} shiftId={row.shiftId} onReview={handleMarkReviewed} onForceClose={handleActivityOnly} /></Td>
+                </tr>
+              ))}
+            </tbody>
+          </Table>
+        </Panel>
+      )}
+
+      {activeTab === 'Inventory Closing' && (
+        <div className="space-y-5">
+          <MetricGrid metrics={[
+            ['Sale Movements', '8'], ['Return Movements', '1'], ['Goods Received', '4'], ['Stock Adjustments', '2'], ['Stocktake Adjustments', '1'], ['Transfers', '2'], ['Supplier Returns', '1'], ['Pending Approval Movements', '3'], ['High Risk Movements', '3']
+          ]} />
+          <Panel title="Inventory Movement Closing" icon={<PackageCheck className="w-4 h-4 text-orange-500" />}>
+            <Table>
+              <thead><tr><Th>Movement ID</Th><Th>Product</Th><Th>Movement Type</Th><Th>Reference</Th><Th>Branch</Th><Th>Warehouse</Th><Th>Qty In</Th><Th>Qty Out</Th><Th>Status</Th><Th>Risk</Th><Th>Required Action</Th><Th>Action</Th></tr></thead>
+              <tbody>
+                {inventoryRows.map((row) => (
+                  <tr key={row.id} className="border-t border-slate-100 hover:bg-slate-50">
+                    <Td strong>{row.movementId}</Td><Td>{row.product}</Td><Td>{row.movementType}</Td><Td>{row.reference}</Td><Td>{row.branch}</Td><Td>{row.warehouse}</Td><Td>{row.qtyIn}</Td><Td>{row.qtyOut}</Td><Td><Badge value={row.status} /></Td><Td><Badge value={row.risk} risk /></Td><Td>{row.requiredAction}</Td><Td><InventoryActionGroup id={row.id} onReview={handleMarkReviewed} /></Td>
+                  </tr>
+                ))}
+              </tbody>
+            </Table>
+          </Panel>
+        </div>
+      )}
+
+      {activeTab === 'Delivery Closing' && (
+        <Panel title="Delivery Closing" icon={<Truck className="w-4 h-4 text-orange-500" />}>
+          <Table>
+            <thead><tr><Th>Delivery ID</Th><Th>Receipt</Th><Th>Customer</Th><Th>Delivery Method</Th><Th>Driver</Th><Th>Status</Th><Th>Secret Code Status</Th><Th>Completed At</Th><Th>Risk</Th><Th>Required Action</Th><Th>Action</Th></tr></thead>
+            <tbody>
+              {deliveryRows.map((row) => (
+                <tr key={row.id} className="border-t border-slate-100 hover:bg-slate-50">
+                  <Td strong>{row.deliveryId}</Td><Td>{row.receipt}</Td><Td>{row.customer}</Td><Td>{row.deliveryMethod}</Td><Td>{row.driver}</Td><Td><Badge value={row.status} /></Td><Td><Badge value={row.secretCodeStatus} /></Td><Td>{timeOnly(row.completedAt)}</Td><Td><Badge value={row.risk} risk /></Td><Td>{row.requiredAction}</Td><Td><DeliveryActionGroup id={row.id} onReview={handleMarkReviewed} /></Td>
+                </tr>
+              ))}
+            </tbody>
+          </Table>
+        </Panel>
+      )}
+
+      {activeTab === 'BI Review' && (
+        <Panel title="BI Review" icon={<ShieldAlert className="w-4 h-4 text-orange-500" />}>
+          <Table>
+            <thead><tr><Th>BI Event</Th><Th>Domain</Th><Th>Severity</Th><Th>Description</Th><Th>Recommended Action</Th><Th>Status</Th><Th>Reviewed By</Th><Th>Action</Th></tr></thead>
+            <tbody>
+              {biRows.map((row) => (
+                <tr key={row.id} className="border-t border-slate-100 hover:bg-slate-50">
+                  <Td strong>{row.eventType}</Td><Td>{row.domain}</Td><Td><Badge value={row.severity} risk /></Td><Td>{row.description}</Td><Td>{row.recommendedAction}</Td><Td><Badge value={row.status} /></Td><Td>{row.reviewedBy || 'Pending'}</Td><Td><BIActionGroup id={row.id} onReview={handleMarkReviewed} /></Td>
+                </tr>
+              ))}
+            </tbody>
+          </Table>
+        </Panel>
+      )}
+
+      {activeTab === 'Accounting Desk' && (
+        <div className="space-y-5">
+          <div className="bg-white border-2 border-[#b1b5c2] p-2 flex flex-wrap gap-2">
+            {accountingTabs.map((tab) => (
+              <button
+                key={tab}
+                onClick={() => setActiveAccountingTab(tab)}
+                className={`px-3 py-2 text-[9px] font-black uppercase border min-h-[34px] ${
+                  activeAccountingTab === tab
+                    ? 'bg-[#1e222b] text-white border-[#1e222b]'
+                    : 'bg-slate-50 text-[#1e222b] border-[#b1b5c2] hover:bg-orange-50'
+                }`}
+              >
+                {tab}
+              </button>
+            ))}
+          </div>
+
+          {activeAccountingTab === 'COA Accounts' && (
+            <div className="space-y-5">
+              <Panel title="New COA Account Placeholder" icon={<ClipboardCheck className="w-4 h-4 text-orange-500" />}>
+                <div className="grid grid-cols-1 md:grid-cols-6 gap-2">
+                  <Input label="Account Code" value="New Code" onChange={() => undefined} />
+                  <Input label="Account Name" value="New Account Placeholder" onChange={() => undefined} />
+                  <Select label="Account Type" value="Asset" onChange={() => undefined} options={accountTypes} />
+                  <Input label="Linked Domain" value="Sales" onChange={() => undefined} />
+                  <Select label="Status" value="Draft" onChange={() => undefined} options={['Active', 'Inactive', 'Draft']} />
+                  <Input label="Notes" value="Placeholder account note" onChange={() => undefined} />
+                  <ActionButton icon={<ClipboardCheck className="w-4 h-4" />} onClick={handleCreatePostingPlaceholder}>Add New COA Account</ActionButton>
+                </div>
+              </Panel>
+              <Panel title="Chart of Accounts Placeholder" icon={<DollarSign className="w-4 h-4 text-orange-500" />}>
+                <Table>
+                  <thead><tr><Th>Account Code</Th><Th>Account Name</Th><Th>Account Type</Th><Th>Linked Domain</Th><Th>Status</Th><Th>Action</Th></tr></thead>
+                  <tbody>
+                    {coaAccounts.map((account) => (
+                      <tr key={account.id} className="border-t border-slate-100 hover:bg-slate-50">
+                        <Td strong>{account.accountCode}</Td><Td>{account.accountName}</Td><Td>{account.accountType}</Td><Td>{account.linkedDomain}</Td><Td><Badge value={account.status} /></Td>
+                        <Td><div className="flex gap-1"><SmallAction onClick={() => undefined}>View</SmallAction><SmallAction onClick={() => undefined}>Edit Placeholder</SmallAction><SmallAction onClick={() => undefined}>Mark Inactive Placeholder</SmallAction></div></Td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </Table>
+              </Panel>
+            </div>
+          )}
+
+          {activeAccountingTab === 'Sales Posting' && (
+            <div className="space-y-5">
+              <AccountingFilters branch={branch} setBranch={setBranch} terminal={terminal} setTerminal={setTerminal} cashier={cashier} setCashier={setCashier} dateFrom={dateFrom} setDateFrom={setDateFrom} dateTo={dateTo} setDateTo={setDateTo} />
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-2">
+                <Select label="Sales Account" value={salesAccount} onChange={setSalesAccount} options={['All Sales Accounts', '4000', '4010', '4020', '9000']} />
+                <ActionButton icon={<Download className="w-4 h-4" />} onClick={() => handleAccountingExport('Sales Posting')}>Export Sales Posting</ActionButton>
+              </div>
+              <MetricGrid metrics={[
+                ['Gross Sales', money(sum(salesAccountingRows, 'grossSale'))],
+                ['Discounts', money(sum(salesAccountingRows, 'discount'))],
+                ['Refunds', money(10)],
+                ['Voids', '1'],
+                ['Net Sales', money(sum(salesAccountingRows, 'netSale'))],
+                ['VAT Output Placeholder', money(sum(salesAccountingRows, 'vat'))],
+                ['COGS Placeholder', money(164.5)],
+                ['Gross Profit Placeholder', money(1062.5)]
+              ]} />
+              <Panel title="Sales Posting Summary" icon={<DollarSign className="w-4 h-4 text-orange-500" />}>
+                <Table>
+                  <thead><tr><Th>Receipt No.</Th><Th>Date / Time</Th><Th>Branch</Th><Th>Terminal</Th><Th>Cashier</Th><Th>Gross Sale</Th><Th>Discount</Th><Th>VAT</Th><Th>Net Sale</Th><Th>Sales Account</Th><Th>Posting Status</Th><Th>Action</Th></tr></thead>
+                  <tbody>
+                    {salesAccountingRows.map((row) => (
+                      <tr key={row.id} className="border-t border-slate-100 hover:bg-slate-50">
+                        <Td strong>{row.receiptNo}</Td><Td>{timeOnly(row.dateTime)}</Td><Td>{row.branch}</Td><Td>{row.terminal}</Td><Td>{row.cashier}</Td><Td>{money(row.grossSale)}</Td><Td>{money(row.discount)}</Td><Td>{money(row.vat)}</Td><Td>{money(row.netSale)}</Td><Td>{row.salesAccount}</Td><Td><Badge value={row.postingStatus} /></Td>
+                        <Td><AccountingActionGroup id={row.receiptNo} onReview={handleAccountingReviewed} onReverse={handleAccountingReverse} /></Td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </Table>
+              </Panel>
+            </div>
+          )}
+
+          {activeAccountingTab === 'Payment Posting' && (
+            <Panel title="Payment Posting Summary" icon={<DollarSign className="w-4 h-4 text-orange-500" />}>
+              <Table>
+                <thead><tr><Th>Payment Mode</Th><Th>Receipt Count</Th><Th>Gross Amount</Th><Th>Refunds</Th><Th>Net Amount</Th><Th>Control Account</Th><Th>Settlement Status</Th><Th>Variance</Th><Th>Posting Status</Th><Th>Action</Th></tr></thead>
+                <tbody>
+                  {paymentAccountingRows.map((row) => (
+                    <tr key={row.id} className="border-t border-slate-100 hover:bg-slate-50">
+                      <Td strong>{row.paymentMode}</Td><Td>{row.receiptCount}</Td><Td>{money(row.grossAmount)}</Td><Td>{money(row.refunds)}</Td><Td>{money(row.netAmount)}</Td><Td>{row.controlAccount}</Td><Td><Badge value={row.settlementStatus} /></Td><Td>{displayAmount(row.variance)}</Td><Td><Badge value={row.postingStatus} /></Td>
+                      <Td><div className="flex gap-1"><SmallAction onClick={() => handleAccountingReviewed(row.id)}>Mark Settled Placeholder</SmallAction><SmallAction onClick={() => undefined}>View Receipts</SmallAction><SmallAction onClick={() => undefined}>Flag Variance</SmallAction></div></Td>
+                    </tr>
+                  ))}
+                </tbody>
+              </Table>
+            </Panel>
+          )}
+
+          {activeAccountingTab === 'Cashbook' && (
+            <div className="space-y-5">
+              <div className="bg-white border-2 border-[#b1b5c2] p-3 grid grid-cols-1 md:grid-cols-4 xl:grid-cols-7 gap-2">
+                <InfoBox label="Business / Vendor" value="Demo Vendor" />
+                <Select label="Branch" value={branch} onChange={setBranch} options={branches} />
+                <Select label="Terminal" value={terminal} onChange={setTerminal} options={terminals} />
+                <Select label="Cashier" value={cashier} onChange={setCashier} options={cashiers} />
+                <Select label="Cash Account" value={cashAccount} onChange={setCashAccount} options={['All Cash Accounts', '1000', '6000', '9010']} />
+                <Select label="Movement Type" value={movementType} onChange={setMovementType} options={cashMovementTypes} />
+                <Input label="Date From" value={dateFrom} onChange={setDateFrom} />
+                <Input label="Date To" value={dateTo} onChange={setDateTo} />
+              </div>
+              <Panel title="Cashbook Movements" icon={<DollarSign className="w-4 h-4 text-orange-500" />}>
+                <Table>
+                  <thead><tr><Th>Date / Time</Th><Th>Branch</Th><Th>Terminal</Th><Th>Staff</Th><Th>Movement Type</Th><Th>Reference</Th><Th>Cash In</Th><Th>Cash Out</Th><Th>Balance After</Th><Th>Account</Th><Th>Status</Th><Th>Notes</Th><Th>Action</Th></tr></thead>
+                  <tbody>
+                    {cashbookRows.map((row) => (
+                      <tr key={row.id} className="border-t border-slate-100 hover:bg-slate-50">
+                        <Td strong>{timeOnly(row.dateTime)}</Td><Td>{row.branch}</Td><Td>{row.terminal}</Td><Td>{row.staff}</Td><Td>{row.movementType}</Td><Td>{row.reference}</Td><Td>{money(row.cashIn)}</Td><Td>{money(row.cashOut)}</Td><Td>{money(row.balanceAfter)}</Td><Td>{row.account}</Td><Td><Badge value={row.status} /></Td><Td>{row.notes}</Td><Td><SmallAction onClick={() => handleAccountingReviewed(row.reference)}>Mark Reviewed</SmallAction></Td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </Table>
+              </Panel>
+            </div>
+          )}
+
+          {activeAccountingTab === 'VAT Summary' && (
+            <div className="space-y-5">
+              <div className="bg-white border-2 border-[#b1b5c2] p-3 grid grid-cols-1 md:grid-cols-5 gap-2">
+                <InfoBox label="Business / Vendor" value="Demo Vendor" />
+                <Select label="Branch" value={branch} onChange={setBranch} options={branches} />
+                <Input label="Date From" value={dateFrom} onChange={setDateFrom} />
+                <Input label="Date To" value={dateTo} onChange={setDateTo} />
+                <Select label="VAT Mode" value={vatMode} onChange={setVATMode} options={vatModes} />
+              </div>
+              <MetricGrid metrics={[
+                ['Gross VATable Sales', money(sum(vatRows, 'vatableAmount'))],
+                ['VAT Output Placeholder', money(sum(vatRows, 'vatAmount'))],
+                ['Non-VAT Sales', money(0)],
+                ['Refund VAT Impact', money(10.5)],
+                ['Net VAT Output Placeholder', money(Math.max(sum(vatRows, 'vatAmount') - 10.5, 0))],
+                ['VAT Registration Status', 'Tax-ready placeholder']
+              ]} />
+              <Panel title="VAT Summary" icon={<ShieldAlert className="w-4 h-4 text-orange-500" />}>
+                <div className="mb-3 bg-orange-50 border border-orange-200 text-orange-900 p-3 text-[10px] font-bold">
+                  This POS is tax-ready, but fiscalization and official tax submission will be connected later.
+                </div>
+                <Table>
+                  <thead><tr><Th>Receipt No.</Th><Th>Date</Th><Th>Gross Amount</Th><Th>VATable Amount</Th><Th>VAT Amount</Th><Th>VAT Mode</Th><Th>VAT Number</Th><Th>Status</Th></tr></thead>
+                  <tbody>
+                    {vatRows.map((row) => (
+                      <tr key={row.id} className="border-t border-slate-100 hover:bg-slate-50">
+                        <Td strong>{row.receiptNo}</Td><Td>{row.date}</Td><Td>{money(row.grossAmount)}</Td><Td>{money(row.vatableAmount)}</Td><Td>{money(row.vatAmount)}</Td><Td>{row.vatMode}</Td><Td>{row.vatNumber}</Td><Td><Badge value={row.status} /></Td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </Table>
+              </Panel>
+            </div>
+          )}
+
+          {activeAccountingTab === 'COGS Reserve' && (
+            <div className="space-y-5">
+              <MetricGrid metrics={[
+                ['Net Sales', money(1227)],
+                ['Estimated COGS', money(sum(cogsRows, 'estimatedCOGS'))],
+                ['Suggested COGS Reserve', money(sum(cogsRows, 'suggestedReserve'))],
+                ['Reserve Used Placeholder', money(0)],
+                ['Reserve Misuse Risk', cogsRows.filter((row) => row.reserveStatus === 'Misuse Risk').length.toString()],
+                ['Available Reserve Placeholder', money(sum(cogsRows, 'suggestedReserve'))]
+              ]} />
+              <Panel title="COGS Reserve Placeholder" icon={<PackageCheck className="w-4 h-4 text-orange-500" />}>
+                <Table>
+                  <thead><tr><Th>Product</Th><Th>Receipt / Reference</Th><Th>Qty Sold</Th><Th>Unit Cost</Th><Th>Selling Price</Th><Th>Estimated COGS</Th><Th>Suggested Reserve</Th><Th>Reserve Status</Th><Th>Action</Th></tr></thead>
+                  <tbody>
+                    {cogsRows.map((row) => (
+                      <tr key={row.id} className="border-t border-slate-100 hover:bg-slate-50">
+                        <Td strong>{row.product}</Td><Td>{row.receiptReference}</Td><Td>{row.qtySold}</Td><Td>{money(row.unitCost)}</Td><Td>{money(row.sellingPrice)}</Td><Td>{money(row.estimatedCOGS)}</Td><Td>{money(row.suggestedReserve)}</Td><Td><Badge value={row.reserveStatus} /></Td><Td><SmallAction onClick={() => handleAccountingReviewed(row.id)}>Mark Reviewed</SmallAction></Td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </Table>
+              </Panel>
+            </div>
+          )}
+
+          {activeAccountingTab === 'Inventory Asset Posting' && (
+            <Panel title="Inventory Asset Posting" icon={<PackageCheck className="w-4 h-4 text-orange-500" />}>
+              <Table>
+                <thead><tr><Th>Product</Th><Th>Movement Type</Th><Th>Reference</Th><Th>Qty In</Th><Th>Qty Out</Th><Th>Unit Cost</Th><Th>Cost Impact</Th><Th>Asset Account</Th><Th>COGS Account</Th><Th>Sales Account</Th><Th>Posting Status</Th><Th>Risk</Th><Th>Action</Th></tr></thead>
+                <tbody>
+                  {inventoryAssetRows.map((row) => (
+                    <tr key={row.id} className="border-t border-slate-100 hover:bg-slate-50">
+                      <Td strong>{row.product}</Td><Td>{row.movementType}</Td><Td>{row.reference}</Td><Td>{row.qtyIn}</Td><Td>{row.qtyOut}</Td><Td>{money(row.unitCost)}</Td><Td>{money(row.costImpact)}</Td><Td>{row.assetAccount}</Td><Td>{row.cogsAccount}</Td><Td>{row.salesAccount}</Td><Td><Badge value={row.postingStatus} /></Td><Td><Badge value={row.risk} risk /></Td><Td><SmallAction onClick={() => handleAccountingReviewed(row.id)}>Mark Reviewed</SmallAction></Td>
+                    </tr>
+                  ))}
+                </tbody>
+              </Table>
+            </Panel>
+          )}
+
+          {activeAccountingTab === 'Accounting Readiness' && (
+            <Panel title="Accounting Readiness" icon={<ClipboardCheck className="w-4 h-4 text-orange-500" />}>
+              <Table>
+                <thead><tr><Th>Check</Th><Th>Domain</Th><Th>Status</Th><Th>Required Action</Th></tr></thead>
+                <tbody>
+                  {accountingReadiness.map((row) => (
+                    <tr key={row.id} className="border-t border-slate-100 hover:bg-slate-50">
+                      <Td strong>{row.check}</Td><Td>{row.domain}</Td><Td><Badge value={row.status} /></Td><Td>{row.requiredAction}</Td>
+                    </tr>
+                  ))}
+                </tbody>
+              </Table>
+            </Panel>
+          )}
+
+          <AccountingActivityFeed activity={accountingActivity} />
+        </div>
+      )}
+
+      {activeTab === 'Day Lock' && (
+        <div className="grid grid-cols-1 xl:grid-cols-12 gap-5">
+          <div className="xl:col-span-8 space-y-5">
+            <Panel title="Day Lock Readiness" icon={<Lock className="w-4 h-4 text-orange-500" />}>
+              <MetricGrid metrics={[
+                ['Business Date', businessDate],
+                ['EOD Status', eodSession?.status || 'Blocked'],
+                ['Failed Checks', failedChecks.toString()],
+                ['Warning Checks', warningChecks.toString()],
+                ['Pending Reviews', pendingReviews.toString()],
+                ['Lock Allowed', failedChecks === 0 && blockingReasons.length === 0 ? 'Yes' : 'No']
+              ]} />
+              <div className="mt-4 bg-slate-50 border border-[#b1b5c2] p-3">
+                <div className="text-[9px] font-black uppercase text-slate-500 mb-2">Blocking Reasons</div>
+                <div className="space-y-1">
+                  {(blockingReasons.length ? blockingReasons : ['No blocking reasons detected locally.']).map((reason) => (
+                    <div key={reason} className="flex items-center gap-2 text-[10px] font-bold text-[#1e222b]">
+                      <AlertTriangle className="w-3 h-3 text-orange-500" />
+                      {reason}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </Panel>
+            <Panel title="Day Lock Actions" icon={<RefreshCw className="w-4 h-4 text-orange-500" />}>
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-2">
+                <ActionButton icon={<RefreshCw className="w-4 h-4" />} onClick={handleRunCheck}>Run EOD Check</ActionButton>
+                <ActionButton icon={<Lock className="w-4 h-4" />} onClick={handleLockDay}>Attempt Lock Day</ActionButton>
+                <ActionButton icon={<Download className="w-4 h-4" />} onClick={handleExport}>Export EOD Report Placeholder</ActionButton>
+                <ActionButton icon={<Eye className="w-4 h-4" />} onClick={() => showFeedback('warning', 'Reopen day placeholder recorded locally.')}>Reopen Day Placeholder</ActionButton>
+              </div>
+            </Panel>
+          </div>
+          <div className="xl:col-span-4"><ActivityFeed activity={activity} /></div>
+        </div>
+      )}
+
+      {activeTab !== 'Day Lock' && activeTab !== 'Accounting Desk' && <ActivityFeed activity={activity} />}
     </div>
+  );
+}
+
+function Filters({ branch, setBranch, dateFrom, setDateFrom, dateTo, setDateTo }: { branch: string; setBranch: (value: string) => void; dateFrom: string; setDateFrom: (value: string) => void; dateTo: string; setDateTo: (value: string) => void }) {
+  return (
+    <div className="bg-white border-2 border-[#b1b5c2] p-3 grid grid-cols-1 md:grid-cols-4 gap-2">
+      <InfoBox label="Business / Vendor" value="Demo Vendor" />
+      <Select label="Branch" value={branch} onChange={setBranch} options={branches} />
+      <Input label="Date From" value={dateFrom} onChange={setDateFrom} />
+      <Input label="Date To" value={dateTo} onChange={setDateTo} />
+    </div>
+  );
+}
+
+function PaymentFilters(props: {
+  branch: string; setBranch: (value: string) => void; terminal: string; setTerminal: (value: string) => void; cashier: string; setCashier: (value: string) => void;
+  dateFrom: string; setDateFrom: (value: string) => void; dateTo: string; setDateTo: (value: string) => void; paymentMode: PaymentMode | 'All'; setPaymentMode: (value: PaymentMode | 'All') => void;
+}) {
+  return (
+    <div className="bg-white border-2 border-[#b1b5c2] p-3 grid grid-cols-1 md:grid-cols-4 xl:grid-cols-7 gap-2">
+      <InfoBox label="Business / Vendor" value="Demo Vendor" />
+      <Select label="Branch" value={props.branch} onChange={props.setBranch} options={branches} />
+      <Select label="Terminal" value={props.terminal} onChange={props.setTerminal} options={terminals} />
+      <Select label="Cashier" value={props.cashier} onChange={props.setCashier} options={cashiers} />
+      <Input label="Date From" value={props.dateFrom} onChange={props.setDateFrom} />
+      <Input label="Date To" value={props.dateTo} onChange={props.setDateTo} />
+      <Select label="Payment Mode" value={props.paymentMode} onChange={(value) => props.setPaymentMode(value as PaymentMode | 'All')} options={paymentModes} />
+    </div>
+  );
+}
+
+function CashFilters({ branch, setBranch, terminal, setTerminal, cashier, setCashier }: { branch: string; setBranch: (value: string) => void; terminal: string; setTerminal: (value: string) => void; cashier: string; setCashier: (value: string) => void }) {
+  return (
+    <div className="grid grid-cols-1 md:grid-cols-5 gap-2 mb-4">
+      <Select label="Branch" value={branch} onChange={setBranch} options={branches} />
+      <Select label="Terminal" value={terminal} onChange={setTerminal} options={terminals} />
+      <Select label="Cashier" value={cashier} onChange={setCashier} options={cashiers} />
+      <Input label="Shift" value="All Shifts" onChange={() => undefined} />
+      <Input label="Date" value="2026-06-09" onChange={() => undefined} />
+    </div>
+  );
+}
+
+function AccountingFilters(props: {
+  branch: string; setBranch: (value: string) => void; terminal: string; setTerminal: (value: string) => void; cashier: string; setCashier: (value: string) => void;
+  dateFrom: string; setDateFrom: (value: string) => void; dateTo: string; setDateTo: (value: string) => void;
+}) {
+  return (
+    <div className="bg-white border-2 border-[#b1b5c2] p-3 grid grid-cols-1 md:grid-cols-4 xl:grid-cols-6 gap-2">
+      <InfoBox label="Business / Vendor" value="Demo Vendor" />
+      <Select label="Branch" value={props.branch} onChange={props.setBranch} options={branches} />
+      <Select label="Terminal" value={props.terminal} onChange={props.setTerminal} options={terminals} />
+      <Select label="Cashier" value={props.cashier} onChange={props.setCashier} options={cashiers} />
+      <Input label="Date From" value={props.dateFrom} onChange={props.setDateFrom} />
+      <Input label="Date To" value={props.dateTo} onChange={props.setDateTo} />
+    </div>
+  );
+}
+
+function MetricGrid({ metrics }: { metrics: Array<[string, string]> }) {
+  return (
+    <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-6 gap-3">
+      {metrics.map(([label, value]) => (
+        <div key={label} className="bg-white border border-[#b1b5c2] border-l-4 border-l-orange-500 p-3 h-[88px] flex flex-col justify-between">
+          <span className="text-[8.5px] font-black text-slate-500 uppercase tracking-tight truncate" title={label}>{label}</span>
+          <span className="text-sm font-black text-[#1e222b] leading-tight truncate" title={value}>{value}</span>
+          <span className="text-[8px] text-slate-400 uppercase">EOD control metric</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function ActivityFeed({ activity }: { activity: EODActivityEvent[] }) {
+  return (
+    <Panel title="EOD Activity Feed" icon={<CheckCircle2 className="w-4 h-4 text-orange-500" />}>
+      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3 max-h-[360px] overflow-y-auto pos-custom-scroll">
+        {activity.map((event) => (
+          <div key={event.id} className="border-l-4 border-l-orange-500 bg-slate-50 border border-[#b1b5c2] p-3">
+            <div className="flex items-start justify-between gap-2">
+              <span className="font-black text-[#1e222b] uppercase text-[9px]">{event.eventType}</span>
+              <span className="text-[8px] text-slate-400 font-bold">{timeOnly(event.timestamp)}</span>
+            </div>
+            <p className="text-[10px] text-slate-600 font-semibold mt-1">{event.message}</p>
+            <span className="text-[8px] text-slate-400 uppercase font-black">Operator: {event.operator}</span>
+          </div>
+        ))}
+      </div>
+    </Panel>
+  );
+}
+
+function AccountingActivityFeed({ activity }: { activity: AccountingActivityEvent[] }) {
+  return (
+    <Panel title="Accounting Activity Feed" icon={<CheckCircle2 className="w-4 h-4 text-orange-500" />}>
+      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3 max-h-[360px] overflow-y-auto pos-custom-scroll">
+        {activity.map((event) => (
+          <div key={event.id} className="border-l-4 border-l-orange-500 bg-slate-50 border border-[#b1b5c2] p-3">
+            <div className="flex items-start justify-between gap-2">
+              <span className="font-black text-[#1e222b] uppercase text-[9px]">{event.eventType}</span>
+              <span className="text-[8px] text-slate-400 font-bold">{timeOnly(event.timestamp)}</span>
+            </div>
+            <p className="text-[10px] text-slate-600 font-semibold mt-1">{event.message}</p>
+            <span className="text-[8px] text-slate-400 uppercase font-black">Operator: {event.operator}</span>
+          </div>
+        ))}
+      </div>
+    </Panel>
   );
 }
 
@@ -415,11 +982,7 @@ function Panel({ title, icon, children }: { title: string; icon: React.ReactNode
 }
 
 function Table({ children }: { children: React.ReactNode }) {
-  return (
-    <div className="overflow-x-auto">
-      <table className="w-full text-left border-collapse">{children}</table>
-    </div>
-  );
+  return <div className="overflow-x-auto"><table className="w-full text-left border-collapse">{children}</table></div>;
 }
 
 function Th({ children }: { children: React.ReactNode }) {
@@ -432,7 +995,7 @@ function Td({ children, strong }: { children: React.ReactNode; strong?: boolean 
 
 function Badge({ value, risk = false }: { value: string; risk?: boolean }) {
   const classes = risk ? riskClass[value] : statusClass[value];
-  const Icon = value === 'Failed' || value === 'Critical' ? XCircle : value === 'Passed' || value === 'Balanced' ? CheckCircle2 : AlertTriangle;
+  const Icon = value === 'Failed' || value === 'Critical' || value === 'Blocked' ? XCircle : value === 'Passed' || value === 'Balanced' || value === 'Locked' ? CheckCircle2 : AlertTriangle;
   return (
     <span className={`inline-flex items-center gap-1 px-2 py-0.5 border text-[8px] uppercase font-black ${classes || 'bg-slate-100 text-slate-700 border-slate-300'}`}>
       <Icon className="w-3 h-3" />
@@ -441,11 +1004,126 @@ function Badge({ value, risk = false }: { value: string; risk?: boolean }) {
   );
 }
 
-function SmallAction({ children, onClick }: { children: React.ReactNode; onClick: () => void }) {
+function Select<T extends string>({ label, value, options, onChange }: { label: string; value: T; options: readonly T[]; onChange: (value: T) => void }) {
   return (
-    <button onClick={onClick} className="px-1.5 py-0.5 bg-white border border-[#b1b5c2] hover:bg-orange-50 text-[#1e222b] font-black uppercase text-[8px]">
-      {children}
-    </button>
+    <label className="space-y-1">
+      <span className="block text-[8px] uppercase font-black text-slate-500">{label}</span>
+      <select value={value} onChange={(event) => onChange(event.target.value as T)} className="w-full border border-[#b1b5c2] bg-white px-2 py-2 text-[10px] font-bold text-[#1e222b]">
+        {options.map((option) => <option key={option} value={option}>{option}</option>)}
+      </select>
+    </label>
+  );
+}
+
+function Input({ label, value, onChange }: { label: string; value: string; onChange: (value: string) => void }) {
+  return (
+    <label className="space-y-1">
+      <span className="block text-[8px] uppercase font-black text-slate-500">{label}</span>
+      <input value={value} onChange={(event) => onChange(event.target.value)} className="w-full border border-[#b1b5c2] bg-white px-2 py-2 text-[10px] font-bold text-[#1e222b]" />
+    </label>
+  );
+}
+
+function InfoBox({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="bg-slate-50 border border-[#b1b5c2] p-2 min-h-[48px]">
+      <span className="block text-[8px] uppercase font-black text-slate-500">{label}</span>
+      <span className="block text-[10px] font-black text-[#1e222b] mt-1">{value}</span>
+    </div>
+  );
+}
+
+function SmallAction({ children, onClick }: { children: React.ReactNode; onClick: () => void }) {
+  return <button onClick={onClick} className="px-1.5 py-0.5 bg-white border border-[#b1b5c2] hover:bg-orange-50 text-[#1e222b] font-black uppercase text-[8px] whitespace-nowrap">{children}</button>;
+}
+
+function ActionGroup({ id, onReview }: { id: string; onReview: (id: string) => void }) {
+  return (
+    <div className="flex flex-wrap gap-1">
+      <SmallAction onClick={() => undefined}>Review</SmallAction>
+      <SmallAction onClick={() => onReview(id)}>Mark Reviewed</SmallAction>
+      <SmallAction onClick={() => undefined}>Open Related Page Placeholder</SmallAction>
+    </div>
+  );
+}
+
+function PaymentActionGroup({ id, onReview }: { id: string; onReview: (id: string) => void }) {
+  return (
+    <div className="flex flex-wrap gap-1">
+      <SmallAction onClick={() => undefined}>View Receipts</SmallAction>
+      <SmallAction onClick={() => onReview(id)}>Mark Reviewed</SmallAction>
+      <SmallAction onClick={() => undefined}>Flag Variance</SmallAction>
+    </div>
+  );
+}
+
+function CashActionGroup({ id, onReview }: { id: string; onReview: (id: string) => void }) {
+  return (
+    <div className="flex flex-wrap gap-1">
+      <SmallAction onClick={() => undefined}>Review Variance</SmallAction>
+      <SmallAction onClick={() => onReview(id)}>Mark Balanced</SmallAction>
+      <SmallAction onClick={() => undefined}>Add Owner Note</SmallAction>
+    </div>
+  );
+}
+
+function ShiftActionGroup({
+  id,
+  shiftId,
+  onReview,
+  onForceClose
+}: {
+  id: string;
+  shiftId: string;
+  onReview: (id: string) => void;
+  onForceClose: (message: string) => void;
+}) {
+  return (
+    <div className="flex flex-wrap gap-1">
+      <SmallAction onClick={() => undefined}>Review</SmallAction>
+      <SmallAction onClick={() => onForceClose(`Force close placeholder recorded for ${shiftId}.`)}>Force Close Placeholder</SmallAction>
+      <SmallAction onClick={() => onReview(id)}>Mark Reviewed</SmallAction>
+    </div>
+  );
+}
+
+function InventoryActionGroup({ id, onReview }: { id: string; onReview: (id: string) => void }) {
+  return (
+    <div className="flex flex-wrap gap-1">
+      <SmallAction onClick={() => undefined}>View Ledger</SmallAction>
+      <SmallAction onClick={() => onReview(id)}>Mark Reviewed</SmallAction>
+      <SmallAction onClick={() => undefined}>Open Approval Placeholder</SmallAction>
+    </div>
+  );
+}
+
+function DeliveryActionGroup({ id, onReview }: { id: string; onReview: (id: string) => void }) {
+  return (
+    <div className="flex flex-wrap gap-1">
+      <SmallAction onClick={() => undefined}>Review</SmallAction>
+      <SmallAction onClick={() => undefined}>Follow Up</SmallAction>
+      <SmallAction onClick={() => onReview(id)}>Mark Reviewed</SmallAction>
+    </div>
+  );
+}
+
+function BIActionGroup({ id, onReview }: { id: string; onReview: (id: string) => void }) {
+  return (
+    <div className="flex flex-wrap gap-1">
+      <SmallAction onClick={() => onReview(id)}>Mark Reviewed</SmallAction>
+      <SmallAction onClick={() => undefined}>Add Owner Note</SmallAction>
+      <SmallAction onClick={() => undefined}>Open Related Page Placeholder</SmallAction>
+    </div>
+  );
+}
+
+function AccountingActionGroup({ id, onReview, onReverse }: { id: string; onReview: (id: string) => void; onReverse: (id: string) => void }) {
+  return (
+    <div className="flex flex-wrap gap-1">
+      <SmallAction onClick={() => undefined}>View Posting</SmallAction>
+      <SmallAction onClick={() => onReview(id)}>Mark Reviewed</SmallAction>
+      <SmallAction onClick={() => onReverse(id)}>Reverse Placeholder</SmallAction>
+    </div>
   );
 }
 
@@ -456,4 +1134,22 @@ function ActionButton({ children, icon, onClick }: { children: React.ReactNode; 
       <span>{children}</span>
     </button>
   );
+}
+
+function money(value: number): string {
+  return `USD ${value.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
+
+function displayAmount(value: number | string): string {
+  return typeof value === 'number' ? money(value) : value;
+}
+
+function timeOnly(value?: string): string {
+  if (!value) return 'Pending';
+  if (!value.includes('T')) return value;
+  return value.slice(11, 19);
+}
+
+function sum<T extends Record<string, unknown>>(rows: T[], key: keyof T): number {
+  return rows.reduce((total, row) => total + (typeof row[key] === 'number' ? row[key] : 0), 0);
 }

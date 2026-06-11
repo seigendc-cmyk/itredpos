@@ -1,5 +1,6 @@
 import { Product } from '../types/posTypes';
 import { mockProducts } from '../mock/mockPosData';
+import { matchesFreeOrderSearch } from '../utils/searchUtils';
 
 export const productService = {
   getProducts: async (): Promise<Product[]> => {
@@ -12,12 +13,24 @@ export const productService = {
   },
 
   searchProducts: async (query: string): Promise<Product[]> => {
-    const term = query.toLowerCase();
-    return mockProducts.filter(p => 
-      p.name.toLowerCase().includes(term) || 
-      p.code.toLowerCase().includes(term) ||
-      p.category.toLowerCase().includes(term)
-    );
+    return mockProducts.filter((product) => matchesFreeOrderSearch(product, query, [
+      'name',
+      'code',
+      'category',
+      'productNumericNumber',
+      'sku',
+      'barcode',
+      'alu',
+      'brand',
+      'manufacturer',
+      'supplierName',
+      'shelfLocation',
+      'binLocation',
+      'serialNumber',
+      'industrialSector',
+      'productCategory',
+      'productSubCategory'
+    ]));
   },
 
   getProductBySku: async (sku: string): Promise<Product | null> => {

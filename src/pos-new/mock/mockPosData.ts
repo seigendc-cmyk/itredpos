@@ -20,12 +20,46 @@ import {
   SyncConflict,
   SyncActivityEvent,
   OwnerSummary,
+  EODSession,
   EODChecklistItem,
   EODReconciliationRow,
+  EODPaymentSummary,
+  EODShiftSummary,
+  EODCashReconciliation,
+  EODInventoryClosingRow,
+  EODDeliveryClosingRow,
+  EODBIReviewItem,
+  EODActivityEvent,
   TerminalEODSummary,
   OwnerApprovalItem,
   OwnerBIAlert,
-  OwnerActivityEvent
+  OwnerActivityEvent,
+  POSPlan,
+  VendorPOSSubscription,
+  VendorPOSLicense,
+  POSFeatureEntitlement,
+  POSFeatureKey,
+  PaymentReceiptRow,
+  ProductLedgerEntry,
+  InventoryMovement,
+  COAAccount,
+  AccountingPosting,
+  AccountingPostingLine,
+  CashbookEntry,
+  SalesAccountingSummary,
+  PaymentAccountingSummary,
+  COGSReserveSummary,
+  VATSummary,
+  InventoryAssetPostingRow,
+  AccountingReadinessCheck,
+  AccountingActivityEvent,
+  ReceiptRecord,
+  ReceiptLine,
+  ReceiptPaymentLine,
+  ReceiptSequenceControl,
+  ReceiptReprintAudit,
+  FiscalizationPlaceholderRecord,
+  ReceiptAuditEvent
 } from '../types/posTypes';
 
 export const mockVendors: Vendor[] = [
@@ -53,7 +87,8 @@ export const mockBranches: Branch[] = [
   { id: 'BR-DET-3', name: 'DETROIT FORGE #3', location: 'Detroit, MI' },
   { id: 'BR-CHI-B', name: 'CHICAGO DISTRIBUTION B', location: 'Chicago, IL' },
   { id: 'BR-GARY-4', name: 'GARY ASSEMBLY PLANT 4', location: 'Gary, IN' },
-  { id: 'BR-HARARE', name: 'Harare Main', location: 'Harare, Zimbabwe' }
+  { id: 'BR-HARARE', name: 'Harare Main', location: 'Harare, Zimbabwe' },
+  { id: 'BR-BYO', name: 'Bulawayo Branch', location: 'Bulawayo, Zimbabwe' }
 ];
 
 export const mockWarehouses: Warehouse[] = [
@@ -67,7 +102,10 @@ export const mockTerminals: Terminal[] = [
   { id: 'TERM-DETROIT-01', name: 'TERM-DETROIT-01 (HEAVY REGISTER)', branchId: 'BR-DET-3', type: 'HEAVY' },
   { id: 'TERM-DETROIT-02', name: 'TERM-DETROIT-02 (AUX-T6)', branchId: 'BR-DET-3', type: 'LIGHT' },
   { id: 'TERM-CHICAGO-01', name: 'TERM-CHICAGO-01 (GATE_WAY_2)', branchId: 'BR-CHI-B', type: 'HEAVY' },
-  { id: 'TERM-HARARE-01', name: 'Term-A', branchId: 'BR-HARARE', type: 'STANDARD' }
+  { id: 'TERM-HARARE-01', name: 'Term-A', branchId: 'BR-HARARE', type: 'STANDARD' },
+  { id: 'POS-01', name: 'POS-01 Harare Front Counter', branchId: 'BR-HARARE', type: 'STANDARD' },
+  { id: 'BACK-01', name: 'BACK-01 Harare Back Office', branchId: 'BR-HARARE', type: 'BACK_OFFICE' },
+  { id: 'POS-02', name: 'POS-02 Bulawayo Counter', branchId: 'BR-BYO', type: 'STANDARD' }
 ];
 
 export const mockStaff: StaffMember[] = [
@@ -77,7 +115,10 @@ export const mockStaff: StaffMember[] = [
   { id: 'ST-004', name: 'Elena Rostova', email: 'elena@apex.com', role: 'Stock Controller', pass: 'op456', branchId: 'BR-CHI-B' },
   { id: 'ST-005', name: 'Cassie Reilly', email: 'cassie@apex.com', role: 'Owner', pass: 'owner123', branchId: 'BR-GARY-4' },
   { id: 'ST-006', name: 'James Cole', email: 'james@apex.com', role: 'SysAdmin', pass: 'admin123', branchId: 'BR-GARY-4' },
-  { id: 'ST-007', name: 'Admin User', email: 'admin@sci.com', role: 'Manager', pass: 'admin123', branchId: 'BR-HARARE' }
+  { id: 'ST-007', name: 'Admin User', email: 'admin@sci.com', role: 'Manager', pass: 'admin123', branchId: 'BR-HARARE' },
+  { id: 'ST-ADMIN', name: 'Admin User', email: 'admin.user@sci.com', role: 'SysAdmin', pass: 'admin123', branchId: 'BR-HARARE' },
+  { id: 'ST-MARY', name: 'Mary Cashier', email: 'mary.cashier@sci.com', role: 'Cashier', pass: 'cashier123', branchId: 'BR-HARARE' },
+  { id: 'ST-TAWANDA', name: 'Tawanda Supervisor', email: 'tawanda.supervisor@sci.com', role: 'Supervisor', pass: 'lead123', branchId: 'BR-BYO' }
 ];
 
 export const mockProducts: Product[] = [
@@ -97,7 +138,105 @@ export const mockProducts: Product[] = [
   { id: 'STOCK-P-02', code: 'BJ-CBHO49', name: 'Ball Joint Honda Fit GD1', category: 'Motor Spares', price: 12.00, cost: 7.00, stock: 15, minStock: 5, unit: 'pcs', branch: 'Harare Main', warehouse: 'Harare Spares Depot', lastMovementDate: '2026-06-08', healthStatus: 'In Stock' },
   { id: 'STOCK-P-03', code: 'BP-GD6-F', name: 'Brake Pads Toyota GD6 Front', category: 'Motor Spares', price: 28.00, cost: 16.00, stock: 9, minStock: 3, unit: 'pcs', branch: 'Harare Main', warehouse: 'Harare Spares Depot', lastMovementDate: '2026-06-07', healthStatus: 'Low Stock' },
   { id: 'STOCK-P-04', code: 'OIL-5W30', name: 'Engine Oil 5W30 5L', category: 'Lubricants', price: 22.00, cost: 14.50, stock: 20, minStock: 6, unit: 'cans', branch: 'Harare Main', warehouse: 'Harare Spares Depot', lastMovementDate: '2026-06-08', healthStatus: 'In Stock' },
-  { id: 'STOCK-P-05', code: 'CLT-N16', name: 'Clutch Plate Nissan N16', category: 'Motor Spares', price: 45.00, cost: 25.00, stock: 0, minStock: 2, unit: 'pcs', branch: 'Harare Main', warehouse: 'Harare Spares Depot', lastMovementDate: '2026-06-08', healthStatus: 'Out of Stock' }
+  { id: 'STOCK-P-05', code: 'CLT-N16', name: 'Clutch Plate Nissan N16', category: 'Motor Spares', price: 45.00, cost: 25.00, stock: 0, minStock: 2, unit: 'pcs', branch: 'Harare Main', warehouse: 'Harare Spares Depot', lastMovementDate: '2026-06-08', healthStatus: 'Out of Stock' },
+  { id: 'OIL-FLT-15', code: 'OIL-FLT-15', name: 'Premium Oil Filter 15W40', category: 'Motor Spares', price: 45.00, cost: 24.00, stock: 18, minStock: 4, unit: 'pcs', branch: 'Harare Main', warehouse: 'Harare Spares Depot', lastMovementDate: '2026-06-09', healthStatus: 'In Stock' },
+  { id: 'SP-PLT-G', code: 'SP-PLT-G', name: 'Spark Plug Platinum G-Power', category: 'Motor Spares', price: 27.00, cost: 12.00, stock: 42, minStock: 10, unit: 'pcs', branch: 'Harare Main', warehouse: 'Harare Spares Depot', lastMovementDate: '2026-06-09', healthStatus: 'In Stock' },
+  { id: 'FB-VR-HM', code: 'FB-VR-HM', name: 'Heavy Duty Fan Belt v-Ribbed', category: 'Motor Spares', price: 60.00, cost: 31.00, stock: 7, minStock: 2, unit: 'pcs', branch: 'Harare Main', warehouse: 'Harare Spares Depot', lastMovementDate: '2026-06-09', healthStatus: 'In Stock' }
+];
+
+export const mockShelfLocations = ['A1-MOTOR-LAMPS', 'A2-BRAKE-SERVICE', 'B1-LUBRICANTS', 'C1-FASTENERS', 'D1-HARDWARE', 'PH-COUNTER-01'];
+
+export const mockProductLedgerEntries: ProductLedgerEntry[] = [
+  { id: 'LED-BJ-001', vendorId: 'SCI-LOG-ZW', productId: 'STOCK-P-02', sku: 'BJ-CBHO49', productNumericNumber: '000000011', alu: 'ALU-BJ-CBHO49', dateTime: '2026-06-01T08:00:00Z', movementType: 'Opening Balance', referenceType: 'Manual', referenceNo: 'OPEN-0001', branch: 'Harare Main', warehouse: 'Harare Spares Depot', shelfLocation: 'A2-S5', qtyIn: 15, qtyOut: 0, balanceAfter: 15, unitCost: 7, sellingPrice: 12, staffId: 'ST-ADMIN', staffName: 'Admin User', notes: 'Opening stock loaded for build-development.', riskFlag: 'None' },
+  { id: 'LED-BJ-002', vendorId: 'SCI-LOG-ZW', productId: 'STOCK-P-02', sku: 'BJ-CBHO49', productNumericNumber: '000000011', alu: 'ALU-BJ-CBHO49', dateTime: '2026-06-02T10:15:00Z', movementType: 'Sale', referenceType: 'Receipt', referenceNo: 'RCT-0001', branch: 'Harare Main', warehouse: 'Harare Spares Depot', shelfLocation: 'A2-S5', qtyIn: 0, qtyOut: 2, balanceAfter: 13, unitCost: 7, sellingPrice: 12, staffId: 'ST-MARY', staffName: 'Mary Cashier', notes: 'Retail sale.', riskFlag: 'None' },
+  { id: 'LED-BJ-003', vendorId: 'SCI-LOG-ZW', productId: 'STOCK-P-02', sku: 'BJ-CBHO49', productNumericNumber: '000000011', alu: 'ALU-BJ-CBHO49', dateTime: '2026-06-03T09:30:00Z', movementType: 'Goods Received', referenceType: 'GRN', referenceNo: 'GRN-2026-9041', branch: 'Harare Main', warehouse: 'Harare Spares Depot', shelfLocation: 'A2-S5', qtyIn: 20, qtyOut: 0, balanceAfter: 33, unitCost: 7.25, sellingPrice: 12, staffId: 'ST-004', staffName: 'Elena Rostova', notes: 'Supplier delivery posted.', riskFlag: 'Low' },
+  { id: 'LED-BJ-004', vendorId: 'SCI-LOG-ZW', productId: 'STOCK-P-02', sku: 'BJ-CBHO49', productNumericNumber: '000000011', alu: 'ALU-BJ-CBHO49', dateTime: '2026-06-04T16:45:00Z', movementType: 'Stocktake Adjustment', referenceType: 'Stocktake', referenceNo: 'STK-2026-001', branch: 'Harare Main', warehouse: 'Harare Spares Depot', shelfLocation: 'A2-S5', qtyIn: 0, qtyOut: 1, balanceAfter: 32, unitCost: 7.25, sellingPrice: 12, staffId: 'ST-004', staffName: 'Elena Rostova', notes: 'Shelf count short by one.', riskFlag: 'Medium' },
+  { id: 'LED-BJ-005', vendorId: 'SCI-LOG-ZW', productId: 'STOCK-P-02', sku: 'BJ-CBHO49', productNumericNumber: '000000011', alu: 'ALU-BJ-CBHO49', dateTime: '2026-06-05T12:10:00Z', movementType: 'Transfer Out', referenceType: 'Transfer', referenceNo: 'TRF-0007', branch: 'Harare Main', warehouse: 'Harare Spares Depot', shelfLocation: 'A2-S5', qtyIn: 0, qtyOut: 5, balanceAfter: 27, unitCost: 7.25, sellingPrice: 12, staffId: 'ST-ADMIN', staffName: 'Admin User', notes: 'Moved to Bulawayo Branch.', riskFlag: 'None' },
+  { id: 'LED-BJ-006', vendorId: 'SCI-LOG-ZW', productId: 'STOCK-P-02', sku: 'BJ-CBHO49', productNumericNumber: '000000011', alu: 'ALU-BJ-CBHO49', dateTime: '2026-06-06T14:20:00Z', movementType: 'Return', referenceType: 'Return', referenceNo: 'RET-0002', branch: 'Harare Main', warehouse: 'Harare Spares Depot', shelfLocation: 'A2-S5', qtyIn: 1, qtyOut: 0, balanceAfter: 28, unitCost: 7.25, sellingPrice: 12, staffId: 'ST-MARY', staffName: 'Mary Cashier', notes: 'Customer returned sealed unit.', riskFlag: 'None' },
+  { id: 'LED-BP-001', vendorId: 'SCI-LOG-ZW', productId: 'STOCK-P-03', sku: 'BP-GD6-F', productNumericNumber: '000000012', alu: 'ALU-BP-GD6-F', dateTime: '2026-06-01T08:00:00Z', movementType: 'Opening Balance', referenceType: 'Manual', referenceNo: 'OPEN-0002', branch: 'Harare Main', warehouse: 'Harare Spares Depot', shelfLocation: 'A3-S6', qtyIn: 8, qtyOut: 0, balanceAfter: 8, unitCost: 16, sellingPrice: 28, staffId: 'ST-ADMIN', staffName: 'Admin User', notes: 'Opening balance.', riskFlag: 'None' },
+  { id: 'LED-BP-002', vendorId: 'SCI-LOG-ZW', productId: 'STOCK-P-03', sku: 'BP-GD6-F', productNumericNumber: '000000012', alu: 'ALU-BP-GD6-F', dateTime: '2026-06-03T11:00:00Z', movementType: 'Sale', referenceType: 'Receipt', referenceNo: 'RCT-0004', branch: 'Harare Main', warehouse: 'Harare Spares Depot', shelfLocation: 'A3-S6', qtyIn: 0, qtyOut: 2, balanceAfter: 6, unitCost: 16, sellingPrice: 28, staffId: 'ST-003', staffName: 'John Connor', notes: 'GD6 brake front sale.', riskFlag: 'Low' },
+  { id: 'LED-BP-003', vendorId: 'SCI-LOG-ZW', productId: 'STOCK-P-03', sku: 'BP-GD6-F', productNumericNumber: '000000012', alu: 'ALU-BP-GD6-F', dateTime: '2026-06-07T09:20:00Z', movementType: 'Goods Received', referenceType: 'GRN', referenceNo: 'GRN-2026-9042', branch: 'Harare Main', warehouse: 'Harare Spares Depot', shelfLocation: 'A3-S6', qtyIn: 10, qtyOut: 0, balanceAfter: 16, unitCost: 16.5, sellingPrice: 30, staffId: 'ST-004', staffName: 'Elena Rostova', notes: 'Brake pads replenishment.', riskFlag: 'None' },
+  { id: 'LED-CLT-001', vendorId: 'SCI-LOG-ZW', productId: 'STOCK-P-05', sku: 'CLT-N16', productNumericNumber: '000000014', alu: 'ALU-CLT-N16', dateTime: '2026-06-01T08:00:00Z', movementType: 'Opening Balance', referenceType: 'Manual', referenceNo: 'OPEN-0005', branch: 'Harare Main', warehouse: 'Harare Spares Depot', shelfLocation: 'A5-S2', qtyIn: 3, qtyOut: 0, balanceAfter: 3, unitCost: 25, sellingPrice: 45, staffId: 'ST-ADMIN', staffName: 'Admin User', notes: 'Opening balance.', riskFlag: 'None' },
+  { id: 'LED-CLT-002', vendorId: 'SCI-LOG-ZW', productId: 'STOCK-P-05', sku: 'CLT-N16', productNumericNumber: '000000014', alu: 'ALU-CLT-N16', dateTime: '2026-06-08T13:15:00Z', movementType: 'Damage / Write-Off', referenceType: 'Adjustment', referenceNo: 'ADJ-0019', branch: 'Harare Main', warehouse: 'Harare Spares Depot', shelfLocation: 'A5-S2', qtyIn: 0, qtyOut: 3, balanceAfter: 0, unitCost: 25, sellingPrice: 45, staffId: 'ST-004', staffName: 'Elena Rostova', notes: 'Damaged units written off.', riskFlag: 'High' }
+];
+
+const movementBase = {
+  vendorId: 'SCI-LOG-ZW',
+  branchId: 'BR-HARARE',
+  warehouseId: 'WH-HARARE-01',
+  staffId: 'ST-004',
+  staffName: 'Elena Rostova',
+  terminalId: 'TERM-HARARE-01',
+  salesAccountCOA: '4010',
+  assetAccountCOA: '1210',
+  status: 'Posted' as const,
+  approvalRequired: false,
+  createdAt: '2026-06-09T08:00:00Z',
+  updatedAt: '2026-06-09T08:00:00Z'
+};
+
+export const mockInventoryMovements: InventoryMovement[] = [
+  { ...movementBase, movementId: 'MOV-BJ-001', productId: 'STOCK-P-02', sku: 'BJ-CBHO49', alu: 'ALU-BJ-CBHO49', productNumericNumber: '000000011', productName: 'Ball Joint Honda Fit GD1', shelfLocation: 'A2-S5', movementType: 'OPENING_BALANCE', referenceType: 'MANUAL', referenceNumber: 'OPEN-0001', qtyIn: 15, qtyOut: 0, balanceBefore: 0, balanceAfter: 15, unitCost: 7, sellingPrice: 12, totalCostImpact: 105, movementDate: '2026-06-01T08:00:00Z', notes: 'Opening stock loaded.', riskFlag: 'None' },
+  { ...movementBase, movementId: 'MOV-BJ-002', productId: 'STOCK-P-02', sku: 'BJ-CBHO49', alu: 'ALU-BJ-CBHO49', productNumericNumber: '000000011', productName: 'Ball Joint Honda Fit GD1', shelfLocation: 'A2-S5', movementType: 'SALE', referenceType: 'RECEIPT', referenceNumber: 'RCT-0001', qtyIn: 0, qtyOut: 2, balanceBefore: 15, balanceAfter: 13, unitCost: 7, sellingPrice: 12, totalCostImpact: -14, staffId: 'ST-MARY', staffName: 'Mary Cashier', movementDate: '2026-06-02T10:15:00Z', notes: 'Retail sale.', riskFlag: 'None' },
+  { ...movementBase, movementId: 'MOV-BJ-003', productId: 'STOCK-P-02', sku: 'BJ-CBHO49', alu: 'ALU-BJ-CBHO49', productNumericNumber: '000000011', productName: 'Ball Joint Honda Fit GD1', shelfLocation: 'A2-S5', movementType: 'GOODS_RECEIVED', referenceType: 'GRN', referenceNumber: 'GRN-2026-9041', qtyIn: 20, qtyOut: 0, balanceBefore: 13, balanceAfter: 33, unitCost: 7.25, sellingPrice: 12, totalCostImpact: 145, movementDate: '2026-06-03T09:30:00Z', notes: 'Supplier delivery posted.', riskFlag: 'Low' },
+  { ...movementBase, movementId: 'MOV-BJ-004', productId: 'STOCK-P-02', sku: 'BJ-CBHO49', alu: 'ALU-BJ-CBHO49', productNumericNumber: '000000011', productName: 'Ball Joint Honda Fit GD1', shelfLocation: 'A2-S5', movementType: 'STOCKTAKE_ADJUSTMENT_OUT', referenceType: 'STOCKTAKE', referenceNumber: 'STK-2026-001', qtyIn: 0, qtyOut: 1, balanceBefore: 33, balanceAfter: 32, unitCost: 7.25, sellingPrice: 12, totalCostImpact: -7.25, movementDate: '2026-06-04T16:45:00Z', notes: 'Shelf count short by one.', riskFlag: 'Medium' },
+  { ...movementBase, movementId: 'MOV-BJ-005', productId: 'STOCK-P-02', sku: 'BJ-CBHO49', alu: 'ALU-BJ-CBHO49', productNumericNumber: '000000011', productName: 'Ball Joint Honda Fit GD1', shelfLocation: 'A2-S5', movementType: 'TRANSFER_OUT', referenceType: 'TRANSFER', referenceNumber: 'TRF-0007', transferId: 'TRF-0007', qtyIn: 0, qtyOut: 5, balanceBefore: 32, balanceAfter: 27, unitCost: 7.25, sellingPrice: 12, totalCostImpact: -36.25, movementDate: '2026-06-05T12:10:00Z', notes: 'Moved to Bulawayo Branch.', riskFlag: 'None' },
+  { ...movementBase, movementId: 'MOV-BJ-006', productId: 'STOCK-P-02', sku: 'BJ-CBHO49', alu: 'ALU-BJ-CBHO49', productNumericNumber: '000000011', productName: 'Ball Joint Honda Fit GD1', shelfLocation: 'A2-S5', movementType: 'SALE_RETURN', referenceType: 'RETURN', referenceNumber: 'RET-0002', qtyIn: 1, qtyOut: 0, balanceBefore: 27, balanceAfter: 28, unitCost: 7.25, sellingPrice: 12, totalCostImpact: 7.25, staffId: 'ST-MARY', staffName: 'Mary Cashier', movementDate: '2026-06-06T14:20:00Z', notes: 'Customer returned sealed unit.', riskFlag: 'None' },
+  { ...movementBase, movementId: 'MOV-BP-001', productId: 'STOCK-P-03', sku: 'BP-GD6-F', alu: 'ALU-BP-GD6-F', productNumericNumber: '000000012', productName: 'Brake Pads Toyota GD6 Front', shelfLocation: 'A3-S6', movementType: 'OPENING_BALANCE', referenceType: 'MANUAL', referenceNumber: 'OPEN-0002', qtyIn: 8, qtyOut: 0, balanceBefore: 0, balanceAfter: 8, unitCost: 16, sellingPrice: 28, totalCostImpact: 128, movementDate: '2026-06-01T08:00:00Z', notes: 'Opening balance.', riskFlag: 'None' },
+  { ...movementBase, movementId: 'MOV-BP-002', productId: 'STOCK-P-03', sku: 'BP-GD6-F', alu: 'ALU-BP-GD6-F', productNumericNumber: '000000012', productName: 'Brake Pads Toyota GD6 Front', shelfLocation: 'A3-S6', movementType: 'SALE', referenceType: 'RECEIPT', referenceNumber: 'RCT-0004', qtyIn: 0, qtyOut: 2, balanceBefore: 8, balanceAfter: 6, unitCost: 16, sellingPrice: 28, totalCostImpact: -32, staffId: 'ST-003', staffName: 'John Connor', movementDate: '2026-06-03T11:00:00Z', notes: 'GD6 brake front sale.', riskFlag: 'Low' },
+  { ...movementBase, movementId: 'MOV-BP-003', productId: 'STOCK-P-03', sku: 'BP-GD6-F', alu: 'ALU-BP-GD6-F', productNumericNumber: '000000012', productName: 'Brake Pads Toyota GD6 Front', shelfLocation: 'A3-S6', movementType: 'GOODS_RECEIVED', referenceType: 'GRN', referenceNumber: 'GRN-2026-9042', qtyIn: 10, qtyOut: 0, balanceBefore: 6, balanceAfter: 16, unitCost: 16.5, sellingPrice: 30, totalCostImpact: 165, movementDate: '2026-06-07T09:20:00Z', notes: 'Brake pads replenishment.', riskFlag: 'None' },
+  { ...movementBase, movementId: 'MOV-OIL-001', productId: 'STOCK-P-04', sku: 'OIL-5W30', alu: 'ALU-OIL-5W30', productNumericNumber: '000000013', productName: 'Engine Oil 5W30 5L', shelfLocation: 'B1-S1', movementType: 'OPENING_BALANCE', referenceType: 'MANUAL', referenceNumber: 'OPEN-0004', qtyIn: 20, qtyOut: 0, balanceBefore: 0, balanceAfter: 20, unitCost: 14.5, sellingPrice: 22, totalCostImpact: 290, movementDate: '2026-06-01T08:00:00Z', notes: 'Opening balance.', riskFlag: 'None' },
+  { ...movementBase, movementId: 'MOV-OIL-002', productId: 'STOCK-P-04', sku: 'OIL-5W30', alu: 'ALU-OIL-5W30', productNumericNumber: '000000013', productName: 'Engine Oil 5W30 5L', shelfLocation: 'B1-S1', movementType: 'SALE', referenceType: 'RECEIPT', referenceNumber: 'RCT-0005', qtyIn: 0, qtyOut: 3, balanceBefore: 20, balanceAfter: 17, unitCost: 14.5, sellingPrice: 22, totalCostImpact: -43.5, movementDate: '2026-06-06T10:00:00Z', notes: 'Oil retail sale.', riskFlag: 'None' },
+  { ...movementBase, movementId: 'MOV-RAD-001', productId: 'STOCK-P-01', sku: 'RAD-FJ200-L', alu: 'ALU-RAD-FJ200-L', productNumericNumber: '000000010', productName: 'Head Lamp FJ200 Series 2016 Left', shelfLocation: 'A1-S4', movementType: 'OPENING_BALANCE', referenceType: 'MANUAL', referenceNumber: 'OPEN-0003', qtyIn: 4, qtyOut: 0, balanceBefore: 0, balanceAfter: 4, unitCost: 50, sellingPrice: 85, totalCostImpact: 200, movementDate: '2026-06-01T08:00:00Z', notes: 'Opening balance.', riskFlag: 'None' },
+  { ...movementBase, movementId: 'MOV-RAD-002', productId: 'STOCK-P-01', sku: 'RAD-FJ200-L', alu: 'ALU-RAD-FJ200-L', productNumericNumber: '000000010', productName: 'Head Lamp FJ200 Series 2016 Left', shelfLocation: 'A1-S4', movementType: 'SUPPLIER_RETURN', referenceType: 'SUPPLIER_RETURN', referenceNumber: 'SRET-0008', qtyIn: 0, qtyOut: 1, balanceBefore: 4, balanceAfter: 3, unitCost: 50, sellingPrice: 85, totalCostImpact: -50, movementDate: '2026-06-08T12:30:00Z', notes: 'Returned cracked lens to supplier.', riskFlag: 'Medium' },
+  { ...movementBase, movementId: 'MOV-CLT-001', productId: 'STOCK-P-05', sku: 'CLT-N16', alu: 'ALU-CLT-N16', productNumericNumber: '000000014', productName: 'Clutch Plate Nissan N16', shelfLocation: 'A5-S2', movementType: 'OPENING_BALANCE', referenceType: 'MANUAL', referenceNumber: 'OPEN-0005', qtyIn: 3, qtyOut: 0, balanceBefore: 0, balanceAfter: 3, unitCost: 25, sellingPrice: 45, totalCostImpact: 75, movementDate: '2026-06-01T08:00:00Z', notes: 'Opening balance.', riskFlag: 'None' },
+  { ...movementBase, movementId: 'MOV-CLT-002', productId: 'STOCK-P-05', sku: 'CLT-N16', alu: 'ALU-CLT-N16', productNumericNumber: '000000014', productName: 'Clutch Plate Nissan N16', shelfLocation: 'A5-S2', movementType: 'DAMAGE_WRITEOFF', referenceType: 'DAMAGE', referenceNumber: 'ADJ-0019', qtyIn: 0, qtyOut: 3, balanceBefore: 3, balanceAfter: 0, unitCost: 25, sellingPrice: 45, totalCostImpact: -75, movementDate: '2026-06-08T13:15:00Z', notes: 'Damaged units written off.', riskFlag: 'High' },
+  { ...movementBase, movementId: 'MOV-BP-004', productId: 'STOCK-P-03', sku: 'BP-GD6-F', alu: 'ALU-BP-GD6-F', productNumericNumber: '000000012', productName: 'Brake Pads Toyota GD6 Front', shelfLocation: 'A3-S6', movementType: 'SALE', referenceType: 'RECEIPT', referenceNumber: 'RCT-0012', qtyIn: 0, qtyOut: 1, balanceBefore: 16, balanceAfter: 15, unitCost: 16.5, sellingPrice: 28, totalCostImpact: -16.5, staffId: 'ST-003', staffName: 'John Connor', movementDate: '2026-06-07T15:30:00Z', notes: 'Fast-moving brake pad sale.', riskFlag: 'None' },
+  { ...movementBase, movementId: 'MOV-BP-005', productId: 'STOCK-P-03', sku: 'BP-GD6-F', alu: 'ALU-BP-GD6-F', productNumericNumber: '000000012', productName: 'Brake Pads Toyota GD6 Front', shelfLocation: 'A3-S6', movementType: 'SALE', referenceType: 'RECEIPT', referenceNumber: 'RCT-0018', qtyIn: 0, qtyOut: 2, balanceBefore: 15, balanceAfter: 13, unitCost: 16.5, sellingPrice: 28, totalCostImpact: -33, staffId: 'ST-MARY', staffName: 'Mary Cashier', movementDate: '2026-06-08T11:20:00Z', notes: 'Second fast-moving sale in 7 days.', riskFlag: 'None' },
+  { ...movementBase, movementId: 'MOV-HEX-001', productId: 'prod-hex-bolt', sku: 'HEX-B12', alu: 'ALU-HEX-B12', productNumericNumber: '000000001', productName: 'M12 Heavy Hex Bolt (Steel 8.8)', shelfLocation: 'C1-FASTENERS', movementType: 'OPENING_BALANCE', referenceType: 'MANUAL', referenceNumber: 'OPEN-HEX-01', qtyIn: 150, qtyOut: 0, balanceBefore: 0, balanceAfter: 150, unitCost: 0.95, sellingPrice: 2.45, totalCostImpact: 142.5, movementDate: '2026-06-01T08:00:00Z', notes: 'Opening fasteners stock.', riskFlag: 'None' },
+  { ...movementBase, movementId: 'MOV-HEX-002', productId: 'prod-hex-bolt', sku: 'HEX-B12', alu: 'ALU-HEX-B12', productNumericNumber: '000000001', productName: 'M12 Heavy Hex Bolt (Steel 8.8)', shelfLocation: 'C1-FASTENERS', movementType: 'SALE', referenceType: 'RECEIPT', referenceNumber: 'RCT-HEX-01', qtyIn: 0, qtyOut: 20, balanceBefore: 150, balanceAfter: 130, unitCost: 0.95, sellingPrice: 2.45, totalCostImpact: -19, staffId: 'ST-003', staffName: 'John Connor', movementDate: '2026-06-06T09:00:00Z', notes: 'Bulk fastener sale.', riskFlag: 'None' },
+  { ...movementBase, movementId: 'MOV-HEX-003', productId: 'prod-hex-bolt', sku: 'HEX-B12', alu: 'ALU-HEX-B12', productNumericNumber: '000000001', productName: 'M12 Heavy Hex Bolt (Steel 8.8)', shelfLocation: 'C1-FASTENERS', movementType: 'SALE', referenceType: 'RECEIPT', referenceNumber: 'RCT-HEX-02', qtyIn: 0, qtyOut: 15, balanceBefore: 130, balanceAfter: 115, unitCost: 0.95, sellingPrice: 2.45, totalCostImpact: -14.25, staffId: 'ST-MARY', staffName: 'Mary Cashier', movementDate: '2026-06-08T14:45:00Z', notes: 'Second fast-moving sale in 7 days.', riskFlag: 'None' },
+  { ...movementBase, movementId: 'MOV-SLV-001', productId: 'prod-solenoid-v', sku: 'SLV-D24', alu: 'ALU-SLV-D24', productNumericNumber: '000000009', productName: 'Heavy Solenoid Valve 24VDC', shelfLocation: 'D1-HARDWARE', movementType: 'OPENING_BALANCE', referenceType: 'MANUAL', referenceNumber: 'OPEN-SLV-01', qtyIn: 4, qtyOut: 0, balanceBefore: 0, balanceAfter: 4, unitCost: 30, sellingPrice: 65, totalCostImpact: 120, movementDate: '2026-01-10T08:00:00Z', notes: 'Dead stock opening balance.', riskFlag: 'None' },
+  { ...movementBase, movementId: 'MOV-SLV-002', productId: 'prod-solenoid-v', sku: 'SLV-D24', alu: 'ALU-SLV-D24', productNumericNumber: '000000009', productName: 'Heavy Solenoid Valve 24VDC', shelfLocation: 'D1-HARDWARE', movementType: 'SALE', referenceType: 'RECEIPT', referenceNumber: 'RCT-SLV-01', qtyIn: 0, qtyOut: 1, balanceBefore: 4, balanceAfter: 3, unitCost: 30, sellingPrice: 65, totalCostImpact: -30, staffId: 'ST-003', staffName: 'John Connor', movementDate: '2026-02-12T10:00:00Z', notes: 'Last sale over 90 days ago.', riskFlag: 'None' },
+  { ...movementBase, movementId: 'MOV-PSG-001', productId: 'prod-press-gauge', sku: 'PSG-B10', alu: 'ALU-PSG-B10', productNumericNumber: '000000008', productName: 'Dial Pressure Gauge (10 Bar)', shelfLocation: '', movementType: 'OPENING_BALANCE', referenceType: 'MANUAL', referenceNumber: 'OPEN-PSG-01', qtyIn: 3, qtyOut: 0, balanceBefore: 0, balanceAfter: 3, unitCost: 13.5, sellingPrice: 29.95, totalCostImpact: 40.5, movementDate: '2026-04-01T08:00:00Z', notes: 'Gauge opening stock.', riskFlag: 'None' },
+  { ...movementBase, movementId: 'MOV-PSG-002', productId: 'prod-press-gauge', sku: 'PSG-B10', alu: 'ALU-PSG-B10', productNumericNumber: '000000008', productName: 'Dial Pressure Gauge (10 Bar)', shelfLocation: '', movementType: 'SALE', referenceType: 'RECEIPT', referenceNumber: 'RCT-PSG-01', qtyIn: 0, qtyOut: 1, balanceBefore: 3, balanceAfter: 2, unitCost: 13.5, sellingPrice: 29.95, totalCostImpact: -13.5, staffId: 'ST-MARY', staffName: 'Mary Cashier', movementDate: '2026-05-01T11:00:00Z', notes: 'Slow-moving sale over 30 days ago.', riskFlag: 'Low' },
+  { ...movementBase, movementId: 'MOV-PSG-003', productId: 'prod-press-gauge', sku: 'PSG-B10', alu: 'ALU-PSG-B10', productNumericNumber: '000000008', productName: 'Dial Pressure Gauge (10 Bar)', shelfLocation: '', movementType: 'STOCKTAKE_ADJUSTMENT_OUT', referenceType: 'STOCKTAKE', referenceNumber: 'STK-PSG-01', qtyIn: 0, qtyOut: 1, balanceBefore: 2, balanceAfter: 1, unitCost: 13.5, sellingPrice: 29.95, totalCostImpact: -13.5, movementDate: '2026-06-02T16:00:00Z', notes: 'Variance risk stocktake adjustment.', riskFlag: 'High' },
+  { ...movementBase, movementId: 'MOV-GRE-001', productId: 'prod-cond-grease', sku: 'CON-G50', alu: 'ALU-CON-G50', productNumericNumber: '000000003', productName: 'Conductive Thermal Grease (50g)', shelfLocation: 'B1-LUBRICANTS', movementType: 'OPENING_BALANCE', referenceType: 'MANUAL', referenceNumber: 'OPEN-GRE-01', qtyIn: 12, qtyOut: 0, balanceBefore: 0, balanceAfter: 12, unitCost: 6.2, sellingPrice: 14.95, totalCostImpact: 74.4, movementDate: '2026-05-01T08:00:00Z', notes: 'Grease opening stock.', riskFlag: 'None' },
+  { ...movementBase, movementId: 'MOV-GRE-002', productId: 'prod-cond-grease', sku: 'CON-G50', alu: 'ALU-CON-G50', productNumericNumber: '000000003', productName: 'Conductive Thermal Grease (50g)', shelfLocation: 'B1-LUBRICANTS', movementType: 'SALE', referenceType: 'RECEIPT', referenceNumber: 'RCT-GRE-01', qtyIn: 0, qtyOut: 4, balanceBefore: 12, balanceAfter: 8, unitCost: 6.2, sellingPrice: 14.95, totalCostImpact: -24.8, staffId: 'ST-003', staffName: 'John Connor', movementDate: '2026-05-05T10:00:00Z', notes: 'Slow-moving lubricant sale.', riskFlag: 'None' },
+  { ...movementBase, movementId: 'MOV-STL-001', productId: 'prod-steel-angle', sku: 'STL-A40', alu: 'ALU-STL-A40', productNumericNumber: '000000007', productName: 'Steel Angle Bar 40x40x3mm (2m)', shelfLocation: '', branchId: 'BR-HARARE', warehouseId: 'WH-HARARE-01', movementType: 'OPENING_BALANCE', referenceType: 'MANUAL', referenceNumber: 'OPEN-STL-01', qtyIn: 10, qtyOut: 0, balanceBefore: 0, balanceAfter: 10, unitCost: 11.2, sellingPrice: 22.8, totalCostImpact: 112, movementDate: '2026-05-10T08:00:00Z', notes: 'Harare branch opening stock.', riskFlag: 'None' },
+  { ...movementBase, movementId: 'MOV-STL-002', productId: 'prod-steel-angle', sku: 'STL-A40', alu: 'ALU-STL-A40', productNumericNumber: '000000007', productName: 'Steel Angle Bar 40x40x3mm (2m)', shelfLocation: '', branchId: 'BR-HARARE', warehouseId: 'WH-HARARE-01', movementType: 'SALE', referenceType: 'RECEIPT', referenceNumber: 'RCT-STL-01', qtyIn: 0, qtyOut: 10, balanceBefore: 10, balanceAfter: 0, unitCost: 11.2, sellingPrice: 22.8, totalCostImpact: -112, staffId: 'ST-003', staffName: 'John Connor', movementDate: '2026-05-15T14:00:00Z', notes: 'Out of stock after bulk sale.', riskFlag: 'None' }
+];
+
+export const mockSuppliers = [
+  { id: 'SUP-MOTOR-001', name: 'ABC Motor Spares Supplier' },
+  { id: 'SUP-LUBE-002', name: 'Harare Lubricants Ltd' },
+  { id: 'SUP-HARD-003', name: 'SCI Hardware Wholesale' },
+  { id: 'SUP-ELEC-004', name: 'Metro Electrical Parts' }
+];
+
+export const mockCOAAccounts: COAAccount[] = [
+  { id: 'COA-1000', accountCode: '1000', accountName: 'Cash on Hand', accountType: 'Asset', linkedDomain: 'Cash', status: 'Active', notes: 'Cash drawer and safe control.' },
+  { id: 'COA-1010', accountCode: '1010', accountName: 'EcoCash Control', accountType: 'Asset', linkedDomain: 'EcoCash', status: 'Active' },
+  { id: 'COA-1020', accountCode: '1020', accountName: 'Swipe/Card Control', accountType: 'Asset', linkedDomain: 'Swipe', status: 'Active' },
+  { id: 'COA-1030', accountCode: '1030', accountName: 'Bank Transfer Control', accountType: 'Asset', linkedDomain: 'Bank', status: 'Active' },
+  { id: 'COA-1200', accountCode: '1200', accountName: 'Inventory Asset - General', accountType: 'Asset', linkedDomain: 'Inventory', status: 'Active' },
+  { id: 'COA-1210', accountCode: '1210', accountName: 'Inventory Asset - Motor Spares', accountType: 'Asset', linkedDomain: 'Inventory', status: 'Active' },
+  { id: 'COA-1220', accountCode: '1220', accountName: 'Inventory Asset - Lubricants', accountType: 'Asset', linkedDomain: 'Inventory', status: 'Active' },
+  { id: 'COA-1300', accountCode: '1300', accountName: 'Customer Receivables Placeholder', accountType: 'Asset', linkedDomain: 'Receivables', status: 'Draft' },
+  { id: 'COA-4000', accountCode: '4000', accountName: 'Sales Revenue - General', accountType: 'Income', linkedDomain: 'Sales', status: 'Active' },
+  { id: 'COA-4010', accountCode: '4010', accountName: 'Sales Revenue - Motor Spares', accountType: 'Income', linkedDomain: 'Sales', status: 'Active' },
+  { id: 'COA-4020', accountCode: '4020', accountName: 'Sales Revenue - Lubricants', accountType: 'Income', linkedDomain: 'Sales', status: 'Active' },
+  { id: 'COA-5000', accountCode: '5000', accountName: 'Cost of Goods Sold - General', accountType: 'Cost of Sales', linkedDomain: 'COGS', status: 'Active' },
+  { id: 'COA-5010', accountCode: '5010', accountName: 'Cost of Goods Sold - Motor Spares', accountType: 'Cost of Sales', linkedDomain: 'COGS', status: 'Active' },
+  { id: 'COA-5020', accountCode: '5020', accountName: 'Cost of Goods Sold - Lubricants', accountType: 'Cost of Sales', linkedDomain: 'COGS', status: 'Active' },
+  { id: 'COA-2100', accountCode: '2100', accountName: 'VAT Output Control', accountType: 'Tax', linkedDomain: 'VAT', status: 'Draft' },
+  { id: 'COA-2110', accountCode: '2110', accountName: 'VAT Input Placeholder', accountType: 'Tax', linkedDomain: 'VAT', status: 'Draft' },
+  { id: 'COA-6000', accountCode: '6000', accountName: 'Cash Variance / Shortage', accountType: 'Expense', linkedDomain: 'Cash', status: 'Active' },
+  { id: 'COA-6010', accountCode: '6010', accountName: 'Discounts Given', accountType: 'Expense', linkedDomain: 'Discounts', status: 'Active' },
+  { id: 'COA-6020', accountCode: '6020', accountName: 'Delivery Expense Placeholder', accountType: 'Expense', linkedDomain: 'Delivery', status: 'Draft' },
+  { id: 'COA-9000', accountCode: '9000', accountName: 'Suspense / Review Account', accountType: 'Control', linkedDomain: 'Suspense', status: 'Active' },
+  { id: 'COA-9010', accountCode: '9010', accountName: 'Refund Control', accountType: 'Control', linkedDomain: 'Refunds', status: 'Active' },
+  { id: 'COA-9020', accountCode: '9020', accountName: 'Void Control', accountType: 'Control', linkedDomain: 'Voids', status: 'Active' }
 ];
 
 export const mockHeldTransactions: HeldTransaction[] = [
@@ -250,11 +389,50 @@ export const mockAuditEvents: AuditEvent[] = [
 
 export const mockSettings: POSSettings = {
   businessProfile: {
+    businessName: 'SCI Logistics Ltd',
+    tradingName: 'SCI Auto Spares',
+    businessType: 'Retail and Wholesale',
+    industrialSector: 'Motor Spares',
+    cityTown: 'Harare',
+    district: 'Harare CBD',
+    suburb: 'Workington',
     legalName: 'APEX INDUSTRIAL CORP',
     taxNo: 'VAT-US-991208',
     regNo: 'REG-552912',
     address: '77 Industrial Parkway, Sector 4',
-    currency: 'USD'
+    country: 'Zimbabwe',
+    phoneNumber1: '+263 242 000 001',
+    phoneNumber2: '+263 242 000 002',
+    phoneNumber3: '',
+    whatsAppNumber1: '+263 771 000 001',
+    whatsAppNumber2: '+263 772 000 002',
+    whatsAppNumber3: '',
+    primaryEmail: 'sales@sci.example',
+    supportEmail: 'support@sci.example',
+    websitePlaceholder: 'https://sci.example',
+    isBusinessRegistered: true,
+    registeredBusinessName: 'SCI Logistics Ltd',
+    companyRegistrationNumber: 'ZW-REG-66291B',
+    registrationDate: '2021-04-12',
+    registrationAuthority: 'Registrar of Companies Zimbabwe',
+    taxIdentificationNumber: 'TIN-ZW-82190B',
+    vatRegistered: true,
+    vatNumber: 'VAT-ZW-82190B',
+    taxCollectorName: 'ZIMRA',
+    taxCollectorContactNumber: '+263 242 000 999',
+    taxCollectorEmail: 'tax@sci.example',
+    taxOfficeRegion: 'Harare Region',
+    taxNotes: 'VAT returns handled monthly.',
+    ownerFullName: 'Tenant Business Owner',
+    ownerNationalIdPlaceholder: 'ID-PLACEHOLDER',
+    ownerPhone: '+263 773 000 003',
+    ownerWhatsApp: '+263 773 000 003',
+    ownerEmail: 'owner@sci.example',
+    ownerRoleTitle: 'Managing Director',
+    currency: 'USD',
+    receiptBusinessName: 'SCI Auto Spares',
+    receiptFooterMessage: 'Thank you for shopping with SCI.',
+    businessStatus: 'Active'
   },
   hardwareSetting: {
     laserFocus: 'LASER_FOCUS: INTENSE_RED',
@@ -341,7 +519,7 @@ export const mockDeliveryOrders: DeliveryOrder[] = [
   },
   {
     id: 'DEL-005',
-    receiptNumber: 'RCT-0007',
+    receiptNumber: 'RCT-0005',
     customerName: 'Brian Dube',
     customerWhatsApp: '+263775000005',
     deliveryAddress: 'Harare South',
@@ -596,6 +774,105 @@ export const mockEODChecklist: EODChecklistItem[] = [
   { id: 'EOD-CHK-012', label: 'Receipt sequence checked', status: 'Passed', ownerAction: 'View sequence', notes: 'Receipt sequence has no duplicate flags.' }
 ];
 
+export const mockEODSession: EODSession = {
+  id: 'EOD-2026-06-09-SCI-LOG-ZW',
+  vendorId: 'SCI-LOG-ZW',
+  businessVendor: 'Demo Vendor',
+  businessDate: '2026-06-09',
+  branch: 'Harare Main',
+  status: 'Blocked',
+  lastCheckTime: '2026-06-09T14:10:00Z',
+  todaySales: 1245,
+  netReceipts: 1227,
+  cashExpected: 760,
+  cashDeclared: 755,
+  cashVariance: -5,
+  refunds: 10,
+  voids: 1,
+  openShifts: 1,
+  pendingStockMovements: 3,
+  pendingDeliveries: 2,
+  criticalBIAlerts: 3,
+  syncPendingItems: 23
+};
+
+export const mockEODChecklistItems: EODChecklistItem[] = [
+  { id: 'EOD-CHK-001', check: 'All shifts closed', label: 'All shifts closed', domain: 'Shift', status: 'Warning', risk: 'Medium', requiredAction: 'Close remaining open shift', reviewedBy: '', ownerAction: 'Review shifts', notes: 'POS-01 remains open.' },
+  { id: 'EOD-CHK-002', check: 'Cash declared for all terminals', label: 'Cash declared for all terminals', domain: 'Cash', status: 'Passed', risk: 'Low', requiredAction: 'None', reviewedBy: 'Tawanda Supervisor', ownerAction: 'View declarations', notes: 'Declarations found for closed registers.' },
+  { id: 'EOD-CHK-003', check: 'Cash variances reviewed', label: 'Cash variances reviewed', domain: 'Cash', status: 'Failed', risk: 'High', requiredAction: 'Supervisor/Owner review required', reviewedBy: '', ownerAction: 'Review variance', notes: 'USD -5.00 variance requires owner signoff.' },
+  { id: 'EOD-CHK-004', check: 'Refunds reviewed', label: 'Refunds reviewed', domain: 'Sales', status: 'Pending', risk: 'High', requiredAction: 'Review refund requests', reviewedBy: '', ownerAction: 'Review refunds', notes: 'Refund queue awaiting decision.' },
+  { id: 'EOD-CHK-005', check: 'Voids reviewed', label: 'Voids reviewed', domain: 'Sales', status: 'Pending', risk: 'High', requiredAction: 'Review void requests', reviewedBy: '', ownerAction: 'Review voids', notes: 'Void queue awaiting decision.' },
+  { id: 'EOD-CHK-006', check: 'Inventory movements posted', label: 'Inventory movements posted', domain: 'Inventory', status: 'Warning', risk: 'Medium', requiredAction: 'Review pending stock movements', reviewedBy: '', ownerAction: 'Open stock review', notes: 'Three stock movement records need review.' },
+  { id: 'EOD-CHK-007', check: 'Stocktake variances reviewed', label: 'Stocktake variances reviewed', domain: 'Inventory', status: 'Warning', risk: 'High', requiredAction: 'Review stocktake adjustments', reviewedBy: '', ownerAction: 'Open stocktake', notes: 'One adjustment remains open.' },
+  { id: 'EOD-CHK-008', check: 'GRN variances reviewed', label: 'GRN variances reviewed', domain: 'Purchasing', status: 'Warning', risk: 'High', requiredAction: 'Review receiving variance', reviewedBy: '', ownerAction: 'Review GRNs', notes: 'Supplier variance needs confirmation.' },
+  { id: 'EOD-CHK-009', check: 'Delivery codes confirmed', label: 'Delivery codes confirmed', domain: 'Delivery', status: 'Passed', risk: 'Low', requiredAction: 'None', reviewedBy: 'Admin User', ownerAction: 'View delivery codes', notes: 'Completed delivery codes verified.' },
+  { id: 'EOD-CHK-010', check: 'Failed deliveries reviewed', label: 'Failed deliveries reviewed', domain: 'Delivery', status: 'Warning', risk: 'Medium', requiredAction: 'Follow up failed delivery', reviewedBy: '', ownerAction: 'Review failures', notes: 'DEL-005 remains open.' },
+  { id: 'EOD-CHK-011', check: 'Sync queue checked', label: 'Sync queue checked', domain: 'Sync', status: 'Failed', risk: 'Critical', requiredAction: 'Run sync check', reviewedBy: '', ownerAction: 'Review sync queue', notes: '23 items pending sync.' },
+  { id: 'EOD-CHK-012', check: 'Critical BI alerts reviewed', label: 'Critical BI alerts reviewed', domain: 'BI', status: 'Failed', risk: 'Critical', requiredAction: 'Owner review required', reviewedBy: '', ownerAction: 'Review BI alerts', notes: 'Critical alerts are not reviewed.' },
+  { id: 'EOD-CHK-013', check: 'Receipt sequence checked', label: 'Receipt sequence checked', domain: 'Sales', status: 'Passed', risk: 'Low', requiredAction: 'None', reviewedBy: 'Admin User', ownerAction: 'View sequence', notes: 'Receipt sequence has no duplicate flags.' }
+];
+
+export const mockEODPaymentSummary: EODPaymentSummary[] = [
+  { id: 'EOD-PAY-001', paymentMode: 'Cash', receiptCount: 18, grossAmount: 760, discounts: 0, refunds: 10, netAmount: 750, expectedSettlement: 760, declaredOrConfirmed: 755, variance: -5, status: 'Variance' },
+  { id: 'EOD-PAY-002', paymentMode: 'EcoCash', receiptCount: 8, grossAmount: 320, discounts: 0, refunds: 0, netAmount: 320, expectedSettlement: 320, declaredOrConfirmed: 320, variance: 0, status: 'Balanced' },
+  { id: 'EOD-PAY-003', paymentMode: 'Swipe', receiptCount: 5, grossAmount: 215, discounts: 0, refunds: 0, netAmount: 215, expectedSettlement: 215, declaredOrConfirmed: 215, variance: 0, status: 'Balanced' },
+  { id: 'EOD-PAY-004', paymentMode: 'Bank Transfer', receiptCount: 3, grossAmount: 480, discounts: 20, refunds: 0, netAmount: 460, expectedSettlement: 460, declaredOrConfirmed: 'Pending', variance: 'Pending', status: 'Review' },
+  { id: 'EOD-PAY-005', paymentMode: 'Split Payment', receiptCount: 2, grossAmount: 210, discounts: 10, refunds: 0, netAmount: 200, expectedSettlement: 200, declaredOrConfirmed: 200, variance: 0, status: 'Balanced' },
+  { id: 'EOD-PAY-006', paymentMode: 'Credit Sale', receiptCount: 1, grossAmount: 90, discounts: 0, refunds: 0, netAmount: 90, expectedSettlement: 90, declaredOrConfirmed: 90, variance: 0, status: 'Balanced' },
+  { id: 'EOD-PAY-007', paymentMode: 'Store Credit', receiptCount: 1, grossAmount: 42, discounts: 0, refunds: 0, netAmount: 42, expectedSettlement: 42, declaredOrConfirmed: 42, variance: 0, status: 'Balanced' }
+];
+
+export const mockEODShiftSummaries: EODShiftSummary[] = [
+  { id: 'EOD-SHIFT-001', shiftId: 'SH-001', branch: 'Harare Main', terminal: 'POS-01', staff: 'Mary Cashier', openedAt: '2026-06-09T08:00:00Z', closedAt: 'Open', status: 'Open', salesTotal: 710, expectedCash: 800, declaredCash: 'Pending', variance: 'Pending', syncStatus: 'Pending Sync' },
+  { id: 'EOD-SHIFT-002', shiftId: 'SH-002', branch: 'Harare Main', terminal: 'POS-02', staff: 'Tawanda Supervisor', openedAt: '2026-06-09T08:30:00Z', closedAt: '2026-06-09T15:10:00Z', status: 'Closed', salesTotal: 315, expectedCash: 220, declaredCash: 220, variance: 0, syncStatus: 'Synced', reviewedBy: 'Admin User' },
+  { id: 'EOD-SHIFT-003', shiftId: 'SH-003', branch: 'Harare Main', terminal: 'BACK-01', staff: 'Admin User', openedAt: '2026-06-09T09:00:00Z', closedAt: '2026-06-09T14:45:00Z', status: 'Closed', salesTotal: 220, expectedCash: 115, declaredCash: 115, variance: 0, syncStatus: 'Conflict' }
+];
+
+export const mockEODCashReconciliationRows: EODCashReconciliation[] = [
+  { id: 'EOD-CASH-001', branch: 'Harare Main', terminal: 'POS-01', cashier: 'Mary Cashier', shiftId: 'SH-001', openingFloat: 50, cashSales: 710, cashIn: 80, cashOut: 40, expectedCash: 800, declaredCash: 795, variance: -5, status: 'Variance', requiredAction: 'Owner review' },
+  { id: 'EOD-CASH-002', branch: 'Harare Main', terminal: 'POS-02', cashier: 'Tawanda Supervisor', shiftId: 'SH-002', openingFloat: 30, cashSales: 220, cashIn: 0, cashOut: 30, expectedCash: 220, declaredCash: 220, variance: 0, status: 'Balanced', requiredAction: 'None', reviewedBy: 'Tawanda Supervisor' },
+  { id: 'EOD-CASH-003', branch: 'Harare Main', terminal: 'BACK-01', cashier: 'Admin User', shiftId: 'SH-003', openingFloat: 20, cashSales: 120, cashIn: 0, cashOut: 25, expectedCash: 115, declaredCash: 115, variance: 0, status: 'Balanced', requiredAction: 'None', reviewedBy: 'Admin User' }
+];
+
+export const mockEODInventoryClosingRows: EODInventoryClosingRow[] = [
+  { id: 'EOD-INV-001', movementId: 'MOV-0001', product: '10W-40 Engine Oil 5L', movementType: 'Sale', reference: 'RCT-0001', branch: 'Harare Main', warehouse: 'Main Sales Floor', qtyIn: 0, qtyOut: 2, status: 'Posted', risk: 'Low', requiredAction: 'None', reviewedBy: 'Blessing Stock' },
+  { id: 'EOD-INV-002', movementId: 'MOV-0002', product: 'Truck Brake Pad Set', movementType: 'Goods Received', reference: 'GRN-0042', branch: 'Harare Main', warehouse: 'Back Store', qtyIn: 12, qtyOut: 0, status: 'Pending Approval', risk: 'High', requiredAction: 'Open Approval Placeholder' },
+  { id: 'EOD-INV-003', movementId: 'MOV-0003', product: 'Hydraulic Hose 2m', movementType: 'Stock Adjustment', reference: 'ADJ-0018', branch: 'Bulawayo Branch', warehouse: 'Bulawayo Warehouse', qtyIn: 0, qtyOut: 1, status: 'Pending Approval', risk: 'High', requiredAction: 'Mark Reviewed' },
+  { id: 'EOD-INV-004', movementId: 'MOV-0004', product: 'Alternator 24V', movementType: 'Supplier Return', reference: 'SRET-0007', branch: 'Mutare Branch', warehouse: 'Mutare Store', qtyIn: 0, qtyOut: 1, status: 'Reversed', risk: 'Medium', requiredAction: 'Keep in audit trail' }
+];
+
+export const mockEODDeliveryClosingRows: EODDeliveryClosingRow[] = [
+  { id: 'EOD-DEL-001', deliveryId: 'DEL-001', branch: 'Harare Main', receipt: 'RCT-0002', customer: 'WhatsApp Customer', deliveryMethod: 'Bike Delivery', driver: 'Mike Delivery', status: 'Completed', secretCodeStatus: 'Confirmed', completedAt: '2026-06-09T12:10:00Z', risk: 'Low', requiredAction: 'None', reviewedBy: 'Admin User' },
+  { id: 'EOD-DEL-002', deliveryId: 'DEL-005', branch: 'Harare Main', receipt: 'RCT-0006', customer: 'Rudo Ncube', deliveryMethod: 'Van Delivery', driver: 'Tapiwa Driver', status: 'Failed', secretCodeStatus: 'Pending', completedAt: 'Not completed', risk: 'Medium', requiredAction: 'Follow up failed delivery' },
+  { id: 'EOD-DEL-003', deliveryId: 'DEL-006', branch: 'Bulawayo Branch', receipt: 'RCT-0007', customer: 'Tafadzwa M.', deliveryMethod: 'Customer Collection', driver: 'Counter', status: 'Pending', secretCodeStatus: 'Pending', completedAt: 'Pending', risk: 'Medium', requiredAction: 'Confirm collection code' }
+];
+
+export const mockEODBIReviewItems: EODBIReviewItem[] = [
+  { id: 'EOD-BI-001', eventType: 'CASH_VARIANCE_FOUND', domain: 'Cash', severity: 'High', description: 'Drawer short by USD 5.00.', recommendedAction: 'Review cash declaration and add owner note.', status: 'Open' },
+  { id: 'EOD-BI-002', eventType: 'SALE_BLOCKED_ZERO_STOCK', domain: 'Inventory', severity: 'Critical', description: 'Zero stock sale attempt blocked.', recommendedAction: 'Review stock ledger before locking day.', status: 'Open' },
+  { id: 'EOD-BI-003', eventType: 'RECOMMEND_MAJOR_STOCKTAKE', domain: 'Inventory', severity: 'High', description: 'Motor Spares category risk increasing.', recommendedAction: 'Schedule major stocktake.', status: 'Open' },
+  { id: 'EOD-BI-004', eventType: 'SYNC_CONFLICT_FLAGGED', domain: 'Sync', severity: 'Critical', description: 'Role permission conflict in local queue.', recommendedAction: 'Run sync conflict review.', status: 'Open' },
+  { id: 'EOD-BI-005', eventType: 'REFUND_APPROVAL_REQUIRED', domain: 'Sales', severity: 'High', description: 'Refund above cashier permission.', recommendedAction: 'Review refund request.', status: 'Open' },
+  { id: 'EOD-BI-006', eventType: 'DELIVERY_FAILURE_REVIEW_REQUIRED', domain: 'Delivery', severity: 'High', description: 'Failed delivery requires follow-up.', recommendedAction: 'Follow up failed delivery.', status: 'Open' },
+  { id: 'EOD-BI-007', eventType: 'CUSTOMER_SERVICE_RISK', domain: 'Customer', severity: 'Medium', description: 'Poor service flag recorded.', recommendedAction: 'Review service note.', status: 'Open' },
+  { id: 'EOD-BI-008', eventType: 'NEGATIVE_STOCK_ALERT', domain: 'Inventory', severity: 'Critical', description: 'Negative stock risk detected on controlled SKU.', recommendedAction: 'Resolve stock ledger exception.', status: 'Open' },
+  { id: 'EOD-BI-009', eventType: 'DEAD_STOCK_WARNING', domain: 'Inventory', severity: 'High', description: 'Dead stock warning on slow moving category.', recommendedAction: 'Review dead stock report.', status: 'Open' }
+];
+
+export const mockEODActivityEvents: EODActivityEvent[] = [
+  { id: 'EOD-ACT-001', timestamp: '2026-06-09T14:10:00Z', eventType: 'EOD_CHECK_RUN', message: 'EOD readiness check run for Demo Vendor.', operator: 'Admin User' },
+  { id: 'EOD-ACT-002', timestamp: '2026-06-09T14:12:00Z', eventType: 'CASH_VARIANCE_REVIEWED', message: 'Cash variance review opened for POS-01.', operator: 'Tawanda Supervisor' },
+  { id: 'EOD-ACT-003', timestamp: '2026-06-09T14:14:00Z', eventType: 'PAYMENT_SUMMARY_REVIEWED', message: 'Payment summary review prepared.', operator: 'Admin User' },
+  { id: 'EOD-ACT-004', timestamp: '2026-06-09T14:16:00Z', eventType: 'SHIFT_FORCE_CLOSE_PLACEHOLDER', message: 'Force close placeholder recorded for SH-001.', operator: 'Admin User' },
+  { id: 'EOD-ACT-005', timestamp: '2026-06-09T14:18:00Z', eventType: 'INVENTORY_CLOSING_REVIEWED', message: 'Inventory closing review started.', operator: 'Blessing Stock' },
+  { id: 'EOD-ACT-006', timestamp: '2026-06-09T14:20:00Z', eventType: 'DELIVERY_CLOSING_REVIEWED', message: 'Delivery closing review started.', operator: 'Admin User' },
+  { id: 'EOD-ACT-007', timestamp: '2026-06-09T14:22:00Z', eventType: 'BI_REVIEW_COMPLETED', message: 'BI review placeholder recorded.', operator: 'Admin User' },
+  { id: 'EOD-ACT-008', timestamp: '2026-06-09T14:24:00Z', eventType: 'EOD_LOCK_ATTEMPTED', message: 'Day lock attempted.', operator: 'Admin User' },
+  { id: 'EOD-ACT-009', timestamp: '2026-06-09T14:25:00Z', eventType: 'EOD_LOCK_BLOCKED', message: 'Day lock blocked by failed checks.', operator: 'Admin User' },
+  { id: 'EOD-ACT-010', timestamp: '2026-06-09T14:26:00Z', eventType: 'EOD_DAY_LOCKED', message: 'Day locked successfully placeholder event available after all checks pass.', operator: 'Admin User' },
+  { id: 'EOD-ACT-011', timestamp: '2026-06-09T14:27:00Z', eventType: 'EOD_REPORT_EXPORT_PREPARED', message: 'EOD report export prepared.', operator: 'Admin User' }
+];
+
 export const mockEODReconciliationRows: EODReconciliationRow[] = [
   { id: 'EOD-REC-001', domain: 'Sales', expected: 'USD 1,245.00', actual: 'USD 1,245.00', variance: 'USD 0.00', status: 'Balanced', requiredAction: 'None' },
   { id: 'EOD-REC-002', domain: 'Cash Drawer', expected: 'USD 760.00', actual: 'USD 755.00', variance: 'USD -5.00', status: 'Variance', requiredAction: 'Supervisor review' },
@@ -641,3 +918,314 @@ export const mockOwnerActivityEvents: OwnerActivityEvent[] = [
   { id: 'OWN-ACT-006', timestamp: '2026-06-09T14:22:00Z', eventType: 'EOD_LOCK_ATTEMPTED', message: 'Day lock attempted with open failed checks.', operator: 'Admin User' },
   { id: 'OWN-ACT-007', timestamp: '2026-06-09T14:25:00Z', eventType: 'EOD_REPORT_EXPORT_PREPARED', message: 'EOD report export prepared.', operator: 'Admin User' }
 ];
+
+export const mockPaymentReceiptRows: PaymentReceiptRow[] = [
+  { id: 'PAY-RCT-0001', vendorId: 'SCI-LOG-ZW', businessVendor: 'Demo Vendor', branchId: 'BR-HARARE', branch: 'Harare Main', terminalId: 'POS-01', terminal: 'POS-01', cashierId: 'ST-MARY', cashier: 'Mary Cashier', receiptNo: 'RCT-0001', dateTime: 'Today 09:35', customer: 'Walk-in Customer', paymentType: 'Cash', grossAmount: 125.00, discount: 0.00, refund: 0.00, netAmount: 125.00, status: 'Completed', createdByStaffId: 'ST-MARY', createdAt: '2026-06-09T09:35:00Z', updatedAt: '2026-06-09T09:35:00Z' },
+  { id: 'PAY-RCT-0002', vendorId: 'SCI-LOG-ZW', businessVendor: 'Demo Vendor', branchId: 'BR-HARARE', branch: 'Harare Main', terminalId: 'POS-01', terminal: 'POS-01', cashierId: 'ST-MARY', cashier: 'Mary Cashier', receiptNo: 'RCT-0002', dateTime: 'Today 10:12', customer: 'WhatsApp Customer', paymentType: 'EcoCash', grossAmount: 57.00, discount: 0.00, refund: 0.00, netAmount: 57.00, status: 'Completed', createdByStaffId: 'ST-MARY', createdAt: '2026-06-09T10:12:00Z', updatedAt: '2026-06-09T10:12:00Z' },
+  { id: 'PAY-RCT-0003', vendorId: 'SCI-LOG-ZW', businessVendor: 'Demo Vendor', branchId: 'BR-HARARE', branch: 'Harare Main', terminalId: 'BACK-01', terminal: 'BACK-01', cashierId: 'ST-ADMIN', cashier: 'Admin User', receiptNo: 'RCT-0003', dateTime: 'Today 11:20', customer: 'Walk-in Customer', paymentType: 'Split Payment', grossAmount: 210.00, discount: 10.00, refund: 0.00, netAmount: 200.00, status: 'Completed', createdByStaffId: 'ST-ADMIN', createdAt: '2026-06-09T11:20:00Z', updatedAt: '2026-06-09T11:20:00Z' },
+  { id: 'PAY-RCT-0004', vendorId: 'SCI-LOG-ZW', businessVendor: 'Demo Vendor', branchId: 'BR-BULAWAYO', branch: 'Bulawayo Branch', terminalId: 'POS-02', terminal: 'POS-02', cashierId: 'ST-TAWANDA', cashier: 'Tawanda Supervisor', receiptNo: 'RCT-0004', dateTime: 'Today 12:05', customer: 'Walk-in Customer', paymentType: 'Swipe', grossAmount: 315.00, discount: 0.00, refund: 0.00, netAmount: 315.00, status: 'Completed', createdByStaffId: 'ST-TAWANDA', createdAt: '2026-06-09T12:05:00Z', updatedAt: '2026-06-09T12:05:00Z' },
+  { id: 'PAY-RCT-0005', vendorId: 'SCI-LOG-ZW', businessVendor: 'Demo Vendor', branchId: 'BR-HARARE', branch: 'Harare Main', terminalId: 'POS-01', terminal: 'POS-01', cashierId: 'ST-MARY', cashier: 'Mary Cashier', receiptNo: 'RCT-0005', dateTime: 'Today 13:40', customer: 'Tapiwa Moyo', paymentType: 'Bank Transfer', grossAmount: 480.00, discount: 20.00, refund: 0.00, netAmount: 460.00, status: 'Completed', createdByStaffId: 'ST-MARY', createdAt: '2026-06-09T13:40:00Z', updatedAt: '2026-06-09T13:40:00Z' },
+  { id: 'PAY-RCT-0006', vendorId: 'SCI-LOG-ZW', businessVendor: 'Demo Vendor', branchId: 'BR-HARARE', branch: 'Harare Main', terminalId: 'POS-01', terminal: 'POS-01', cashierId: 'ST-MARY', cashier: 'Mary Cashier', receiptNo: 'RCT-0006', dateTime: 'Today 14:15', customer: 'Rudo Ncube', paymentType: 'Cash', grossAmount: 80.00, discount: 0.00, refund: 10.00, netAmount: 70.00, status: 'Refund Partial', createdByStaffId: 'ST-MARY', createdAt: '2026-06-09T14:15:00Z', updatedAt: '2026-06-09T14:15:00Z' }
+];
+
+const demoReceiptBusiness = {
+  businessName: 'Demo Vendor',
+  tradingName: 'Demo Vendor',
+  vendorId: 'SCI-LOG-ZW',
+  branch: 'Harare Main',
+  address: '12 Enterprise Road, Harare',
+  phone: '+263 242 000 100',
+  whatsApp: '+263 77 000 0100',
+  vatNumber: 'VAT-ZW-82190B',
+  vatRegistered: true,
+  footerMessage: 'Thank you for shopping with Demo Vendor.'
+};
+
+export const mockReceiptRecords: ReceiptRecord[] = [
+  { id: 'REC-RCT-0001', receiptNumber: 'RCT-0001', vendorId: 'SCI-LOG-ZW', businessVendor: 'Demo Vendor', branchId: 'BR-HARARE', branch: 'Harare Main', terminalId: 'POS-01', terminal: 'POS-01', cashierId: 'ST-MARY', cashier: 'Mary Cashier', businessDate: '2026-06-09', dateTime: '2026-06-09T09:35:00Z', customer: { customerName: 'Walk-in Customer' }, businessDetails: demoReceiptBusiness, subtotal: 125, discountTotal: 0, vatTotal: 18.75, grandTotal: 125, paymentMode: 'Cash', status: 'Completed', fiscalizationStatus: 'Disabled In Development', fiscalReferencePlaceholder: 'FISC-DEV-0001', reprintCount: 0, offlineQueued: false, createdByStaffId: 'ST-MARY', createdAt: '2026-06-09T09:35:00Z', updatedAt: '2026-06-09T09:35:00Z' },
+  { id: 'REC-RCT-0002', receiptNumber: 'RCT-0002', vendorId: 'SCI-LOG-ZW', businessVendor: 'Demo Vendor', branchId: 'BR-HARARE', branch: 'Harare Main', terminalId: 'POS-01', terminal: 'POS-01', cashierId: 'ST-MARY', cashier: 'Mary Cashier', businessDate: '2026-06-09', dateTime: '2026-06-09T10:12:00Z', customer: { customerName: 'WhatsApp Customer', customerPhone: '+263 77 111 2233' }, businessDetails: demoReceiptBusiness, subtotal: 57, discountTotal: 0, vatTotal: 8.55, grandTotal: 57, paymentMode: 'EcoCash', status: 'Reprinted', fiscalizationStatus: 'Queued', fiscalReferencePlaceholder: 'FISC-DEV-0002', reprintCount: 1, offlineQueued: false, createdByStaffId: 'ST-MARY', createdAt: '2026-06-09T10:12:00Z', updatedAt: '2026-06-09T10:50:00Z' },
+  { id: 'REC-RCT-0003', receiptNumber: 'RCT-0003', vendorId: 'SCI-LOG-ZW', businessVendor: 'Demo Vendor', branchId: 'BR-HARARE', branch: 'Harare Main', terminalId: 'BACK-01', terminal: 'BACK-01', cashierId: 'ST-ADMIN', cashier: 'Admin User', businessDate: '2026-06-09', dateTime: '2026-06-09T11:20:00Z', customer: { customerName: 'Walk-in Customer' }, businessDetails: { ...demoReceiptBusiness, branch: 'Harare Main' }, subtotal: 210, discountTotal: 10, vatTotal: 30, grandTotal: 200, paymentMode: 'Split Payment', status: 'Fiscal Pending', fiscalizationStatus: 'Pending', fiscalReferencePlaceholder: 'Pending', reprintCount: 0, offlineQueued: true, createdByStaffId: 'ST-ADMIN', createdAt: '2026-06-09T11:20:00Z', updatedAt: '2026-06-09T11:20:00Z' },
+  { id: 'REC-RCT-0004', receiptNumber: 'RCT-0004', vendorId: 'SCI-LOG-ZW', businessVendor: 'Demo Vendor', branchId: 'BR-BYO', branch: 'Bulawayo Branch', terminalId: 'POS-02', terminal: 'POS-02', cashierId: 'ST-TAWANDA', cashier: 'Tawanda Supervisor', businessDate: '2026-06-09', dateTime: '2026-06-09T12:05:00Z', customer: { customerName: 'Fleet Buyer' }, businessDetails: { ...demoReceiptBusiness, branch: 'Bulawayo Branch', address: '4 Plumtree Road, Bulawayo' }, subtotal: 315, discountTotal: 0, vatTotal: 47.25, grandTotal: 315, paymentMode: 'Swipe', status: 'Completed', fiscalizationStatus: 'Fiscalized', fiscalReferencePlaceholder: 'FISC-DEV-0004', reprintCount: 0, offlineQueued: false, createdByStaffId: 'ST-TAWANDA', createdAt: '2026-06-09T12:05:00Z', updatedAt: '2026-06-09T12:05:00Z' },
+  { id: 'REC-RCT-0005', receiptNumber: 'RCT-0005', vendorId: 'SCI-LOG-ZW', businessVendor: 'Demo Vendor', branchId: 'BR-HARARE', branch: 'Harare Main', terminalId: 'POS-01', terminal: 'POS-01', cashierId: 'ST-MARY', cashier: 'Mary Cashier', businessDate: '2026-06-09', dateTime: '2026-06-09T13:40:00Z', customer: { customerName: 'Garage Account' }, businessDetails: demoReceiptBusiness, subtotal: 480, discountTotal: 20, vatTotal: 69, grandTotal: 460, paymentMode: 'Bank Transfer', status: 'Voided', fiscalizationStatus: 'Failed', fiscalReferencePlaceholder: 'FISC-DEV-0005', voidReference: 'VOID-0001', reprintCount: 0, offlineQueued: false, createdByStaffId: 'ST-MARY', createdAt: '2026-06-09T13:40:00Z', updatedAt: '2026-06-09T13:55:00Z' },
+  { id: 'REC-RCT-0006', receiptNumber: 'RCT-0006', vendorId: 'SCI-LOG-ZW', businessVendor: 'Demo Vendor', branchId: 'BR-HARARE', branch: 'Harare Main', terminalId: 'POS-01', terminal: 'POS-01', cashierId: 'ST-MARY', cashier: 'Mary Cashier', businessDate: '2026-06-09', dateTime: '2026-06-09T14:15:00Z', customer: { customerName: 'Rudo Ncube', customerPhone: '+263 77 222 3344' }, businessDetails: demoReceiptBusiness, subtotal: 80, discountTotal: 0, vatTotal: 10.5, grandTotal: 70, paymentMode: 'Cash', status: 'Partially Refunded', fiscalizationStatus: 'Offline Pending', fiscalReferencePlaceholder: 'Offline queue', refundReference: 'REF-0001', reprintCount: 3, offlineQueued: true, createdByStaffId: 'ST-MARY', createdAt: '2026-06-09T14:15:00Z', updatedAt: '2026-06-09T14:35:00Z' }
+];
+
+export const mockReceiptLines: ReceiptLine[] = [
+  { id: 'RL-0001-1', receiptNumber: 'RCT-0001', productId: 'STOCK-P-03', sku: 'BP-GD6-F', productName: 'Brake Pads Toyota GD6 Front', quantity: 2, unitPrice: 40, discountAmount: 0, lineNetAmount: 80, vatAmount: 12, lineTotal: 80, salesAccountCOA: '4010', assetAccountCOA: '1210' },
+  { id: 'RL-0001-2', receiptNumber: 'RCT-0001', productId: 'OIL-FLT-15', sku: 'OIL-FLT-15', productName: 'Premium Oil Filter 15W40', quantity: 1, unitPrice: 45, discountAmount: 0, lineNetAmount: 45, vatAmount: 6.75, lineTotal: 45, salesAccountCOA: '4020', assetAccountCOA: '1220' },
+  { id: 'RL-0002-1', receiptNumber: 'RCT-0002', productId: 'prod-press-gauge', sku: 'PSG-B10', productName: 'Dial Pressure Gauge 10 Bar', quantity: 1, unitPrice: 30, discountAmount: 0, lineNetAmount: 30, vatAmount: 4.5, lineTotal: 30 },
+  { id: 'RL-0002-2', receiptNumber: 'RCT-0002', productId: 'SP-PLT-G', sku: 'SP-PLT-G', productName: 'Spark Plug Platinum G-Power', quantity: 1, unitPrice: 27, discountAmount: 0, lineNetAmount: 27, vatAmount: 4.05, lineTotal: 27 },
+  { id: 'RL-0003-1', receiptNumber: 'RCT-0003', productId: 'prod-hex-bolt', sku: 'HEX-B12', productName: 'M12 Heavy Hex Bolt Steel 8.8', quantity: 100, unitPrice: 1.5, discountAmount: 10, lineNetAmount: 140, vatAmount: 21, lineTotal: 140 },
+  { id: 'RL-0003-2', receiptNumber: 'RCT-0003', productId: 'FB-VR-HM', sku: 'FB-VR-HM', productName: 'Heavy Duty Fan Belt v-Ribbed', quantity: 1, unitPrice: 60, discountAmount: 0, lineNetAmount: 60, vatAmount: 9, lineTotal: 60 },
+  { id: 'RL-0004-1', receiptNumber: 'RCT-0004', productId: 'STOCK-P-03', sku: 'BP-GD6-F', productName: 'Brake Pads Toyota GD6 Front', quantity: 2, unitPrice: 157.5, discountAmount: 0, lineNetAmount: 315, vatAmount: 47.25, lineTotal: 315 },
+  { id: 'RL-0005-1', receiptNumber: 'RCT-0005', productId: 'STOCK-P-04', sku: 'OIL-5W30', productName: 'Engine Oil 5W30 5L', quantity: 3, unitPrice: 160, discountAmount: 20, lineNetAmount: 460, vatAmount: 69, lineTotal: 460 },
+  { id: 'RL-0006-1', receiptNumber: 'RCT-0006', productId: 'STOCK-P-02', sku: 'BJ-CBHO49', productName: 'Ball Joint Honda Fit GD1', quantity: 5, unitPrice: 16, discountAmount: 0, lineNetAmount: 80, vatAmount: 10.5, lineTotal: 80 }
+];
+
+export const mockReceiptPayments: ReceiptPaymentLine[] = [
+  { id: 'RP-0001', receiptNumber: 'RCT-0001', paymentMode: 'Cash', amount: 125, reference: 'CASH-POS-01', confirmed: true },
+  { id: 'RP-0002', receiptNumber: 'RCT-0002', paymentMode: 'EcoCash', amount: 57, reference: 'ECO-44502', confirmed: true },
+  { id: 'RP-0003A', receiptNumber: 'RCT-0003', paymentMode: 'Cash', amount: 100, reference: 'SPLIT-CASH', confirmed: true },
+  { id: 'RP-0003B', receiptNumber: 'RCT-0003', paymentMode: 'Swipe', amount: 100, reference: 'SPLIT-SWIPE', confirmed: true },
+  { id: 'RP-0004', receiptNumber: 'RCT-0004', paymentMode: 'Swipe', amount: 315, reference: 'CARD-88201', confirmed: true },
+  { id: 'RP-0005', receiptNumber: 'RCT-0005', paymentMode: 'Bank Transfer', amount: 460, reference: 'BANK-PENDING', confirmed: false },
+  { id: 'RP-0006', receiptNumber: 'RCT-0006', paymentMode: 'Cash', amount: 70, reference: 'CASH-REF-PARTIAL', confirmed: true }
+];
+
+export const mockReceiptSequenceControls: ReceiptSequenceControl[] = [
+  { id: 'SEQ-001', vendorId: 'SCI-LOG-ZW', businessVendor: 'Demo Vendor', branch: 'Harare Main', terminal: 'POS-01', prefix: 'RCT', lastReceiptNo: 'RCT-0006', nextReceiptNo: 'RCT-0007', sequenceStatus: 'Gap Detected', gapCount: 1, duplicateRisk: 'High', lastChecked: '2026-06-09T14:45:00Z' },
+  { id: 'SEQ-002', vendorId: 'SCI-LOG-ZW', businessVendor: 'Demo Vendor', branch: 'Harare Main', terminal: 'BACK-01', prefix: 'RCT', lastReceiptNo: 'RCT-0003', nextReceiptNo: 'RCT-0004', sequenceStatus: 'Offline Pending', gapCount: 0, duplicateRisk: 'Medium', lastChecked: '2026-06-09T14:42:00Z' },
+  { id: 'SEQ-003', vendorId: 'SCI-LOG-ZW', businessVendor: 'Demo Vendor', branch: 'Bulawayo Branch', terminal: 'POS-02', prefix: 'RCT', lastReceiptNo: 'RCT-0004', nextReceiptNo: 'RCT-0005', sequenceStatus: 'Healthy', gapCount: 0, duplicateRisk: 'Low', lastChecked: '2026-06-09T14:40:00Z' }
+];
+
+export const mockReceiptReprintAudits: ReceiptReprintAudit[] = [
+  { id: 'RRA-001', receiptNumber: 'RCT-0002', originalPrintedAt: '2026-06-09T10:12:00Z', reprintedAt: '2026-06-09T10:50:00Z', reprintedBy: 'Mary Cashier', reason: 'Customer requested duplicate slip.', reprintCount: 1, approvalRequired: false, status: 'Logged' },
+  { id: 'RRA-002', receiptNumber: 'RCT-0006', originalPrintedAt: '2026-06-09T14:15:00Z', reprintedAt: '2026-06-09T14:35:00Z', reprintedBy: 'Mary Cashier', reason: 'Refund review copy.', reprintCount: 3, approvalRequired: true, status: 'Review Required' }
+];
+
+export const mockFiscalizationPlaceholderRecords: FiscalizationPlaceholderRecord[] = [
+  { id: 'FISC-001', receiptNumber: 'RCT-0003', dateTime: '2026-06-09T11:20:00Z', branch: 'Harare Main', terminal: 'BACK-01', fiscalStatus: 'Pending', fiscalReferencePlaceholder: 'Pending', queueStatus: 'Queued' },
+  { id: 'FISC-002', receiptNumber: 'RCT-0004', dateTime: '2026-06-09T12:05:00Z', branch: 'Bulawayo Branch', terminal: 'POS-02', fiscalStatus: 'Fiscalized', fiscalReferencePlaceholder: 'FISC-DEV-0004', queueStatus: 'Completed Placeholder' },
+  { id: 'FISC-003', receiptNumber: 'RCT-0005', dateTime: '2026-06-09T13:40:00Z', branch: 'Harare Main', terminal: 'POS-01', fiscalStatus: 'Failed', fiscalReferencePlaceholder: 'FISC-DEV-0005', queueStatus: 'Retry Pending', errorMessagePlaceholder: 'Placeholder failure for readiness testing.' },
+  { id: 'FISC-004', receiptNumber: 'RCT-0006', dateTime: '2026-06-09T14:15:00Z', branch: 'Harare Main', terminal: 'POS-01', fiscalStatus: 'Offline Pending', fiscalReferencePlaceholder: 'Offline queue', queueStatus: 'Queued' }
+];
+
+export const mockReceiptAuditEvents: ReceiptAuditEvent[] = [
+  { id: 'RAE-001', timestamp: '2026-06-09T09:35:00Z', eventType: 'RECEIPT_CREATED', receiptNumber: 'RCT-0001', message: 'Receipt RCT-0001 created.', operator: 'Mary Cashier' },
+  { id: 'RAE-002', timestamp: '2026-06-09T09:36:00Z', eventType: 'RECEIPT_PRINTED', receiptNumber: 'RCT-0001', message: '80mm receipt printed.', operator: 'Mary Cashier' },
+  { id: 'RAE-003', timestamp: '2026-06-09T10:50:00Z', eventType: 'RECEIPT_REPRINTED', receiptNumber: 'RCT-0002', message: 'Receipt reprint placeholder recorded.', operator: 'Mary Cashier' },
+  { id: 'RAE-004', timestamp: '2026-06-09T13:55:00Z', eventType: 'RECEIPT_VOIDED', receiptNumber: 'RCT-0005', message: 'Void placeholder linked to original receipt.', operator: 'Tawanda Supervisor' },
+  { id: 'RAE-005', timestamp: '2026-06-09T14:35:00Z', eventType: 'RECEIPT_REFUNDED', receiptNumber: 'RCT-0006', message: 'Partial refund placeholder linked to original receipt.', operator: 'Admin User' },
+  { id: 'RAE-006', timestamp: '2026-06-09T14:45:00Z', eventType: 'RECEIPT_SEQUENCE_CHECKED', receiptNumber: 'RCT-0006', message: 'Receipt sequence check run.', operator: 'Admin User' },
+  { id: 'RAE-007', timestamp: '2026-06-09T14:45:30Z', eventType: 'RECEIPT_GAP_DETECTED', receiptNumber: 'RCT-0006', message: 'Receipt gap warning detected.', operator: 'Admin User' },
+  { id: 'RAE-008', timestamp: '2026-06-09T14:46:00Z', eventType: 'DUPLICATE_RECEIPT_RISK', receiptNumber: 'RCT-0006', message: 'Duplicate receipt risk placeholder flagged.', operator: 'Admin User' },
+  { id: 'RAE-009', timestamp: '2026-06-09T14:47:00Z', eventType: 'FISCALIZATION_QUEUED', receiptNumber: 'RCT-0003', message: 'Fiscalization placeholder queued.', operator: 'Admin User' },
+  { id: 'RAE-010', timestamp: '2026-06-09T14:48:00Z', eventType: 'FISCALIZATION_PLACEHOLDER_CREATED', receiptNumber: 'RCT-0003', message: 'Fiscal placeholder record created.', operator: 'Admin User' },
+  { id: 'RAE-011', timestamp: '2026-06-09T14:49:00Z', eventType: 'RECEIPT_PDF_EXPORT_PREPARED', receiptNumber: 'RCT-0001', message: 'PDF export placeholder prepared.', operator: 'Admin User' }
+];
+
+export const mockAccountingPostings: AccountingPosting[] = [
+  { id: 'ACC-POST-001', source: 'Sale', sourceReference: 'RCT-0001', businessDate: '2026-06-09', branch: 'Harare Main', postingStatus: 'Posted', totalDebit: 125, totalCredit: 125, reviewedBy: 'Admin User' },
+  { id: 'ACC-POST-002', source: 'Refund', sourceReference: 'RCT-0006', businessDate: '2026-06-09', branch: 'Harare Main', postingStatus: 'Pending Review', totalDebit: 10, totalCredit: 10 },
+  { id: 'ACC-POST-003', source: 'Void', sourceReference: 'VOID-0001', businessDate: '2026-06-09', branch: 'Harare Main', postingStatus: 'Draft', totalDebit: 0, totalCredit: 0 },
+  { id: 'ACC-POST-004', source: 'Inventory Movement', sourceReference: 'MOV-BP-002', businessDate: '2026-06-09', branch: 'Harare Main', postingStatus: 'Pending Review', totalDebit: 32, totalCredit: 32 }
+];
+
+export const mockAccountingPostingLines: AccountingPostingLine[] = [
+  { id: 'ACC-LINE-001', postingId: 'ACC-POST-001', accountCode: '1000', accountName: 'Cash on Hand', debit: 125, credit: 0, memo: 'Cash receipt RCT-0001.' },
+  { id: 'ACC-LINE-002', postingId: 'ACC-POST-001', accountCode: '4010', accountName: 'Sales Revenue - Motor Spares', debit: 0, credit: 125, memo: 'Sales classification for motor spares.' },
+  { id: 'ACC-LINE-003', postingId: 'ACC-POST-002', accountCode: '9010', accountName: 'Refund Control', debit: 10, credit: 0, memo: 'Refund control impact.' },
+  { id: 'ACC-LINE-004', postingId: 'ACC-POST-002', accountCode: '1000', accountName: 'Cash on Hand', debit: 0, credit: 10, memo: 'Cash refund reduction.' },
+  { id: 'ACC-LINE-005', postingId: 'ACC-POST-004', accountCode: '5010', accountName: 'Cost of Goods Sold - Motor Spares', debit: 32, credit: 0, memo: 'COGS placeholder for RCT-0004.' },
+  { id: 'ACC-LINE-006', postingId: 'ACC-POST-004', accountCode: '1210', accountName: 'Inventory Asset - Motor Spares', debit: 0, credit: 32, memo: 'Inventory asset reduction.' }
+];
+
+export const mockSalesAccountingSummaryRows: SalesAccountingSummary[] = [
+  { id: 'ACC-SALE-001', receiptNo: 'RCT-0001', dateTime: '2026-06-09T09:35:00Z', branch: 'Harare Main', terminal: 'POS-01', cashier: 'Mary Cashier', grossSale: 125, discount: 0, vat: 18.75, netSale: 125, salesAccount: '4010 Sales Revenue - Motor Spares', postingStatus: 'Posted' },
+  { id: 'ACC-SALE-002', receiptNo: 'RCT-0003', dateTime: '2026-06-09T11:20:00Z', branch: 'Harare Main', terminal: 'BACK-01', cashier: 'Admin User', grossSale: 210, discount: 10, vat: 30, netSale: 200, salesAccount: '9000 Suspense / Review Account', postingStatus: 'Pending Review' },
+  { id: 'ACC-SALE-003', receiptNo: 'RCT-0004', dateTime: '2026-06-09T12:05:00Z', branch: 'Bulawayo Branch', terminal: 'POS-02', cashier: 'Tawanda Supervisor', grossSale: 315, discount: 0, vat: 47.25, netSale: 315, salesAccount: '4010 Sales Revenue - Motor Spares', postingStatus: 'Posted' },
+  { id: 'ACC-SALE-004', receiptNo: 'RCT-0005', dateTime: '2026-06-09T13:40:00Z', branch: 'Harare Main', terminal: 'POS-01', cashier: 'Mary Cashier', grossSale: 480, discount: 20, vat: 69, netSale: 460, salesAccount: '4020 Sales Revenue - Lubricants', postingStatus: 'Draft' },
+  { id: 'ACC-SALE-005', receiptNo: 'RCT-0006', dateTime: '2026-06-09T14:15:00Z', branch: 'Harare Main', terminal: 'POS-01', cashier: 'Mary Cashier', grossSale: 80, discount: 0, vat: 10.5, netSale: 70, salesAccount: '9010 Refund Control', postingStatus: 'Pending Review' }
+];
+
+export const mockPaymentAccountingSummaryRows: PaymentAccountingSummary[] = [
+  { id: 'ACC-PAY-001', paymentMode: 'Cash', receiptCount: 18, grossAmount: 760, refunds: 10, netAmount: 750, controlAccount: '1000 Cash on Hand', settlementStatus: 'Variance', variance: -5, postingStatus: 'Pending Review' },
+  { id: 'ACC-PAY-002', paymentMode: 'EcoCash', receiptCount: 8, grossAmount: 320, refunds: 0, netAmount: 320, controlAccount: '1010 EcoCash Control', settlementStatus: 'Settled', variance: 0, postingStatus: 'Posted' },
+  { id: 'ACC-PAY-003', paymentMode: 'Swipe', receiptCount: 5, grossAmount: 215, refunds: 0, netAmount: 215, controlAccount: '1020 Swipe/Card Control', settlementStatus: 'Settled', variance: 0, postingStatus: 'Posted' },
+  { id: 'ACC-PAY-004', paymentMode: 'Bank Transfer', receiptCount: 3, grossAmount: 480, refunds: 0, netAmount: 460, controlAccount: '1030 Bank Transfer Control', settlementStatus: 'Pending', variance: 'Pending', postingStatus: 'Draft' },
+  { id: 'ACC-PAY-005', paymentMode: 'Split Payment', receiptCount: 2, grossAmount: 210, refunds: 0, netAmount: 200, controlAccount: 'Split by payment components placeholder', settlementStatus: 'Placeholder', variance: 0, postingStatus: 'Draft' },
+  { id: 'ACC-PAY-006', paymentMode: 'Credit Sale', receiptCount: 1, grossAmount: 90, refunds: 0, netAmount: 90, controlAccount: '1300 Customer Receivables Placeholder', settlementStatus: 'Pending', variance: 0, postingStatus: 'Draft' },
+  { id: 'ACC-PAY-007', paymentMode: 'Store Credit', receiptCount: 1, grossAmount: 42, refunds: 0, netAmount: 42, controlAccount: '9000 Suspense / Review Account', settlementStatus: 'Placeholder', variance: 0, postingStatus: 'Pending Review' }
+];
+
+export const mockCashbookEntries: CashbookEntry[] = [
+  { id: 'CASHBOOK-001', dateTime: '2026-06-09T08:00:00Z', branch: 'Harare Main', terminal: 'POS-01', staff: 'Mary Cashier', movementType: 'Opening Float', reference: 'SH-001', cashIn: 50, cashOut: 0, balanceAfter: 50, account: '1000 Cash on Hand', status: 'Posted', notes: 'Opening float declared.' },
+  { id: 'CASHBOOK-002', dateTime: '2026-06-09T09:35:00Z', branch: 'Harare Main', terminal: 'POS-01', staff: 'Mary Cashier', movementType: 'Cash Sale', reference: 'RCT-0001', cashIn: 125, cashOut: 0, balanceAfter: 175, account: '1000 Cash on Hand', status: 'Posted', notes: 'Cash sale increases cashbook.' },
+  { id: 'CASHBOOK-003', dateTime: '2026-06-09T11:45:00Z', branch: 'Harare Main', terminal: 'POS-01', staff: 'Tawanda Supervisor', movementType: 'Cash In', reference: 'CASH-IN-001', cashIn: 80, cashOut: 0, balanceAfter: 255, account: '1000 Cash on Hand', status: 'Posted', notes: 'Safe top-up.' },
+  { id: 'CASHBOOK-004', dateTime: '2026-06-09T13:00:00Z', branch: 'Harare Main', terminal: 'POS-01', staff: 'Tawanda Supervisor', movementType: 'Cash Out', reference: 'CASH-OUT-001', cashIn: 0, cashOut: 40, balanceAfter: 215, account: '1000 Cash on Hand', status: 'Pending Review', notes: 'Cash out requires authorization.' },
+  { id: 'CASHBOOK-005', dateTime: '2026-06-09T14:15:00Z', branch: 'Harare Main', terminal: 'POS-01', staff: 'Mary Cashier', movementType: 'Refund', reference: 'RCT-0006', cashIn: 0, cashOut: 10, balanceAfter: 205, account: '9010 Refund Control', status: 'Pending Review', notes: 'Cash refund reduces cashbook.' },
+  { id: 'CASHBOOK-006', dateTime: '2026-06-09T15:20:00Z', branch: 'Harare Main', terminal: 'POS-01', staff: 'Admin User', movementType: 'Cash Variance', reference: 'SH-001', cashIn: 0, cashOut: 5, balanceAfter: 200, account: '6000 Cash Variance / Shortage', status: 'Pending Review', notes: 'Variance posts to shortage placeholder.' }
+];
+
+export const mockVATSummaryRows: VATSummary[] = [
+  { id: 'VAT-001', receiptNo: 'RCT-0001', date: '2026-06-09', grossAmount: 125, vatableAmount: 125, vatAmount: 18.75, vatMode: 'Inclusive', vatNumber: 'VAT-ZW-82190B', status: 'Posted' },
+  { id: 'VAT-002', receiptNo: 'RCT-0003', date: '2026-06-09', grossAmount: 210, vatableAmount: 200, vatAmount: 30, vatMode: 'Inclusive', vatNumber: 'VAT-ZW-82190B', status: 'Pending Review' },
+  { id: 'VAT-003', receiptNo: 'RCT-0005', date: '2026-06-09', grossAmount: 480, vatableAmount: 460, vatAmount: 69, vatMode: 'Inclusive', vatNumber: 'VAT-ZW-82190B', status: 'Draft' },
+  { id: 'VAT-004', receiptNo: 'RCT-0006', date: '2026-06-09', grossAmount: 80, vatableAmount: 70, vatAmount: 10.5, vatMode: 'Inclusive', vatNumber: 'VAT-ZW-82190B', status: 'Pending Review' }
+];
+
+export const mockCOGSReserveRows: COGSReserveSummary[] = [
+  { id: 'COGS-001', product: 'Ball Joint Honda Fit GD1', receiptReference: 'RCT-0001', qtySold: 2, unitCost: 7, sellingPrice: 12, estimatedCOGS: 14, suggestedReserve: 14, reserveStatus: 'Reserved' },
+  { id: 'COGS-002', product: 'Brake Pads Toyota GD6 Front', receiptReference: 'RCT-0004', qtySold: 2, unitCost: 16, sellingPrice: 28, estimatedCOGS: 32, suggestedReserve: 32, reserveStatus: 'Pending' },
+  { id: 'COGS-003', product: 'Engine Oil 5W30 5L', receiptReference: 'RCT-0005', qtySold: 3, unitCost: 14.5, sellingPrice: 22, estimatedCOGS: 43.5, suggestedReserve: 43.5, reserveStatus: 'Review Required' },
+  { id: 'COGS-004', product: 'Clutch Plate Nissan N16', receiptReference: 'ADJ-0019', qtySold: 0, unitCost: 25, sellingPrice: 45, estimatedCOGS: 75, suggestedReserve: 75, reserveStatus: 'Misuse Risk' }
+];
+
+export const mockInventoryAssetPostingRows: InventoryAssetPostingRow[] = [
+  { id: 'INV-ASSET-001', product: 'Ball Joint Honda Fit GD1', movementType: 'SALE', reference: 'RCT-0001', qtyIn: 0, qtyOut: 2, unitCost: 7, costImpact: -14, assetAccount: '1210 Inventory Asset - Motor Spares', cogsAccount: '5010 Cost of Goods Sold - Motor Spares', salesAccount: '4010 Sales Revenue - Motor Spares', postingStatus: 'Posted', risk: 'Low' },
+  { id: 'INV-ASSET-002', product: 'Brake Pads Toyota GD6 Front', movementType: 'GOODS_RECEIVED', reference: 'GRN-2026-9042', qtyIn: 10, qtyOut: 0, unitCost: 16.5, costImpact: 165, assetAccount: '1210 Inventory Asset - Motor Spares', cogsAccount: '5010 Cost of Goods Sold - Motor Spares', salesAccount: '4010 Sales Revenue - Motor Spares', postingStatus: 'Draft', risk: 'Low' },
+  { id: 'INV-ASSET-003', product: 'Engine Oil 5W30 5L', movementType: 'SALE', reference: 'RCT-0005', qtyIn: 0, qtyOut: 3, unitCost: 14.5, costImpact: -43.5, assetAccount: '1220 Inventory Asset - Lubricants', cogsAccount: '5020 Cost of Goods Sold - Lubricants', salesAccount: '4020 Sales Revenue - Lubricants', postingStatus: 'Pending Review', risk: 'Medium' },
+  { id: 'INV-ASSET-004', product: 'Clutch Plate Nissan N16', movementType: 'DAMAGE_WRITEOFF', reference: 'ADJ-0019', qtyIn: 0, qtyOut: 3, unitCost: 25, costImpact: -75, assetAccount: '9000 Suspense / Review Account', cogsAccount: '5000 Cost of Goods Sold - General', salesAccount: '9000 Suspense / Review Account', postingStatus: 'Pending Review', risk: 'High' }
+];
+
+export const mockAccountingReadinessChecks: AccountingReadinessCheck[] = [
+  { id: 'ACC-READY-001', check: 'Business profile completed', domain: 'Business', status: 'Passed', requiredAction: 'None' },
+  { id: 'ACC-READY-002', check: 'Tax/VAT details captured', domain: 'Tax', status: 'Warning', requiredAction: 'Confirm VAT certificate details' },
+  { id: 'ACC-READY-003', check: 'Receipt settings completed', domain: 'Sales', status: 'Passed', requiredAction: 'None' },
+  { id: 'ACC-READY-004', check: 'Product Sales Account assigned', domain: 'Products', status: 'Warning', requiredAction: 'Review suspense account products' },
+  { id: 'ACC-READY-005', check: 'Product Asset Account assigned', domain: 'Products', status: 'Warning', requiredAction: 'Assign missing asset accounts' },
+  { id: 'ACC-READY-006', check: 'Payment control accounts assigned', domain: 'Payments', status: 'Passed', requiredAction: 'None' },
+  { id: 'ACC-READY-007', check: 'Cashbook movement logging active', domain: 'Cashbook', status: 'Passed', requiredAction: 'None' },
+  { id: 'ACC-READY-008', check: 'Refund and void control active', domain: 'Sales', status: 'Passed', requiredAction: 'None' },
+  { id: 'ACC-READY-009', check: 'Inventory movement engine active', domain: 'Inventory', status: 'Passed', requiredAction: 'None' },
+  { id: 'ACC-READY-010', check: 'EOD reconciliation active', domain: 'EOD', status: 'Passed', requiredAction: 'None' },
+  { id: 'ACC-READY-011', check: 'COGS reserve placeholder active', domain: 'COGS', status: 'Passed', requiredAction: 'None' },
+  { id: 'ACC-READY-012', check: 'Fiscalization not connected yet', domain: 'Tax', status: 'Pending', requiredAction: 'Connect fiscalization later' }
+];
+
+export const mockAccountingActivityEvents: AccountingActivityEvent[] = [
+  { id: 'ACC-ACT-001', timestamp: '2026-06-09T14:30:00Z', eventType: 'SALES_POSTING_REVIEWED', message: 'Sales posting review opened for RCT-0003.', operator: 'Admin User' },
+  { id: 'ACC-ACT-002', timestamp: '2026-06-09T14:32:00Z', eventType: 'PAYMENT_POSTING_REVIEWED', message: 'Payment posting review opened for Cash.', operator: 'Admin User' },
+  { id: 'ACC-ACT-003', timestamp: '2026-06-09T14:34:00Z', eventType: 'CASHBOOK_ENTRY_CREATED', message: 'Cash variance placeholder entry created.', operator: 'Tawanda Supervisor' },
+  { id: 'ACC-ACT-004', timestamp: '2026-06-09T14:36:00Z', eventType: 'VAT_SUMMARY_VIEWED', message: 'VAT summary viewed for 2026-06-09.', operator: 'Admin User' },
+  { id: 'ACC-ACT-005', timestamp: '2026-06-09T14:38:00Z', eventType: 'COGS_RESERVED', message: 'COGS reserve placeholder calculated.', operator: 'Admin User' },
+  { id: 'ACC-ACT-006', timestamp: '2026-06-09T14:39:00Z', eventType: 'COGS_USED', message: 'COGS reserve used placeholder available for future settlement.', operator: 'Admin User' },
+  { id: 'ACC-ACT-007', timestamp: '2026-06-09T14:40:00Z', eventType: 'COGS_MISUSE_ATTEMPT', message: 'COGS misuse risk placeholder flagged for owner review.', operator: 'Admin User' },
+  { id: 'ACC-ACT-008', timestamp: '2026-06-09T14:41:00Z', eventType: 'COGS_RESERVE_REVIEW_REQUIRED', message: 'COGS reserve review required for write-off.', operator: 'Admin User' },
+  { id: 'ACC-ACT-009', timestamp: '2026-06-09T14:42:00Z', eventType: 'INVENTORY_ASSET_POSTING_REVIEWED', message: 'Inventory asset posting review opened.', operator: 'Blessing Stock' },
+  { id: 'ACC-ACT-010', timestamp: '2026-06-09T14:44:00Z', eventType: 'ACCOUNTING_READINESS_CHECK_RUN', message: 'Accounting readiness checklist run.', operator: 'Admin User' },
+  { id: 'ACC-ACT-011', timestamp: '2026-06-09T14:46:00Z', eventType: 'ACCOUNTING_REPORT_EXPORT_PREPARED', message: 'Accounting report export prepared.', operator: 'Admin User' }
+];
+
+const allPOSFeatures: POSFeatureKey[] = [
+  'SALES_TERMINAL',
+  'STOCK_CONTROL',
+  'SHIFT_CONTROL',
+  'CASH_CONTROL',
+  'BI_DESK',
+  'CUSTOMER_DESK',
+  'DELIVERY_DESK',
+  'SYNC_DESK',
+  'OWNER_DESK',
+  'SETTINGS',
+  'OFFLINE_QUEUE',
+  'RECEIPT_PREVIEW',
+  'RETURNS_REFUNDS',
+  'GOODS_RECEIVING',
+  'STOCKTAKE',
+  'ROLE_PERMISSIONS',
+  'EOD_RECONCILIATION'
+];
+
+export const mockPOSPlans: POSPlan[] = [
+  {
+    tier: 'POS Starter',
+    monthlyPrice: 20,
+    branchesAllowed: 1,
+    terminalsAllowed: 1,
+    staffAllowed: 3,
+    productsAllowed: 500,
+    enabledFeatures: ['SALES_TERMINAL', 'SHIFT_CONTROL', 'RECEIPT_PREVIEW', 'SYNC_DESK']
+  },
+  {
+    tier: 'POS Growth',
+    monthlyPrice: 32,
+    branchesAllowed: 2,
+    terminalsAllowed: 4,
+    staffAllowed: 10,
+    productsAllowed: 2500,
+    enabledFeatures: [
+      'SALES_TERMINAL',
+      'STOCK_CONTROL',
+      'SHIFT_CONTROL',
+      'CASH_CONTROL',
+      'CUSTOMER_DESK',
+      'DELIVERY_DESK',
+      'SYNC_DESK',
+      'SETTINGS',
+      'OFFLINE_QUEUE',
+      'RECEIPT_PREVIEW',
+      'RETURNS_REFUNDS',
+      'GOODS_RECEIVING',
+      'STOCKTAKE'
+    ]
+  },
+  {
+    tier: 'POS Pro',
+    monthlyPrice: 50,
+    branchesAllowed: 8,
+    terminalsAllowed: 20,
+    staffAllowed: 60,
+    productsAllowed: 10000,
+    enabledFeatures: allPOSFeatures.filter((feature) => feature !== 'ROLE_PERMISSIONS')
+  },
+  {
+    tier: 'POS Enterprise',
+    monthlyPrice: 'custom',
+    branchesAllowed: 'unlimited',
+    terminalsAllowed: 'unlimited',
+    staffAllowed: 'unlimited',
+    productsAllowed: 'unlimited',
+    enabledFeatures: allPOSFeatures
+  }
+];
+
+export const mockVendorPOSSubscription: VendorPOSSubscription = {
+  vendorId: 'SCI-LOG-ZW',
+  planTier: 'POS Growth',
+  status: 'Active',
+  trialStartedAt: '2026-05-01T00:00:00Z',
+  trialEndsAt: '2026-05-15T23:59:59Z',
+  currentPeriodEndsAt: '2026-07-01T00:00:00Z',
+  billingCurrency: 'USD',
+  billingSource: 'Digital Commerce / SCI Managed',
+  graceDaysRemaining: 0
+};
+
+export const mockVendorPOSLicense: VendorPOSLicense = {
+  vendorId: 'SCI-LOG-ZW',
+  licenseStatus: 'Active',
+  licenseKey: 'ITREDPOS-MOCK-LICENSE-XXXX',
+  activatedAt: '2026-05-01T00:00:00Z',
+  expiresAt: '2027-05-01T00:00:00Z',
+  lastCheckedAt: '2026-06-09T08:00:00Z',
+  activationSource: 'Digital Commerce / SCI Support Mock',
+  offlineGraceAllowed: true,
+  offlineGraceDays: 7
+};
+
+const posFeatureLabels: Record<POSFeatureKey, string> = {
+  SALES_TERMINAL: 'Sales Terminal',
+  STOCK_CONTROL: 'Stock Control',
+  SHIFT_CONTROL: 'Shift Control',
+  CASH_CONTROL: 'Cash Control',
+  BI_DESK: 'BI Desk',
+  CUSTOMER_DESK: 'Customer Desk',
+  DELIVERY_DESK: 'Delivery Desk',
+  SYNC_DESK: 'Sync Desk',
+  OWNER_DESK: 'Owner Desk',
+  SETTINGS: 'Settings',
+  OFFLINE_QUEUE: 'Offline Queue',
+  RECEIPT_PREVIEW: 'Receipt Preview',
+  RETURNS_REFUNDS: 'Returns and Refunds',
+  GOODS_RECEIVING: 'Goods Receiving',
+  STOCKTAKE: 'Stocktake',
+  ROLE_PERMISSIONS: 'Role Permissions',
+  EOD_RECONCILIATION: 'EOD Reconciliation'
+};
+
+const growthEnabledFeatures = mockPOSPlans.find((plan) => plan.tier === 'POS Growth')?.enabledFeatures || [];
+
+export const mockPOSFeatureEntitlements: POSFeatureEntitlement[] = allPOSFeatures.map((featureKey) => {
+  const enabled = growthEnabledFeatures.includes(featureKey);
+  const proFeature = featureKey === 'BI_DESK' || featureKey === 'OWNER_DESK' || featureKey === 'EOD_RECONCILIATION' || featureKey === 'ROLE_PERMISSIONS';
+  return {
+    vendorId: 'SCI-LOG-ZW',
+    featureKey,
+    label: posFeatureLabels[featureKey],
+    enabled,
+    sourcePlan: 'POS Growth',
+    status: enabled ? 'Enabled' : proFeature ? 'Pro Feature' : 'Not in Plan',
+    uiEffect: enabled ? 'Visible and available in POS.' : 'Show plan badge and ask the vendor to contact Digital Commerce / SCI support.'
+  };
+});

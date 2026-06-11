@@ -1,3 +1,4 @@
+import { useEffect, useMemo, useState } from 'react';
 import { 
   Terminal, 
   Box, 
@@ -13,7 +14,8 @@ import {
   RefreshCw,
   BriefcaseBusiness
 } from 'lucide-react';
-import { PosPageId, PosSession } from '../types';
+import { POSFeatureEntitlement, POSFeatureKey, PosPageId, PosSession } from '../types';
+import { getPOSFeatureEntitlements } from '../services/posEntitlementService';
 
 interface PosSidebarProps {
   activePage: PosPageId;
@@ -34,19 +36,38 @@ export default function PosSidebar({
   onSignOut,
   allowedPages
 }: PosSidebarProps) {
+  const [entitlements, setEntitlements] = useState<POSFeatureEntitlement[]>([]);
+  const [planMessage, setPlanMessage] = useState<string | null>(null);
+
+  useEffect(() => {
+    const vendorId = session?.vendor === 'SCI Logistics Ltd' ? 'SCI-LOG-ZW' : session?.vendor || 'SCI-LOG-ZW';
+    void getPOSFeatureEntitlements(vendorId).then(setEntitlements);
+  }, [session?.vendor]);
+
+  const entitlementByFeature = useMemo(() => {
+    return entitlements.reduce<Partial<Record<POSFeatureKey, POSFeatureEntitlement>>>((acc, entitlement) => {
+      acc[entitlement.featureKey] = entitlement;
+      return acc;
+    }, {});
+  }, [entitlements]);
+
+  const showPlanMessage = () => {
+    setPlanMessage('Feature access is controlled by local role permissions during build-development.');
+    setTimeout(() => setPlanMessage(null), 4500);
+  };
   
   // Custom navigation items representing the requested lists
   const navigationItems = [
     { id: 'DASHBOARD' as const, label: 'Dashboard', icon: Monitor },
-    { id: 'OWNER_DESK' as const, label: 'Owner Desk', icon: BriefcaseBusiness },
-    { id: 'SALES' as const, label: 'Sales Terminal', icon: Terminal, actionHighlight: true },
-    { id: 'DELIVERY' as const, label: 'Delivery Desk', icon: Truck },
-    { id: 'STOCK' as const, label: 'Stock Control', icon: Box },
-    { id: 'SHIFT' as const, label: 'Shift Control', icon: Clock },
-    { id: 'CASH' as const, label: 'Cash Control', icon: DollarSign },
-    { id: 'BI_DESK' as const, label: 'BI Desk', icon: BarChart2 },
-    { id: 'SYNC_DESK' as const, label: 'Sync Desk', icon: RefreshCw },
-    { id: 'SETTINGS' as const, label: 'Settings', icon: Settings },
+    { id: 'OWNER_DESK' as const, label: 'Owner Desk', icon: BriefcaseBusiness, feature: 'OWNER_DESK' as POSFeatureKey },
+    { id: 'SALES' as const, label: 'Sales Terminal', icon: Terminal, actionHighlight: true, feature: 'SALES_TERMINAL' as POSFeatureKey },
+    { id: 'DELIVERY' as const, label: 'Delivery Desk', icon: Truck, feature: 'DELIVERY_DESK' as POSFeatureKey },
+    { id: 'STOCK' as const, label: 'Stock Control', icon: Box, feature: 'STOCK_CONTROL' as POSFeatureKey },
+    { id: 'SHIFT' as const, label: 'Shift Control', icon: Clock, feature: 'SHIFT_CONTROL' as POSFeatureKey },
+    { id: 'CASH' as const, label: 'Cash Control', icon: DollarSign, feature: 'CASH_CONTROL' as POSFeatureKey },
+    { id: 'BI_DESK' as const, label: 'BI Desk', icon: BarChart2, feature: 'BI_DESK' as POSFeatureKey },
+    { id: 'SYNC_DESK' as const, label: 'Sync Desk', icon: RefreshCw, feature: 'SYNC_DESK' as POSFeatureKey },
+    { id: 'SETTINGS' as const, label: 'Settings', icon: Settings, feature: 'SETTINGS' as POSFeatureKey },
   ].filter(item => !allowedPages || allowedPages.includes(item.id));
 
 
@@ -113,26 +134,47 @@ export default function PosSidebar({
           </div>
 
           <div className="space-y-0.5">
+            {planMessage && (
+              <div className="mb-2 border border-orange-500/60 bg-orange-950/30 px-2 py-2 text-[9px] leading-snug text-orange-200 font-bold uppercase">
+                {planMessage}
+              </div>
+            )}
             {navigationItems.map(item => {
               const IconComp = item.icon;
               const isActive = activePage === item.id;
+              const entitlement = item.feature ? entitlementByFeature[item.feature] : null;
+              // During build-development, Owner has full access. Plan-based feature enforcement will be implemented later from the internal iTredVD Console backend.
+              const isPlanDisabled = false;
 
               return (
                 <button
                   id={`nav-item-${item.id.toLowerCase()}`}
                   key={item.id}
-                  onClick={() => onPageChange(item.id)}
+                  onClick={() => {
+                    if (isPlanDisabled) {
+                      showPlanMessage();
+                      return;
+                    }
+                    onPageChange(item.id);
+                  }}
                   className={`w-full text-left py-2.5 px-3 flex items-center gap-3 transition-colors text-xs rounded-none border-l-2 outline-none cursor-pointer ${
-                    isActive 
+                    isPlanDisabled
+                      ? 'border-transparent text-slate-600 bg-slate-950/60 cursor-not-allowed'
+                      : isActive 
                       ? 'bg-slate-900 text-[#00f0ff] font-bold border-[#00f0ff]' 
                       : 'border-transparent text-slate-400 hover:text-slate-100 hover:bg-slate-900/60'
                   }`}
                 >
-                  <IconComp className={`w-4 h-4 shrink-0 ${isActive ? 'text-[#00f0ff]' : 'text-slate-500'}`} />
+                  <IconComp className={`w-4 h-4 shrink-0 ${isPlanDisabled ? 'text-slate-700' : isActive ? 'text-[#00f0ff]' : 'text-slate-500'}`} />
                   <span className="flex-1 truncate uppercase tracking-wide">{item.label}</span>
+                  {isPlanDisabled && entitlement && (
+                    <span className="text-[7px] border border-slate-700 px-1 py-0.5 text-slate-500 uppercase">
+                      {entitlement.status}
+                    </span>
+                  )}
                   
                   {/* Active flashing LED dots */}
-                  {isActive && (
+                  {isActive && !isPlanDisabled && (
                     <span className="w-1.5 h-1.5 bg-[#00f0ff] animate-pulse"></span>
                   )}
                 </button>

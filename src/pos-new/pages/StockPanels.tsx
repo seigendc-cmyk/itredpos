@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { 
   Check, 
   X, 
@@ -30,6 +30,12 @@ import {
   ApprovalRequest, 
   ApprovalRequestType 
 } from '../types';
+import {
+  postGoodsReceivedMovement,
+  postStockAdjustmentMovement,
+  postStocktakeAdjustmentMovement,
+  postSupplierReturnMovement
+} from '../services/inventoryMovementService';
 
 interface StockProduct extends Product {
   riskLevel?: 'Low' | 'Medium' | 'High' | 'Critical';
@@ -51,6 +57,8 @@ interface StockPanelsProps {
   onUpdateStock: (productId: string, newStock: number) => void;
   activeTab: 'Stock List' | 'Goods Receiving' | 'Purchase Orders' | 'Supplier Returns' | 'Stock Adjustments' | 'Stocktake';
   setActiveTab: (tab: 'Stock List' | 'Goods Receiving' | 'Purchase Orders' | 'Supplier Returns' | 'Stock Adjustments' | 'Stocktake') => void;
+  stocktakePreselect?: { shelfLocation?: string; productIds?: string[] } | null;
+  stocktakePreselectToken?: number;
 }
 
 export default function StockPanels({
@@ -67,7 +75,9 @@ export default function StockPanels({
   canApprove,
   onUpdateStock,
   activeTab,
-  setActiveTab
+  setActiveTab,
+  stocktakePreselect,
+  stocktakePreselectToken = 0
 }: StockPanelsProps) {
 
   // --- LOCAL PERSISTENCE STORAGE FOR SUB-PAGES ---
@@ -217,29 +227,116 @@ export default function StockPanels({
   const [adjFeedback, setAdjFeedback] = useState<{ type: 'success' | 'error' | 'warning', msg: string } | null>(null);
 
   // 5. Stocktake State Layout
-  const [stocktakeLines, setStocktakeLines] = useState<StocktakeLine[]>([
-    { sku: 'BJ-CBHO49', productName: 'Ball Joint Honda Fit GD1', systemQty: 25, countedQty: 25, variance: 0, riskLevel: 'Low', status: 'Pending' },
-    { sku: 'BP-GD6-F', productName: 'Brake Pads Toyota GD6 Front', systemQty: 8, countedQty: 8, variance: 0, riskLevel: 'High', status: 'Pending' },
-    { sku: 'CLT-N16', productName: 'Clutch Plate Nissan N16', systemQty: 12, countedQty: 12, variance: 0, riskLevel: 'Low', status: 'Pending' },
-    { sku: 'RAD-COROLLA', productName: 'Radiator Toyota Corolla', systemQty: 15, countedQty: 15, variance: 0, riskLevel: 'High', status: 'Pending' }
-  ]);
+  const [stocktakeLines, setStocktakeLines] = useState<StocktakeLine[]>(() => localStock.slice(0, 12).map((item) => ({
+    productId: item.id,
+    sku: item.sku || item.code,
+    numericNo: item.productNumericNumber,
+    alu: item.alu,
+    productName: item.productName || item.name,
+    industrialSector: item.industrialSector,
+    category: item.productCategory || item.category,
+    brand: item.brand,
+    shelfLocation: item.shelfLocation,
+    systemQty: item.qtyOnHand ?? item.stock,
+    countedQty: item.qtyOnHand ?? item.stock,
+    variance: 0,
+    riskLevel: item.riskLevel || 'Low',
+    status: 'Pending',
+    stocktakeType: 'Spot',
+    countedBy: staffName
+  })));
   const [stocktakeActive, setStocktakeActive] = useState(false);
   const [stocktakeFeedback, setStocktakeFeedback] = useState<string | null>(null);
+  const [stocktakeSessionType, setStocktakeSessionType] = useState<'Full' | 'Spot' | 'Audit'>('Spot');
+  const [stocktakeBranchFilter, setStocktakeBranchFilter] = useState('ALL');
+  const [stocktakeWarehouseFilter, setStocktakeWarehouseFilter] = useState('ALL');
+  const [stocktakeCategoryFilter, setStocktakeCategoryFilter] = useState('ALL');
+  const [stocktakeShelfFilter, setStocktakeShelfFilter] = useState('ALL');
 
   // Sync Stocktake lines Counted qty from original localStock quantities
   useEffect(() => {
     if (!stocktakeActive) {
-      setStocktakeLines(prev => prev.map(line => {
-        const match = localStock.find(p => p.code === line.sku);
-        return {
-          ...line,
-          systemQty: match ? match.stock : line.systemQty,
-          countedQty: match ? match.stock : line.countedQty,
-          variance: 0
-        };
-      }));
+      setStocktakeLines(localStock.map(item => ({
+        productId: item.id,
+        sku: item.sku || item.code,
+        numericNo: item.productNumericNumber,
+        alu: item.alu,
+        productName: item.productName || item.name,
+        industrialSector: item.industrialSector,
+        category: item.productCategory || item.category,
+        brand: item.brand,
+        shelfLocation: item.shelfLocation,
+        systemQty: item.qtyOnHand ?? item.stock,
+        countedQty: item.qtyOnHand ?? item.stock,
+        variance: 0,
+        riskLevel: item.riskLevel || 'Low',
+        status: 'Pending',
+        stocktakeType: stocktakeSessionType,
+        countedBy: staffName
+      })));
     }
-  }, [localStock, stocktakeActive]);
+  }, [localStock, stocktakeActive, stocktakeSessionType, staffName]);
+
+  const stocktakeBranchOptions = useMemo(() => ['ALL', ...Array.from(new Set(localStock.map((item) => item.branch).filter(Boolean)))], [localStock]);
+  const stocktakeWarehouseOptions = useMemo(() => ['ALL', ...Array.from(new Set(localStock.map((item) => item.warehouse).filter(Boolean)))], [localStock]);
+  const stocktakeCategoryOptions = useMemo(() => ['ALL', ...Array.from(new Set(localStock.map((item) => item.productCategory || item.category).filter(Boolean)))], [localStock]);
+  const stocktakeShelfOptions = useMemo(() => ['ALL', ...Array.from(new Set(localStock.map((item) => item.shelfLocation).filter(Boolean)))], [localStock]);
+
+  const filteredStocktakeLines = useMemo(() => {
+    return stocktakeLines.filter((line) => {
+      const product = localStock.find((item) => (item.sku || item.code) === line.sku);
+      const matchesBranch = stocktakeBranchFilter === 'ALL' || product?.branch === stocktakeBranchFilter;
+      const matchesWarehouse = stocktakeWarehouseFilter === 'ALL' || product?.warehouse === stocktakeWarehouseFilter;
+      const matchesCategory = stocktakeCategoryFilter === 'ALL' || line.category === stocktakeCategoryFilter;
+      const matchesShelf = stocktakeShelfFilter === 'ALL' || line.shelfLocation === stocktakeShelfFilter;
+      const matchesPreselect =
+        !stocktakePreselect?.productIds?.length ||
+        (line.productId ? stocktakePreselect.productIds.includes(line.productId) : false);
+      return matchesBranch && matchesWarehouse && matchesCategory && matchesShelf && matchesPreselect;
+    });
+  }, [localStock, stocktakeBranchFilter, stocktakeCategoryFilter, stocktakeLines, stocktakePreselect, stocktakeShelfFilter, stocktakeWarehouseFilter]);
+
+  useEffect(() => {
+    if (!stocktakePreselect || stocktakePreselectToken === 0) return;
+
+    if (stocktakePreselect.shelfLocation) {
+      setStocktakeShelfFilter(stocktakePreselect.shelfLocation);
+    }
+
+    if (stocktakePreselect.productIds?.length) {
+      const preselectedLines = localStock
+        .filter((item) => stocktakePreselect.productIds?.includes(item.id))
+        .map((item) => ({
+          productId: item.id,
+          sku: item.sku || item.code,
+          numericNo: item.productNumericNumber,
+          alu: item.alu,
+          productName: item.productName || item.name,
+          industrialSector: item.industrialSector,
+          category: item.productCategory || item.category,
+          brand: item.brand,
+          shelfLocation: item.shelfLocation,
+          systemQty: item.qtyOnHand ?? item.stock,
+          countedQty: item.qtyOnHand ?? item.stock,
+          variance: 0,
+          riskLevel: item.riskLevel || 'Low',
+          status: 'Pending' as const,
+          stocktakeType: 'Spot' as const,
+          countedBy: staffName
+        }));
+
+      if (preselectedLines.length > 0) {
+        setStocktakeLines(preselectedLines);
+        setStocktakeActive(true);
+        setStocktakeSessionType('Spot');
+        setStocktakeFeedback(
+          stocktakePreselect.shelfLocation
+            ? `Stocktake preselected for shelf ${stocktakePreselect.shelfLocation}.`
+            : 'Stocktake preselected from Product List filters.'
+        );
+      }
+    }
+  }, [localStock, staffName, stocktakePreselect, stocktakePreselectToken]);
 
   // Helper to log BI Events globally in localStorage to reflect on PosBIDesk.tsx
   const logGlobalBiEvent = (eventType: string, payload: any, severity: 'INFO' | 'WARNING' | 'HIGH' | 'CRITICAL') => {
@@ -260,6 +357,29 @@ export default function StockPanels({
       console.error("Failed to append global BI event:", e);
     }
   };
+
+  const baseMovementPayload = (product: StockProduct, referenceNumber: string, notes: string) => ({
+    vendorId: product.vendorId || 'SCI-LOG-ZW',
+    branchId: product.branchId || product.branch || activeBranch,
+    warehouseId: product.warehouseId || product.warehouse || 'Main Warehouse',
+    productId: product.id,
+    sku: product.sku || product.code,
+    alu: product.alu,
+    productNumericNumber: product.productNumericNumber,
+    productName: product.productName || product.name,
+    shelfLocation: product.shelfLocation,
+    unitCost: product.costPrice ?? product.cost,
+    sellingPrice: product.sellingPrice ?? product.price,
+    salesAccountCOA: product.salesAccountCOA,
+    assetAccountCOA: product.assetAccountCOA,
+    staffId: staffName,
+    staffName,
+    terminalId: 'TERMINAL_STOCK_DESK',
+    movementDate: new Date().toISOString(),
+    referenceNumber,
+    notes,
+    riskFlag: product.riskLevel === 'Critical' ? 'Critical' as const : product.riskLevel === 'High' ? 'High' as const : 'None' as const
+  });
 
 
   // =========================================================================
@@ -377,6 +497,23 @@ export default function StockPanels({
           type: 'warning',
           msg: `QUEUED FOR APPROVAL: GRN ${grnNumber} contains discrepancies (Variance or Price Spike). Submitted to Authorization Queue. Stock will NOT update until Approved by a Supervisor.`
         });
+
+        grnLines.forEach((line) => {
+          if (line.rejected) return;
+          const match = localStock.find((item) => item.code === line.sku);
+          if (!match) return;
+          void postGoodsReceivedMovement({
+            ...baseMovementPayload(match, grnNumber, `GRN variance pending approval for ${grnSupplier}.`),
+            qtyIn: line.receivedQty,
+            qtyOut: 0,
+            balanceBefore: match.stock,
+            unitCost: line.costPrice,
+            sellingPrice: line.suggestedPrice || line.currentPrice,
+            approvalRequired: true,
+            status: 'Pending Approval',
+            riskFlag: line.status !== 'Matched' ? 'High' : 'Medium'
+          });
+        });
         
         // Audit logs
         triggerNewActivityEvent('STOCK_ADJUSTMENT_REQUESTED', `GRN ${grnNumber} queued for approval due to discrepancies.`, 'High');
@@ -441,6 +578,16 @@ export default function StockPanels({
       const match = localStock.find(p => p.code === line.sku);
       if (match) {
         onUpdateStock(match.id, match.stock + line.receivedQty);
+        void postGoodsReceivedMovement({
+          ...baseMovementPayload(match, grnRef, `Goods received from ${grnSupplier}.`),
+          qtyIn: line.receivedQty,
+          qtyOut: 0,
+          balanceBefore: match.stock,
+          unitCost: line.costPrice,
+          sellingPrice: line.suggestedPrice || line.currentPrice,
+          approvalRequired: false,
+          status: 'Posted'
+        });
       }
     });
 
@@ -534,6 +681,15 @@ export default function StockPanels({
 
     saveLocalStockState(updatedStock);
     onUpdateStock(matchProduct.id, matchProduct.stock - ret.quantityReturned);
+    void postSupplierReturnMovement({
+      ...baseMovementPayload(matchProduct, ret.id, `Supplier return shipped to ${ret.supplierName}.`),
+      qtyIn: 0,
+      qtyOut: ret.quantityReturned,
+      balanceBefore: matchProduct.stock,
+      approvalRequired: false,
+      status: 'Posted',
+      riskFlag: 'Medium'
+    });
 
     // Update return status to Shipped
     setSupplierReturns(prev => prev.map(r => r.id === ret.id ? { ...r, status: 'Shipped' } : r));
@@ -598,6 +754,17 @@ export default function StockPanels({
       };
       setStockApprovals(prev => [newApproval, ...prev]);
       setAdjFeedback({ type: 'warning', msg: `Approval request ${reqId} queued. Stock Controller roles require Supervisor validation to adjust inventory.` });
+      void postStockAdjustmentMovement({
+        ...baseMovementPayload(matchProduct, reqId, `Pending stock adjustment request. Reason: ${adjReasonCode}.`),
+        movementType: isNegative ? 'STOCK_ADJUSTMENT_OUT' : 'STOCK_ADJUSTMENT_IN',
+        referenceType: 'ADJUSTMENT',
+        qtyIn: isNegative ? 0 : qty,
+        qtyOut: isNegative ? qty : 0,
+        balanceBefore: currentQty,
+        approvalRequired: true,
+        status: 'Pending Approval',
+        riskFlag: isSensitiveLoss ? 'High' : 'Medium'
+      });
       
       triggerNewActivityEvent('STOCK_ADJUSTMENT_REQUESTED', `Adjustment request filed for SKU ${adjSku}`, 'Medium');
       logGlobalBiEvent('STOCK_ADJUSTMENT_REQUESTED', { sku: adjSku, delta: isNegative ? -qty : qty }, 'INFO');
@@ -618,6 +785,17 @@ export default function StockPanels({
       };
       setStockApprovals(prev => [newApproval, ...prev]);
       setAdjFeedback({ type: 'warning', msg: `QUEUED FOR MANAGER: Negative adjustments greater than 3 units require Manager or Owner authorization. Queuing request ${reqId}.` });
+      void postStockAdjustmentMovement({
+        ...baseMovementPayload(matchProduct, reqId, `Manager approval required for sensitive stock loss. Reason: ${adjReasonCode}.`),
+        movementType: 'STOCK_ADJUSTMENT_OUT',
+        referenceType: 'ADJUSTMENT',
+        qtyIn: 0,
+        qtyOut: qty,
+        balanceBefore: currentQty,
+        approvalRequired: true,
+        status: 'Pending Approval',
+        riskFlag: 'High'
+      });
       return;
     }
 
@@ -638,6 +816,17 @@ export default function StockPanels({
 
     saveLocalStockState(updatedStock);
     onUpdateStock(matchProduct.id, finalQtyStatus);
+    void postStockAdjustmentMovement({
+      ...baseMovementPayload(matchProduct, `ADJ-${Date.now()}`, `Posted stock adjustment. Reason: ${adjReasonCode}. ${adjNotes}`),
+      movementType: isNegative ? 'STOCK_ADJUSTMENT_OUT' : 'STOCK_ADJUSTMENT_IN',
+      referenceType: 'ADJUSTMENT',
+      qtyIn: isNegative ? 0 : qty,
+      qtyOut: isNegative ? qty : 0,
+      balanceBefore: currentQty,
+      approvalRequired: false,
+      status: 'Posted',
+      riskFlag: adjReasonCode === 'Theft suspicion' ? 'High' : 'Low'
+    });
 
     triggerNewActivityEvent('STOCK_RECEIVED', `Stock Adjusted directly: ${matchProduct.name} set to ${finalQtyStatus} (${isNegative ? '-' : '+'}${qty}).`, 'Medium');
     logGlobalBiEvent('STOCK_RECEIVED', { sku: adjSku, change: isNegative ? -qty : qty, finalQtyStatus }, 'WARNING');
@@ -660,12 +849,15 @@ export default function StockPanels({
       if (line.sku === sku) {
         const variance = val - line.systemQty;
         const riskLevel = variance === 0 ? 'Low' : (Math.abs(variance) > 5 ? 'Critical' : 'High');
+        const status = variance === 0 ? 'Matched' : variance < 0 ? 'Short Count' : 'Over Count';
         return {
           ...line,
           countedQty: val,
           variance,
           riskLevel: riskLevel as any,
-          status: 'Counted'
+          status,
+          stocktakeType: stocktakeSessionType,
+          countedBy: staffName
         };
       }
       return line;
@@ -674,7 +866,8 @@ export default function StockPanels({
 
   const handleStartStocktakeSession = () => {
     setStocktakeActive(true);
-    setStocktakeFeedback("Audit Spot session STARTED. Key in observed quantities.");
+    setStocktakeFeedback(`${stocktakeSessionType} stocktake session STARTED. Key in observed quantities for the filtered shelf/location count sheet.`);
+    triggerNewActivityEvent('STOCKTAKE_STARTED', `${stocktakeSessionType} stocktake started by ${staffName}.`, 'Low');
   };
 
   // Spot check randomizer
@@ -689,7 +882,9 @@ export default function StockPanels({
           countedQty: finalCount,
           variance: finalCount - line.systemQty,
           riskLevel: finalCount - line.systemQty === 0 ? 'Low' : 'High',
-          status: 'Counted'
+          status: finalCount - line.systemQty === 0 ? 'Matched' : finalCount - line.systemQty < 0 ? 'Short Count' : 'Over Count',
+          stocktakeType: stocktakeSessionType,
+          countedBy: staffName
         };
       }
       return line;
@@ -728,6 +923,25 @@ export default function StockPanels({
         setStocktakeFeedback(`SUBMISSION FLAG: Posted counts contain variances. Request ${reqId} queued for Supervisor authorization before applying to database.`);
         logGlobalBiEvent('VARIANCE_RISK_FOUND', { totalDiscrepantLines: totalLinesWithDiscrepancy.length }, 'HIGH');
         triggerNewActivityEvent('STOCK_ADJUSTMENT_REQUESTED', `Variance discrepancy found in stocktake audit. Filed request.`, 'High');
+        totalLinesWithDiscrepancy.forEach((line) => {
+          const match = localStock.find((item) => item.code === line.sku);
+          if (!match || line.variance === 0) return;
+          const isIncrease = line.variance > 0;
+          void postStocktakeAdjustmentMovement({
+            ...baseMovementPayload(match, reqId, `Stocktake variance pending approval. Counted ${line.countedQty}, system ${line.systemQty}.`),
+            movementType: isIncrease ? 'STOCKTAKE_ADJUSTMENT_IN' : 'STOCKTAKE_ADJUSTMENT_OUT',
+            referenceType: 'STOCKTAKE',
+            qtyIn: isIncrease ? line.variance : 0,
+            qtyOut: isIncrease ? 0 : Math.abs(line.variance),
+            balanceBefore: match.stock,
+            approvalRequired: stocktakeSessionType === 'Audit' || Math.abs(line.variance) > 3,
+            status: stocktakeSessionType === 'Audit' || Math.abs(line.variance) > 3 ? 'Pending Approval' : 'Posted',
+            riskFlag: Math.abs(line.variance) > 5 ? 'Critical' : 'Medium'
+          });
+        });
+        if (stocktakeSessionType === 'Audit') {
+          logGlobalBiEvent('AUDIT_STOCKTAKE_REVIEW_REQUIRED', { requestId: reqId }, 'HIGH');
+        }
         return;
       }
     }
@@ -758,6 +972,22 @@ export default function StockPanels({
       const match = localStock.find(p => p.code === line.sku);
       if (match) {
         onUpdateStock(match.id, line.countedQty);
+        if (line.variance !== 0) {
+          const isIncrease = line.variance > 0;
+          void postStocktakeAdjustmentMovement({
+            ...baseMovementPayload(match, `STK-${Date.now()}`, `Stocktake variance posted by ${line.countedBy || staffName}.`),
+            movementType: isIncrease ? 'STOCKTAKE_ADJUSTMENT_IN' : 'STOCKTAKE_ADJUSTMENT_OUT',
+            referenceType: 'STOCKTAKE',
+            qtyIn: isIncrease ? line.variance : 0,
+            qtyOut: isIncrease ? 0 : Math.abs(line.variance),
+            balanceBefore: match.stock,
+            approvalRequired: false,
+            status: 'Posted',
+            riskFlag: Math.abs(line.variance) > 5 ? 'Critical' : 'Medium'
+          });
+        } else {
+          logGlobalBiEvent('STOCKTAKE_COUNT_LOGGED', { sku: line.sku, countedQty: line.countedQty }, 'INFO');
+        }
       }
     });
 
@@ -1613,12 +1843,25 @@ export default function StockPanels({
             </div>
           )}
 
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3 bg-slate-50 border border-[#b1b5c2] p-3">
+            <StocktakeSelect label="Session Type" value={stocktakeSessionType} onChange={(value) => setStocktakeSessionType(value as 'Full' | 'Spot' | 'Audit')} options={['Full', 'Spot', 'Audit']} />
+            <StocktakeSelect label="Branch" value={stocktakeBranchFilter} onChange={setStocktakeBranchFilter} options={stocktakeBranchOptions as string[]} />
+            <StocktakeSelect label="Warehouse" value={stocktakeWarehouseFilter} onChange={setStocktakeWarehouseFilter} options={stocktakeWarehouseOptions as string[]} />
+            <StocktakeSelect label="Category" value={stocktakeCategoryFilter} onChange={setStocktakeCategoryFilter} options={stocktakeCategoryOptions as string[]} />
+            <StocktakeSelect label="Shelf Location" value={stocktakeShelfFilter} onChange={setStocktakeShelfFilter} options={stocktakeShelfOptions as string[]} />
+          </div>
+
           <div className="overflow-x-auto pos-custom-scroll">
-            <table className="w-full text-[10.5px] text-left border-collapse">
+            <table className="w-full text-[10.5px] text-left border-collapse min-w-[1080px]">
               <thead>
                 <tr className="bg-[#1e222b] text-white font-black uppercase text-[8px] h-8 select-none">
+                  <th className="py-2 px-3">Product No</th>
                   <th className="py-2 px-3">SKU</th>
+                  <th className="py-2 px-3">ALU</th>
                   <th className="py-2 px-3">Part Description</th>
+                  <th className="py-2 px-3">Sector / Category</th>
+                  <th className="py-2 px-3">Brand</th>
+                  <th className="py-2 px-3">Shelf</th>
                   <th className="py-2 px-3 text-right">System Recorded</th>
                   <th className="py-2 px-3 text-right w-[140px]">Observed Physical Count</th>
                   <th className="py-2 px-3 text-right">Delta (Variance)</th>
@@ -1627,15 +1870,23 @@ export default function StockPanels({
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-200">
-                {stocktakeLines.map((line) => {
+                {filteredStocktakeLines.map((line) => {
                   let riskBg = 'bg-gray-100 text-slate-600';
                   if (line.riskLevel === 'High') riskBg = 'bg-orange-100 text-orange-800 font-bold border border-orange-250';
                   else if (line.riskLevel === 'Critical') riskBg = 'bg-red-100 text-red-800 font-black border border-red-300 animate-pulse';
 
                   return (
                     <tr key={line.sku} className="hover:bg-slate-50 transition-colors h-11">
+                      <td className="py-2 px-3 font-black text-orange-700 whitespace-nowrap">{line.numericNo || '000000000'}</td>
                       <td className="py-2 px-3 font-bold text-[#1e222b]">{line.sku}</td>
+                      <td className="py-2 px-3 font-bold text-slate-500 whitespace-nowrap">{line.alu || 'ALU-N/A'}</td>
                       <td className="py-2 px-3 uppercase font-extrabold">{line.productName}</td>
+                      <td className="py-2 px-3 uppercase text-[9px] text-slate-600">
+                        <div className="font-black">{line.industrialSector || 'General'}</div>
+                        <div className="text-[8px] text-slate-400">{line.category || 'Uncategorised'}</div>
+                      </td>
+                      <td className="py-2 px-3 uppercase text-[9px] text-slate-600">{line.brand || 'N/A'}</td>
+                      <td className="py-2 px-3 uppercase text-[9px] text-slate-600">{line.shelfLocation || 'N/A'}</td>
                       <td className="py-2 px-3 text-right font-bold text-slate-600">{line.systemQty}</td>
                       <td className="py-2 px-3">
                         <input
@@ -1659,9 +1910,9 @@ export default function StockPanels({
                       </td>
                       <td className="py-2 px-3 text-center whitespace-nowrap">
                         {line.variance !== 0 ? (
-                          <span className="bg-red-50 text-red-800 border-red-200 font-bold text-[8px] px-1.5 py-0.2 uppercase">Discrepancy</span>
+                          <span className="bg-red-50 text-red-800 border-red-200 font-bold text-[8px] px-1.5 py-0.2 uppercase">{line.status}</span>
                         ) : (
-                          <span className="bg-emerald-50 text-emerald-800 border-emerald-200 font-medium text-[8px] px-1.5 py-0.2 uppercase">Matched</span>
+                          <span className="bg-emerald-50 text-emerald-800 border-emerald-200 font-medium text-[8px] px-1.5 py-0.2 uppercase">{line.status === 'Pending' ? 'Pending' : 'Matched'}</span>
                         )}
                       </td>
                     </tr>
@@ -1863,5 +2114,22 @@ export default function StockPanels({
       )}
 
     </div>
+  );
+}
+
+function StocktakeSelect({ label, value, onChange, options }: { label: string; value: string; onChange: (value: string) => void; options: string[] }) {
+  return (
+    <label className="space-y-1 block">
+      <span className="block text-[8px] font-black text-slate-500 uppercase">{label}</span>
+      <select
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        className="w-full bg-white border border-[#b1b5c2] px-2 py-1.5 text-[10px] font-black uppercase outline-none focus:border-orange-500 rounded-none"
+      >
+        {options.map((option) => (
+          <option key={option} value={option}>{option.toUpperCase()}</option>
+        ))}
+      </select>
+    </label>
   );
 }
