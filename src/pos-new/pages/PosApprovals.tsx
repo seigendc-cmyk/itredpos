@@ -1,78 +1,344 @@
-import { Check, Eye, X } from 'lucide-react';
-import { useState } from 'react';
-import { PosSession, RiskLevel, Role } from '../types';
+import { useEffect, useMemo, useState } from 'react';
+import { Check, Eye, Filter, ShieldCheck, X } from 'lucide-react';
+import {
+  OperationalApprovalCategory,
+  OperationalApprovalEvent,
+  OperationalApprovalRequest,
+  PosSession,
+  RiskLevel,
+  Role
+} from '../types';
+import {
+  decideOperationalApproval,
+  getOperationalApprovalEvents,
+  getOperationalApprovals,
+  viewOperationalApproval
+} from '../services/approvalService';
+import { approveCustomer, rejectCustomer } from '../services/customerService';
 import { hasPermission } from '../utils/posPermissions';
 
 interface PosApprovalsProps {
   session: PosSession;
 }
 
-const approvalRows: Array<[string, string, string, string, RiskLevel, string, string]> = [
-  ['APR-0001', 'New Customer Approval', 'Mary Cashier', 'CUST-REQ-001', 'Medium', 'Pending', '2026-06-09 09:30'],
-  ['APR-0002', 'Return Approval', 'Mary Cashier', 'RET-0002', 'High', 'Pending', '2026-06-09 10:10'],
-  ['APR-0003', 'Credit Note Approval', 'Tawanda Supervisor', 'CN-0001', 'High', 'Pending', '2026-06-09 10:45'],
-  ['APR-0004', 'Terminal Activation', 'Admin User', 'TERM-HARARE-01', 'Medium', 'Open', '2026-06-09 11:00'],
-  ['APR-0005', 'Inventory Import Approval', 'Elena Rostova', 'IMPORT-004', 'Medium', 'Pending', '2026-06-09 11:25'],
-  ['APR-0006', 'Stock Adjustment Approval', 'Elena Rostova', 'ADJ-0019', 'High', 'Pending', '2026-06-09 12:05'],
-  ['APR-0007', 'Price Override Approval', 'Mary Cashier', 'OVR-0007', 'Medium', 'Pending', '2026-06-09 12:40'],
-  ['APR-0008', 'Delivery Provider Approval', 'Tawanda Supervisor', 'DRV-004', 'Low', 'Open', '2026-06-09 13:15'],
-  ['APR-0009', 'Cash Variance Approval', 'Tawanda Supervisor', 'SHIFT-2026-06-09', 'Critical', 'Pending', '2026-06-09 13:45']
+type StatusFilter = 'All' | 'Pending' | 'Approved' | 'Rejected';
+type RiskFilter = 'All' | RiskLevel;
+
+const categories: Array<'All' | OperationalApprovalCategory> = [
+  'All',
+  'Price Override',
+  'Discount Above Limit',
+  'Return Request',
+  'Credit Note Request',
+  'Terminal Activation',
+  'Cash Variance Review',
+  'Stock Adjustment',
+  'Stocktake Variance',
+  'Inventory Import Approval',
+  'Delivery Provider Approval',
+  'Customer Approval'
 ];
 
+const statusFilters: StatusFilter[] = ['All', 'Pending', 'Approved', 'Rejected'];
+const riskFilters: RiskFilter[] = ['All', 'Low', 'Medium', 'High', 'Critical'];
+const permissionBlockedMessage = 'You do not have permission to perform this action.';
+
+function riskClass(risk: RiskLevel): string {
+  if (risk === 'Critical') return 'sci-status-pill--danger';
+  if (risk === 'High') return 'sci-status-pill--warning';
+  if (risk === 'Medium') return 'sci-status-pill--warning';
+  return 'sci-status-pill--success';
+}
+
+function statusClass(status: OperationalApprovalRequest['status']): string {
+  if (status === 'Approved') return 'sci-status-pill--success';
+  if (status === 'Rejected') return 'sci-status-pill--danger';
+  return 'sci-status-pill--warning';
+}
+
+function moneylessDate(value: string): string {
+  return new Date(value).toLocaleString();
+}
+
 export default function PosApprovals({ session }: PosApprovalsProps) {
+  const roleName = session.role as Role;
+  const operator = session.staffName || 'Admin User';
+  const [approvals, setApprovals] = useState<OperationalApprovalRequest[]>([]);
+  const [events, setEvents] = useState<OperationalApprovalEvent[]>([]);
+  const [activeCategory, setActiveCategory] = useState<'All' | OperationalApprovalCategory>('All');
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>('Pending');
+  const [riskFilter, setRiskFilter] = useState<RiskFilter>('All');
+  const [selectedApprovalId, setSelectedApprovalId] = useState<string>('');
+  const [decisionNote, setDecisionNote] = useState('');
   const [notice, setNotice] = useState<string | null>(null);
 
-  const handleAction = (permission: 'approvals.view' | 'approvals.approve' | 'approvals.reject', label: string) => {
-    if (!hasPermission(session.role as Role, permission)) {
-      setNotice('You do not have permission to perform this action.');
+  const loadApprovals = async () => {
+    const [approvalRows, eventRows] = await Promise.all([
+      getOperationalApprovals(),
+      getOperationalApprovalEvents()
+    ]);
+    setApprovals(approvalRows);
+    setEvents(eventRows);
+    setSelectedApprovalId((current) => current || approvalRows[0]?.id || '');
+  };
+
+  useEffect(() => {
+    void loadApprovals();
+  }, []);
+
+  const filteredApprovals = useMemo(() => approvals.filter((approval) => {
+    const categoryMatch = activeCategory === 'All' || approval.category === activeCategory;
+    const statusMatch = statusFilter === 'All' || approval.status === statusFilter;
+    const riskMatch = riskFilter === 'All' || approval.risk === riskFilter;
+    return categoryMatch && statusMatch && riskMatch;
+  }), [activeCategory, approvals, riskFilter, statusFilter]);
+
+  const selectedApproval = approvals.find((approval) => approval.id === selectedApprovalId) || filteredApprovals[0] || null;
+  const pendingCount = approvals.filter((approval) => approval.status === 'Pending').length;
+  const highRiskCount = approvals.filter((approval) => approval.status === 'Pending' && (approval.risk === 'High' || approval.risk === 'Critical')).length;
+  const approvedCount = approvals.filter((approval) => approval.status === 'Approved').length;
+  const rejectedCount = approvals.filter((approval) => approval.status === 'Rejected').length;
+
+  const handleViewContext = async (approval: OperationalApprovalRequest) => {
+    if (!hasPermission(roleName, 'approvals.view')) {
+      setNotice(permissionBlockedMessage);
       return;
     }
-    setNotice(`${label} is a build-development placeholder.`);
+    setSelectedApprovalId(approval.id);
+    setNotice(`${approval.category} context loaded.`);
+    await viewOperationalApproval(approval.id, operator);
+    setEvents(await getOperationalApprovalEvents());
+  };
+
+  const handleDecision = async (approval: OperationalApprovalRequest, decision: 'Approved' | 'Rejected') => {
+    const permission = decision === 'Approved' ? 'approvals.approve' : 'approvals.reject';
+    if (!hasPermission(roleName, permission)) {
+      setNotice(permissionBlockedMessage);
+      return;
+    }
+    const updated = await decideOperationalApproval(approval.id, decision, operator, decisionNote.trim());
+    if (approval.category === 'Customer Approval') {
+      if (decision === 'Approved') {
+        await approveCustomer(approval.relatedRecord, operator, decisionNote.trim() || 'Approved from Approvals Desk.');
+      } else {
+        await rejectCustomer(approval.relatedRecord, operator, decisionNote.trim() || 'Rejected from Approvals Desk.');
+      }
+    }
+    setApprovals(updated);
+    setEvents(await getOperationalApprovalEvents());
+    setNotice(`${approval.category} ${decision.toLowerCase()}.`);
+    setDecisionNote('');
   };
 
   return (
-    <div className="space-y-5 text-xs industrial-font-sans">
-      <div className="bg-white border border-[#b1b5c2] p-4">
-        <div className="text-[10px] text-orange-600 font-black uppercase tracking-wider">iTred Commerce POS</div>
-        <h2 className="text-xl font-black text-[#1e222b] uppercase mt-1">Approvals</h2>
-        <p className="text-[11px] text-slate-600 font-bold uppercase mt-1">Central approval queue placeholder</p>
+    <div className="space-y-5 industrial-font-sans">
+      <header className="sci-page-header sci-page-header--compact">
+        <div>
+          <p className="sci-pos-eyebrow">Operational Review</p>
+          <h1>Approvals</h1>
+          <p>Central queue for price, discount, return, credit note, terminal, cash, stock, delivery, and customer approvals.</p>
+        </div>
+        <div className="sci-page-header__actions">
+          <span className="sci-status-pill sci-status-pill--warning">{pendingCount} Pending</span>
+          <span className="sci-status-pill sci-status-pill--danger">{highRiskCount} High Risk</span>
+        </div>
+      </header>
+
+      {notice && <div className="sci-pos-alert" role="status">{notice}</div>}
+
+      <section className="pos-approval-summary-grid">
+        <div>
+          <span>Pending</span>
+          <strong>{pendingCount}</strong>
+        </div>
+        <div>
+          <span>High Risk</span>
+          <strong>{highRiskCount}</strong>
+        </div>
+        <div>
+          <span>Approved</span>
+          <strong>{approvedCount}</strong>
+        </div>
+        <div>
+          <span>Rejected</span>
+          <strong>{rejectedCount}</strong>
+        </div>
+      </section>
+
+      <section className="sci-pos-card">
+        <div className="sci-pos-card__bar">
+          <div>
+            <p className="sci-pos-eyebrow">Filters</p>
+            <h2>Approval Types</h2>
+          </div>
+          <Filter size={18} aria-hidden="true" />
+        </div>
+        <div className="pos-approval-filter-row">
+          {categories.map((category) => (
+            <button
+              key={category}
+              type="button"
+              className={`pos-shift-tab ${activeCategory === category ? 'pos-shift-tab--active' : ''}`}
+              onClick={() => setActiveCategory(category)}
+            >
+              {category}
+            </button>
+          ))}
+        </div>
+        <div className="pos-approval-filter-row">
+          {statusFilters.map((status) => (
+            <button
+              key={status}
+              type="button"
+              className={`pos-shift-tab ${statusFilter === status ? 'pos-shift-tab--active' : ''}`}
+              onClick={() => setStatusFilter(status)}
+            >
+              {status}
+            </button>
+          ))}
+          {riskFilters.map((risk) => (
+            <button
+              key={risk}
+              type="button"
+              className={`pos-shift-tab ${riskFilter === risk ? 'pos-shift-tab--active' : ''}`}
+              onClick={() => setRiskFilter(risk)}
+            >
+              {risk}
+            </button>
+          ))}
+        </div>
+      </section>
+
+      <div className="pos-approval-layout">
+        <section className="sci-pos-card">
+          <div className="sci-pos-card__bar">
+            <div>
+              <p className="sci-pos-eyebrow">Queue</p>
+              <h2>Approval Requests</h2>
+            </div>
+            <ShieldCheck size={18} aria-hidden="true" />
+          </div>
+          <div className="sci-pos-table-wrap">
+            <table className="sci-pos-table">
+              <thead>
+                <tr>
+                  <th>Approval ID</th>
+                  <th>Type</th>
+                  <th>Requested By</th>
+                  <th>Related Record</th>
+                  <th>Value</th>
+                  <th>Risk</th>
+                  <th>Status</th>
+                  <th>Requested At</th>
+                  <th>Action</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filteredApprovals.map((approval) => (
+                  <tr key={approval.id} className={selectedApproval?.id === approval.id ? 'pos-approval-row--selected' : ''}>
+                    <td className="sci-pos-table__strong">{approval.id}</td>
+                    <td>{approval.category}</td>
+                    <td>{approval.requestedBy}</td>
+                    <td>{approval.relatedRecord}</td>
+                    <td>{approval.amountOrValue}</td>
+                    <td><span className={`sci-status-pill ${riskClass(approval.risk)}`}>{approval.risk}</span></td>
+                    <td><span className={`sci-status-pill ${statusClass(approval.status)}`}>{approval.status}</span></td>
+                    <td>{moneylessDate(approval.requestedAt)}</td>
+                    <td>
+                      <div className="pos-approval-actions">
+                        <ApprovalButton icon={Eye} label="View Context" onClick={() => handleViewContext(approval)} />
+                        <ApprovalButton icon={Check} label="Approve" onClick={() => handleDecision(approval, 'Approved')} disabled={approval.status !== 'Pending'} />
+                        <ApprovalButton icon={X} label="Reject" onClick={() => handleDecision(approval, 'Rejected')} disabled={approval.status !== 'Pending'} />
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+                {filteredApprovals.length === 0 && (
+                  <tr>
+                    <td colSpan={9} className="sci-pos-empty-cell">No approvals match the selected filters.</td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <aside className="sci-pos-card pos-approval-context">
+          <div className="sci-pos-card__bar">
+            <div>
+              <p className="sci-pos-eyebrow">Context</p>
+              <h2>Review Detail</h2>
+            </div>
+          </div>
+          {selectedApproval ? (
+            <div className="pos-approval-detail">
+              <strong>{selectedApproval.category}</strong>
+              <span>{selectedApproval.context}</span>
+              <dl>
+                <div><dt>Approval ID</dt><dd>{selectedApproval.id}</dd></div>
+                <div><dt>Related Record</dt><dd>{selectedApproval.relatedRecord}</dd></div>
+                <div><dt>Requested By</dt><dd>{selectedApproval.requestedBy} ({selectedApproval.requestedByRole})</dd></div>
+                <div><dt>Reason</dt><dd>{selectedApproval.reason}</dd></div>
+                <div><dt>Value</dt><dd>{selectedApproval.amountOrValue}</dd></div>
+                <div><dt>Branch</dt><dd>{selectedApproval.branch}</dd></div>
+              </dl>
+              <label className="pos-approval-note">
+                Decision Note
+                <textarea rows={4} value={decisionNote} onChange={(event) => setDecisionNote(event.target.value)} />
+              </label>
+              <div className="pos-approval-actions">
+                <button type="button" className="sci-pos-button sci-pos-button--primary" onClick={() => handleDecision(selectedApproval, 'Approved')} disabled={selectedApproval.status !== 'Pending'}>
+                  <Check size={16} aria-hidden="true" />
+                  Approve
+                </button>
+                <button type="button" className="sci-pos-button sci-pos-button--danger" onClick={() => handleDecision(selectedApproval, 'Rejected')} disabled={selectedApproval.status !== 'Pending'}>
+                  <X size={16} aria-hidden="true" />
+                  Reject
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div className="sci-pos-empty-cell">Select an approval request to review context.</div>
+          )}
+        </aside>
       </div>
 
-      {notice && <div className="bg-orange-50 border border-orange-300 text-orange-900 px-3 py-2 font-bold uppercase">{notice}</div>}
-
-      <div className="bg-white border border-[#b1b5c2] overflow-x-auto">
-        <table className="w-full min-w-[980px] text-left">
-          <thead className="bg-[#1e222b] text-white">
-            <tr>
-              {['Approval ID', 'Type', 'Requested By', 'Related Record', 'Risk', 'Status', 'Requested At', 'Action'].map((heading) => (
-                <th key={heading} className="px-3 py-2 text-[10px] uppercase font-black">{heading}</th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {approvalRows.map((row) => (
-              <tr key={row[0]} className="border-t border-[#d6d9e0] text-[11px] text-slate-700">
-                {row.map((value) => <td key={value} className="px-3 py-2 font-bold">{value}</td>)}
-                <td className="px-3 py-2">
-                  <div className="flex flex-wrap gap-1.5">
-                    <ApprovalButton icon={Check} label="Approve Placeholder" onClick={() => handleAction('approvals.approve', 'Approve')} />
-                    <ApprovalButton icon={X} label="Reject Placeholder" onClick={() => handleAction('approvals.reject', 'Reject')} />
-                    <ApprovalButton icon={Eye} label="View Context Placeholder" onClick={() => handleAction('approvals.view', 'View Context')} />
-                  </div>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+      <section className="sci-pos-card">
+        <div className="sci-pos-card__bar">
+          <div>
+            <p className="sci-pos-eyebrow">Audit</p>
+            <h2>Approval Activity</h2>
+          </div>
+        </div>
+        <div className="pos-audit-feed">
+          {events.map((event) => (
+            <div key={event.id}>
+              <strong>{event.eventType.replace(/_/g, ' ')}</strong>
+              <span>{event.message}</span>
+              <small>{moneylessDate(event.createdAt)}</small>
+            </div>
+          ))}
+          {events.length === 0 && <div className="sci-pos-empty-cell">No approval activity recorded.</div>}
+        </div>
+      </section>
     </div>
   );
 }
 
-function ApprovalButton({ icon: Icon, label, onClick }: { icon: typeof Eye; label: string; onClick: () => void }) {
+function ApprovalButton({
+  icon: Icon,
+  label,
+  onClick,
+  disabled = false
+}: {
+  icon: typeof Eye;
+  label: string;
+  onClick: () => void;
+  disabled?: boolean;
+}) {
   return (
-    <button type="button" onClick={onClick} className="border border-[#b1b5c2] bg-white hover:bg-orange-50 px-2 py-1 text-[9px] font-black uppercase flex items-center gap-1">
-      <Icon className="w-3 h-3 text-orange-600" />
+    <button type="button" onClick={onClick} disabled={disabled} className="sci-pos-button sci-pos-button--secondary">
+      <Icon size={15} aria-hidden="true" />
       {label}
     </button>
   );

@@ -15,6 +15,7 @@ import PosOwnerDesk from './pages/PosOwnerDesk';
 import PosSalesHistory from './pages/PosSalesHistory';
 import PosTaskDesk from './pages/PosTaskDesk';
 import PosApprovals from './pages/PosApprovals';
+import PosCustomerDesk from './pages/PosCustomerDesk';
 import { 
   Product, 
   Transaction, 
@@ -181,7 +182,7 @@ export default function PosPrototypeApp() {
 
   const [rolePermissions, setRolePermissions] = useState<Record<string, PosPageId[]>>(() => {
     let parsed = readStoredValue<Record<string, PosPageId[]> | null>('itred_pos_role_permissions', null);
-    const validPageIds: PosPageId[] = ['DASHBOARD', 'OWNER_DESK', 'SALES', 'SALES_HISTORY', 'DELIVERY', 'STOCK', 'TASK_DESK', 'APPROVALS', 'SHIFT', 'CASH', 'BI_DESK', 'SYNC_DESK', 'SETTINGS'];
+    const validPageIds: PosPageId[] = ['DASHBOARD', 'OWNER_DESK', 'SALES', 'SALES_HISTORY', 'CUSTOMER_CENTRE', 'DELIVERY', 'STOCK', 'TASK_DESK', 'APPROVALS', 'SHIFT', 'CASH', 'BI_DESK', 'SYNC_DESK', 'SETTINGS'];
     const hasInvalidPage = Object.values(parsed || {}).some((pages) =>
       Array.isArray(pages) && pages.some((page) => !validPageIds.includes(page as PosPageId))
     );
@@ -191,6 +192,7 @@ export default function PosPrototypeApp() {
       !parsed['Cashier'].includes('DELIVERY') ||
       !parsed['Owner']?.includes('OWNER_DESK') ||
       !parsed['Owner']?.includes('SALES_HISTORY') ||
+      !parsed['Owner']?.includes('CUSTOMER_CENTRE') ||
       !parsed['Owner']?.includes('TASK_DESK') ||
       !parsed['Owner']?.includes('APPROVALS') ||
       hasInvalidPage
@@ -813,6 +815,10 @@ export default function PosPrototypeApp() {
 
       {activePage === 'SALES_HISTORY' && (
         <PosSalesHistory session={activeSession} />
+      )}
+
+      {activePage === 'CUSTOMER_CENTRE' && (
+        <PosCustomerDesk session={activeSession} onNavigate={(page) => setActivePage(page as PosPageId)} />
       )}
 
       {activePage === 'DELIVERY' && (

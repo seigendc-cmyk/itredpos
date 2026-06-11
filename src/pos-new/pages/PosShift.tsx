@@ -1,26 +1,46 @@
-import React, { useState, FormEvent, useMemo } from 'react';
-import { 
-  Lock, 
-  Unlock, 
-  Activity, 
-  Plus, 
-  CheckCircle, 
-  AlertTriangle, 
-  Clock, 
-  User, 
-  Terminal as TerminalIcon, 
-  TrendingUp, 
-  ArrowRight,
-  ShieldAlert,
-  Sliders,
+import { FormEvent, useEffect, useMemo, useState } from 'react';
+import {
+  Activity,
+  AlertTriangle,
+  CheckCircle,
   DollarSign,
-  Briefcase,
-  HelpCircle,
-  FileSpreadsheet,
-  AlertCircle
+  Lock,
+  ShieldCheck,
+  Terminal as TerminalIcon,
+  Unlock,
+  Wallet
 } from 'lucide-react';
-import { Shift, Transaction, CashLog, BiEvent, PosSession, Role } from '../types';
-import { mockShift } from '../mock/mockPosData';
+import {
+  BiEvent,
+  CashDrawerAssignment,
+  CashLog,
+  PosSession,
+  Role,
+  Shift,
+  ShiftSessionControl,
+  TerminalActivationRequest,
+  TerminalControlEvent,
+  TerminalLifecycleRecord,
+  Transaction
+} from '../types';
+import {
+  approveTerminalActivation,
+  assignCashDrawer,
+  closeShift,
+  deactivateTerminal,
+  forceCloseShift,
+  getCashDrawerAssignments,
+  getShiftSessionControl,
+  getTerminalActivationRequests,
+  getTerminalControlEvents,
+  getTerminalLifecycle,
+  lockTerminal,
+  openShift,
+  requestTerminalActivation,
+  requestTerminalReactivation,
+  runTerminalControlCheck,
+  unassignCashDrawer
+} from '../services/terminalControlService';
 import { canPerformAction } from '../utils/posPermissions';
 
 interface PosShiftProps {
@@ -43,610 +63,516 @@ interface PosShiftProps {
   session?: PosSession | null;
 }
 
-interface MockShiftEvent {
-  id: string;
-  time: string;
-  type: 'SHIFT_OPENED' | 'CASH_SALE_RECORDED' | 'NON_CASH_PAYMENT_RECORDED' | 'CASH_VARIANCE_FOUND' | 'SHIFT_CLOSED';
-  severity: 'Low' | 'Medium' | 'High';
-  message: string;
+type ShiftTab =
+  | 'Shift Status'
+  | 'Open Shift'
+  | 'Close Shift'
+  | 'Terminal Activation'
+  | 'Cash Drawer Assignment'
+  | 'Shift Activity';
+
+const VENDOR_ID = 'SCI-LOG-ZW';
+const permissionBlockedMessage = 'You do not have permission to perform this action.';
+const tabs: ShiftTab[] = [
+  'Shift Status',
+  'Open Shift',
+  'Close Shift',
+  'Terminal Activation',
+  'Cash Drawer Assignment',
+  'Shift Activity'
+];
+
+function branchIdFromName(branchName: string): string {
+  return branchName.toLowerCase().includes('bulawayo') ? 'BR-BYO' : 'BR-HARARE';
+}
+
+function money(value: number): string {
+  return `USD ${value.toFixed(2)}`;
+}
+
+function staffIdFromName(staffName: string): string {
+  return staffName.trim().toUpperCase().replace(/[^A-Z0-9]+/g, '-').replace(/^-|-$/g, '') || 'STAFF-LOCAL';
+}
+
+function eventTitle(value: string): string {
+  const titles: Record<string, string> = {
+    ACTIVATE_TERMINAL: 'Terminal Activated',
+    DEACTIVATE_TERMINAL: 'Terminal Deactivated',
+    LOCK_TERMINAL: 'Terminal Locked',
+    REQUEST_REACTIVATION: 'Reactivation Requested',
+    OPEN_SHIFT: 'Shift Opened',
+    CLOSE_SHIFT: 'Shift Closed',
+    FORCE_CLOSE_SHIFT: 'Shift Force Closed',
+    ASSIGN_CASH_DRAWER: 'Cash Drawer Assigned',
+    UNASSIGN_CASH_DRAWER: 'Cash Drawer Unassigned',
+    SALE_BLOCKED_SHIFT_OR_TERMINAL: 'Sale Blocked: Terminal or Shift'
+  };
+  return titles[value] || value.toLowerCase().split('_').map((word) => word.charAt(0).toUpperCase() + word.slice(1)).join(' ');
 }
 
 export default function PosShift({
-  activeShift: parentActiveShift,
-  shiftHistory: parentShiftHistory,
-  transactions: parentTransactions,
+  activeShift,
+  shiftHistory,
+  transactions,
   onOpenShift,
   onCloseShift,
   terminalId: parentTerminalId,
-  activeOperator: parentActiveOperator,
+  activeOperator,
   biEvents,
   onLogBiEvent,
   cashLogs,
   session
 }: PosShiftProps) {
-
-  // Active Session extraction with fallbacks to guarantee robust SCI profile parameters
-  const vendorName = session?.vendor || 'SCI Logistics Ltd';
   const branchName = session?.branch || 'Harare Main';
-  const terminalName = session?.terminal || parentTerminalId || 'Term-A';
-  const staffName = session?.staffName || parentActiveOperator || 'Mary Cashier';
+  const branchId = branchIdFromName(branchName);
+  const terminalId = session?.terminal || parentTerminalId || 'POS-01';
+  const terminalName = terminalId;
+  const staffName = session?.staffName || activeOperator || 'Mary Cashier';
+  const staffId = staffIdFromName(staffName);
+  const roleName = (session?.role || 'Owner') as Role;
 
-  // --- LOCAL INTERACTIVE SHIFT STATE ---
-  // We use interactive local state to make the prototype feel fully working and robust
-  const [shiftIsOpen, setShiftIsOpen] = useState(mockShift.status === 'ACTIVE');
-  const [currentCashier, setCurrentCashier] = useState(mockShift.operator || staffName);
-  const [openFloat, setOpenFloat] = useState<number>(mockShift.startingCash);
-  const [supervisorNote, setSupervisorNote] = useState('Standard Harare Main Morning Dispatch Allocation');
+  const [activeTab, setActiveTab] = useState<ShiftTab>('Shift Status');
+  const [terminal, setTerminal] = useState<TerminalLifecycleRecord | null>(null);
+  const [shift, setShift] = useState<ShiftSessionControl | null>(null);
+  const [activationRequests, setActivationRequests] = useState<TerminalActivationRequest[]>([]);
+  const [drawerAssignments, setDrawerAssignments] = useState<CashDrawerAssignment[]>([]);
+  const [controlEvents, setControlEvents] = useState<TerminalControlEvent[]>([]);
+  const [statusMessage, setStatusMessage] = useState('');
+  const [openingFloat, setOpeningFloat] = useState('120.00');
+  const [openNote, setOpenNote] = useState('Opening float counted and shift ready.');
+  const [declaredCash, setDeclaredCash] = useState('120.00');
+  const [activationTerminalId, setActivationTerminalId] = useState('POS-03');
+  const [activationReason, setActivationReason] = useState('Terminal activation requested from Shift Control.');
+  const [drawerId, setDrawerId] = useState('DRAWER-POS-01-A');
+  const [drawerFloat, setDrawerFloat] = useState('120.00');
+  const [drawerNotes, setDrawerNotes] = useState('Drawer counted and assigned for cash sales.');
 
-  // Sales aggregates
-  const [cashSales, setCashSales] = useState<number>(710.00);
-  const [nonCashSales, setNonCashSales] = useState<number>(535.00);
-  const totalSalesCount = cashSales + nonCashSales; // USD 1,245.00
-
-  // Expected Cash calculation
-  const expectedCash = openFloat + cashSales; // USD 760.00
-
-  // Close shift inputs
-  const [declaredCashInput, setDeclaredCashInput] = useState<string>('');
-  const [cardEcoCashTotalInput, setCardEcoCashTotalInput] = useState<string>('535.00');
-  const [cashRemovedInput, setCashRemovedInput] = useState<string>('710.00');
-  const [closingNote, setClosingNote] = useState('Completed standard cashier shift reconciliation.');
-
-  // Shift calculation outputs (on close)
-  const [closeCalculated, setCloseCalculated] = useState(false);
-  const [declaredCash, setDeclaredCash] = useState<number | 'Pending'>('Pending');
-  const [variance, setVariance] = useState<number | 'Pending'>('Pending');
-  const [varianceStatus, setVarianceStatus] = useState<'Pending' | 'Balanced' | 'Short' | 'Over'>('Pending');
-
-  // Shift Activity Feed
-  const [shiftActivityEvents, setShiftActivityEvents] = useState<MockShiftEvent[]>([
-    {
-      id: 'SE-1',
-      time: '08:00:15',
-      type: 'SHIFT_OPENED',
-      severity: 'Low',
-      message: `Shift opened by ${staffName}`
-    },
-    {
-      id: 'SE-2',
-      time: '10:15:22',
-      type: 'CASH_SALE_RECORDED',
-      severity: 'Low',
-      message: 'Cash sale added to expected drawer cash (Engine Oil 5W30 5L)'
-    },
-    {
-      id: 'SE-3',
-      time: '12:45:10',
-      type: 'NON_CASH_PAYMENT_RECORDED',
-      severity: 'Low',
-      message: 'EcoCash payment recorded (Ball Joint Honda Fit GD1)'
-    },
-    {
-      id: 'SE-4',
-      time: '14:30:05',
-      type: 'CASH_SALE_RECORDED',
-      severity: 'Low',
-      message: 'Cash sale added to expected drawer cash (Head Lamp FJ200)'
-    }
-  ]);
-
-  // Handle open shift submit
-  const handleOpenShiftLocal = (e: FormEvent) => {
-    e.preventDefault();
-    if (shiftIsOpen) return;
-
-    setShiftIsOpen(true);
-    setDeclaredCash('Pending');
-    setVariance('Pending');
-    setVarianceStatus('Pending');
-    setCloseCalculated(false);
-    setDeclaredCashInput('');
-
-    // Trigger parent callback
-    onOpenShift(currentCashier, openFloat);
-
-    // Activity Log
-    const timeStr = new Date().toTimeString().split(' ')[0];
-    const newEv: MockShiftEvent = {
-      id: 'SE-' + (shiftActivityEvents.length + 1),
-      time: timeStr,
-      type: 'SHIFT_OPENED',
-      severity: 'Low',
-      message: `Shift opened by ${currentCashier} with float USD ${openFloat.toFixed(2)}`
-    };
-    setShiftActivityEvents(prev => [newEv, ...prev]);
+  const loadControlData = async () => {
+    const [terminalRecord, shiftRecord, requests, events, drawers] = await Promise.all([
+      getTerminalLifecycle(VENDOR_ID, branchId, terminalId),
+      getShiftSessionControl(VENDOR_ID, branchId, terminalId, staffId),
+      getTerminalActivationRequests(VENDOR_ID, branchId),
+      getTerminalControlEvents(VENDOR_ID, branchId),
+      getCashDrawerAssignments(VENDOR_ID, branchId, terminalId)
+    ]);
+    await runTerminalControlCheck({
+      vendorId: VENDOR_ID,
+      branchId,
+      terminalId,
+      terminalName,
+      staffId,
+      staffName,
+      role: roleName,
+      requiresCashDrawer: true
+    });
+    setTerminal(terminalRecord);
+    setShift(shiftRecord);
+    setActivationRequests(requests);
+    setControlEvents(events);
+    setDrawerAssignments(drawers);
   };
 
-  // Handle Close Shift submit
-  const handleCloseShiftLocal = (e: FormEvent) => {
-    e.preventDefault();
-    if (!shiftIsOpen) return;
+  useEffect(() => {
+    void loadControlData();
+  }, [branchId, terminalId, roleName, staffId]);
 
-    const currentRole = session?.role || 'Owner';
-    if (!canPerformAction(currentRole as Role, 'CLOSE_SHIFT')) {
-      alert(`[PERMISSION DENIED] ROLE '${currentRole.toUpperCase()}' IS NOT AUTHORIZED TO PERFORMACTION: CLOSE_SHIFT`);
-      return;
-    }
+  const currentDrawer = drawerAssignments.find((assignment) => assignment.status === 'Assigned') || null;
+  const cashSalesTotal = useMemo(() => transactions
+    .filter((transaction) => transaction.paymentMethod === 'CASH' || transaction.paymentMethod === 'Cash')
+    .reduce((sum, transaction) => sum + transaction.total, 0), [transactions]);
+  const expectedCash = (shift?.openingFloat || Number(openingFloat) || 0) + cashSalesTotal;
+  const saleAllowed = terminal?.status === 'Active' && shift?.status === 'Open';
 
-    const decCashVal = parseFloat(declaredCashInput);
-    if (isNaN(decCashVal) || decCashVal < 0) {
-      alert('[RECONCILIATION ERROR] Declared Cash input must be a valid positive number.');
-      return;
-    }
+  const requirePermission = (permission: Parameters<typeof canPerformAction>[1]): boolean => {
+    if (canPerformAction(roleName, permission)) return true;
+    setStatusMessage(permissionBlockedMessage);
+    return false;
+  };
 
-    const calculatedVariance = decCashVal - expectedCash;
-    setDeclaredCash(decCashVal);
-    setVariance(calculatedVariance);
-
-    let status: typeof varianceStatus = 'Balanced';
-    if (calculatedVariance < 0) {
-      status = 'Short';
-    } else if (calculatedVariance > 0) {
-      status = 'Over';
-    }
-
-    setVarianceStatus(status);
-    setCloseCalculated(true);
-    setShiftIsOpen(false);
-
-    // Invoke parent callback
-    onCloseShift(decCashVal);
-
-    const timeStr = new Date().toTimeString().split(' ')[0];
-    const newEvents: MockShiftEvent[] = [];
-
-    if (calculatedVariance !== 0) {
-      newEvents.push({
-        id: `SE-V-${Date.now()}`,
-        time: timeStr,
-        type: 'CASH_VARIANCE_FOUND',
-        severity: 'High',
-        message: `Cash variance found: USD ${calculatedVariance.toFixed(2)} requires supervisor review.`
-      });
-    }
-
-    newEvents.push({
-      id: `SE-C-${Date.now()}`,
-      time: timeStr,
-      type: 'SHIFT_CLOSED',
-      severity: 'Medium',
-      message: `Shift closed pending reconciliation. Declared: USD ${decCashVal.toFixed(2)}`
-    });
-
-    setShiftActivityEvents(prev => [...newEvents, ...prev]);
-
-    // Track dynamic system telemetry via parent logging
-    onLogBiEvent(
-      'SHIFT_CLOSED',
-      currentCashier,
+  const handleOpenShift = async (event: FormEvent) => {
+    event.preventDefault();
+    if (!requirePermission('shift.open')) return;
+    const amount = Math.max(0, Number(openingFloat) || 0);
+    await openShift({
+      vendorId: VENDOR_ID,
+      branchId,
+      terminalId,
       terminalName,
-      {
-        expectedCash,
-        actualCash: decCashVal,
-        difference: calculatedVariance,
-        note: closingNote
-      },
-      calculatedVariance !== 0 ? 'WARNING' : 'INFO'
-    );
+      staffId,
+      staffName,
+      openingFloat: amount,
+      notes: openNote
+    });
+    onOpenShift(staffName, amount);
+    onLogBiEvent('SHIFT_OPENED', staffName, terminalId, { floatAmount: amount, details: openNote }, 'INFO');
+    setStatusMessage('Shift opened.');
+    await loadControlData();
+  };
+
+  const handleCloseShift = async (event: FormEvent) => {
+    event.preventDefault();
+    if (!requirePermission('shift.close')) return;
+    if (!shift || shift.status !== 'Open') {
+      setStatusMessage('Shift is not open.');
+      return;
+    }
+    const amount = Math.max(0, Number(declaredCash) || 0);
+    const closed = await closeShift(shift.id, amount, staffName);
+    if (closed) {
+      onCloseShift(amount);
+      onLogBiEvent('SHIFT_CLOSED', staffName, terminalId, { actualCash: amount, expectedCash: closed.expectedCash, difference: closed.variance }, 'INFO');
+      setStatusMessage('Shift closed.');
+    }
+    await loadControlData();
+  };
+
+  const handleForceClose = async () => {
+    if (!requirePermission('shift.forceClose')) return;
+    if (!shift) return;
+    await forceCloseShift(shift.id, staffName);
+    setStatusMessage('Shift force closed.');
+    await loadControlData();
+  };
+
+  const handleRequestActivation = async (event: FormEvent) => {
+    event.preventDefault();
+    await requestTerminalActivation({
+      vendorId: VENDOR_ID,
+      branchId,
+      terminalId: activationTerminalId,
+      terminalName: activationTerminalId,
+      requestedBy: staffName,
+      reason: activationReason
+    });
+    setStatusMessage('Terminal activation requested.');
+    await loadControlData();
+  };
+
+  const handleApproveActivation = async (requestId: string) => {
+    if (!requirePermission('terminal.activate')) return;
+    await approveTerminalActivation(requestId, staffName);
+    setStatusMessage('Terminal activation approved.');
+    await loadControlData();
+  };
+
+  const handleLockTerminal = async () => {
+    if (!requirePermission('terminal.deactivate')) return;
+    await lockTerminal({ vendorId: VENDOR_ID, branchId, terminalId, staffName });
+    setStatusMessage('Terminal is locked pending review.');
+    await loadControlData();
+  };
+
+  const handleDeactivateTerminal = async () => {
+    if (!requirePermission('terminal.deactivate')) return;
+    await deactivateTerminal({ vendorId: VENDOR_ID, branchId, terminalId, staffName });
+    setStatusMessage('Terminal deactivated.');
+    await loadControlData();
+  };
+
+  const handleRequestReactivation = async () => {
+    await requestTerminalReactivation({ vendorId: VENDOR_ID, branchId, terminalId, terminalName, staffName });
+    setStatusMessage('Terminal reactivation requested.');
+    await loadControlData();
+  };
+
+  const handleAssignDrawer = async (event: FormEvent) => {
+    event.preventDefault();
+    if (!requirePermission('hardware.configure')) return;
+    await assignCashDrawer({
+      vendorId: VENDOR_ID,
+      branchId,
+      terminalId,
+      terminalName,
+      drawerId,
+      staffId,
+      staffName,
+      openingFloat: Math.max(0, Number(drawerFloat) || 0),
+      notes: drawerNotes
+    });
+    setStatusMessage('Cash drawer assigned.');
+    await loadControlData();
+  };
+
+  const handleUnassignDrawer = async (assignmentId: string) => {
+    if (!requirePermission('hardware.configure')) return;
+    await unassignCashDrawer(assignmentId, staffName);
+    setStatusMessage('Cash drawer unassigned.');
+    await loadControlData();
   };
 
   return (
-    <div className="space-y-6 font-mono text-xs text-[#111827] select-none pb-12">
-      
-      {/* 1. PAGE HEADER */}
-      <div className="bg-white border-2 border-[#b1b5c2] p-5 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+    <div className="space-y-6">
+      <header className="sci-page-header sci-page-header--compact">
         <div>
-          <div className="text-[9px] font-black text-orange-600 uppercase tracking-widest">SCI LOGISTICS & TRADING</div>
-          <h1 className="text-sm font-black text-[#1e222b] uppercase flex items-center gap-2 mt-1">
-            <Sliders className="w-5 h-5 text-orange-500" />
-            SHIFT CONTROL REGISTRY CHAMBER
-          </h1>
-          
-          <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 mt-2 text-[10px] text-slate-500">
-            <span className="flex items-center gap-1">
-              <strong>Corporate Vendor:</strong> <span className="text-[#13151a] font-bold">{vendorName}</span>
-            </span>
-            <span className="flex items-center gap-1">
-              <strong>Branch:</strong> <span className="bg-slate-100 text-[#13151a] font-bold px-1.5 py-0.2">{branchName}</span>
-            </span>
-            <span className="flex items-center gap-1">
-              <strong>Terminal:</strong> <span className="text-[#13151a] font-bold">{terminalName}</span>
-            </span>
-            <span className="flex items-center gap-1">
-              <strong>Active staff:</strong> <span className="text-orange-600 font-bold">{currentCashier}</span>
-            </span>
-          </div>
+          <p className="sci-pos-eyebrow">Terminal and Shift Control</p>
+          <h1>Shift Control</h1>
+          <p>Local terminal activation, shift status, cash drawer assignment, and sale readiness checks.</p>
         </div>
+        <div className="sci-page-header__actions">
+          <span className={`sci-status-pill ${saleAllowed ? 'sci-status-pill--success' : 'sci-status-pill--danger'}`}>
+            Sales {saleAllowed ? 'Allowed' : 'Blocked'}
+          </span>
+        </div>
+      </header>
 
-        {/* Current status tag */}
-        <div className={`flex items-center gap-2 px-4 py-2 border border-[#b1b5c2] ${
-          shiftIsOpen 
-            ? 'bg-orange-500/10 border-l-4 border-l-orange-500' 
-            : 'bg-slate-100 border-l-4 border-l-slate-500'
-        }`}>
-          <Clock className={`w-4 h-4 ${shiftIsOpen ? 'text-orange-600 animate-pulse' : 'text-slate-500'}`} />
-          <div>
-            <span className="text-[8px] text-slate-500 font-bold block uppercase tracking-wider">Current Shift Status</span>
-            <span className="text-[10px] font-black text-[#1e222b] uppercase">
-              {shiftIsOpen ? 'Open' : 'Closed / Reconciled'}
-            </span>
-          </div>
-        </div>
+      {statusMessage && <div className="sci-pos-alert" role="status">{statusMessage}</div>}
+
+      <div className="pos-shift-tabs" role="tablist" aria-label="Shift control sections">
+        {tabs.map((tab) => (
+          <button
+            key={tab}
+            type="button"
+            className={`pos-shift-tab ${activeTab === tab ? 'pos-shift-tab--active' : ''}`}
+            onClick={() => setActiveTab(tab)}
+          >
+            {tab}
+          </button>
+        ))}
       </div>
 
-      {/* 2. SHIFT SUMMARY PANELS */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-8 gap-4">
-        
-        {/* Panel 1 */}
-        <div className={`bg-white border border-[#b1b5c2] p-4 flex flex-col justify-between h-[96px] ${shiftIsOpen ? 'border-l-4 border-l-orange-505' : 'border-l-4 border-l-slate-400'}`}>
-          <span className="text-[9px] text-slate-500 font-black uppercase tracking-wider block">SHIFT STATUS</span>
-          <div className="mt-2 flex justify-between items-baseline">
-            <span className={`text-lg font-black uppercase ${shiftIsOpen ? 'text-orange-600' : 'text-slate-500'}`}>
-              {shiftIsOpen ? 'OPEN' : 'CLOSED'}
-            </span>
-            <span className="text-[8px] bg-slate-100 text-[#1c1f26] font-bold px-1.5 py-0.2">GATE</span>
-          </div>
-        </div>
-
-        {/* Panel 2 */}
-        <div className="bg-white border border-[#b1b5c2] p-4 flex flex-col justify-between h-[96px]">
-          <span className="text-[9px] text-slate-500 font-black uppercase tracking-wider block">OPENING FLOAT</span>
-          <div className="mt-2 flex justify-between items-baseline">
-            <span className="text-base font-black text-slate-800">USD {openFloat.toFixed(2)}</span>
-            <span className="text-[8px] text-slate-400 uppercase font-mono">FLOAT</span>
-          </div>
-        </div>
-
-        {/* Panel 3 */}
-        <div className="bg-white border border-[#b1b5c2] p-4 flex flex-col justify-between h-[96px] border-l-4 border-l-emerald-650">
-          <span className="text-[9px] text-emerald-600 font-black uppercase tracking-wider block">CASH SALES</span>
-          <div className="mt-2 flex justify-between items-baseline">
-            <span className="text-base font-black text-emerald-600">USD {cashSales.toFixed(2)}</span>
-            <span className="text-[8px] bg-emerald-50 text-emerald-700 px-1 py-0.2 font-bold">LIVE</span>
-          </div>
-        </div>
-
-        {/* Panel 4 */}
-        <div className="bg-white border border-[#b1b5c2] p-4 flex flex-col justify-between h-[96px]">
-          <span className="text-[9px] text-slate-500 font-black uppercase tracking-wider block">NON-CASH SALES</span>
-          <div className="mt-2 flex justify-between items-baseline">
-            <span className="text-base font-black text-slate-800 font-mono">USD {nonCashSales.toFixed(2)}</span>
-            <span className="text-[8px] text-slate-400 font-bold uppercase">ECOCASH</span>
-          </div>
-        </div>
-
-        {/* Panel 5 */}
-        <div className="bg-white border border-[#b1b5c2] p-4 flex flex-col justify-between h-[96px]">
-          <span className="text-[9px] text-slate-500 font-black uppercase tracking-wider block">TOTAL SALES</span>
-          <div className="mt-2 flex justify-between items-baseline">
-            <span className="text-base font-black text-[#1c1f26]">USD {totalSalesCount.toFixed(2)}</span>
-            <span className="text-[8px] text-slate-400 font-bold uppercase">GROSS</span>
-          </div>
-        </div>
-
-        {/* Panel 6 */}
-        <div className="bg-white border border-[#b1b5c2] p-4 flex flex-col justify-between h-[96px] border-l-4 border-l-orange-500">
-          <span className="text-[9px] text-orange-600 font-black uppercase tracking-wider block">EXPECTED CASH</span>
-          <div className="mt-2 flex justify-between items-baseline">
-            <span className="text-base font-black text-orange-600">USD {expectedCash.toFixed(2)}</span>
-            <span className="text-[8px] text-slate-400 font-bold uppercase">DRAWER</span>
-          </div>
-        </div>
-
-        {/* Panel 7 */}
-        <div className="bg-white border border-[#b1b5c2] p-4 flex flex-col justify-between h-[96px]">
-          <span className="text-[9px] text-slate-500 font-black uppercase tracking-wider block">DECLARED CASH</span>
-          <div className="mt-2 flex justify-between items-baseline">
-            <span className="text-base font-black text-slate-800">
-              {declaredCash === 'Pending' ? 'PENDING' : `USD ${declaredCash.toFixed(2)}`}
-            </span>
-            <span className="text-[8px] text-slate-400 font-bold uppercase">COUNTED</span>
-          </div>
-        </div>
-
-        {/* Panel 8 */}
-        <div className={`bg-white border border-[#b1b5c2] p-4 flex flex-col justify-between h-[96px] ${
-          varianceStatus === 'Balanced' ? 'border-l-4 border-l-emerald-500 bg-emerald-50/10' :
-          varianceStatus === 'Short' ? 'border-l-4 border-l-red-500 bg-red-50/10' :
-          varianceStatus === 'Over' ? 'border-l-4 border-l-yellow-500 bg-yellow-50/10' : ''
-        }`}>
-          <span className="text-[9px] text-slate-500 font-black uppercase tracking-wider block">VARIANCE</span>
-          <div className="mt-2 flex justify-between items-baseline">
-            <span className={`text-base font-black ${
-              varianceStatus === 'Balanced' ? 'text-emerald-600' :
-              varianceStatus === 'Short' ? 'text-red-500 animate-pulse' :
-              varianceStatus === 'Over' ? 'text-amber-600' : 'text-slate-400'
-            }`}>
-              {variance === 'Pending' ? 'PENDING' : 
-               variance === 0 ? 'USD 0.00' : 
-               variance < 0 ? `-USD ${Math.abs(variance).toFixed(2)}` : 
-               `+USD ${variance.toFixed(2)}`}
-            </span>
-            <span className="text-[8px] text-slate-400 font-bold uppercase">{varianceStatus}</span>
-          </div>
-        </div>
-
-      </div>
-
-      {/* 3. SHIFT GATE FORMS SPLIT LAYOUT */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-        
-        {/* Shift Control actions column */}
-        <div className="lg:col-span-8 grid grid-cols-1 md:grid-cols-2 gap-6">
-          
-          {/* A. OPEN SHIFT FORM PANEL */}
-          <div className="bg-white border border-[#b1b5c2] p-5 space-y-4">
-            <div className="bg-[#1e222b] p-3 -mx-5 -mt-5 text-white flex items-center justify-between border-b-2 border-slate-900">
-              <span className="font-extrabold text-[10px] uppercase tracking-wider flex items-center gap-2">
-                <Unlock className="w-4 h-4 text-orange-500" />
-                Shift Initialization Form
-              </span>
-              <span className="text-[8px] bg-orange-605/20 border border-orange-500 text-orange-500 px-1.5 py-0.2 font-mono">OP: ACTIVE</span>
+      {activeTab === 'Shift Status' && (
+        <section className="sci-pos-card">
+          <div className="sci-pos-card__bar">
+            <div>
+              <p className="sci-pos-eyebrow">Current Session</p>
+              <h2>Shift Status</h2>
             </div>
-
-            {shiftIsOpen ? (
-              <div className="py-8 text-center text-slate-400 font-bold space-y-3 bg-slate-50/50 border border-dashed border-slate-200">
-                <Lock className="w-8 h-8 text-orange-500 mx-auto" />
-                <div className="uppercase text-[11px] tracking-wide">SHIFT IS ALREADY OPEN</div>
-                <p className="text-[9px] font-medium text-slate-405 lowercase max-w-xs mx-auto">
-                  A cashier shift session is currently active on terminal <span className="font-bold text-slate-700">{terminalName}</span>. Please reconcile and close the current shift before executing initialization sequences.
-                </p>
-                <div className="text-[10px] border border-slate-205 py-1 px-2.5 inline-block text-slate-700 bg-white font-black uppercase">
-                  Staff Op: {currentCashier}
-                </div>
-              </div>
-            ) : (
-              <form onSubmit={handleOpenShiftLocal} className="space-y-4">
-                <div className="space-y-3">
-                  
-                  {/* Cashier name input */}
-                  <div className="space-y-1">
-                    <label className="text-[9px] uppercase font-black text-slate-500">Signatory Cashier / Operator</label>
-                    <input
-                      type="text"
-                      className="w-full bg-white text-[#1e222b] border border-[#b1b5c2] focus:border-orange-500 px-2.5 py-2 text-[10.5px] rounded-none font-bold uppercase"
-                      value={currentCashier}
-                      onChange={e => setCurrentCashier(e.target.value)}
-                      required
-                    />
-                  </div>
-
-                  {/* Branch & Terminal info layout */}
-                  <div className="grid grid-cols-2 gap-3 pb-1">
-                    <div className="space-y-1">
-                      <label className="text-[9px] uppercase font-black text-slate-500">Dispatch Location</label>
-                      <div className="w-full bg-slate-100 text-[#1e222b] border border-[#b1b5c2] px-2.5 py-2 text-[10.5px] font-bold uppercase">
-                        {branchName}
-                      </div>
-                    </div>
-                    <div className="space-y-1">
-                      <label className="text-[9px] uppercase font-black text-slate-500">Target Terminal ID</label>
-                      <div className="w-full bg-slate-100 text-[#1e222b] border border-[#b1b5c2] px-2.5 py-2 text-[10.5px] font-bold uppercase">
-                        {terminalName}
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Float level input */}
-                  <div className="space-y-1">
-                    <label className="text-[9px] uppercase font-black text-slate-500">Starting Coinage Float (USD)</label>
-                    <div className="relative">
-                      <span className="absolute left-2.5 top-2 py-0.5 text-slate-400 font-extrabold">USD</span>
-                      <input
-                        type="number"
-                        className="w-full bg-white text-[#1e222b] border border-[#b1b5c2] focus:border-orange-500 pl-10 pr-2.5 py-2 text-[11px] rounded-none font-bold cursor-pointer"
-                        value={openFloat}
-                        onChange={e => setOpenFloat(parseFloat(e.target.value) || 0)}
-                        required
-                        min="0"
-                        step="0.01"
-                      />
-                    </div>
-                    <p className="text-[8.5px] text-slate-400">Specifies exact count of physical reserves placed in register.</p>
-                  </div>
-
-                  {/* Supervisor notes textarea */}
-                  <div className="space-y-1">
-                    <label className="text-[9px] uppercase font-black text-slate-500">Supervisor Note & Allocation Hash</label>
-                    <textarea
-                      rows={2}
-                      className="w-full bg-white text-[#1e222b] border border-[#b1b5c2] focus:border-orange-500 p-2 text-[10.5px] rounded-none font-sans uppercase resize-none"
-                      value={supervisorNote}
-                      onChange={e => setSupervisorNote(e.target.value)}
-                    />
-                  </div>
-
-                </div>
-
-                <button
-                  type="submit"
-                  className="w-full py-3 bg-[#f97316] hover:bg-[#ea580c] text-white font-black uppercase text-[10.5px] rounded-none flex items-center justify-center gap-1.5 border border-orange-600 transition-colors cursor-pointer mt-2"
-                >
-                  <Unlock className="w-3.5 h-3.5 stroke-[2.5]" />
-                  Open Cashier Shift
-                </button>
-              </form>
-            )}
-
+            <ShieldCheck size={18} aria-hidden="true" />
           </div>
-
-          {/* B. CLOSE SHIFT & RECONCILIATION PANEL */}
-          <div className="bg-white border border-[#b1b5c2] p-5 space-y-4">
-            <div className="bg-[#1e222b] p-3 -mx-5 -mt-5 text-white flex items-center justify-between border-b-2 border-slate-900">
-              <span className="font-extrabold text-[10px] uppercase tracking-wider flex items-center gap-2">
-                <Lock className="w-4 h-4 text-orange-500" />
-                Shift Reconciliation & Closure
-              </span>
-              <span className="text-[8px] bg-red-650/25 border border-red-500 text-red-500 px-1.5 py-0.2 font-mono">FINAL AUDIT</span>
+          <div className="pos-control-summary-grid">
+            <div>
+              <TerminalIcon size={18} aria-hidden="true" />
+              <span>Terminal</span>
+              <strong>{terminalId}</strong>
+              <small>{terminal?.status || 'Registered'}</small>
             </div>
+            <div>
+              <Unlock size={18} aria-hidden="true" />
+              <span>Shift</span>
+              <strong>{shift?.status || 'Not Opened'}</strong>
+              <small>{shift?.staffName || staffName}</small>
+            </div>
+            <div>
+              <Wallet size={18} aria-hidden="true" />
+              <span>Drawer</span>
+              <strong>{currentDrawer ? 'Assigned' : 'Not Assigned'}</strong>
+              <small>{currentDrawer?.drawerId || 'Cash sales require a drawer'}</small>
+            </div>
+            <div>
+              <DollarSign size={18} aria-hidden="true" />
+              <span>Expected Cash</span>
+              <strong>{money(expectedCash)}</strong>
+              <small>{transactions.length} transaction records</small>
+            </div>
+          </div>
+          <div className="sci-pos-table-wrap">
+            <table className="sci-pos-table">
+              <thead>
+                <tr>
+                  <th>Terminal</th>
+                  <th>Branch</th>
+                  <th>Staff</th>
+                  <th>Role</th>
+                  <th>Parent Shift</th>
+                  <th>History</th>
+                  <th>BI Events</th>
+                  <th>Cash Logs</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>{terminalId}</td>
+                  <td>{branchName}</td>
+                  <td>{staffName}</td>
+                  <td>{roleName}</td>
+                  <td>{activeShift?.status || 'CLOSED'}</td>
+                  <td>{shiftHistory.length}</td>
+                  <td>{biEvents.length}</td>
+                  <td>{cashLogs.length}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+      )}
 
-            {!shiftIsOpen && !closeCalculated ? (
-              <div className="py-8 text-center text-slate-400 font-bold space-y-2 bg-slate-50/50 border border-dashed border-slate-200">
-                <Lock className="w-8 h-8 text-slate-400 mx-auto" />
-                <div className="uppercase text-[11px] tracking-wide">SHIFT IS CURRENTLY CLOSED</div>
-                <p className="text-[9px] font-medium text-slate-405 lowercase max-w-xs mx-auto">
-                  Execute "Shift Initialization Form" to unlock registry gates and launch active sales processes.
-                </p>
+      {activeTab === 'Open Shift' && (
+        <section className="sci-pos-card">
+          <div className="sci-pos-card__bar">
+            <div>
+              <p className="sci-pos-eyebrow">Start Work</p>
+              <h2>Open Shift</h2>
+            </div>
+            <Unlock size={18} aria-hidden="true" />
+          </div>
+          <form className="pos-control-form" onSubmit={handleOpenShift}>
+            <label>
+              Cashier
+              <input value={staffName} readOnly />
+            </label>
+            <label>
+              Opening Float
+              <input type="number" min="0" step="0.01" value={openingFloat} onChange={(event) => setOpeningFloat(event.target.value)} />
+            </label>
+            <label>
+              Note
+              <textarea rows={3} value={openNote} onChange={(event) => setOpenNote(event.target.value)} />
+            </label>
+            <button type="submit" className="sci-pos-button sci-pos-button--primary">
+              <Unlock size={16} aria-hidden="true" />
+              Open Shift
+            </button>
+          </form>
+        </section>
+      )}
+
+      {activeTab === 'Close Shift' && (
+        <section className="sci-pos-card">
+          <div className="sci-pos-card__bar">
+            <div>
+              <p className="sci-pos-eyebrow">End Work</p>
+              <h2>Close Shift</h2>
+            </div>
+            <Lock size={18} aria-hidden="true" />
+          </div>
+          <form className="pos-control-form" onSubmit={handleCloseShift}>
+            <label>
+              Expected Cash
+              <input value={money(expectedCash)} readOnly />
+            </label>
+            <label>
+              Declared Cash
+              <input type="number" min="0" step="0.01" value={declaredCash} onChange={(event) => setDeclaredCash(event.target.value)} />
+            </label>
+            <button type="submit" className="sci-pos-button sci-pos-button--primary">
+              <Lock size={16} aria-hidden="true" />
+              Close Shift
+            </button>
+            <button type="button" className="sci-pos-button sci-pos-button--secondary" onClick={handleForceClose}>
+              <AlertTriangle size={16} aria-hidden="true" />
+              Force Close Shift
+            </button>
+          </form>
+        </section>
+      )}
+
+      {activeTab === 'Terminal Activation' && (
+        <section className="sci-pos-card">
+          <div className="sci-pos-card__bar">
+            <div>
+              <p className="sci-pos-eyebrow">Terminal Lifecycle</p>
+              <h2>Terminal Activation</h2>
+            </div>
+            <TerminalIcon size={18} aria-hidden="true" />
+          </div>
+          <form className="pos-control-form" onSubmit={handleRequestActivation}>
+            <label>
+              Terminal ID
+              <input value={activationTerminalId} onChange={(event) => setActivationTerminalId(event.target.value)} />
+            </label>
+            <label>
+              Reason
+              <textarea rows={3} value={activationReason} onChange={(event) => setActivationReason(event.target.value)} />
+            </label>
+            <button type="submit" className="sci-pos-button sci-pos-button--primary">
+              <CheckCircle size={16} aria-hidden="true" />
+              Request Activation
+            </button>
+          </form>
+          <div className="sci-pos-table-wrap">
+            <table className="sci-pos-table">
+              <thead>
+                <tr>
+                  <th>Request</th>
+                  <th>Terminal</th>
+                  <th>Status</th>
+                  <th>Requested By</th>
+                  <th>Reason</th>
+                  <th>Action</th>
+                </tr>
+              </thead>
+              <tbody>
+                {activationRequests.map((request) => (
+                  <tr key={request.id}>
+                    <td>{request.id}</td>
+                    <td>{request.terminalId}</td>
+                    <td>{request.status}</td>
+                    <td>{request.requestedBy}</td>
+                    <td>{request.reason}</td>
+                    <td>
+                      <button type="button" className="sci-pos-button sci-pos-button--secondary" onClick={() => handleApproveActivation(request.id)}>
+                        Activate
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <div className="pos-control-actions">
+            <button type="button" className="sci-pos-button sci-pos-button--secondary" onClick={handleLockTerminal}>Lock Terminal</button>
+            <button type="button" className="sci-pos-button sci-pos-button--secondary" onClick={handleDeactivateTerminal}>Deactivate Terminal</button>
+            <button type="button" className="sci-pos-button sci-pos-button--primary" onClick={handleRequestReactivation}>Request Reactivation</button>
+          </div>
+        </section>
+      )}
+
+      {activeTab === 'Cash Drawer Assignment' && (
+        <section className="sci-pos-card">
+          <div className="sci-pos-card__bar">
+            <div>
+              <p className="sci-pos-eyebrow">Cash Control</p>
+              <h2>Cash Drawer Assignment</h2>
+            </div>
+            <Wallet size={18} aria-hidden="true" />
+          </div>
+          <form className="pos-control-form" onSubmit={handleAssignDrawer}>
+            <label>
+              Drawer ID
+              <input value={drawerId} onChange={(event) => setDrawerId(event.target.value)} />
+            </label>
+            <label>
+              Opening Float
+              <input type="number" min="0" step="0.01" value={drawerFloat} onChange={(event) => setDrawerFloat(event.target.value)} />
+            </label>
+            <label>
+              Notes
+              <textarea rows={3} value={drawerNotes} onChange={(event) => setDrawerNotes(event.target.value)} />
+            </label>
+            <button type="submit" className="sci-pos-button sci-pos-button--primary">
+              <Wallet size={16} aria-hidden="true" />
+              Assign Cash Drawer
+            </button>
+          </form>
+          {currentDrawer && (
+            <button type="button" className="sci-pos-button sci-pos-button--secondary" onClick={() => handleUnassignDrawer(currentDrawer.id)}>
+              Unassign Cash Drawer
+            </button>
+          )}
+        </section>
+      )}
+
+      {activeTab === 'Shift Activity' && (
+        <section className="sci-pos-card">
+          <div className="sci-pos-card__bar">
+            <div>
+              <p className="sci-pos-eyebrow">Audit</p>
+              <h2>Shift Activity</h2>
+            </div>
+            <Activity size={18} aria-hidden="true" />
+          </div>
+          <div className="pos-audit-feed">
+            {controlEvents.map((event) => (
+              <div key={event.id}>
+                <strong>{eventTitle(event.eventType)}</strong>
+                <span>{event.message}</span>
+                <small>{new Date(event.createdAt).toLocaleString()}</small>
               </div>
-            ) : (
-              <form onSubmit={handleCloseShiftLocal} className="space-y-3">
-                <div className="space-y-2.5">
-                  
-                  {/* Equations display inside form */}
-                  <div className="bg-slate-50 border border-slate-200 p-2.5 space-y-1.5 font-mono text-[9.5px] text-slate-600">
-                    <div className="flex justify-between">
-                      <span>OPENING FLOAT BANK:</span>
-                      <span className="font-bold text-slate-800">USD {openFloat.toFixed(2)}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span>CASH SALES TOTAL:</span>
-                      <span className="font-bold text-slate-800">+USD {cashSales.toFixed(2)}</span>
-                    </div>
-                    <div className="flex justify-between border-t border-slate-200 pt-1.5 text-[#1e222b] font-black text-[10px]">
-                      <span>SYSTEM EXPECTED COINS:</span>
-                      <span className="text-orange-605 text-[10.5px]">USD {expectedCash.toFixed(2)}</span>
-                    </div>
-                  </div>
-
-                  {/* Input 1: Declared cash input physically counted */}
-                  <div className="space-y-1">
-                    <label className="text-[9px] uppercase font-black text-slate-500">Physically Counted Coins & Cash (USD)</label>
-                    <div className="relative">
-                      <span className="absolute left-2.5 top-2 py-0.5 text-slate-400 font-extrabold">USD</span>
-                      <input
-                        type="number"
-                        className="w-full bg-white text-[#1e222b] border border-[#b1b5c2] focus:border-orange-500 pl-10 pr-2.5 py-2 text-[11px] rounded-none font-extrabold cursor-pointer placeholder-slate-350"
-                        placeholder="0.00"
-                        value={declaredCashInput}
-                        onChange={e => setDeclaredCashInput(e.target.value)}
-                        required={shiftIsOpen}
-                        disabled={!shiftIsOpen}
-                        min="0"
-                        step="0.01"
-                      />
-                    </div>
-                    <p className="text-[8.5px] text-slate-400">Physically count every drawer denomination and enter total.</p>
-                  </div>
-
-                  {/* Input 2: Card/EcoCash total input */}
-                  <div className="space-y-1">
-                    <label className="text-[9px] uppercase font-black text-slate-500">Card / EcoCash Terminal Audit (USD)</label>
-                    <input
-                      type="number"
-                      className="w-full bg-slate-50 text-[#1e222b] border border-[#b1b5c2] px-2.5 py-1.5 text-[10.5px] rounded-none font-bold"
-                      value={cardEcoCashTotalInput}
-                      onChange={e => setCardEcoCashTotalInput(e.target.value)}
-                      disabled
-                    />
-                  </div>
-
-                  {/* Input 3: Cash removed count */}
-                  <div className="space-y-1">
-                    <label className="text-[9px] uppercase font-black text-slate-500">Cash Dispatched to Armored Vault Drop (USD)</label>
-                    <input
-                      type="number"
-                      className="w-full bg-white text-[#1e222b] border border-[#b1b5c2] focus:border-orange-500 px-2.5 py-1.5 text-[10.5px] rounded-none font-bold"
-                      value={cashRemovedInput}
-                      onChange={e => setCashRemovedInput(e.target.value)}
-                      disabled={!shiftIsOpen}
-                      min="0"
-                      step="0.01"
-                    />
-                  </div>
-
-                  {/* Input 4: Note */}
-                  <div className="space-y-1">
-                    <label className="text-[9px] uppercase font-black text-slate-500">Auditor Closing Remarks</label>
-                    <textarea
-                      rows={1}
-                      className="w-full bg-white text-[#1e222b] border border-[#b1b5c2] focus:border-orange-500 p-1.5 text-[10px] rounded-none font-sans uppercase resize-none"
-                      value={closingNote}
-                      onChange={e => setClosingNote(e.target.value)}
-                      disabled={!shiftIsOpen}
-                    />
-                  </div>
-
-                </div>
-
-                {shiftIsOpen ? (
-                  <button
-                    type="submit"
-                    className="w-full py-3 bg-[#1e222b] hover:bg-slate-800 text-white font-black uppercase text-[10.5px] rounded-none flex items-center justify-center gap-1.5 transition-colors cursor-pointer mt-3"
-                  >
-                    <Lock className="w-3.5 h-3.5 text-orange-500" />
-                    Close Operator Shift
-                  </button>
-                ) : (
-                  <div className="bg-emerald-50 text-emerald-800 border border-emerald-300 p-2 text-center uppercase font-bold text-[9px] tracking-wide">
-                    Shift Reconciliation Flow Complete
-                  </div>
-                )}
-              </form>
-            )}
-
-            {/* SUPERVISOR AUDIT FLAG IF NOT BALANCED */}
-            {closeCalculated && variance !== 'Pending' && variance !== 0 && (
-              <div className="p-3 bg-red-50 border border-red-300 space-y-1.5">
-                <div className="flex gap-2 items-start text-red-700">
-                  <ShieldAlert className="w-4 h-4 shrink-0 mt-0.5" />
-                  <div>
-                    <span className="font-extrabold text-[10px] block uppercase">SUPERVISOR REVIEW COMPULSORY</span>
-                    <span className="text-[8.5px] text-slate-500 block uppercase mt-0.5">DRAWER DISCREPANCY AUDIT PATH LOCKED</span>
-                  </div>
-                </div>
-                <p className="text-[8.5px] font-medium text-slate-500 lowercase leading-normal font-sans">
-                  The difference count of <strong className="text-red-700">USD {variance.toFixed(2)}</strong> does not equal absolute zero. A corrective incident record is logged in the system. Handover keys to Bulawayo Depot inspector.
-                </p>
-                <div className="inline-block bg-[#1e222b] text-white font-black text-[9px] uppercase py-0.5 px-2">
-                  CODE: COMPLIANCE_DISPATCH_FAULT
-                </div>
-              </div>
-            )}
-
+            ))}
+            {controlEvents.length === 0 && <div className="sci-pos-empty-cell">No shift activity recorded.</div>}
           </div>
-
-        </div>
-
-        {/* Shift Activity feed column */}
-        <div className="lg:col-span-4 bg-white border border-[#b1b5c2] p-5 space-y-4">
-          <div className="flex items-center gap-2 pb-2 border-b border-gray-150">
-            <Activity className="w-4 h-4 text-orange-500" />
-            <span className="font-black text-[#1e222b] text-[10px] uppercase tracking-wider">SHIFT REGISTRY EVENT AUDIT LOG</span>
-          </div>
-
-          <div className="space-y-3 max-h-[460px] overflow-y-auto pr-1 pos-custom-scroll">
-            {shiftActivityEvents.map(ev => {
-              let tagBg = 'bg-slate-100 text-slate-700 border-slate-350';
-              if (ev.severity === 'Medium') tagBg = 'bg-orange-50/50 text-orange-800 border-orange-300 font-bold';
-              else if (ev.severity === 'High') tagBg = 'bg-red-50 text-red-800 border-red-350 font-black animate-pulse';
-
-              let titleLabel = ev.type.replace(/_/g, ' ');
-
-              return (
-                <div key={ev.id} className="p-2.5 border border-slate-200 bg-slate-50/40 hover:bg-slate-50 transition-colors space-y-1">
-                  <div className="flex justify-between items-center text-[8px] font-mono select-none">
-                    <span className="text-slate-400 font-bold">{ev.time}</span>
-                    <span className={`px-1.5 py-0.2 border rounded-none uppercase text-[7.5px] ${tagBg}`}>
-                      {ev.severity}
-                    </span>
-                  </div>
-                  <h4 className="font-bold text-[#1e222b] uppercase text-[9.5px] font-mono tracking-tight">{titleLabel}</h4>
-                  <p className="text-[9px] font-medium text-slate-500 lowercase leading-normal font-sans">
-                    {ev.message}
-                  </p>
-                </div>
-              );
-            })}
-          </div>
-
-          <div className="bg-slate-100 p-2 border border-slate-250 flex items-center justify-between text-[8px] text-slate-500 font-mono select-none uppercase">
-            <span>TERMINAL STORAGE: BUF_04</span>
-            <span>MEM PARITY: SHA-256</span>
-          </div>
-        </div>
-
-      </div>
-
+        </section>
+      )}
     </div>
   );
 }

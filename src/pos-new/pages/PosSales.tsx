@@ -14,8 +14,11 @@ import { biEventService } from '../services/biEventService';
 import { createReceiptFromSale, getReceiptPreview } from '../services/receiptService';
 import { postSaleMovement } from '../services/inventoryMovementService';
 import { recordPaymentReportEvent } from '../services/paymentReportService';
+import { logTerminalControlEvent, runTerminalControlCheck } from '../services/terminalControlService';
+import { createCustomerRequest, getCustomers } from '../services/customerService';
 import {
   CartItem,
+  CustomerRecord,
   PaymentMode,
   PosSession,
   Product,
@@ -106,7 +109,6 @@ export default function PosSales({
   onProductStockChange,
   onAddTransaction,
   onNavigate,
-  activeShiftOperator,
   session
 }: PosSalesProps) {
   const staffName = session?.staffName || 'Admin User';
@@ -119,6 +121,8 @@ export default function PosSales({
   const [localProducts, setLocalProducts] = useState<Product[]>(products.length > 0 ? products : DEFAULT_PRODUCTS);
   const [cart, setCart] = useState<CartItem[]>([]);
   const [customerMode, setCustomerMode] = useState<SalesCustomerMode>('Walk-in Customer');
+  const [selectedCustomerId, setSelectedCustomerId] = useState('');
+  const [activeCustomers, setActiveCustomers] = useState<CustomerRecord[]>([]);
   const [customerName, setCustomerName] = useState('Walk-in Customer');
   const [customerPhone, setCustomerPhone] = useState('');
   const [customerWhatsApp, setCustomerWhatsApp] = useState('');
@@ -146,6 +150,10 @@ export default function PosSales({
   useEffect(() => {
     setLocalProducts(products.length > 0 ? products : DEFAULT_PRODUCTS);
   }, [products]);
+
+  useEffect(() => {
+    getCustomers({ status: 'Active' }).then(setActiveCustomers).catch(() => setActiveCustomers([]));
+  }, []);
 
   const subtotal = useMemo(() => cart.reduce((sum, item) => sum + cartLineTotal(item), 0), [cart]);
   const lineDiscountTotal = useMemo(() => cart.reduce((sum, item) => {
@@ -191,7 +199,9 @@ export default function PosSales({
       TRANSACTION_RESUMED: 'Sale Resumed',
       SALE_CANCELLED: 'Sale Cancelled',
       SALE_COMPLETED: 'Sale Completed',
-      RECEIPT_CREATED: 'Receipt Created'
+      RECEIPT_CREATED: 'Receipt Created',
+      SALE_BLOCKED_SHIFT_OR_TERMINAL: 'Sale Blocked: Terminal or Shift',
+      CUSTOMER_SELECTED_FOR_SALE: 'Customer Selected for Sale'
     };
     return titles[eventType] || eventType.toLowerCase().split('_').map((word) => word.charAt(0).toUpperCase() + word.slice(1)).join(' ');
   };
@@ -208,6 +218,7 @@ export default function PosSales({
     setDeliveryFee('0');
     setCustomerName('Walk-in Customer');
     setCustomerMode('Walk-in Customer');
+    setSelectedCustomerId('');
     setCustomerPhone('');
     setCustomerWhatsApp('');
     setCustomerAddress('');
@@ -226,6 +237,7 @@ export default function PosSales({
   const handleCustomerModeChange = (mode: SalesCustomerMode) => {
     setCustomerMode(mode);
     if (mode === 'Walk-in Customer') {
+      setSelectedCustomerId('');
       setCustomerName('Walk-in Customer');
       setCustomerPhone('');
       setCustomerWhatsApp('');
@@ -234,16 +246,60 @@ export default function PosSales({
       setCustomerNotes('');
     }
     if (mode === 'Existing Customer' && customerName === 'Walk-in Customer') {
-      setCustomerName('Mary Courier');
+      const firstCustomer = activeCustomers.find((customer) => customer.customerId !== 'CUST-WALKIN');
+      if (firstCustomer) handleExistingCustomerSelect(firstCustomer.customerId);
     }
     if (mode === 'New Customer Request') {
+      setSelectedCustomerId('');
       setCustomerName('');
     }
   };
 
-  const handleSaveCustomerRequest = () => {
-    logEvent('CUSTOMER_CREATED_PENDING', `${customerName || 'New customer'} customer request saved locally.`);
-    setStatusMessage('Customer request saved locally.');
+  const handleExistingCustomerSelect = (customerId: string) => {
+    const customer = activeCustomers.find((item) => item.customerId === customerId);
+    setSelectedCustomerId(customerId);
+    if (!customer) return;
+    setCustomerName(customer.customerName);
+    setCustomerPhone(customer.phone);
+    setCustomerWhatsApp(customer.whatsapp);
+    setCustomerAddress(customer.deliveryAddress || customer.billingAddress);
+    setCustomerTaxNumber(customer.taxNumber);
+    setCustomerNotes(`${customer.creditStatus}${customer.currentBalance ? ` - Balance ${money(customer.currentBalance)}` : ''}`);
+    logEvent('CUSTOMER_SELECTED_FOR_SALE', `${customer.customerName} selected for sale.`);
+  };
+
+  const handleSaveCustomerRequest = async () => {
+    if (!canPerformAction(roleName, 'customers.createRequest')) {
+      setStatusMessage('You do not have permission to perform this action.');
+      return;
+    }
+    const created = await createCustomerRequest({
+      customerName: customerName || 'Pending Customer',
+      phone: customerPhone,
+      whatsapp: customerWhatsApp,
+      taxNumber: customerTaxNumber,
+      billingAddress: customerAddress,
+      deliveryAddress: customerAddress,
+      notes: customerNotes,
+      source: 'Sales Terminal',
+      requestedByStaffId: staffName,
+      requestedByStaffName: staffName,
+      requestedByRole: roleName
+    });
+    logEvent('CUSTOMER_CREATED_PENDING', `${created.customerName} customer request saved locally.`);
+    try {
+      await biEventService.recordBIEvent({
+        eventType: 'CUSTOMER_CREATED_PENDING',
+        operator: staffName,
+        terminal: terminalName,
+        severity: 'INFO',
+        payload: { customerId: created.customerId, customerName: created.customerName, status: created.status }
+      });
+    } catch {
+      logEvent('CUSTOMER_CREATED_PENDING_BI_SKIPPED', 'Customer pending BI placeholder was skipped safely.');
+    }
+    setStatusMessage('Customer request created and sent for approval.');
+    getCustomers({ status: 'Active' }).then(setActiveCustomers).catch(() => undefined);
   };
 
   const handleBlockedProduct = (product: Product) => {
@@ -319,8 +375,7 @@ export default function PosSales({
   };
 
   const validateSale = (): string | null => {
-    if (!canPerformAction(roleName, 'sales.complete')) return 'You do not have permission to perform this action.';
-    if (!activeShiftOperator) return 'Open a shift before completing sale.';
+    if (!canPerformAction(roleName, 'sales.complete')) return 'You do not have permission to complete a sale.';
     if (cart.length === 0) return 'Cart is empty.';
     const insufficientLine = cart.find((item) => {
       const currentProduct = localProducts.find((product) => product.id === item.product.id) || item.product;
@@ -335,6 +390,46 @@ export default function PosSales({
     const validationMessage = validateSale();
     if (validationMessage) {
       setStatusMessage(validationMessage);
+      return;
+    }
+
+    const salePayment = payments[0]?.method || paymentMethod;
+    const requiresCashDrawer = salePayment === 'Cash' || payments.some((payment) => payment.method === 'Cash');
+    const controlCheck = await runTerminalControlCheck({
+      vendorId: VENDOR_ID,
+      branchId: branchIdFromName(branchName),
+      terminalId: terminalName,
+      terminalName,
+      staffId: staffName,
+      staffName,
+      role: roleName,
+      requiresCashDrawer
+    });
+    if (!controlCheck.allowed) {
+      const reason = controlCheck.message || 'Sale cannot be completed because the terminal or shift is not active.';
+      setStatusMessage(reason);
+      logEvent('SALE_BLOCKED_SHIFT_OR_TERMINAL', reason);
+      await logTerminalControlEvent({
+        vendorId: VENDOR_ID,
+        branchId: branchIdFromName(branchName),
+        terminalId: terminalName,
+        staffId: staffName,
+        staffName,
+        eventType: 'SALE_BLOCKED_SHIFT_OR_TERMINAL',
+        message: reason,
+        severity: 'WARNING'
+      });
+      try {
+        await biEventService.recordBIEvent({
+          eventType: 'SALE_BLOCKED_SHIFT_OR_TERMINAL',
+          operator: staffName,
+          terminal: terminalName,
+          severity: 'WARNING',
+          payload: { reason, reasons: controlCheck.reasons }
+        });
+      } catch {
+        logEvent('SALE_BLOCKED_SHIFT_OR_TERMINAL_BI_SKIPPED', 'Blocked sale BI placeholder was skipped safely.');
+      }
       return;
     }
 
@@ -557,6 +652,8 @@ export default function PosSales({
           customerAddress={customerAddress}
           customerTaxNumber={customerTaxNumber}
           customerNotes={customerNotes}
+          existingCustomers={activeCustomers.filter((customer) => customer.customerId !== 'CUST-WALKIN')}
+          selectedCustomerId={selectedCustomerId}
           cashierName={staffName}
           terminalName={terminalName}
           branchName={branchName}
@@ -590,6 +687,7 @@ export default function PosSales({
           onCustomerAddressChange={setCustomerAddress}
           onCustomerTaxNumberChange={setCustomerTaxNumber}
           onCustomerNotesChange={setCustomerNotes}
+          onExistingCustomerSelect={handleExistingCustomerSelect}
           onSaveCustomerRequest={handleSaveCustomerRequest}
           onQuantityChange={handleQuantityChange}
           onRemoveItem={handleRemoveItem}

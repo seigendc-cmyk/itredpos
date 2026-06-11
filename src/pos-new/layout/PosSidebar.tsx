@@ -14,7 +14,8 @@ import {
   BriefcaseBusiness,
   ClipboardCheck,
   History,
-  ListChecks
+  ListChecks,
+  Users
 } from 'lucide-react';
 import { PosPageId, PosSession } from '../types';
 
@@ -42,6 +43,7 @@ export default function PosSidebar({
     { id: 'OWNER_DESK' as const, label: 'Owner Desk', icon: BriefcaseBusiness },
     { id: 'SALES' as const, label: 'Sales Terminal', icon: Terminal },
     { id: 'SALES_HISTORY' as const, label: 'Sales History', icon: History },
+    { id: 'CUSTOMER_CENTRE' as const, label: 'Customer Centre', icon: Users },
     { id: 'DELIVERY' as const, label: 'Delivery Desk', icon: Truck },
     { id: 'STOCK' as const, label: 'Inventory', icon: Box },
     { id: 'TASK_DESK' as const, label: 'Task Desk', icon: ListChecks },

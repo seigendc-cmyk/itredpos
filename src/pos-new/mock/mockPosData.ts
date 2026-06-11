@@ -59,7 +59,19 @@ import {
   ReceiptSequenceControl,
   ReceiptReprintAudit,
   FiscalizationPlaceholderRecord,
-  ReceiptAuditEvent
+  ReceiptAuditEvent,
+  TerminalLifecycleRecord,
+  TerminalActivationRequest,
+  ShiftSessionControl,
+  CashDrawerAssignment,
+  TerminalControlEvent,
+  OperationalApprovalRequest,
+  OperationalApprovalEvent,
+  CustomerRecord,
+  CustomerAddress,
+  CustomerPurchaseHistoryRow,
+  CustomerNote,
+  CustomerActivityEvent
 } from '../types/posTypes';
 
 export const mockVendors: Vendor[] = [
@@ -118,7 +130,184 @@ export const mockStaff: StaffMember[] = [
   { id: 'ST-007', name: 'Admin User', email: 'admin@sci.com', role: 'Manager', pass: 'admin123', branchId: 'BR-HARARE' },
   { id: 'ST-ADMIN', name: 'Admin User', email: 'admin.user@sci.com', role: 'SysAdmin', pass: 'admin123', branchId: 'BR-HARARE' },
   { id: 'ST-MARY', name: 'Mary Cashier', email: 'mary.cashier@sci.com', role: 'Cashier', pass: 'cashier123', branchId: 'BR-HARARE' },
-  { id: 'ST-TAWANDA', name: 'Tawanda Supervisor', email: 'tawanda.supervisor@sci.com', role: 'Supervisor', pass: 'lead123', branchId: 'BR-BYO' }
+  { id: 'ST-TAWANDA', name: 'Tawanda Supervisor', email: 'tawanda.supervisor@sci.com', role: 'Supervisor', pass: 'lead123', branchId: 'BR-BYO' },
+  { id: 'ST-BLESSING', name: 'Blessing Stock', email: 'blessing.stock@sci.com', role: 'Stock Controller', pass: 'stock123', branchId: 'BR-HARARE' }
+];
+
+export const mockTerminalLifecycleRecords: TerminalLifecycleRecord[] = [
+  {
+    id: 'TLC-POS-01',
+    vendorId: 'SCI-LOG-ZW',
+    branchId: 'BR-HARARE',
+    terminalId: 'POS-01',
+    terminalName: 'POS-01 Harare Front Counter',
+    status: 'Active',
+    approvedBy: 'Admin User',
+    approvedAt: '2026-06-10T07:00:00Z',
+    updatedAt: '2026-06-10T07:00:00Z'
+  },
+  {
+    id: 'TLC-POS-02',
+    vendorId: 'SCI-LOG-ZW',
+    branchId: 'BR-BYO',
+    terminalId: 'POS-02',
+    terminalName: 'POS-02 Bulawayo Counter',
+    status: 'Active',
+    approvedBy: 'Tawanda Supervisor',
+    approvedAt: '2026-06-10T07:15:00Z',
+    updatedAt: '2026-06-10T07:15:00Z'
+  },
+  {
+    id: 'TLC-BACK-01',
+    vendorId: 'SCI-LOG-ZW',
+    branchId: 'BR-HARARE',
+    terminalId: 'BACK-01',
+    terminalName: 'BACK-01 Harare Back Office',
+    status: 'Active',
+    approvedBy: 'Admin User',
+    approvedAt: '2026-06-10T06:45:00Z',
+    updatedAt: '2026-06-10T06:45:00Z'
+  },
+  {
+    id: 'TLC-POS-03',
+    vendorId: 'SCI-LOG-ZW',
+    branchId: 'BR-HARARE',
+    terminalId: 'POS-03',
+    terminalName: 'POS-03 Harare Spare Counter',
+    status: 'Activation Requested',
+    requestedBy: 'Mary Cashier',
+    requestedAt: '2026-06-11T08:20:00Z',
+    reason: 'Replacement front counter terminal requires local activation.',
+    updatedAt: '2026-06-11T08:20:00Z'
+  },
+  {
+    id: 'TLC-POS-LOCKED',
+    vendorId: 'SCI-LOG-ZW',
+    branchId: 'BR-HARARE',
+    terminalId: 'POS-LOCKED',
+    terminalName: 'POS-LOCKED Review Terminal',
+    status: 'Locked',
+    lockedReason: 'Terminal is locked pending review.',
+    updatedAt: '2026-06-11T07:55:00Z'
+  }
+];
+
+export const mockTerminalActivationRequests: TerminalActivationRequest[] = [
+  {
+    id: 'TAR-POS-03',
+    vendorId: 'SCI-LOG-ZW',
+    branchId: 'BR-HARARE',
+    terminalId: 'POS-03',
+    terminalName: 'POS-03 Harare Spare Counter',
+    status: 'Activation Requested',
+    requestedBy: 'Mary Cashier',
+    requestedAt: '2026-06-11T08:20:00Z',
+    reason: 'Replacement front counter terminal requires local activation.'
+  }
+];
+
+export const mockShiftSessionControls: ShiftSessionControl[] = [
+  {
+    id: 'SSC-POS-01-20260611',
+    vendorId: 'SCI-LOG-ZW',
+    branchId: 'BR-HARARE',
+    terminalId: 'POS-01',
+    terminalName: 'POS-01 Harare Front Counter',
+    staffId: 'ST-MARY',
+    staffName: 'Mary Cashier',
+    status: 'Open',
+    openedAt: '2026-06-11T07:30:00Z',
+    openingFloat: 120,
+    expectedCash: 120,
+    notes: 'Morning cashier shift open.'
+  },
+  {
+    id: 'SSC-POS-02-20260610',
+    vendorId: 'SCI-LOG-ZW',
+    branchId: 'BR-BYO',
+    terminalId: 'POS-02',
+    terminalName: 'POS-02 Bulawayo Counter',
+    staffId: 'ST-TAWANDA',
+    staffName: 'Tawanda Supervisor',
+    status: 'Closed',
+    openedAt: '2026-06-10T07:45:00Z',
+    closedAt: '2026-06-10T17:15:00Z',
+    openingFloat: 100,
+    expectedCash: 480,
+    declaredCash: 480,
+    variance: 0,
+    notes: 'Shift closed balanced.'
+  },
+  {
+    id: 'SSC-BACK-01-20260611',
+    vendorId: 'SCI-LOG-ZW',
+    branchId: 'BR-HARARE',
+    terminalId: 'BACK-01',
+    terminalName: 'BACK-01 Harare Back Office',
+    staffId: 'ST-ADMIN',
+    staffName: 'Admin User',
+    status: 'Open',
+    openedAt: '2026-06-11T08:00:00Z',
+    openingFloat: 0,
+    expectedCash: 0,
+    notes: 'Back office session open.'
+  }
+];
+
+export const mockCashDrawerAssignments: CashDrawerAssignment[] = [
+  {
+    id: 'CDA-POS-01-MARY',
+    vendorId: 'SCI-LOG-ZW',
+    branchId: 'BR-HARARE',
+    terminalId: 'POS-01',
+    terminalName: 'POS-01 Harare Front Counter',
+    drawerId: 'DRAWER-POS-01-A',
+    staffId: 'ST-MARY',
+    staffName: 'Mary Cashier',
+    status: 'Assigned',
+    openingFloat: 120,
+    assignedAt: '2026-06-11T07:30:00Z',
+    notes: 'Drawer assigned for cash sales.'
+  }
+];
+
+export const mockTerminalControlEvents: TerminalControlEvent[] = [
+  {
+    id: 'TCE-POS-01-ACTIVE',
+    vendorId: 'SCI-LOG-ZW',
+    branchId: 'BR-HARARE',
+    terminalId: 'POS-01',
+    staffId: 'ST-ADMIN',
+    staffName: 'Admin User',
+    eventType: 'ACTIVATE_TERMINAL',
+    message: 'POS-01 activated for Harare front counter.',
+    severity: 'INFO',
+    createdAt: '2026-06-10T07:00:00Z'
+  },
+  {
+    id: 'TCE-POS-01-OPEN',
+    vendorId: 'SCI-LOG-ZW',
+    branchId: 'BR-HARARE',
+    terminalId: 'POS-01',
+    staffId: 'ST-MARY',
+    staffName: 'Mary Cashier',
+    eventType: 'OPEN_SHIFT',
+    message: 'Mary Cashier opened POS-01 shift.',
+    severity: 'INFO',
+    createdAt: '2026-06-11T07:30:00Z'
+  },
+  {
+    id: 'TCE-POS-03-REQUEST',
+    vendorId: 'SCI-LOG-ZW',
+    branchId: 'BR-HARARE',
+    terminalId: 'POS-03',
+    staffId: 'ST-MARY',
+    staffName: 'Mary Cashier',
+    eventType: 'REQUEST_REACTIVATION',
+    message: 'POS-03 activation requested.',
+    severity: 'WARNING',
+    createdAt: '2026-06-11T08:20:00Z'
+  }
 ];
 
 export const mockProducts: Product[] = [
@@ -897,6 +1086,253 @@ export const mockOwnerApprovals: OwnerApprovalItem[] = [
   { id: 'APR-004', type: 'GRN Variance', requestedBy: 'Blessing Stock', amountOrValue: '+2 Units', risk: 'High', status: 'Pending', action: 'Review' },
   { id: 'APR-005', type: 'Stock Adjustment', requestedBy: 'Blessing Stock', amountOrValue: '-1 Unit', risk: 'High', status: 'Pending', action: 'Review' },
   { id: 'APR-006', type: 'Failed Delivery', requestedBy: 'Mike Delivery', amountOrValue: 'DEL-005', risk: 'Medium', status: 'Open', action: 'Follow Up' }
+];
+
+export const mockOperationalApprovals: OperationalApprovalRequest[] = [
+  {
+    id: 'OP-APR-001',
+    vendorId: 'SCI-LOG-ZW',
+    branchId: 'BR-HARARE',
+    branch: 'Harare Main',
+    category: 'Price Override',
+    requestedBy: 'Mary Cashier',
+    requestedByRole: 'Cashier',
+    relatedRecord: 'OVR-0007',
+    amountOrValue: 'USD 28.00 to USD 24.00',
+    risk: 'Medium',
+    status: 'Pending',
+    requestedAt: '2026-06-11T08:45:00Z',
+    reason: 'Matched competitor price for regular customer.',
+    context: 'Brake Pads Toyota GD6 Front price override requested at Sales Terminal.',
+    requiredPermission: 'approvals.approve'
+  },
+  {
+    id: 'OP-APR-002',
+    vendorId: 'SCI-LOG-ZW',
+    branchId: 'BR-HARARE',
+    branch: 'Harare Main',
+    category: 'Discount Above Limit',
+    requestedBy: 'Mary Cashier',
+    requestedByRole: 'Cashier',
+    relatedRecord: 'DISC-0014',
+    amountOrValue: '18% discount',
+    risk: 'High',
+    status: 'Pending',
+    requestedAt: '2026-06-11T09:05:00Z',
+    reason: 'Discount exceeds cashier limit.',
+    context: 'Customer requested bulk discount above configured cashier threshold.',
+    requiredPermission: 'approvals.approve'
+  },
+  {
+    id: 'OP-APR-003',
+    vendorId: 'SCI-LOG-ZW',
+    branchId: 'BR-HARARE',
+    branch: 'Harare Main',
+    category: 'Return Request',
+    requestedBy: 'Mary Cashier',
+    requestedByRole: 'Cashier',
+    relatedRecord: 'RET-0002',
+    amountOrValue: '1 x BJ-CBHO49',
+    risk: 'High',
+    status: 'Pending',
+    requestedAt: '2026-06-11T09:30:00Z',
+    reason: 'Customer return requires supervisor review.',
+    context: 'Returned Ball Joint Honda Fit GD1 from receipt RCT-0006.',
+    requiredPermission: 'approvals.approve'
+  },
+  {
+    id: 'OP-APR-004',
+    vendorId: 'SCI-LOG-ZW',
+    branchId: 'BR-HARARE',
+    branch: 'Harare Main',
+    category: 'Credit Note Request',
+    requestedBy: 'Tawanda Supervisor',
+    requestedByRole: 'Supervisor',
+    relatedRecord: 'CN-0001',
+    amountOrValue: 'USD 57.00',
+    risk: 'High',
+    status: 'Pending',
+    requestedAt: '2026-06-11T09:45:00Z',
+    reason: 'Credit note requested against partially disputed receipt.',
+    context: 'Credit note placeholder linked to receipt RCT-0002.',
+    requiredPermission: 'approvals.approve'
+  },
+  {
+    id: 'OP-APR-005',
+    vendorId: 'SCI-LOG-ZW',
+    branchId: 'BR-HARARE',
+    branch: 'Harare Main',
+    category: 'Terminal Activation',
+    requestedBy: 'Mary Cashier',
+    requestedByRole: 'Cashier',
+    relatedRecord: 'POS-03',
+    amountOrValue: 'Activation Requested',
+    risk: 'Medium',
+    status: 'Pending',
+    requestedAt: '2026-06-11T10:00:00Z',
+    reason: 'Replacement front counter terminal needs approval.',
+    context: 'Terminal activation request should be reviewed before sale access is granted.',
+    requiredPermission: 'approvals.approve'
+  },
+  {
+    id: 'OP-APR-006',
+    vendorId: 'SCI-LOG-ZW',
+    branchId: 'BR-HARARE',
+    branch: 'Harare Main',
+    category: 'Cash Variance Review',
+    requestedBy: 'Mary Cashier',
+    requestedByRole: 'Cashier',
+    relatedRecord: 'SHIFT-2026-06-11-POS-01',
+    amountOrValue: 'USD -12.50',
+    risk: 'Critical',
+    status: 'Pending',
+    requestedAt: '2026-06-11T10:20:00Z',
+    reason: 'Declared cash is below expected cash.',
+    context: 'Cash drawer variance review required before day close.',
+    requiredPermission: 'approvals.approve'
+  },
+  {
+    id: 'OP-APR-007',
+    vendorId: 'SCI-LOG-ZW',
+    branchId: 'BR-HARARE',
+    branch: 'Harare Main',
+    category: 'Stock Adjustment',
+    requestedBy: 'Blessing Stock',
+    requestedByRole: 'Stock Controller',
+    relatedRecord: 'ADJ-0019',
+    amountOrValue: '-3 units CLT-N16',
+    risk: 'High',
+    status: 'Pending',
+    requestedAt: '2026-06-11T10:40:00Z',
+    reason: 'Damaged clutch plates require write-off approval.',
+    context: 'Stock adjustment will not post until approved.',
+    requiredPermission: 'approvals.approve'
+  },
+  {
+    id: 'OP-APR-008',
+    vendorId: 'SCI-LOG-ZW',
+    branchId: 'BR-HARARE',
+    branch: 'Harare Main',
+    category: 'Stocktake Variance',
+    requestedBy: 'Blessing Stock',
+    requestedByRole: 'Stock Controller',
+    relatedRecord: 'STK-2026-001',
+    amountOrValue: '-5 units BJ-CBHO49',
+    risk: 'Critical',
+    status: 'Pending',
+    requestedAt: '2026-06-11T10:55:00Z',
+    reason: 'Stocktake variance exceeds adjustment threshold.',
+    context: 'Variance requires manager or owner review before posting.',
+    requiredPermission: 'approvals.approve'
+  },
+  {
+    id: 'OP-APR-009',
+    vendorId: 'SCI-LOG-ZW',
+    branchId: 'BR-HARARE',
+    branch: 'Harare Main',
+    category: 'Inventory Import Approval',
+    requestedBy: 'Blessing Stock',
+    requestedByRole: 'Stock Controller',
+    relatedRecord: 'IMPORT-004',
+    amountOrValue: '186 rows',
+    risk: 'Medium',
+    status: 'Pending',
+    requestedAt: '2026-06-11T11:10:00Z',
+    reason: 'Bulk inventory import staged for approval.',
+    context: 'Import includes SKU, ALU, shelf and cost updates.',
+    requiredPermission: 'approvals.approve'
+  },
+  {
+    id: 'OP-APR-010',
+    vendorId: 'SCI-LOG-ZW',
+    branchId: 'BR-HARARE',
+    branch: 'Harare Main',
+    category: 'Delivery Provider Approval',
+    requestedBy: 'Tawanda Supervisor',
+    requestedByRole: 'Supervisor',
+    relatedRecord: 'DRV-004',
+    amountOrValue: 'New provider',
+    risk: 'Low',
+    status: 'Pending',
+    requestedAt: '2026-06-11T11:25:00Z',
+    reason: 'New delivery provider needs operational approval.',
+    context: 'Provider onboarding remains local placeholder only.',
+    requiredPermission: 'approvals.approve'
+  },
+  {
+    id: 'OP-APR-011',
+    vendorId: 'SCI-LOG-ZW',
+    branchId: 'BR-HARARE',
+    branch: 'Harare Main',
+    category: 'Customer Approval',
+    requestedBy: 'Mary Cashier',
+    requestedByRole: 'Cashier',
+    relatedRecord: 'CUST-REQ-001',
+    amountOrValue: 'Garage Account',
+    risk: 'Medium',
+    status: 'Pending',
+    requestedAt: '2026-06-11T11:40:00Z',
+    reason: 'New customer account requires approval.',
+    context: 'Customer request created from Sales Terminal.',
+    requiredPermission: 'approvals.approve'
+  }
+];
+
+export const mockOperationalApprovalEvents: OperationalApprovalEvent[] = [
+  {
+    id: 'OP-APR-EV-001',
+    approvalId: 'OP-APR-001',
+    eventType: 'APPROVAL_CREATED',
+    operator: 'Mary Cashier',
+    message: 'Price override approval created.',
+    createdAt: '2026-06-11T08:45:00Z'
+  },
+  {
+    id: 'OP-APR-EV-002',
+    approvalId: 'OP-APR-006',
+    eventType: 'APPROVAL_CREATED',
+    operator: 'Mary Cashier',
+    message: 'Cash variance review approval created.',
+    createdAt: '2026-06-11T10:20:00Z'
+  }
+];
+
+export const mockCustomers: CustomerRecord[] = [
+  { customerId: 'CUST-WALKIN', vendorId: 'SCI-LOG-ZW', customerCode: 'WALK-IN', customerName: 'Walk-in Customer', customerType: 'Walk-in', phone: '', whatsapp: '', email: '', taxNumber: '', billingAddress: 'Counter sale', deliveryAddress: 'Counter collection', cityTown: 'Harare', district: 'Harare', suburb: 'CBD', source: 'Walk-in', status: 'Active', creditStatus: 'Not Applicable', notes: 'Default walk-in sale customer.', createdByStaffId: 'SYSTEM', approvedByStaffId: 'SYSTEM', createdAt: '2026-06-01T08:00:00Z', updatedAt: '2026-06-01T08:00:00Z' },
+  { customerId: 'CUST-TAPIWA', vendorId: 'SCI-LOG-ZW', customerCode: 'CUST-0002', customerName: 'Tapiwa Moyo', customerType: 'Individual', phone: '+263 77 123 4567', whatsapp: '+263 77 123 4567', email: 'tapiwa.moyo@example.com', taxNumber: '', billingAddress: '12 Lomagundi Road', deliveryAddress: '12 Lomagundi Road', cityTown: 'Harare', district: 'Harare', suburb: 'Avondale', source: 'Referral', status: 'Active', creditStatus: 'Cash Only', currentBalance: 0, notes: 'Regular motor spares buyer.', createdByStaffId: 'ST-MARY', approvedByStaffId: 'ST-ADMIN', createdAt: '2026-06-03T09:00:00Z', updatedAt: '2026-06-09T13:40:00Z' },
+  { customerId: 'CUST-RUDO', vendorId: 'SCI-LOG-ZW', customerCode: 'CUST-0003', customerName: 'Rudo Ncube', customerType: 'Individual', phone: '+263 77 222 3344', whatsapp: '+263 77 222 3344', email: 'rudo.ncube@example.com', taxNumber: '', billingAddress: '45 Glen View Way', deliveryAddress: '45 Glen View Way', cityTown: 'Harare', district: 'Harare', suburb: 'Glen View', source: 'WhatsApp Catalogue', status: 'Active', creditStatus: 'Cash Only', currentBalance: 0, notes: 'WhatsApp catalogue lead.', createdByStaffId: 'ST-MARY', approvedByStaffId: 'ST-ADMIN', createdAt: '2026-06-04T10:00:00Z', updatedAt: '2026-06-09T14:15:00Z' },
+  { customerId: 'CUST-FARAI', vendorId: 'SCI-LOG-ZW', customerCode: 'CUST-0004', customerName: 'Farai Sithole', customerType: 'Business', phone: '+263 71 555 0011', whatsapp: '+263 71 555 0011', email: 'farai@garage.example', taxNumber: 'BP-2001123', billingAddress: '88 Seke Road Workshop', deliveryAddress: '88 Seke Road Workshop', cityTown: 'Harare', district: 'Harare', suburb: 'Graniteside', source: 'Phone Call', status: 'Active', creditStatus: 'Credit Allowed', creditLimit: 500, currentBalance: 90, notes: 'Garage account with credit placeholder.', createdByStaffId: 'ST-ADMIN', approvedByStaffId: 'ST-ADMIN', createdAt: '2026-06-02T08:30:00Z', updatedAt: '2026-06-10T12:00:00Z' },
+  { customerId: 'CUST-MEMORY', vendorId: 'SCI-LOG-ZW', customerCode: 'CUST-0005', customerName: 'Memory Chikore', customerType: 'Individual', phone: '+263 78 555 8844', whatsapp: '+263 78 555 8844', email: 'memory.chikore@example.com', taxNumber: '', billingAddress: '9 Mbizo Street', deliveryAddress: '9 Mbizo Street', cityTown: 'Kwekwe', district: 'Kwekwe', suburb: 'Mbizo', source: 'Facebook', status: 'Suspended', creditStatus: 'Credit Suspended', creditLimit: 150, currentBalance: 150, notes: 'Suspended pending payment review.', createdByStaffId: 'ST-MARY', approvedByStaffId: 'ST-ADMIN', createdAt: '2026-05-28T11:00:00Z', updatedAt: '2026-06-08T11:00:00Z' },
+  { customerId: 'CUST-BRIAN', vendorId: 'SCI-LOG-ZW', customerCode: 'CUST-0006', customerName: 'Brian Dube', customerType: 'Dealer', phone: '+263 77 445 9001', whatsapp: '+263 77 445 9001', email: 'brian.dube@example.com', taxNumber: 'BP-889212', billingAddress: '24 Plumtree Road', deliveryAddress: '24 Plumtree Road', cityTown: 'Bulawayo', district: 'Bulawayo', suburb: 'Belmont', source: 'Commerce Access Hub', status: 'Active', creditStatus: 'Credit Review Required', creditLimit: 0, currentBalance: 0, notes: 'Dealer pricing review placeholder.', createdByStaffId: 'ST-TAWANDA', approvedByStaffId: 'ST-ADMIN', createdAt: '2026-06-05T12:00:00Z', updatedAt: '2026-06-10T09:00:00Z' },
+  { customerId: 'CUST-APEX-FLEET', vendorId: 'SCI-LOG-ZW', customerCode: 'FLEET-0001', customerName: 'Apex Fleet Buyer', customerType: 'Fleet Customer', phone: '+263 24 200 0100', whatsapp: '+263 77 000 0100', email: 'fleet@apex.example', taxNumber: 'VAT-APEX-2026', billingAddress: '77 Industrial Parkway', deliveryAddress: 'Fleet Workshop Gate 2', cityTown: 'Harare', district: 'Harare', suburb: 'Workington', source: 'Imported', status: 'Active', creditStatus: 'Credit Allowed', creditLimit: 2500, currentBalance: 460, notes: 'Fleet customer placeholder.', createdByStaffId: 'ST-ADMIN', approvedByStaffId: 'ST-ADMIN', createdAt: '2026-06-01T08:15:00Z', updatedAt: '2026-06-09T15:00:00Z' },
+  { customerId: 'CUST-MUTSA-CLOSET', vendorId: 'SCI-LOG-ZW', customerCode: 'CUST-0008', customerName: "Mutsa's Closet Buyer Placeholder", customerType: 'Business', phone: '+263 78 333 2211', whatsapp: '+263 78 333 2211', email: 'mutsa.closet@example.com', taxNumber: '', billingAddress: 'Eastlea Retail Unit', deliveryAddress: 'Eastlea Retail Unit', cityTown: 'Harare', district: 'Harare', suburb: 'Eastlea', source: 'WhatsApp Catalogue', status: 'Active', creditStatus: 'Cash Only', notes: 'Retail buyer placeholder.', createdByStaffId: 'ST-MARY', approvedByStaffId: 'ST-ADMIN', createdAt: '2026-06-06T10:30:00Z', updatedAt: '2026-06-07T10:30:00Z' },
+  { customerId: 'CUST-PENDING-001', vendorId: 'SCI-LOG-ZW', customerCode: 'PEND-0001', customerName: 'Pending Customer Request Example', customerType: 'Individual', phone: '+263 77 909 8001', whatsapp: '+263 77 909 8001', email: 'pending.customer@example.com', taxNumber: '', billingAddress: 'Pending address', deliveryAddress: 'Pending address', cityTown: 'Harare', district: 'Harare', suburb: 'Mbare', source: 'Sales Terminal', status: 'Pending Approval', creditStatus: 'Cash Only', notes: 'Created from Sales Terminal and awaiting approval.', createdByStaffId: 'ST-MARY', createdAt: '2026-06-11T11:40:00Z', updatedAt: '2026-06-11T11:40:00Z' },
+  { customerId: 'CUST-DUP-001', vendorId: 'SCI-LOG-ZW', customerCode: 'DUP-0001', customerName: 'Duplicate Review Example', customerType: 'Individual', phone: '+263 77 222 3344', whatsapp: '+263 77 222 3344', email: 'duplicate.review@example.com', taxNumber: '', billingAddress: 'Duplicate address', deliveryAddress: 'Duplicate address', cityTown: 'Harare', district: 'Harare', suburb: 'Glen View', source: 'Sales Terminal', status: 'Duplicate', creditStatus: 'Cash Only', notes: 'Possible duplicate of Rudo Ncube.', createdByStaffId: 'ST-MARY', createdAt: '2026-06-11T12:05:00Z', updatedAt: '2026-06-11T12:05:00Z' }
+];
+
+export const mockCustomerAddresses: CustomerAddress[] = mockCustomers.flatMap((customer) => [
+  { id: `${customer.customerId}-BILL`, customerId: customer.customerId, type: 'Billing', addressLine: customer.billingAddress, cityTown: customer.cityTown, district: customer.district, suburb: customer.suburb },
+  { id: `${customer.customerId}-DEL`, customerId: customer.customerId, type: 'Delivery', addressLine: customer.deliveryAddress, cityTown: customer.cityTown, district: customer.district, suburb: customer.suburb }
+]);
+
+export const mockCustomerPurchaseHistory: CustomerPurchaseHistoryRow[] = [
+  { id: 'CPH-001', customerId: 'CUST-TAPIWA', receiptNo: 'RCT-0005', date: '2026-06-09T13:40:00Z', branch: 'Harare Main', cashier: 'Mary Cashier', items: 1, total: 460, paymentMethod: 'Bank Transfer', deliveryStatus: 'No Delivery', returnStatus: 'None' },
+  { id: 'CPH-002', customerId: 'CUST-RUDO', receiptNo: 'RCT-0006', date: '2026-06-09T14:15:00Z', branch: 'Harare Main', cashier: 'Mary Cashier', items: 1, total: 70, paymentMethod: 'Cash', deliveryStatus: 'No Delivery', returnStatus: 'Partial Refund' },
+  { id: 'CPH-003', customerId: 'CUST-FARAI', receiptNo: 'RCT-0003', date: '2026-06-09T11:20:00Z', branch: 'Harare Main', cashier: 'Admin User', items: 2, total: 200, paymentMethod: 'Split Payment', deliveryStatus: 'Customer Collection', returnStatus: 'None' },
+  { id: 'CPH-004', customerId: 'CUST-APEX-FLEET', receiptNo: 'RCT-0004', date: '2026-06-09T12:05:00Z', branch: 'Bulawayo Branch', cashier: 'Tawanda Supervisor', items: 1, total: 315, paymentMethod: 'Swipe', deliveryStatus: 'Vendor Delivery', returnStatus: 'None' }
+];
+
+export const mockCustomerNotes: CustomerNote[] = [
+  { id: 'CN-TAPIWA-001', customerId: 'CUST-TAPIWA', dateTime: '2026-06-09T13:45:00Z', note: 'Prefers WhatsApp receipt follow-up.', addedBy: 'Mary Cashier', role: 'Cashier', relatedRecord: 'RCT-0005' },
+  { id: 'CN-RUDO-001', customerId: 'CUST-RUDO', dateTime: '2026-06-09T14:30:00Z', note: 'Return discussion logged for review.', addedBy: 'Mary Cashier', role: 'Cashier', relatedRecord: 'RCT-0006' },
+  { id: 'CN-MEMORY-001', customerId: 'CUST-MEMORY', dateTime: '2026-06-08T11:00:00Z', note: 'Credit suspended until balance is cleared.', addedBy: 'Admin User', role: 'Manager', relatedRecord: 'CREDIT-REVIEW' }
+];
+
+export const mockCustomerActivityEvents: CustomerActivityEvent[] = [
+  { id: 'CAE-001', customerId: 'CUST-PENDING-001', dateTime: '2026-06-11T11:40:00Z', eventType: 'CUSTOMER_CREATED_PENDING', user: 'Mary Cashier', notes: 'Pending customer request created.' },
+  { id: 'CAE-002', customerId: 'CUST-RUDO', dateTime: '2026-06-09T14:15:00Z', eventType: 'CUSTOMER_PURCHASE_RECORDED', user: 'Mary Cashier', notes: 'Receipt RCT-0006 recorded.' },
+  { id: 'CAE-003', customerId: 'CUST-DUP-001', dateTime: '2026-06-11T12:05:00Z', eventType: 'CUSTOMER_DUPLICATE_FLAGGED', user: 'Mary Cashier', notes: 'Possible duplicate of CUST-RUDO.' },
+  { id: 'CAE-004', customerId: 'CUST-MEMORY', dateTime: '2026-06-08T11:00:00Z', eventType: 'CUSTOMER_CREDIT_REVIEW_REQUIRED', user: 'Admin User', notes: 'Credit status requires review.' }
 ];
 
 export const mockOwnerBIAlerts: OwnerBIAlert[] = [

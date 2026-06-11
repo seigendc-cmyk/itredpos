@@ -1,4 +1,3 @@
-import React from 'react';
 import {
   CreditCard,
   FileText,
@@ -11,7 +10,7 @@ import {
   Truck,
   XCircle
 } from 'lucide-react';
-import { CartItem, VATMode } from '../types';
+import { CartItem, CustomerRecord, VATMode } from '../types';
 
 export type SalesPaymentMethod =
   | 'Cash'
@@ -60,6 +59,8 @@ interface SalesCartCardProps {
   customerAddress: string;
   customerTaxNumber: string;
   customerNotes: string;
+  existingCustomers?: CustomerRecord[];
+  selectedCustomerId?: string;
   cashierName: string;
   terminalName: string;
   branchName: string;
@@ -84,6 +85,7 @@ interface SalesCartCardProps {
   onCustomerAddressChange: (value: string) => void;
   onCustomerTaxNumberChange: (value: string) => void;
   onCustomerNotesChange: (value: string) => void;
+  onExistingCustomerSelect?: (customerId: string) => void;
   onSaveCustomerRequest: () => void;
   onQuantityChange: (productId: string, delta: number) => void;
   onRemoveItem: (productId: string) => void;
@@ -132,13 +134,6 @@ const paymentLabels: Record<SalesPaymentMethod, string> = {
   'Store Credit Placeholder': 'Store Credit'
 };
 
-const mockCustomers = [
-  'Walk-in Customer',
-  'Mary Courier',
-  'Tawanda Mining Supplies',
-  'Harare Hardware Buyer'
-];
-
 function money(value: number): string {
   return `USD ${value.toFixed(2)}`;
 }
@@ -164,6 +159,8 @@ export default function SalesCartCard({
   customerAddress,
   customerTaxNumber,
   customerNotes,
+  existingCustomers = [],
+  selectedCustomerId = '',
   cashierName,
   terminalName,
   branchName,
@@ -188,6 +185,7 @@ export default function SalesCartCard({
   onCustomerAddressChange,
   onCustomerTaxNumberChange,
   onCustomerNotesChange,
+  onExistingCustomerSelect,
   onSaveCustomerRequest,
   onQuantityChange,
   onRemoveItem,
@@ -243,9 +241,11 @@ export default function SalesCartCard({
         {customerMode === 'Existing Customer' ? (
           <label>
             Existing Customer
-            <select value={customerName} onChange={(event) => onCustomerNameChange(event.target.value)}>
-              {mockCustomers.map((customer) => <option key={customer} value={customer}>{customer}</option>)}
+            <select value={selectedCustomerId} onChange={(event) => onExistingCustomerSelect?.(event.target.value)}>
+              <option value="">Select active customer</option>
+              {existingCustomers.map((customer) => <option key={customer.customerId} value={customer.customerId}>{customer.customerName} - {customer.customerCode}</option>)}
             </select>
+            {customerName && <span className="pos-form-hint">{customerName}</span>}
           </label>
         ) : (
           <label>

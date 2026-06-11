@@ -7,7 +7,9 @@ import {
   Wifi,
   WifiOff
 } from 'lucide-react';
-import { PosPageId, PosSession, SyncQueueItem } from '../types';
+import { PosPageId, PosSession, Role, SyncQueueItem } from '../types';
+import { TerminalControlCheck } from '../types';
+import { runTerminalControlCheck } from '../services/terminalControlService';
 
 interface PosTopbarProps {
   terminalId: string;
@@ -31,6 +33,7 @@ export default function PosTopbar({
   const [timeStr, setTimeStr] = useState('');
   const [connectivity, setConnectivity] = useState<'ONLINE' | 'OFFLINE'>('ONLINE');
   const [pendingCount, setPendingCount] = useState(0);
+  const [controlCheck, setControlCheck] = useState<TerminalControlCheck | null>(null);
 
   useEffect(() => {
     const checkSyncStatus = () => {
@@ -59,6 +62,44 @@ export default function PosTopbar({
     return () => clearInterval(interval);
   }, []);
 
+  useEffect(() => {
+    if (!session) return;
+    const branchId = session.branch.toLowerCase().includes('bulawayo') ? 'BR-BYO' : 'BR-HARARE';
+    let mounted = true;
+    runTerminalControlCheck({
+      vendorId: 'SCI-LOG-ZW',
+      branchId,
+      terminalId: terminalId || session.terminal,
+      terminalName: session.terminal,
+      staffId: session.staffName,
+      staffName: session.staffName,
+      role: session.role as Role,
+      requiresCashDrawer: false
+    }).then((check) => {
+      if (mounted) setControlCheck(check);
+    }).catch(() => {
+      if (mounted) setControlCheck(null);
+    });
+    const timer = setInterval(() => {
+      runTerminalControlCheck({
+        vendorId: 'SCI-LOG-ZW',
+        branchId,
+        terminalId: terminalId || session.terminal,
+        terminalName: session.terminal,
+        staffId: session.staffName,
+        staffName: session.staffName,
+        role: session.role as Role,
+        requiresCashDrawer: false
+      }).then((check) => {
+        if (mounted) setControlCheck(check);
+      }).catch(() => undefined);
+    }, 3000);
+    return () => {
+      mounted = false;
+      clearInterval(timer);
+    };
+  }, [session, terminalId, activeShiftStatus]);
+
   // Live ticking clock matching ISO time format 
   useEffect(() => {
     const updateTime = () => {
@@ -82,6 +123,7 @@ export default function PosTopbar({
     OWNER_DESK: 'Owner Review Desk',
     SALES: 'Sales Terminal',
     SALES_HISTORY: 'Sales History',
+    CUSTOMER_CENTRE: 'Customer Centre',
     DELIVERY: 'Delivery Desk',
     STOCK: 'Inventory',
     TASK_DESK: 'Task Desk',
@@ -132,6 +174,19 @@ export default function PosTopbar({
         {session && (
           <div className="hidden md:flex xl:hidden items-center gap-2 text-[9px] text-[#00f0ff] font-mono bg-slate-950 border border-slate-850 px-2 py-1 uppercase max-w-[200px] truncate shrink-0">
             <span className="truncate">{session.staffName} [{session.role}] @ {session.terminal}</span>
+          </div>
+        )}
+
+        {session && controlCheck && (
+          <div className="hidden 2xl:flex items-center gap-1.5 text-[8.5px] font-bold uppercase shrink-0">
+            <span className="bg-slate-950 border border-slate-800 text-slate-300 px-2 py-1">Terminal: {controlCheck.terminalStatus || 'Registered'}</span>
+            <span className="bg-slate-950 border border-slate-800 text-slate-300 px-2 py-1">Shift: {controlCheck.shiftStatus || activeShiftStatus}</span>
+            <span className={`border px-2 py-1 ${controlCheck.drawerAssigned ? 'bg-emerald-950 border-emerald-800 text-emerald-300' : 'bg-slate-950 border-slate-800 text-slate-400'}`}>
+              Drawer: {controlCheck.drawerAssigned ? 'Assigned' : 'Not Assigned'}
+            </span>
+            <span className={`border px-2 py-1 ${controlCheck.salesAllowed ? 'bg-emerald-950 border-emerald-800 text-emerald-300' : 'bg-rose-950 border-rose-800 text-rose-300'}`}>
+              Sales: {controlCheck.salesAllowed ? 'Allowed' : 'Blocked'}
+            </span>
           </div>
         )}
         

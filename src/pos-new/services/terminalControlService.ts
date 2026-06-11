@@ -1,0 +1,483 @@
+import {
+  mockCashDrawerAssignments,
+  mockShiftSessionControls,
+  mockTerminalActivationRequests,
+  mockTerminalControlEvents,
+  mockTerminalLifecycleRecords
+} from '../mock/mockPosData';
+import {
+  CashDrawerAssignment,
+  Role,
+  ShiftSessionControl,
+  TerminalActivationRequest,
+  TerminalControlCheck,
+  TerminalControlEvent,
+  TerminalLifecycleRecord
+} from '../types';
+import { canPerformAction } from '../utils/posPermissions';
+
+const TERMINAL_KEY = 'itred_pos_terminal_lifecycle_v1';
+const REQUEST_KEY = 'itred_pos_terminal_activation_requests_v1';
+const SHIFT_KEY = 'itred_pos_shift_session_controls_v1';
+const DRAWER_KEY = 'itred_pos_cash_drawer_assignments_v1';
+const EVENT_KEY = 'itred_pos_terminal_control_events_v1';
+
+export interface TerminalControlContext {
+  vendorId: string;
+  branchId: string;
+  terminalId: string;
+  terminalName?: string;
+  staffId?: string;
+  staffName: string;
+  role: Role;
+  requiresCashDrawer?: boolean;
+}
+
+function canUseLocalStorage(): boolean {
+  return typeof localStorage !== 'undefined';
+}
+
+function readList<T>(key: string, fallback: T[]): T[] {
+  if (!canUseLocalStorage()) return fallback;
+  try {
+    const raw = localStorage.getItem(key);
+    if (!raw) {
+      localStorage.setItem(key, JSON.stringify(fallback));
+      return fallback;
+    }
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed as T[] : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+function saveList<T>(key: string, value: T[]): void {
+  if (!canUseLocalStorage()) return;
+  localStorage.setItem(key, JSON.stringify(value));
+}
+
+function nowIso(): string {
+  return new Date().toISOString();
+}
+
+function makeId(prefix: string): string {
+  return `${prefix}-${Date.now()}-${Math.floor(1000 + Math.random() * 9000)}`;
+}
+
+function normalizeTerminalId(value: string): string {
+  return value.trim().toUpperCase();
+}
+
+function terminalMatches(recordTerminalId: string, terminalId: string): boolean {
+  const left = normalizeTerminalId(recordTerminalId);
+  const right = normalizeTerminalId(terminalId);
+  return left === right || left.includes(right) || right.includes(left);
+}
+
+async function recordTerminalEvent(event: Omit<TerminalControlEvent, 'id' | 'createdAt'>): Promise<TerminalControlEvent> {
+  const events = readList<TerminalControlEvent>(EVENT_KEY, mockTerminalControlEvents);
+  const nextEvent: TerminalControlEvent = {
+    ...event,
+    id: makeId('TCE'),
+    createdAt: nowIso()
+  };
+  saveList(EVENT_KEY, [nextEvent, ...events].slice(0, 80));
+  return nextEvent;
+}
+
+export async function getTerminalLifecycle(
+  vendorId: string,
+  branchId: string,
+  terminalId: string
+): Promise<TerminalLifecycleRecord | null> {
+  const records = readList<TerminalLifecycleRecord>(TERMINAL_KEY, mockTerminalLifecycleRecords);
+  return records.find((record) =>
+    record.vendorId === vendorId
+    && record.branchId === branchId
+    && terminalMatches(record.terminalId, terminalId)
+  ) || records.find((record) =>
+    record.vendorId === vendorId
+    && terminalMatches(record.terminalId, terminalId)
+  ) || null;
+}
+
+export async function getTerminalActivationRequests(
+  vendorId: string,
+  branchId?: string
+): Promise<TerminalActivationRequest[]> {
+  const requests = readList<TerminalActivationRequest>(REQUEST_KEY, mockTerminalActivationRequests);
+  return requests.filter((request) => request.vendorId === vendorId && (!branchId || request.branchId === branchId));
+}
+
+export async function requestTerminalActivation(input: {
+  vendorId: string;
+  branchId: string;
+  terminalId: string;
+  terminalName: string;
+  requestedBy: string;
+  reason: string;
+}): Promise<TerminalActivationRequest> {
+  const requests = readList<TerminalActivationRequest>(REQUEST_KEY, mockTerminalActivationRequests);
+  const terminals = readList<TerminalLifecycleRecord>(TERMINAL_KEY, mockTerminalLifecycleRecords);
+  const requestedAt = nowIso();
+  const request: TerminalActivationRequest = {
+    id: makeId('TAR'),
+    status: 'Activation Requested',
+    requestedAt,
+    ...input
+  };
+  const lifecycle: TerminalLifecycleRecord = {
+    id: makeId('TLC'),
+    vendorId: input.vendorId,
+    branchId: input.branchId,
+    terminalId: input.terminalId,
+    terminalName: input.terminalName,
+    status: 'Activation Requested',
+    requestedBy: input.requestedBy,
+    requestedAt,
+    reason: input.reason,
+    updatedAt: requestedAt
+  };
+  saveList(REQUEST_KEY, [request, ...requests]);
+  saveList(TERMINAL_KEY, [lifecycle, ...terminals.filter((record) => !terminalMatches(record.terminalId, input.terminalId))]);
+  await recordTerminalEvent({
+    vendorId: input.vendorId,
+    branchId: input.branchId,
+    terminalId: input.terminalId,
+    staffName: input.requestedBy,
+    eventType: 'ACTIVATE_TERMINAL',
+    message: `${input.terminalId} activation requested.`,
+    severity: 'INFO'
+  });
+  return request;
+}
+
+export async function approveTerminalActivation(
+  requestId: string,
+  approvedBy: string
+): Promise<TerminalLifecycleRecord | null> {
+  const requests = readList<TerminalActivationRequest>(REQUEST_KEY, mockTerminalActivationRequests);
+  const request = requests.find((item) => item.id === requestId);
+  if (!request) return null;
+  const approvedAt = nowIso();
+  const updatedRequests = requests.map((item) => item.id === requestId ? {
+    ...item,
+    status: 'Active' as const,
+    approvedBy,
+    approvedAt
+  } : item);
+  const terminals = readList<TerminalLifecycleRecord>(TERMINAL_KEY, mockTerminalLifecycleRecords);
+  const record: TerminalLifecycleRecord = {
+    id: `TLC-${request.terminalId}`,
+    vendorId: request.vendorId,
+    branchId: request.branchId,
+    terminalId: request.terminalId,
+    terminalName: request.terminalName,
+    status: 'Active',
+    requestedBy: request.requestedBy,
+    requestedAt: request.requestedAt,
+    approvedBy,
+    approvedAt,
+    reason: request.reason,
+    updatedAt: approvedAt
+  };
+  saveList(REQUEST_KEY, updatedRequests);
+  saveList(TERMINAL_KEY, [record, ...terminals.filter((item) => !terminalMatches(item.terminalId, request.terminalId))]);
+  await recordTerminalEvent({
+    vendorId: request.vendorId,
+    branchId: request.branchId,
+    terminalId: request.terminalId,
+    staffName: approvedBy,
+    eventType: 'ACTIVATE_TERMINAL',
+    message: `${request.terminalId} activated.`,
+    severity: 'INFO'
+  });
+  return record;
+}
+
+async function updateTerminalStatus(
+  context: Pick<TerminalControlContext, 'vendorId' | 'branchId' | 'terminalId' | 'staffName'>,
+  status: TerminalLifecycleRecord['status'],
+  message: string,
+  reason?: string
+): Promise<TerminalLifecycleRecord> {
+  const terminals = readList<TerminalLifecycleRecord>(TERMINAL_KEY, mockTerminalLifecycleRecords);
+  const existing = terminals.find((record) =>
+    record.vendorId === context.vendorId
+    && record.branchId === context.branchId
+    && terminalMatches(record.terminalId, context.terminalId)
+  );
+  const updatedAt = nowIso();
+  const record: TerminalLifecycleRecord = {
+    id: existing?.id || makeId('TLC'),
+    vendorId: context.vendorId,
+    branchId: context.branchId,
+    terminalId: context.terminalId,
+    terminalName: existing?.terminalName || context.terminalId,
+    status,
+    approvedBy: existing?.approvedBy,
+    approvedAt: existing?.approvedAt,
+    requestedBy: existing?.requestedBy,
+    requestedAt: existing?.requestedAt,
+    reason,
+    lockedReason: status === 'Locked' ? reason || 'Terminal is locked pending review.' : undefined,
+    updatedAt
+  };
+  saveList(TERMINAL_KEY, [record, ...terminals.filter((item) => !terminalMatches(item.terminalId, context.terminalId))]);
+  await recordTerminalEvent({
+    vendorId: context.vendorId,
+    branchId: context.branchId,
+    terminalId: context.terminalId,
+    staffName: context.staffName,
+    eventType: status === 'Locked' ? 'LOCK_TERMINAL' : 'DEACTIVATE_TERMINAL',
+    message,
+    severity: status === 'Locked' ? 'WARNING' : 'INFO'
+  });
+  return record;
+}
+
+export async function deactivateTerminal(context: Pick<TerminalControlContext, 'vendorId' | 'branchId' | 'terminalId' | 'staffName'>, reason = 'Terminal deactivated.'): Promise<TerminalLifecycleRecord> {
+  return updateTerminalStatus(context, 'Deactivated', `${context.terminalId} deactivated.`, reason);
+}
+
+export async function lockTerminal(context: Pick<TerminalControlContext, 'vendorId' | 'branchId' | 'terminalId' | 'staffName'>, reason = 'Terminal is locked pending review.'): Promise<TerminalLifecycleRecord> {
+  return updateTerminalStatus(context, 'Locked', `${context.terminalId} locked pending review.`, reason);
+}
+
+export async function requestTerminalReactivation(context: Pick<TerminalControlContext, 'vendorId' | 'branchId' | 'terminalId' | 'terminalName' | 'staffName'>, reason = 'Terminal reactivation requested.'): Promise<TerminalActivationRequest> {
+  return requestTerminalActivation({
+    vendorId: context.vendorId,
+    branchId: context.branchId,
+    terminalId: context.terminalId,
+    terminalName: context.terminalName || context.terminalId,
+    requestedBy: context.staffName,
+    reason
+  });
+}
+
+export async function getShiftSessionControl(
+  vendorId: string,
+  branchId: string,
+  terminalId: string,
+  staffId?: string
+): Promise<ShiftSessionControl | null> {
+  const shifts = readList<ShiftSessionControl>(SHIFT_KEY, mockShiftSessionControls);
+  const terminalShifts = shifts.filter((shift) =>
+    shift.vendorId === vendorId
+    && shift.branchId === branchId
+    && terminalMatches(shift.terminalId, terminalId)
+  );
+  return terminalShifts.find((shift) => staffId && shift.staffId === staffId && shift.status === 'Open')
+    || terminalShifts.find((shift) => shift.status === 'Open')
+    || terminalShifts[0]
+    || null;
+}
+
+export async function getCashDrawerAssignments(
+  vendorId: string,
+  branchId: string,
+  terminalId?: string
+): Promise<CashDrawerAssignment[]> {
+  const drawers = readList<CashDrawerAssignment>(DRAWER_KEY, mockCashDrawerAssignments);
+  return drawers.filter((drawer) =>
+    drawer.vendorId === vendorId
+    && drawer.branchId === branchId
+    && (!terminalId || terminalMatches(drawer.terminalId, terminalId))
+  );
+}
+
+export async function openShift(input: {
+  vendorId: string;
+  branchId: string;
+  terminalId: string;
+  terminalName: string;
+  staffId: string;
+  staffName: string;
+  openingFloat: number;
+  notes?: string;
+}): Promise<ShiftSessionControl> {
+  const shifts = readList<ShiftSessionControl>(SHIFT_KEY, mockShiftSessionControls);
+  const shift: ShiftSessionControl = {
+    id: makeId('SSC'),
+    vendorId: input.vendorId,
+    branchId: input.branchId,
+    terminalId: input.terminalId,
+    terminalName: input.terminalName,
+    staffId: input.staffId,
+    staffName: input.staffName,
+    status: 'Open',
+    openedAt: nowIso(),
+    openingFloat: input.openingFloat,
+    expectedCash: input.openingFloat,
+    notes: input.notes
+  };
+  saveList(SHIFT_KEY, [shift, ...shifts.filter((item) => !(terminalMatches(item.terminalId, input.terminalId) && item.status === 'Open'))]);
+  await recordTerminalEvent({
+    vendorId: input.vendorId,
+    branchId: input.branchId,
+    terminalId: input.terminalId,
+    staffId: input.staffId,
+    staffName: input.staffName,
+    eventType: 'OPEN_SHIFT',
+    message: `${input.staffName} opened shift on ${input.terminalId}.`,
+    severity: 'INFO'
+  });
+  return shift;
+}
+
+export async function closeShift(shiftId: string, declaredCash: number, staffName: string): Promise<ShiftSessionControl | null> {
+  const shifts = readList<ShiftSessionControl>(SHIFT_KEY, mockShiftSessionControls);
+  const existing = shifts.find((shift) => shift.id === shiftId);
+  if (!existing) return null;
+  const variance = declaredCash - existing.expectedCash;
+  const updated: ShiftSessionControl = {
+    ...existing,
+    status: 'Closed',
+    closedAt: nowIso(),
+    declaredCash,
+    variance,
+    reviewedBy: staffName
+  };
+  saveList(SHIFT_KEY, shifts.map((shift) => shift.id === shiftId ? updated : shift));
+  await recordTerminalEvent({
+    vendorId: updated.vendorId,
+    branchId: updated.branchId,
+    terminalId: updated.terminalId,
+    staffId: updated.staffId,
+    staffName,
+    eventType: 'CLOSE_SHIFT',
+    message: `${updated.terminalId} shift closed with variance USD ${variance.toFixed(2)}.`,
+    severity: variance === 0 ? 'INFO' : 'WARNING'
+  });
+  return updated;
+}
+
+export async function forceCloseShift(shiftId: string, staffName: string): Promise<ShiftSessionControl | null> {
+  const shifts = readList<ShiftSessionControl>(SHIFT_KEY, mockShiftSessionControls);
+  const existing = shifts.find((shift) => shift.id === shiftId);
+  if (!existing) return null;
+  const updated: ShiftSessionControl = {
+    ...existing,
+    status: 'Force Closed',
+    closedAt: nowIso(),
+    reviewedBy: staffName
+  };
+  saveList(SHIFT_KEY, shifts.map((shift) => shift.id === shiftId ? updated : shift));
+  await recordTerminalEvent({
+    vendorId: updated.vendorId,
+    branchId: updated.branchId,
+    terminalId: updated.terminalId,
+    staffId: updated.staffId,
+    staffName,
+    eventType: 'FORCE_CLOSE_SHIFT',
+    message: `${updated.terminalId} shift force closed.`,
+    severity: 'WARNING'
+  });
+  return updated;
+}
+
+export async function assignCashDrawer(input: {
+  vendorId: string;
+  branchId: string;
+  terminalId: string;
+  terminalName: string;
+  drawerId: string;
+  staffId: string;
+  staffName: string;
+  openingFloat: number;
+  notes?: string;
+}): Promise<CashDrawerAssignment> {
+  const drawers = readList<CashDrawerAssignment>(DRAWER_KEY, mockCashDrawerAssignments);
+  const assignment: CashDrawerAssignment = {
+    id: makeId('CDA'),
+    status: 'Assigned',
+    assignedAt: nowIso(),
+    ...input
+  };
+  saveList(DRAWER_KEY, [assignment, ...drawers.map((drawer) =>
+    terminalMatches(drawer.terminalId, input.terminalId) && drawer.status === 'Assigned'
+      ? { ...drawer, status: 'Unassigned' as const, unassignedAt: nowIso() }
+      : drawer
+  )]);
+  await recordTerminalEvent({
+    vendorId: input.vendorId,
+    branchId: input.branchId,
+    terminalId: input.terminalId,
+    staffId: input.staffId,
+    staffName: input.staffName,
+    eventType: 'ASSIGN_CASH_DRAWER',
+    message: `${input.drawerId} assigned to ${input.staffName}.`,
+    severity: 'INFO'
+  });
+  return assignment;
+}
+
+export async function unassignCashDrawer(assignmentId: string, staffName: string): Promise<CashDrawerAssignment | null> {
+  const drawers = readList<CashDrawerAssignment>(DRAWER_KEY, mockCashDrawerAssignments);
+  const existing = drawers.find((drawer) => drawer.id === assignmentId);
+  if (!existing) return null;
+  const updated: CashDrawerAssignment = {
+    ...existing,
+    status: 'Unassigned',
+    unassignedAt: nowIso()
+  };
+  saveList(DRAWER_KEY, drawers.map((drawer) => drawer.id === assignmentId ? updated : drawer));
+  await recordTerminalEvent({
+    vendorId: updated.vendorId,
+    branchId: updated.branchId,
+    terminalId: updated.terminalId,
+    staffId: updated.staffId,
+    staffName,
+    eventType: 'UNASSIGN_CASH_DRAWER',
+    message: `${updated.drawerId} unassigned.`,
+    severity: 'INFO'
+  });
+  return updated;
+}
+
+export async function canTerminalSell(context: TerminalControlContext): Promise<boolean> {
+  const check = await runTerminalControlCheck(context);
+  return check.allowed;
+}
+
+export async function runTerminalControlCheck(context: TerminalControlContext): Promise<TerminalControlCheck> {
+  const terminal = await getTerminalLifecycle(context.vendorId, context.branchId, context.terminalId);
+  const shift = await getShiftSessionControl(context.vendorId, context.branchId, context.terminalId, context.staffId);
+  const drawers = readList<CashDrawerAssignment>(DRAWER_KEY, mockCashDrawerAssignments);
+  const drawerAssigned = drawers.some((drawer) =>
+    drawer.vendorId === context.vendorId
+    && drawer.branchId === context.branchId
+    && terminalMatches(drawer.terminalId, context.terminalId)
+    && drawer.status === 'Assigned'
+  );
+  const reasons: string[] = [];
+
+  if (!canPerformAction(context.role, 'sales.complete')) reasons.push('You do not have permission to complete a sale.');
+  if (!terminal || terminal.status !== 'Active') reasons.push(terminal?.status === 'Locked' ? 'Terminal is locked pending review.' : 'Terminal is not active.');
+  if (terminal?.status === 'Suspended' || terminal?.status === 'Deactivated') reasons.push('Terminal is not active.');
+  if (!shift || shift.status === 'Not Opened') reasons.push('Shift is not open.');
+  if (shift?.status === 'Closed' || shift?.status === 'Force Closed') reasons.push('Shift has been closed.');
+  if (shift?.status !== 'Open' && shift?.status !== undefined && shift.status !== 'Closed' && shift.status !== 'Force Closed') reasons.push('Shift is not open.');
+  if (context.requiresCashDrawer && !drawerAssigned) reasons.push('Cash drawer is not assigned.');
+
+  const uniqueReasons = [...new Set(reasons)];
+  return {
+    allowed: uniqueReasons.length === 0,
+    message: uniqueReasons[0] || 'Sales allowed.',
+    reasons: uniqueReasons,
+    terminalStatus: terminal?.status,
+    shiftStatus: shift?.status,
+    drawerAssigned,
+    salesAllowed: uniqueReasons.length === 0
+  };
+}
+
+export async function getTerminalControlEvents(vendorId: string, branchId?: string): Promise<TerminalControlEvent[]> {
+  const events = readList<TerminalControlEvent>(EVENT_KEY, mockTerminalControlEvents);
+  return events.filter((event) => event.vendorId === vendorId && (!branchId || event.branchId === branchId));
+}
+
+export async function logTerminalControlEvent(event: Omit<TerminalControlEvent, 'id' | 'createdAt'>): Promise<TerminalControlEvent> {
+  return recordTerminalEvent(event);
+}

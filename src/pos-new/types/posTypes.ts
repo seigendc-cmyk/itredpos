@@ -27,6 +27,123 @@ export interface Terminal {
   type: string;
 }
 
+export type TerminalLifecycleStatus =
+  | 'Registered'
+  | 'Activation Requested'
+  | 'Active'
+  | 'Suspended'
+  | 'Deactivated'
+  | 'Locked'
+  | 'Pending Review';
+
+export type ShiftLifecycleStatus =
+  | 'Not Opened'
+  | 'Open'
+  | 'Closing Review'
+  | 'Closed'
+  | 'Force Closed'
+  | 'Locked';
+
+export type TerminalActionType =
+  | 'ACTIVATE_TERMINAL'
+  | 'DEACTIVATE_TERMINAL'
+  | 'LOCK_TERMINAL'
+  | 'REQUEST_REACTIVATION'
+  | 'OPEN_SHIFT'
+  | 'CLOSE_SHIFT'
+  | 'FORCE_CLOSE_SHIFT'
+  | 'ASSIGN_CASH_DRAWER'
+  | 'UNASSIGN_CASH_DRAWER'
+  | 'SALE_BLOCKED_SHIFT_OR_TERMINAL';
+
+export interface TerminalLifecycleRecord {
+  id: string;
+  vendorId: string;
+  branchId: string;
+  terminalId: string;
+  terminalName: string;
+  status: TerminalLifecycleStatus;
+  requestedBy?: string;
+  requestedAt?: string;
+  approvedBy?: string;
+  approvedAt?: string;
+  reason?: string;
+  lockedReason?: string;
+  updatedAt: string;
+}
+
+export interface TerminalActivationRequest {
+  id: string;
+  vendorId: string;
+  branchId: string;
+  terminalId: string;
+  terminalName: string;
+  status: 'Activation Requested' | 'Active' | 'Pending Review';
+  requestedBy: string;
+  requestedAt: string;
+  approvedBy?: string;
+  approvedAt?: string;
+  reason: string;
+}
+
+export interface ShiftSessionControl {
+  id: string;
+  vendorId: string;
+  branchId: string;
+  terminalId: string;
+  terminalName: string;
+  staffId: string;
+  staffName: string;
+  status: ShiftLifecycleStatus;
+  openedAt?: string;
+  closedAt?: string;
+  openingFloat: number;
+  expectedCash: number;
+  declaredCash?: number;
+  variance?: number;
+  notes?: string;
+  reviewedBy?: string;
+}
+
+export interface CashDrawerAssignment {
+  id: string;
+  vendorId: string;
+  branchId: string;
+  terminalId: string;
+  terminalName: string;
+  drawerId: string;
+  staffId: string;
+  staffName: string;
+  status: 'Assigned' | 'Unassigned' | 'Review';
+  openingFloat: number;
+  assignedAt: string;
+  unassignedAt?: string;
+  notes?: string;
+}
+
+export interface TerminalControlCheck {
+  allowed: boolean;
+  message: string;
+  reasons: string[];
+  terminalStatus?: TerminalLifecycleStatus;
+  shiftStatus?: ShiftLifecycleStatus;
+  drawerAssigned: boolean;
+  salesAllowed: boolean;
+}
+
+export interface TerminalControlEvent {
+  id: string;
+  vendorId: string;
+  branchId: string;
+  terminalId: string;
+  staffId?: string;
+  staffName?: string;
+  eventType: TerminalActionType | string;
+  message: string;
+  severity: BISeverity;
+  createdAt: string;
+}
+
 export type Role = 'Owner' | 'SysAdmin' | 'Manager' | 'Cashier' | 'Stock Controller' | 'Supervisor';
 
 export type Permission = string;
@@ -726,6 +843,7 @@ export type PosPageId =
   | 'OWNER_DESK'
   | 'SALES'
   | 'SALES_HISTORY'
+  | 'CUSTOMER_CENTRE'
   | 'DELIVERY'
   | 'STOCK'
   | 'TASK_DESK'
@@ -767,6 +885,217 @@ export type ApprovalRequestType =
   | 'Stocktake Variance Approval';
 
 export type ApprovalStatus = 'Pending' | 'Approved' | 'Rejected';
+
+export type OperationalApprovalCategory =
+  | 'Price Override'
+  | 'Discount Above Limit'
+  | 'Return Request'
+  | 'Credit Note Request'
+  | 'Terminal Activation'
+  | 'Cash Variance Review'
+  | 'Stock Adjustment'
+  | 'Stocktake Variance'
+  | 'Inventory Import Approval'
+  | 'Delivery Provider Approval'
+  | 'Customer Approval';
+
+export type OperationalApprovalDecision = 'Approved' | 'Rejected';
+
+export interface OperationalApprovalRequest {
+  id: string;
+  vendorId: string;
+  branchId: string;
+  branch: string;
+  category: OperationalApprovalCategory;
+  requestedBy: string;
+  requestedByRole: Role;
+  relatedRecord: string;
+  amountOrValue: string;
+  risk: RiskLevel;
+  status: ApprovalStatus;
+  requestedAt: string;
+  reason: string;
+  context: string;
+  requiredPermission: 'approvals.approve' | 'approvals.reject';
+  approvedBy?: string;
+  approvedAt?: string;
+  rejectedBy?: string;
+  rejectedAt?: string;
+  decisionNote?: string;
+}
+
+export interface OperationalApprovalEvent {
+  id: string;
+  approvalId: string;
+  eventType: 'APPROVAL_CREATED' | 'APPROVAL_VIEWED' | 'APPROVAL_APPROVED' | 'APPROVAL_REJECTED';
+  operator: string;
+  message: string;
+  createdAt: string;
+}
+
+export type CustomerStatus =
+  | 'Pending Approval'
+  | 'Active'
+  | 'Rejected'
+  | 'Duplicate'
+  | 'Suspended'
+  | 'Inactive';
+
+export type CustomerType =
+  | 'Walk-in'
+  | 'Individual'
+  | 'Business'
+  | 'Government'
+  | 'School'
+  | 'Fleet Customer'
+  | 'Dealer'
+  | 'Internal Account';
+
+export type CustomerCreditStatus =
+  | 'Cash Only'
+  | 'Credit Allowed'
+  | 'Credit Suspended'
+  | 'Credit Review Required'
+  | 'Not Applicable';
+
+export type CustomerSource =
+  | 'Walk-in'
+  | 'WhatsApp Catalogue'
+  | 'Commerce Access Hub'
+  | 'Referral'
+  | 'Phone Call'
+  | 'Facebook'
+  | 'Sales Terminal'
+  | 'Imported'
+  | 'Other';
+
+export interface CustomerAddress {
+  id: string;
+  customerId: string;
+  type: 'Billing' | 'Delivery';
+  addressLine: string;
+  cityTown: string;
+  district: string;
+  suburb: string;
+}
+
+export interface CustomerContact {
+  id: string;
+  customerId: string;
+  name: string;
+  role?: string;
+  phone?: string;
+  whatsapp?: string;
+  email?: string;
+}
+
+export interface CustomerRecord {
+  customerId: string;
+  vendorId: string;
+  customerCode: string;
+  customerName: string;
+  customerType: CustomerType;
+  phone: string;
+  whatsapp: string;
+  email: string;
+  taxNumber: string;
+  billingAddress: string;
+  deliveryAddress: string;
+  cityTown: string;
+  district: string;
+  suburb: string;
+  source: CustomerSource;
+  status: CustomerStatus;
+  creditStatus: CustomerCreditStatus;
+  creditLimit?: number;
+  currentBalance?: number;
+  notes: string;
+  createdByStaffId: string;
+  approvedByStaffId?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CustomerApprovalRequest {
+  requestId: string;
+  customerId: string;
+  vendorId: string;
+  customerName: string;
+  phone: string;
+  whatsapp: string;
+  source: CustomerSource;
+  requestedBy: string;
+  requestedAt: string;
+  duplicateRisk: 'Low' | 'Medium' | 'High';
+  status: CustomerStatus;
+}
+
+export interface CustomerPurchaseHistoryRow {
+  id: string;
+  customerId: string;
+  receiptNo: string;
+  date: string;
+  branch: string;
+  cashier: string;
+  items: number;
+  total: number;
+  paymentMethod: string;
+  deliveryStatus: string;
+  returnStatus: string;
+}
+
+export interface CustomerNote {
+  id: string;
+  customerId: string;
+  dateTime: string;
+  note: string;
+  addedBy: string;
+  role: Role;
+  relatedRecord?: string;
+}
+
+export interface CustomerActivityEvent {
+  id: string;
+  customerId: string;
+  dateTime: string;
+  eventType:
+    | 'CUSTOMER_CREATED_PENDING'
+    | 'CUSTOMER_APPROVED'
+    | 'CUSTOMER_REJECTED'
+    | 'CUSTOMER_DUPLICATE_FLAGGED'
+    | 'CUSTOMER_SUSPENDED'
+    | 'CUSTOMER_SELECTED_FOR_SALE'
+    | 'CUSTOMER_NOTE_ADDED'
+    | 'CUSTOMER_PURCHASE_RECORDED'
+    | 'CUSTOMER_SERVICE_RISK'
+    | 'CUSTOMER_CREDIT_REVIEW_REQUIRED';
+  user: string;
+  notes: string;
+}
+
+export interface CustomerFilterState {
+  search?: string;
+  customerType?: CustomerType | 'All';
+  status?: CustomerStatus | 'All';
+  creditStatus?: CustomerCreditStatus | 'All';
+  source?: CustomerSource | 'All';
+  cityTown?: string;
+  district?: string;
+  suburb?: string;
+  dateFrom?: string;
+  dateTo?: string;
+}
+
+export interface CustomerSummary {
+  totalCustomers: number;
+  activeCustomers: number;
+  pendingApproval: number;
+  duplicateReview: number;
+  suspended: number;
+  whatsAppLeads: number;
+  repeatCustomers: number;
+  creditReview: number;
+}
 
 export interface ApprovalRequest {
   id: string;
