@@ -3,13 +3,17 @@ import { ArrowRight, Clock, FileText, History, Printer, RotateCcw, ShieldCheck }
 import ProductSearchCard from '../components/ProductSearchCard';
 import SalesCartCard, {
   DeliveryMode,
+  SalesCustomerMode,
   SalesPaymentLine,
   SalesPaymentMethod
 } from '../components/SalesCartCard';
 import ReceiptPreview80mm from '../components/ReceiptPreview80mm';
 import { mockProducts, mockRecentSales } from '../mock/mockPosData';
+import { createAccountingPostingPlaceholder } from '../services/accountingService';
+import { biEventService } from '../services/biEventService';
 import { createReceiptFromSale, getReceiptPreview } from '../services/receiptService';
 import { postSaleMovement } from '../services/inventoryMovementService';
+import { recordPaymentReportEvent } from '../services/paymentReportService';
 import {
   CartItem,
   PaymentMode,
@@ -114,10 +118,13 @@ export default function PosSales({
 
   const [localProducts, setLocalProducts] = useState<Product[]>(products.length > 0 ? products : DEFAULT_PRODUCTS);
   const [cart, setCart] = useState<CartItem[]>([]);
+  const [customerMode, setCustomerMode] = useState<SalesCustomerMode>('Walk-in Customer');
   const [customerName, setCustomerName] = useState('Walk-in Customer');
   const [customerPhone, setCustomerPhone] = useState('');
+  const [customerWhatsApp, setCustomerWhatsApp] = useState('');
   const [customerAddress, setCustomerAddress] = useState('');
   const [customerTaxNumber, setCustomerTaxNumber] = useState('');
+  const [customerNotes, setCustomerNotes] = useState('');
   const [paymentMethod, setPaymentMethod] = useState<SalesPaymentMethod>('Cash');
   const [paymentAmount, setPaymentAmount] = useState('');
   const [paymentReference, setPaymentReference] = useState('');
@@ -134,6 +141,7 @@ export default function PosSales({
   const [auditEvents, setAuditEvents] = useState<SalesAuditEvent[]>([]);
   const [statusMessage, setStatusMessage] = useState('');
   const [receiptPreview, setReceiptPreview] = useState<ReceiptPrintPreview | null>(null);
+  const [preparedReceiptPreview, setPreparedReceiptPreview] = useState<ReceiptPrintPreview | null>(null);
 
   useEffect(() => {
     setLocalProducts(products.length > 0 ? products : DEFAULT_PRODUCTS);
@@ -172,6 +180,22 @@ export default function PosSales({
     }, ...current].slice(0, 8));
   };
 
+  const eventTitle = (eventType: string): string => {
+    const titles: Record<string, string> = {
+      PRODUCT_ADDED: 'Product Added',
+      PRODUCT_REMOVED: 'Product Removed',
+      SALE_BLOCKED_ZERO_STOCK: 'Sale Blocked: Zero Stock',
+      CUSTOMER_CREATED_PENDING: 'Customer Request Created',
+      PAYMENT_ADDED: 'Payment Added',
+      TRANSACTION_HELD: 'Sale Held',
+      TRANSACTION_RESUMED: 'Sale Resumed',
+      SALE_CANCELLED: 'Sale Cancelled',
+      SALE_COMPLETED: 'Sale Completed',
+      RECEIPT_CREATED: 'Receipt Created'
+    };
+    return titles[eventType] || eventType.toLowerCase().split('_').map((word) => word.charAt(0).toUpperCase() + word.slice(1)).join(' ');
+  };
+
   const clearCartState = () => {
     setCart([]);
     setPayments([]);
@@ -183,9 +207,43 @@ export default function PosSales({
     setDeliveryNotes('');
     setDeliveryFee('0');
     setCustomerName('Walk-in Customer');
+    setCustomerMode('Walk-in Customer');
     setCustomerPhone('');
+    setCustomerWhatsApp('');
     setCustomerAddress('');
     setCustomerTaxNumber('');
+    setCustomerNotes('');
+  };
+
+  const handleRemoveItem = (productId: string) => {
+    const removedItem = cart.find((item) => item.product.id === productId);
+    setCart((current) => current.filter((item) => item.product.id !== productId));
+    if (removedItem) {
+      logEvent('PRODUCT_REMOVED', `${productSku(removedItem.product)} removed from cart.`);
+    }
+  };
+
+  const handleCustomerModeChange = (mode: SalesCustomerMode) => {
+    setCustomerMode(mode);
+    if (mode === 'Walk-in Customer') {
+      setCustomerName('Walk-in Customer');
+      setCustomerPhone('');
+      setCustomerWhatsApp('');
+      setCustomerAddress('');
+      setCustomerTaxNumber('');
+      setCustomerNotes('');
+    }
+    if (mode === 'Existing Customer' && customerName === 'Walk-in Customer') {
+      setCustomerName('Mary Courier');
+    }
+    if (mode === 'New Customer Request') {
+      setCustomerName('');
+    }
+  };
+
+  const handleSaveCustomerRequest = () => {
+    logEvent('CUSTOMER_CREATED_PENDING', `${customerName || 'New customer'} customer request saved locally.`);
+    setStatusMessage('Customer request saved locally.');
   };
 
   const handleBlockedProduct = (product: Product) => {
@@ -206,7 +264,7 @@ export default function PosSales({
       const existing = current.find((item) => item.product.id === currentProduct.id);
       if (existing) {
         if (existing.quantity + 1 > availableStock) {
-          setStatusMessage(`Only ${availableStock} available for ${productName(currentProduct)}.`);
+          setStatusMessage('Cannot add more. Available stock limit reached.');
           return current;
         }
         return current.map((item) => item.product.id === currentProduct.id ? { ...item, quantity: item.quantity + 1 } : item);
@@ -221,9 +279,9 @@ export default function PosSales({
       if (item.product.id !== productId) return [item];
       const availableStock = productStock(localProducts.find((product) => product.id === productId) || item.product);
       const nextQuantity = item.quantity + delta;
-      if (nextQuantity <= 0) return [];
+      if (nextQuantity < 1) return [item];
       if (nextQuantity > availableStock) {
-        setStatusMessage(`Only ${availableStock} available for ${productName(item.product)}.`);
+        setStatusMessage('Cannot add more. Available stock limit reached.');
         return [item];
       }
       return [{ ...item, quantity: nextQuantity }];
@@ -261,6 +319,7 @@ export default function PosSales({
 
   const validateSale = (): string | null => {
     if (!canPerformAction(roleName, 'sales.complete')) return 'Current role cannot complete sales.';
+    if (!canPerformAction(roleName, 'sales.complete')) return 'You do not have permission to perform this action.';
     if (!activeShiftOperator) return 'Open a shift before completing sale.';
     if (cart.length === 0) return 'Cart is empty.';
     const insufficientLine = cart.find((item) => {
@@ -376,6 +435,29 @@ export default function PosSales({
         vatMode,
         vatRate: parsedVatRate
       });
+      try {
+        await createAccountingPostingPlaceholder({
+          sourceReference: invoiceNo,
+          source: 'Sale',
+          branch: branchName,
+          amount: grandTotal
+        });
+        await recordPaymentReportEvent('PAYMENT_BREAKDOWN_VIEWED', staffName);
+        await biEventService.recordBIEvent({
+          eventType: 'SALE_COMPLETED',
+          operator: staffName,
+          terminal: terminalName,
+          severity: 'INFO',
+          payload: {
+            invoiceNo,
+            total: grandTotal,
+            customerName,
+            paymentMethod: receiptPaymentMode(payments[0]?.method || paymentMethod)
+          }
+        });
+      } catch {
+        logEvent('SALE_COMPLETION_SERVICE_PLACEHOLDER', 'Optional accounting, payment, or BI placeholder service was skipped safely.');
+      }
       const preview = await getReceiptPreview(receipt.receiptNumber, '80mm');
       setReceiptPreview(preview || null);
       setRecentSales((current) => [sale, ...current].slice(0, 6));
@@ -399,8 +481,8 @@ export default function PosSales({
     };
     setHeldSales((current) => [hold, ...current].slice(0, 8));
     clearCartState();
-    setStatusMessage(`Sale held as ${hold.id}.`);
-    logEvent('SALE_HELD', `Held sale ${hold.id}.`);
+    setStatusMessage('Sale held successfully.');
+    logEvent('TRANSACTION_HELD', `Held sale ${hold.id}.`);
   };
 
   const handleResumeHeldSale = (heldSale: HeldSale) => {
@@ -452,13 +534,17 @@ export default function PosSales({
           warehouseName={warehouseName}
           onAddProduct={handleAddProduct}
           onBlockedProduct={handleBlockedProduct}
+          onBlockedStockAttempt={handleBlockedProduct}
         />
         <SalesCartCard
           cart={cart}
+          customerMode={customerMode}
           customerName={customerName}
           customerPhone={customerPhone}
+          customerWhatsApp={customerWhatsApp}
           customerAddress={customerAddress}
           customerTaxNumber={customerTaxNumber}
+          customerNotes={customerNotes}
           cashierName={staffName}
           terminalName={terminalName}
           branchName={branchName}
@@ -485,10 +571,14 @@ export default function PosSales({
           }}
           canComplete={canComplete}
           disableCompleteReason={disableCompleteReason}
+          onCustomerModeChange={handleCustomerModeChange}
           onCustomerNameChange={setCustomerName}
           onCustomerPhoneChange={setCustomerPhone}
+          onCustomerWhatsAppChange={setCustomerWhatsApp}
           onCustomerAddressChange={setCustomerAddress}
           onCustomerTaxNumberChange={setCustomerTaxNumber}
+          onCustomerNotesChange={setCustomerNotes}
+          onSaveCustomerRequest={handleSaveCustomerRequest}
           onQuantityChange={handleQuantityChange}
           onRemoveItem={(productId) => setCart((current) => current.filter((item) => item.product.id !== productId))}
           onApplyLineDiscount={handleApplyLineDiscount}

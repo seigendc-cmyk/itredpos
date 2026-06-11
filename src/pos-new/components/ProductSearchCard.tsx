@@ -8,10 +8,24 @@ interface ProductSearchCardProps {
   branchName: string;
   warehouseName?: string;
   onAddProduct: (product: Product) => void;
-  onBlockedProduct: (product: Product) => void;
+  onBlockedProduct?: (product: Product) => void;
+  onBlockedStockAttempt?: (product: Product) => void;
 }
 
 type StockFilter = 'ALL' | 'IN_STOCK' | 'LOW_STOCK' | 'OUT_OF_STOCK';
+type QuickCategory = 'ALL' | 'Motor Spares' | 'Hardware' | 'Grocery' | 'Agriculture' | 'Clothing' | 'Furniture' | 'Electronics' | 'Lubricants';
+
+const quickCategories: QuickCategory[] = [
+  'ALL',
+  'Motor Spares',
+  'Hardware',
+  'Grocery',
+  'Agriculture',
+  'Clothing',
+  'Furniture',
+  'Electronics',
+  'Lubricants'
+];
 
 function asRecord(product: Product): Record<string, unknown> {
   return product as unknown as Record<string, unknown>;
@@ -61,7 +75,8 @@ export default function ProductSearchCard({
   branchName,
   warehouseName = 'Main Warehouse',
   onAddProduct,
-  onBlockedProduct
+  onBlockedProduct,
+  onBlockedStockAttempt
 }: ProductSearchCardProps) {
   const [query, setQuery] = useState('');
   const [category, setCategory] = useState('ALL');
@@ -69,6 +84,7 @@ export default function ProductSearchCard({
   const [branch, setBranch] = useState('ALL');
   const [warehouse, setWarehouse] = useState('ALL');
   const [stockFilter, setStockFilter] = useState<StockFilter>('ALL');
+  const [message, setMessage] = useState('');
 
   const categories = useMemo(
     () => distinct(products.map((product) => product.productCategory || product.category)),
@@ -95,7 +111,10 @@ export default function ProductSearchCard({
       const productWarehouse = product.warehouse || product.warehouseId || warehouseName;
       const qty = productQty(product);
 
-      const matchesCategory = category === 'ALL' || productCategory === category;
+      const matchesCategory = category === 'ALL' ||
+        productCategory === category ||
+        product.productSubCategory === category ||
+        productSector === category;
       const matchesSector = sector === 'ALL' || productSector === sector;
       const matchesBranch = branch === 'ALL' || productBranch === branch;
       const matchesWarehouse = warehouse === 'ALL' || productWarehouse === warehouse;
@@ -121,10 +140,18 @@ export default function ProductSearchCard({
         (item) => item.productSubCategory,
         (item) => textMeta(item, 'tags'),
         (item) => textMeta(item, 'description'),
+        (item) => textMeta(item, 'partNumber'),
+        (item) => textMeta(item, 'oemNumber'),
         (item) => textMeta(item, 'make'),
         (item) => textMeta(item, 'model'),
         (item) => textMeta(item, 'year'),
-        (item) => textMeta(item, 'side')
+        (item) => textMeta(item, 'yearFrom'),
+        (item) => textMeta(item, 'yearTo'),
+        (item) => textMeta(item, 'side'),
+        (item) => textMeta(item, 'condition'),
+        (item) => textMeta(item, 'colour'),
+        (item) => textMeta(item, 'color'),
+        (item) => textMeta(item, 'vendorSku')
       ]);
 
       return matchesCategory && matchesSector && matchesBranch && matchesWarehouse && matchesStock && matchesQuery;
@@ -138,14 +165,22 @@ export default function ProductSearchCard({
     setBranch('ALL');
     setWarehouse('ALL');
     setStockFilter('ALL');
+    setMessage('');
   };
 
   const handleAdd = (product: Product) => {
     if (productQty(product) <= 0) {
-      onBlockedProduct(product);
+      setMessage('Cannot add product. Stock is not available.');
+      (onBlockedStockAttempt || onBlockedProduct)?.(product);
       return;
     }
+    setMessage('');
     onAddProduct(product);
+  };
+
+  const handleQuickCategory = (nextCategory: QuickCategory) => {
+    setCategory(nextCategory === 'ALL' ? 'ALL' : nextCategory);
+    setMessage('');
   };
 
   return (
@@ -165,17 +200,17 @@ export default function ProductSearchCard({
           <input
             value={query}
             onChange={(event) => setQuery(event.target.value)}
-            placeholder="Search SKU, ALU, barcode, brand, shelf, make, model..."
+            placeholder="Search by product, SKU, barcode, ALU, brand, make, model, year, side, category..."
           />
         </label>
 
+        <select value={sector} onChange={(event) => setSector(event.target.value)} aria-label="Industrial Sector filter">
+          <option value="ALL">All Industrial Sectors</option>
+          {sectors.map((item) => <option key={item} value={item}>{item}</option>)}
+        </select>
         <select value={category} onChange={(event) => setCategory(event.target.value)} aria-label="Category filter">
           <option value="ALL">All Categories</option>
           {categories.map((item) => <option key={item} value={item}>{item}</option>)}
-        </select>
-        <select value={sector} onChange={(event) => setSector(event.target.value)} aria-label="Sector filter">
-          <option value="ALL">All Sectors</option>
-          {sectors.map((item) => <option key={item} value={item}>{item}</option>)}
         </select>
         <select value={branch} onChange={(event) => setBranch(event.target.value)} aria-label="Branch filter">
           <option value="ALL">All Branches</option>
@@ -197,11 +232,33 @@ export default function ProductSearchCard({
         </button>
       </div>
 
+      <div className="pos-quick-filter-row" aria-label="Category quick filters">
+        {quickCategories.map((item) => {
+          const isActive = item === 'ALL' ? category === 'ALL' : category === item;
+          return (
+            <button
+              key={item}
+              type="button"
+              className={`industrial-tab ${isActive ? 'active' : ''}`}
+              onClick={() => handleQuickCategory(item)}
+            >
+              {item === 'ALL' ? 'All' : item}
+            </button>
+          );
+        })}
+      </div>
+
+      {message && (
+        <div className="sci-pos-alert pos-product-search-message" role="status">
+          {message}
+        </div>
+      )}
+
       <div className="sci-pos-table-wrap pos-product-results">
         <table className="sci-pos-table">
           <thead>
             <tr>
-              <th>Numeric No.</th>
+              <th>Product No.</th>
               <th>SKU</th>
               <th>ALU</th>
               <th>Product Name</th>
@@ -230,7 +287,7 @@ export default function ProductSearchCard({
                   <td className="sci-pos-table__strong">{productName(product)}</td>
                   <td>{product.brand || product.manufacturer || '-'}</td>
                   <td>{product.productCategory || product.category}</td>
-                  <td>{product.shelfLocation || product.binLocation || product.warehouse || '-'}</td>
+                  <td>{product.shelfLocation || product.binLocation || '-'}</td>
                   <td>{qty}</td>
                   <td>USD {productPrice(product).toFixed(2)}</td>
                   <td>
@@ -241,13 +298,13 @@ export default function ProductSearchCard({
                   <td>
                     <button
                       type="button"
-                      className="sci-pos-icon-button"
+                      className={`sci-pos-button ${disabled ? 'sci-pos-button--secondary' : 'sci-pos-button--primary'} pos-add-product-button`}
                       onClick={() => handleAdd(product)}
                       disabled={disabled}
                       title={disabled ? 'Cannot add product. Stock is not available.' : 'Add product'}
                     >
                       {disabled ? <Ban size={16} aria-hidden="true" /> : <ShoppingCart size={16} aria-hidden="true" />}
-                      <span className="sr-only">{disabled ? 'Stock unavailable' : 'Add product'}</span>
+                      <span>{disabled ? 'Unavailable' : 'Add'}</span>
                     </button>
                   </td>
                 </tr>

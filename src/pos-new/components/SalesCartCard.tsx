@@ -2,6 +2,7 @@ import React from 'react';
 import {
   CreditCard,
   FileText,
+  Save,
   Minus,
   PauseCircle,
   Plus,
@@ -27,6 +28,11 @@ export type DeliveryMode =
   | 'Vendor Delivery'
   | 'iDeliver Service Placeholder';
 
+export type SalesCustomerMode =
+  | 'Walk-in Customer'
+  | 'Existing Customer'
+  | 'New Customer Request';
+
 export interface SalesPaymentLine {
   id: string;
   method: SalesPaymentMethod;
@@ -47,10 +53,13 @@ interface SalesCartTotals {
 
 interface SalesCartCardProps {
   cart: CartItem[];
+  customerMode: SalesCustomerMode;
   customerName: string;
   customerPhone: string;
+  customerWhatsApp: string;
   customerAddress: string;
   customerTaxNumber: string;
+  customerNotes: string;
   cashierName: string;
   terminalName: string;
   branchName: string;
@@ -68,10 +77,14 @@ interface SalesCartCardProps {
   totals: SalesCartTotals;
   canComplete: boolean;
   disableCompleteReason: string;
+  onCustomerModeChange: (value: SalesCustomerMode) => void;
   onCustomerNameChange: (value: string) => void;
   onCustomerPhoneChange: (value: string) => void;
+  onCustomerWhatsAppChange: (value: string) => void;
   onCustomerAddressChange: (value: string) => void;
   onCustomerTaxNumberChange: (value: string) => void;
+  onCustomerNotesChange: (value: string) => void;
+  onSaveCustomerRequest: () => void;
   onQuantityChange: (productId: string, delta: number) => void;
   onRemoveItem: (productId: string) => void;
   onApplyLineDiscount: (productId: string) => void;
@@ -109,6 +122,13 @@ const deliveryModes: DeliveryMode[] = [
   'iDeliver Service Placeholder'
 ];
 
+const mockCustomers = [
+  'Walk-in Customer',
+  'Mary Courier',
+  'Tawanda Mining Supplies',
+  'Harare Hardware Buyer'
+];
+
 function money(value: number): string {
   return `USD ${value.toFixed(2)}`;
 }
@@ -127,10 +147,13 @@ function lineTotal(item: CartItem): number {
 
 export default function SalesCartCard({
   cart,
+  customerMode,
   customerName,
   customerPhone,
+  customerWhatsApp,
   customerAddress,
   customerTaxNumber,
+  customerNotes,
   cashierName,
   terminalName,
   branchName,
@@ -148,10 +171,14 @@ export default function SalesCartCard({
   totals,
   canComplete,
   disableCompleteReason,
+  onCustomerModeChange,
   onCustomerNameChange,
   onCustomerPhoneChange,
+  onCustomerWhatsAppChange,
   onCustomerAddressChange,
   onCustomerTaxNumberChange,
+  onCustomerNotesChange,
+  onSaveCustomerRequest,
   onQuantityChange,
   onRemoveItem,
   onApplyLineDiscount,
@@ -192,16 +219,33 @@ export default function SalesCartCard({
 
       <div className="pos-form-grid pos-customer-grid">
         <label>
-          Customer
-          <select value={customerName} onChange={(event) => onCustomerNameChange(event.target.value)}>
+          Customer Type
+          <select value={customerMode} onChange={(event) => onCustomerModeChange(event.target.value as SalesCustomerMode)}>
             <option value="Walk-in Customer">Walk-in Customer</option>
             <option value="Existing Customer">Existing Customer</option>
             <option value="New Customer Request">New Customer Request</option>
           </select>
         </label>
+        {customerMode === 'Existing Customer' ? (
+          <label>
+            Existing Customer
+            <select value={customerName} onChange={(event) => onCustomerNameChange(event.target.value)}>
+              {mockCustomers.map((customer) => <option key={customer} value={customer}>{customer}</option>)}
+            </select>
+          </label>
+        ) : (
+          <label>
+            Customer Name
+            <input value={customerName} onChange={(event) => onCustomerNameChange(event.target.value)} placeholder="Walk-in Customer" />
+          </label>
+        )}
         <label>
           Phone
           <input value={customerPhone} onChange={(event) => onCustomerPhoneChange(event.target.value)} placeholder="+263" />
+        </label>
+        <label>
+          WhatsApp
+          <input value={customerWhatsApp} onChange={(event) => onCustomerWhatsAppChange(event.target.value)} placeholder="+263" />
         </label>
         <label>
           Address
@@ -211,6 +255,18 @@ export default function SalesCartCard({
           Tax Number
           <input value={customerTaxNumber} onChange={(event) => onCustomerTaxNumberChange(event.target.value)} placeholder="Tax number placeholder" />
         </label>
+        {customerMode === 'New Customer Request' && (
+          <>
+            <label className="pos-form-grid__wide">
+              Notes
+              <input value={customerNotes} onChange={(event) => onCustomerNotesChange(event.target.value)} placeholder="Customer request notes" />
+            </label>
+            <button type="button" className="sci-pos-button sci-pos-button--secondary" onClick={onSaveCustomerRequest}>
+              <Save size={16} aria-hidden="true" />
+              Save Customer Request Placeholder
+            </button>
+          </>
+        )}
       </div>
 
       <div className="sci-pos-table-wrap pos-cart-items">
@@ -232,7 +288,7 @@ export default function SalesCartCard({
                 <td className="sci-pos-table__strong">{item.product.productName || item.product.name}</td>
                 <td>
                   <div className="pos-qty-stepper">
-                    <button type="button" onClick={() => onQuantityChange(item.product.id, -1)} aria-label="Decrease quantity">
+                    <button type="button" onClick={() => onQuantityChange(item.product.id, -1)} disabled={item.quantity <= 1} aria-label="Decrease quantity">
                       <Minus size={14} aria-hidden="true" />
                     </button>
                     <span>{item.quantity}</span>
@@ -259,7 +315,7 @@ export default function SalesCartCard({
             ))}
             {cart.length === 0 && (
               <tr>
-                <td colSpan={7} className="sci-pos-empty-cell">Cart is empty.</td>
+                <td colSpan={7} className="sci-pos-empty-cell">Cart is empty. Add products from the Product Search card.</td>
               </tr>
             )}
           </tbody>
@@ -284,6 +340,14 @@ export default function SalesCartCard({
             VAT Rate
             <input type="number" min="0" value={vatRate} onChange={(event) => onVatRateChange(event.target.value)} />
           </label>
+          <div className="pos-tax-status">
+            <span>VAT Amount</span>
+            <strong>{money(totals.taxTotal)}</strong>
+          </div>
+          <div className="pos-tax-status">
+            <span>VAT Registered Status</span>
+            <strong>{vatMode === 'Not VAT Registered' ? 'VAT not charged.' : 'VAT Registered'}</strong>
+          </div>
         </div>
       </div>
 
@@ -317,7 +381,7 @@ export default function SalesCartCard({
           </label>
         </div>
         {deliveryMode === 'iDeliver Service Placeholder' && (
-          <div className="pos-placeholder-card">iDeliver service placeholder is ready for future dispatch integration.</div>
+          <div className="pos-placeholder-card">iDeliver integration will broadcast the delivery request after sale completion.</div>
         )}
       </div>
 
@@ -365,10 +429,11 @@ export default function SalesCartCard({
       <div className="pos-summary-box" aria-label="Cart Summary">
         <div><span>Subtotal</span><strong>{money(totals.subtotal)}</strong></div>
         <div><span>Discount Total</span><strong>{money(totals.discountTotal)}</strong></div>
-        <div><span>Tax/VAT</span><strong>{money(totals.taxTotal)}</strong></div>
+        <div><span>VAT</span><strong>{vatMode === 'Not VAT Registered' ? 'VAT not charged.' : money(totals.taxTotal)}</strong></div>
         <div><span>Delivery Fee</span><strong>{money(totals.deliveryFee)}</strong></div>
         <div className="pos-summary-box__grand"><span>Grand Total</span><strong>{money(totals.grandTotal)}</strong></div>
-        <div><span>Payment Received</span><strong>{money(totals.paymentReceived)}</strong></div>
+        <div><span>Total Paid</span><strong>{money(totals.paymentReceived)}</strong></div>
+        <div><span>Balance Due</span><strong>{money(totals.balanceDue)}</strong></div>
         <div><span>Change Due</span><strong>{money(totals.changeDue)}</strong></div>
       </div>
 
