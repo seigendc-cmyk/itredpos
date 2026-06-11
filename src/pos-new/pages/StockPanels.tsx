@@ -36,6 +36,13 @@ import {
   GoodsReceivingPostingResult,
   GoodsReceivingStatus,
   ReceivingVarianceType,
+  SupplierReturnActivityEvent,
+  SupplierReturnFilterState,
+  SupplierReturnLine,
+  SupplierReturnReason,
+  SupplierReturnResolution,
+  SupplierReturnStatus,
+  SupplierReturnSummary,
   GRNLine, 
   GoodsReceivedNote, 
   SupplierReturn, 
@@ -46,6 +53,7 @@ import {
 } from '../types';
 import PurchaseOrderForm from '../components/PurchaseOrderForm';
 import GoodsReceivingForm from '../components/GoodsReceivingForm';
+import SupplierReturnForm from '../components/SupplierReturnForm';
 import {
   postGoodsReceivedMovement,
   postStockAdjustmentMovement,
@@ -79,11 +87,42 @@ import {
   reverseGRNPlaceholder,
   submitGRNForApproval
 } from '../services/goodsReceivingService';
+import {
+  approveSupplierReturn,
+  cancelSupplierReturn,
+  closeSupplierReturn,
+  createSupplierReturnFromGRN,
+  exportSupplierReturnPlaceholder,
+  getSupplierReturnActivityEvents,
+  getSupplierReturnLines,
+  getSupplierReturns,
+  getSupplierReturnSummary,
+  markDispatchedToSupplier,
+  postSupplierReturn,
+  recordReplacementExpected,
+  recordSupplierCreditNotePlaceholder,
+  submitSupplierReturnForApproval,
+  SupplierReturnPostingResult
+} from '../services/supplierReturnService';
 import { canPerformAction } from '../utils/posPermissions';
 
 interface StockProduct extends Product {
   riskLevel?: 'Low' | 'Medium' | 'High' | 'Critical';
   stockStatus?: 'In Stock' | 'Low Stock' | 'Out of Stock' | 'Dead Stock' | 'Variance Risk' | 'Fast Moving' | 'Slow Moving';
+}
+
+interface LegacySupplierReturnRecord {
+  id: string;
+  supplierName: string;
+  originalGrn: string;
+  sku: string;
+  productName: string;
+  quantityReturned: number;
+  reason: string;
+  condition: string;
+  status: 'Draft' | 'Pending Approval' | 'Shipped' | 'Credited';
+  createdDate: string;
+  requestedBy: string;
 }
 
 interface StockPanelsProps {
@@ -264,8 +303,49 @@ export default function StockPanels({
     };
   }, [goodsReceivingLineMap, goodsReceivingNotes]);
 
+  const [supplierReturnRecords, setSupplierReturnRecords] = useState<SupplierReturn[]>([]);
+  const [supplierReturnLineMap, setSupplierReturnLineMap] = useState<Record<string, SupplierReturnLine[]>>({});
+  const [supplierReturnEvents, setSupplierReturnEvents] = useState<SupplierReturnActivityEvent[]>([]);
+  const [supplierReturnSummary, setSupplierReturnSummary] = useState<SupplierReturnSummary>({
+    draftReturns: 0,
+    pendingApproval: 0,
+    postedReturns: 0,
+    dispatched: 0,
+    creditNotesPending: 0,
+    replacementsPending: 0,
+    supplierRejected: 0,
+    closedReturns: 0,
+    returnQty: 0,
+    returnValueEstimate: 0
+  });
+  const [supplierReturnFilters, setSupplierReturnFilters] = useState<SupplierReturnFilterState>({
+    status: 'ALL',
+    reason: 'ALL',
+    resolution: 'ALL'
+  });
+  const [supplierReturnFormOpen, setSupplierReturnFormOpen] = useState(false);
+  const [activeSupplierReturn, setActiveSupplierReturn] = useState<SupplierReturn | null>(null);
+  const [supplierReturnNotice, setSupplierReturnNotice] = useState<string | null>(null);
+
+  const refreshSupplierReturns = async (filters = supplierReturnFilters) => {
+    const [records, events, summary] = await Promise.all([
+      getSupplierReturns(filters),
+      getSupplierReturnActivityEvents(filters),
+      getSupplierReturnSummary(filters)
+    ]);
+    const linePairs = await Promise.all(records.map(async (record) => [record.supplierReturnId, await getSupplierReturnLines(record.supplierReturnId)] as const));
+    setSupplierReturnRecords(records);
+    setSupplierReturnEvents(events);
+    setSupplierReturnSummary(summary);
+    setSupplierReturnLineMap(Object.fromEntries(linePairs));
+  };
+
+  useEffect(() => {
+    refreshSupplierReturns();
+  }, []);
+
   // 3. Supplier Returns State & Form Binding
-  const [supplierReturns, setSupplierReturns] = useState<SupplierReturn[]>(() => {
+  const [supplierReturns, setSupplierReturns] = useState<LegacySupplierReturnRecord[]>(() => {
     const cached = localStorage.getItem('sci_pos_supplier_returns');
     return cached ? JSON.parse(cached) : [
       {
@@ -660,6 +740,146 @@ export default function StockPanels({
     await refreshPurchaseOrders();
   };
 
+  const openSupplierReturnForm = async (record: SupplierReturn) => {
+    setActiveSupplierReturn(record);
+    setSupplierReturnFormOpen(true);
+  };
+
+  const handleCreateSupplierReturnFromGRN = async (note?: GoodsReceivingNote) => {
+    if (!canPerformAction(simulatedRole, 'supplierReturns.create')) {
+      setSupplierReturnNotice('You do not have permission to perform this action.');
+      return;
+    }
+    const targetGRN = note || goodsReceivingNotes.find((item) => item.receivingStatus === 'Posted' || item.receivingStatus === 'Partially Posted');
+    if (!targetGRN) {
+      setSupplierReturnNotice('No posted GRN is available for Supplier Return creation.');
+      return;
+    }
+    const draft = await createSupplierReturnFromGRN(targetGRN.grnId, staffName);
+    if (!draft) {
+      setSupplierReturnNotice(`${targetGRN.grnNumber} has no returnable or rejected lines available.`);
+      return;
+    }
+    await refreshSupplierReturns();
+    setSupplierReturnNotice(`${draft.supplierReturnNumber} draft created from ${targetGRN.grnNumber}. Draft Supplier Return has not reduced stock.`);
+    setActiveSupplierReturn(draft);
+    setSupplierReturnFormOpen(true);
+    setActiveTab('Supplier Returns');
+  };
+
+  const applyPostedSupplierReturnToLocalStock = (result: SupplierReturnPostingResult) => {
+    if (!result.stockPosted) return;
+    let nextStock = [...localStock];
+    result.postedLines.forEach((line) => {
+      nextStock = nextStock.map((item) => {
+        if ((item.sku || item.code) !== line.sku) return item;
+        const currentQty = item.qtyOnHand ?? item.stock;
+        const nextQty = Math.max(currentQty - line.qtyPostedOut, 0);
+        onUpdateStock(item.id, Math.max(item.stock - line.qtyPostedOut, 0));
+        return {
+          ...item,
+          stock: Math.max(item.stock - line.qtyPostedOut, 0),
+          qtyOnHand: nextQty,
+          lastMovementDate: new Date().toISOString().slice(0, 10),
+          healthStatus: nextQty <= 0 ? 'Out of Stock' : item.healthStatus
+        };
+      });
+    });
+    saveLocalStockState(nextStock);
+  };
+
+  const handleSupplierReturnPosted = async (result: SupplierReturnPostingResult) => {
+    applyPostedSupplierReturnToLocalStock(result);
+    setSupplierReturnNotice(result.message);
+    triggerNewActivityEvent('STOCK_ADJUSTMENT_REQUESTED', `${result.supplierReturnNumber} posted supplier return. Stock reduced only for accepted goods already in inventory.`, 'Medium');
+    await refreshSupplierReturns();
+    await refreshGoodsReceiving();
+    await refreshPurchaseOrders();
+  };
+
+  const handleSupplierReturnAction = async (
+    record: SupplierReturn,
+    action: 'submit' | 'approve' | 'post' | 'dispatch' | 'credit' | 'replacement' | 'close' | 'cancel' | 'export'
+  ) => {
+    if (action === 'submit') {
+      await submitSupplierReturnForApproval(record.supplierReturnId);
+      setSupplierReturnNotice(`${record.supplierReturnNumber} submitted for approval. Stock not reduced.`);
+    }
+    if (action === 'approve') {
+      if (!canPerformAction(simulatedRole, 'supplierReturns.approve') && !canPerformAction(simulatedRole, 'approvals.approve')) {
+        setSupplierReturnNotice('You do not have permission to perform this action.');
+        return;
+      }
+      await approveSupplierReturn(record.supplierReturnId, staffName, 'Approved from Supplier Returns tab.');
+      setSupplierReturnNotice(`${record.supplierReturnNumber} approved for posting.`);
+    }
+    if (action === 'post') {
+      if (!canPerformAction(simulatedRole, 'supplierReturns.post')) {
+        setSupplierReturnNotice('You do not have permission to perform this action.');
+        return;
+      }
+      const result = await postSupplierReturn(record.supplierReturnId, staffName);
+      if (result) {
+        applyPostedSupplierReturnToLocalStock(result);
+        setSupplierReturnNotice(result.message);
+      }
+    }
+    if (action === 'dispatch') {
+      if (!canPerformAction(simulatedRole, 'supplierReturns.dispatch')) {
+        setSupplierReturnNotice('You do not have permission to perform this action.');
+        return;
+      }
+      await markDispatchedToSupplier(record.supplierReturnId, {
+        dispatchMethod: record.dispatchMethod || 'Supplier Collection',
+        courierReference: record.courierReference,
+        dispatchNotes: 'Dispatched from Supplier Returns tab.',
+        dispatchedByStaffId: staffName,
+        dispatchedByStaffName: staffName
+      });
+      setSupplierReturnNotice(`${record.supplierReturnNumber} dispatched to supplier.`);
+    }
+    if (action === 'credit') {
+      const number = window.prompt(`Supplier credit note number for ${record.supplierReturnNumber}?`);
+      if (!number) return;
+      const amountInput = window.prompt('Supplier credit note amount?') || '0';
+      await recordSupplierCreditNotePlaceholder(record.supplierReturnId, {
+        supplierCreditNoteNumber: number.toUpperCase(),
+        supplierCreditNoteAmount: Number(amountInput) || 0,
+        notes: 'Credit note placeholder recorded from Supplier Returns tab.'
+      });
+      setSupplierReturnNotice(`${record.supplierReturnNumber} credit note placeholder recorded. No cashbook posting.`);
+    }
+    if (action === 'replacement') {
+      await recordReplacementExpected(record.supplierReturnId, { notes: 'Replacement expected from supplier.' });
+      setSupplierReturnNotice(`${record.supplierReturnNumber} replacement expected placeholder recorded.`);
+    }
+    if (action === 'close') {
+      if (!canPerformAction(simulatedRole, 'supplierReturns.close')) {
+        setSupplierReturnNotice('You do not have permission to perform this action.');
+        return;
+      }
+      const notes = window.prompt(`Close ${record.supplierReturnNumber} notes?`);
+      if (!notes) return;
+      await closeSupplierReturn(record.supplierReturnId, staffName, notes);
+      setSupplierReturnNotice(`${record.supplierReturnNumber} closed.`);
+    }
+    if (action === 'cancel') {
+      if (!canPerformAction(simulatedRole, 'supplierReturns.cancel')) {
+        setSupplierReturnNotice('You do not have permission to perform this action.');
+        return;
+      }
+      const reason = window.prompt(`Reason for cancelling ${record.supplierReturnNumber}?`);
+      if (!reason) return;
+      await cancelSupplierReturn(record.supplierReturnId, staffName, reason);
+      setSupplierReturnNotice(`${record.supplierReturnNumber} cancelled. No stock was reduced.`);
+    }
+    if (action === 'export') {
+      const result = await exportSupplierReturnPlaceholder(record.supplierReturnId);
+      setSupplierReturnNotice(result.message);
+    }
+    await refreshSupplierReturns();
+  };
+
 
   // B. GRN GOODS INTAKE SUBMIT ACTION
   const handleGRNSubmit = (e: React.FormEvent) => {
@@ -855,7 +1075,7 @@ export default function StockPanels({
 
     // Subcontracting return
     const id = 'RET-' + Math.floor(Math.random() * 899 + 100);
-    const newReturn: SupplierReturn = {
+    const newReturn: LegacySupplierReturnRecord = {
       id,
       supplierName: retSupplier,
       originalGrn: retGrn || 'GRN-MANUAL-ENTRY',
@@ -880,7 +1100,7 @@ export default function StockPanels({
   };
 
   // Ship Return & Deduct Inventory Stock
-  const handleShipAndDeductStock = (ret: SupplierReturn) => {
+  const handleShipAndDeductStock = (ret: LegacySupplierReturnRecord) => {
     const matchProduct = localStock.find(p => p.code === ret.sku);
     if (!matchProduct) return;
 
@@ -1432,6 +1652,7 @@ export default function StockPanels({
                           {note.receivingStatus === 'Pending Approval' && <POAction label="Approve" onClick={() => handleGoodsReceivingAction(note, 'approve')} />}
                           {note.receivingStatus === 'Draft' && <POAction label="Cancel" onClick={() => handleGoodsReceivingAction(note, 'cancel')} />}
                           {(note.receivingStatus === 'Posted' || note.receivingStatus === 'Partially Posted') && <POAction label="Reverse Placeholder" onClick={() => handleGoodsReceivingAction(note, 'reverse')} />}
+                          {(note.receivingStatus === 'Posted' || note.receivingStatus === 'Partially Posted') && <POAction label="Create Supplier Return" primary onClick={() => handleCreateSupplierReturnFromGRN(note)} />}
                           <POAction label="Prepare Export" onClick={() => handleGoodsReceivingAction(note, 'export')} />
                         </div>
                       </td>
@@ -1964,6 +2185,184 @@ export default function StockPanels({
 
 
       {activeTab === 'Supplier Returns' && (
+        <div className="space-y-5">
+          <div className="flex flex-col md:flex-row md:items-end md:justify-between gap-3 border-b-2 border-[#1e222b] pb-3">
+            <div>
+              <h2 className="text-[18px] uppercase font-black text-[#1e222b] tracking-tight">Supplier Returns</h2>
+              <p className="text-[10px] uppercase font-bold text-slate-600 mt-1">Return damaged, wrong, rejected, or over-supplied goods to suppliers.</p>
+            </div>
+            <button
+              type="button"
+              onClick={() => handleCreateSupplierReturnFromGRN()}
+              className="px-4 py-2 bg-orange-600 hover:bg-orange-700 border border-orange-700 text-white font-black uppercase text-[9px] rounded-none"
+            >
+              Create From Posted GRN
+            </button>
+          </div>
+
+          <div className="border border-orange-300 bg-orange-50 p-3 text-[9.5px] uppercase font-black text-slate-800">
+            Supplier Returns only reduce stock when the returned goods were already posted into inventory. Rejected-not-stocked goods are recorded with no stock movement. No cashbook, supplier payment, sales or COGS posting is created.
+          </div>
+
+          {supplierReturnNotice && (
+            <div className="border border-[#b1b5c2] bg-slate-50 p-3 text-[9.5px] uppercase font-black text-slate-800">
+              {supplierReturnNotice}
+            </div>
+          )}
+
+          <div className="grid grid-cols-2 md:grid-cols-5 xl:grid-cols-10 gap-3">
+            <POMetric label="Draft Returns" value={supplierReturnSummary.draftReturns} />
+            <POMetric label="Pending Approval" value={supplierReturnSummary.pendingApproval} />
+            <POMetric label="Posted Returns" value={supplierReturnSummary.postedReturns} />
+            <POMetric label="Dispatched" value={supplierReturnSummary.dispatched} />
+            <POMetric label="Credit Notes Pending" value={supplierReturnSummary.creditNotesPending} />
+            <POMetric label="Replacements Pending" value={supplierReturnSummary.replacementsPending} />
+            <POMetric label="Supplier Rejected" value={supplierReturnSummary.supplierRejected} />
+            <POMetric label="Closed Returns" value={supplierReturnSummary.closedReturns} />
+            <POMetric label="Return Qty" value={supplierReturnSummary.returnQty} />
+            <POMetric label="Return Value Estimate" value={`USD ${supplierReturnSummary.returnValueEstimate.toFixed(2)}`} />
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3 bg-slate-50 border border-[#b1b5c2] p-3">
+            <POFilterInput label="Supplier Return Number" value={supplierReturnFilters.supplierReturnNumber || ''} onChange={(value) => setSupplierReturnFilters((prev) => ({ ...prev, supplierReturnNumber: value }))} />
+            <POFilterInput label="Supplier" value={supplierReturnFilters.supplier || ''} onChange={(value) => setSupplierReturnFilters((prev) => ({ ...prev, supplier: value }))} />
+            <POFilterInput label="PO Number" value={supplierReturnFilters.poNumber || ''} onChange={(value) => setSupplierReturnFilters((prev) => ({ ...prev, poNumber: value }))} />
+            <POFilterInput label="GRN Number" value={supplierReturnFilters.grnNumber || ''} onChange={(value) => setSupplierReturnFilters((prev) => ({ ...prev, grnNumber: value }))} />
+            <POFilterInput label="Branch" value={supplierReturnFilters.branch || ''} onChange={(value) => setSupplierReturnFilters((prev) => ({ ...prev, branch: value }))} />
+            <POFilterInput label="Warehouse" value={supplierReturnFilters.warehouse || ''} onChange={(value) => setSupplierReturnFilters((prev) => ({ ...prev, warehouse: value }))} />
+            <POFilterSelect label="Status" value={supplierReturnFilters.status || 'ALL'} options={['ALL', 'Draft', 'Pending Approval', 'Approved', 'Posted', 'Dispatched To Supplier', 'Supplier Accepted', 'Supplier Rejected', 'Credit Note Pending', 'Credit Note Received', 'Replacement Pending', 'Replacement Received', 'Cancelled', 'Closed']} onChange={(value) => setSupplierReturnFilters((prev) => ({ ...prev, status: value as SupplierReturnStatus | 'ALL' }))} />
+            <POFilterSelect label="Reason" value={supplierReturnFilters.reason || 'ALL'} options={['ALL', 'Damaged', 'Wrong Product', 'Over Supplied', 'Quality Issue', 'Expired', 'Supplier Recall', 'Duplicate Supply', 'Price Dispute', 'Not Ordered', 'Other']} onChange={(value) => setSupplierReturnFilters((prev) => ({ ...prev, reason: value as SupplierReturnReason | 'ALL' }))} />
+            <POFilterSelect label="Resolution" value={supplierReturnFilters.resolution || 'ALL'} options={['ALL', 'Credit Note Expected', 'Replacement Expected', 'Supplier Refund Expected', 'No Credit', 'Internal Write Off Review', 'Pending Supplier Decision']} onChange={(value) => setSupplierReturnFilters((prev) => ({ ...prev, resolution: value as SupplierReturnResolution | 'ALL' }))} />
+            <POFilterInput label="Date From" type="date" value={supplierReturnFilters.dateFrom || ''} onChange={(value) => setSupplierReturnFilters((prev) => ({ ...prev, dateFrom: value }))} />
+            <POFilterInput label="Date To" type="date" value={supplierReturnFilters.dateTo || ''} onChange={(value) => setSupplierReturnFilters((prev) => ({ ...prev, dateTo: value }))} />
+            <button type="button" onClick={() => refreshSupplierReturns(supplierReturnFilters)} className="px-3 py-2 bg-[#1e222b] text-white border border-[#1e222b] font-black uppercase text-[9px] rounded-none self-end">Apply Filters</button>
+            <button
+              type="button"
+              onClick={() => {
+                const reset = { status: 'ALL' as const, reason: 'ALL' as const, resolution: 'ALL' as const };
+                setSupplierReturnFilters(reset);
+                refreshSupplierReturns(reset);
+              }}
+              className="px-3 py-2 bg-white text-[#1e222b] border border-[#b1b5c2] font-black uppercase text-[9px] rounded-none self-end"
+            >
+              Clear Filters
+            </button>
+          </div>
+
+          <div className="overflow-x-auto pos-custom-scroll">
+            <table className="w-full min-w-[1500px] text-[10px] text-left border-collapse">
+              <thead>
+                <tr className="bg-[#1e222b] text-white font-black uppercase text-[8px] h-9 select-none">
+                  <th className="py-2 px-3">Return No.</th>
+                  <th className="py-2 px-3">Date</th>
+                  <th className="py-2 px-3">Supplier</th>
+                  <th className="py-2 px-3">GRN No.</th>
+                  <th className="py-2 px-3">PO No.</th>
+                  <th className="py-2 px-3">Branch</th>
+                  <th className="py-2 px-3">Warehouse</th>
+                  <th className="py-2 px-3 text-right">Lines</th>
+                  <th className="py-2 px-3 text-right">Return Qty</th>
+                  <th className="py-2 px-3 text-right">Estimated Value</th>
+                  <th className="py-2 px-3">Reason</th>
+                  <th className="py-2 px-3">Resolution</th>
+                  <th className="py-2 px-3 text-center">Status</th>
+                  <th className="py-2 px-3">Requested By</th>
+                  <th className="py-2 px-3 text-center">Action</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-200">
+                {supplierReturnRecords.length === 0 ? (
+                  <tr>
+                    <td colSpan={15} className="py-8 text-center uppercase font-bold text-slate-500">No Supplier Returns match the current filters.</td>
+                  </tr>
+                ) : supplierReturnRecords.map((record) => {
+                  const lines = supplierReturnLineMap[record.supplierReturnId] || [];
+                  const returnQty = lines.reduce((sum, line) => sum + line.qtyReturnApproved, 0);
+                  const value = lines.reduce((sum, line) => sum + line.lineTotal, 0);
+                  const editableReturn = record.status === 'Draft';
+                  const terminalReturn = record.status === 'Closed' || record.status === 'Cancelled';
+                  return (
+                    <tr key={record.supplierReturnId} className="hover:bg-slate-50 transition-colors h-11">
+                      <td className="py-2 px-3 font-black text-orange-700">{record.supplierReturnNumber}</td>
+                      <td className="py-2 px-3 font-mono text-slate-600">{record.returnDate}</td>
+                      <td className="py-2 px-3 uppercase font-extrabold text-[#111827]">{record.supplierName}</td>
+                      <td className="py-2 px-3 font-mono">{record.grnNumber || 'N/A'}</td>
+                      <td className="py-2 px-3 font-mono">{record.poNumber || 'N/A'}</td>
+                      <td className="py-2 px-3 uppercase">{record.branchId}</td>
+                      <td className="py-2 px-3 uppercase">{record.warehouseId}</td>
+                      <td className="py-2 px-3 text-right font-bold">{lines.length}</td>
+                      <td className="py-2 px-3 text-right font-black font-mono">{returnQty}</td>
+                      <td className="py-2 px-3 text-right font-black font-mono">USD {value.toFixed(2)}</td>
+                      <td className="py-2 px-3 uppercase font-black text-[8.5px]">{record.reason}</td>
+                      <td className="py-2 px-3 uppercase font-semibold text-[8.5px]">{record.resolution}</td>
+                      <td className="py-2 px-3 text-center whitespace-nowrap">
+                        <span className={`inline-block px-2 py-0.5 text-[8px] uppercase tracking-wide rounded-none ${supplierReturnStatusClass(record.status)}`}>
+                          {record.status}
+                        </span>
+                      </td>
+                      <td className="py-2 px-3 uppercase">{record.requestedByStaffName}</td>
+                      <td className="py-2 px-3">
+                        <div className="flex flex-wrap gap-1 justify-center">
+                          <POAction label="View / Edit" onClick={() => openSupplierReturnForm(record)} />
+                          {editableReturn && <POAction label="Submit for Approval" onClick={() => handleSupplierReturnAction(record, 'submit')} />}
+                          {record.status === 'Pending Approval' && <POAction label="Approve" onClick={() => handleSupplierReturnAction(record, 'approve')} />}
+                          {(record.status === 'Draft' || record.status === 'Approved') && <POAction label="Post Return" primary onClick={() => handleSupplierReturnAction(record, 'post')} />}
+                          {!terminalReturn && <POAction label="Dispatch To Supplier" onClick={() => handleSupplierReturnAction(record, 'dispatch')} />}
+                          {!terminalReturn && <POAction label="Record Credit Note" onClick={() => handleSupplierReturnAction(record, 'credit')} />}
+                          {!terminalReturn && <POAction label="Record Replacement" onClick={() => handleSupplierReturnAction(record, 'replacement')} />}
+                          {!terminalReturn && <POAction label="Close" onClick={() => handleSupplierReturnAction(record, 'close')} />}
+                          {editableReturn && <POAction label="Cancel" onClick={() => handleSupplierReturnAction(record, 'cancel')} />}
+                          <POAction label="Prepare Export" onClick={() => handleSupplierReturnAction(record, 'export')} />
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+
+          <div className="border border-[#b1b5c2]">
+            <div className="bg-[#1e222b] text-white px-3 py-2 text-[9px] uppercase font-black border-b-2 border-orange-500">
+              Supplier Return Activity Feed
+            </div>
+            <div className="divide-y divide-gray-200 max-h-[220px] overflow-y-auto">
+              {supplierReturnEvents.slice(0, 8).map((event) => (
+                <div key={event.id} className="p-3 text-[9.5px] uppercase">
+                  <div className="font-black text-[#1e222b]">{event.supplierReturnNumber} - {event.eventType.replaceAll('_', ' ')}</div>
+                  <div className="text-slate-600 font-semibold">{event.message}</div>
+                  <div className="text-[8px] text-slate-400 font-mono mt-1">{event.createdAt} BY {event.operator}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <SupplierReturnForm
+            open={supplierReturnFormOpen}
+            supplierReturn={activeSupplierReturn}
+            role={simulatedRole}
+            staffName={staffName}
+            onClose={() => setSupplierReturnFormOpen(false)}
+            onChanged={(message) => {
+              setSupplierReturnNotice(message);
+              refreshSupplierReturns();
+            }}
+            onPosted={handleSupplierReturnPosted}
+            onViewGRN={(grnId) => {
+              const note = goodsReceivingNotes.find((item) => item.grnId === grnId);
+              if (note) {
+                setActiveGoodsReceivingNote(note);
+                setGoodsReceivingFormOpen(true);
+              } else {
+                setSupplierReturnNotice('GRN record is not currently loaded.');
+              }
+            }}
+            onViewLedger={() => setSupplierReturnNotice('Product Ledger can be opened from the Inventory Product Ledger tab; posted Supplier Return movements are recorded as SUPPLIER_RETURN.')}
+          />
+        </div>
+      )}
+
+      {false && activeTab === 'Supplier Returns' && (
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
           
           {/* Create Supplier Return Form */}
@@ -2638,6 +3037,15 @@ function grnStatusClass(status: GoodsReceivingStatus): string {
   if (status === 'Cancelled') return 'bg-red-50 text-red-800 border border-red-300 font-bold';
   if (status === 'Rejected') return 'bg-rose-50 text-rose-800 border border-rose-300 font-bold';
   return 'bg-gray-100 text-slate-700 border border-gray-300';
+}
+
+function supplierReturnStatusClass(status: SupplierReturnStatus): string {
+  if (status === 'Posted' || status === 'Supplier Accepted' || status === 'Credit Note Received' || status === 'Replacement Received') return 'bg-emerald-50 text-emerald-800 border border-emerald-300 font-bold';
+  if (status === 'Dispatched To Supplier' || status === 'Replacement Pending') return 'bg-sky-50 text-sky-800 border border-sky-300 font-bold';
+  if (status === 'Pending Approval' || status === 'Approved' || status === 'Credit Note Pending') return 'bg-amber-50 text-amber-800 border border-amber-300 font-black';
+  if (status === 'Supplier Rejected' || status === 'Cancelled') return 'bg-rose-50 text-rose-800 border border-rose-300 font-bold';
+  if (status === 'Closed') return 'bg-slate-200 text-slate-800 border border-slate-400 font-bold';
+  return 'bg-slate-100 text-slate-700 border border-slate-300';
 }
 
 function POMetric({ label, value }: { label: string; value: string | number }) {

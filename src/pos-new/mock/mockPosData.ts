@@ -79,7 +79,14 @@ import {
   GoodsReceivingLine,
   GoodsReceivingVariance,
   GoodsReceivingActivityEvent,
-  POReceivingSummary
+  POReceivingSummary,
+  SupplierReturn,
+  SupplierReturnLine,
+  SupplierReturnActivityEvent,
+  SupplierReturnCreditNotePlaceholder,
+  StockAdjustment,
+  StockAdjustmentLine,
+  StockAdjustmentActivityEvent
 } from '../types/posTypes';
 
 export const mockVendors: Vendor[] = [
@@ -618,6 +625,236 @@ export const mockPOReceivingSummaries: POReceivingSummary[] = [
   ] }
 ];
 
+export const mockSupplierReturns: SupplierReturn[] = [
+  {
+    supplierReturnId: 'SRT-ID-0001',
+    supplierReturnNumber: 'SRT-0001',
+    vendorId: 'SCI-LOG-ZW',
+    branchId: 'Harare Main',
+    warehouseId: 'Main Warehouse',
+    supplierId: 'SUP-MOTOR-SPARES',
+    supplierName: 'Motor Spares Wholesalers',
+    poId: 'PO-ID-0001',
+    poNumber: 'PO-0001',
+    grnId: 'GRN-ID-0001',
+    grnNumber: 'GRN-0001',
+    requestedByStaffId: 'ST-BLESSING',
+    requestedByStaffName: 'Blessing Stock',
+    returnDate: '2026-06-11',
+    status: 'Pending Approval',
+    reason: 'Damaged',
+    resolution: 'Credit Note Expected',
+    supplierContactPerson: 'Nyasha M.',
+    supplierPhone: '+263 77 100 3200',
+    supplierEmail: 'returns@motorspares.example',
+    dispatchMethod: 'Courier Pickup',
+    courierReference: 'Pending',
+    supplierCreditNoteNumber: '',
+    supplierCreditNoteAmount: 0,
+    replacementExpected: false,
+    notes: 'Damaged brake pads queued for supplier return approval. No cashbook or payment posting.',
+    createdAt: '2026-06-11T10:35:00Z',
+    updatedAt: '2026-06-11T10:35:00Z'
+  },
+  {
+    supplierReturnId: 'SRT-ID-0002',
+    supplierReturnNumber: 'SRT-0002',
+    vendorId: 'SCI-LOG-ZW',
+    branchId: 'Harare Main',
+    warehouseId: 'Main Warehouse',
+    supplierId: 'SUP-RADIATOR',
+    supplierName: 'Radiator Imports',
+    poId: 'PO-ID-0003',
+    poNumber: 'PO-0003',
+    grnId: 'GRN-ID-0003',
+    grnNumber: 'GRN-0003',
+    requestedByStaffId: 'ST-BLESSING',
+    requestedByStaffName: 'Blessing Stock',
+    returnDate: '2026-06-11',
+    status: 'Draft',
+    reason: 'Wrong Product',
+    resolution: 'Replacement Expected',
+    supplierContactPerson: 'Farai R.',
+    supplierPhone: '+263 24 700 4411',
+    supplierEmail: 'returns@radiatorimports.example',
+    dispatchMethod: 'Supplier Collection',
+    courierReference: '',
+    supplierCreditNoteNumber: '',
+    supplierCreditNoteAmount: 0,
+    replacementExpected: true,
+    notes: 'Wrong radiator supplied. Replacement request captured as placeholder only.',
+    createdAt: '2026-06-11T11:05:00Z',
+    updatedAt: '2026-06-11T11:05:00Z'
+  },
+  {
+    supplierReturnId: 'SRT-ID-0003',
+    supplierReturnNumber: 'SRT-0003',
+    vendorId: 'SCI-LOG-ZW',
+    branchId: 'Harare Main',
+    warehouseId: 'Main Warehouse',
+    supplierId: 'SUP-LUBRICANTS',
+    supplierName: 'Lubricants Direct',
+    poId: 'PO-ID-0002',
+    poNumber: 'PO-0002',
+    grnId: 'GRN-ID-0002',
+    grnNumber: 'GRN-0002',
+    requestedByStaffId: 'ST-BLESSING',
+    requestedByStaffName: 'Blessing Stock',
+    approvedByStaffId: 'ST-ADMIN',
+    approvedByStaffName: 'Admin User',
+    returnDate: '2026-06-11',
+    status: 'Posted',
+    reason: 'Over Supplied',
+    resolution: 'Credit Note Expected',
+    supplierContactPerson: 'Tinashe L.',
+    supplierPhone: '+263 77 440 1100',
+    supplierEmail: 'returns@lubricantsdirect.example',
+    dispatchMethod: 'Vendor Truck',
+    courierReference: 'LD Truck Return 07',
+    supplierCreditNoteNumber: '',
+    supplierCreditNoteAmount: 0,
+    replacementExpected: false,
+    notes: 'Over-supplied engine oil posted out of stock. Accounting review placeholder only.',
+    createdAt: '2026-06-11T12:00:00Z',
+    updatedAt: '2026-06-11T12:20:00Z'
+  },
+  {
+    supplierReturnId: 'SRT-ID-0004',
+    supplierReturnNumber: 'SRT-0004',
+    vendorId: 'SCI-LOG-ZW',
+    branchId: 'Harare Main',
+    warehouseId: 'Main Warehouse',
+    supplierId: 'SUP-LUBRICANTS',
+    supplierName: 'Lubricants Direct',
+    poId: 'PO-ID-0002',
+    poNumber: 'PO-0002',
+    grnId: 'GRN-ID-0003',
+    grnNumber: 'GRN-0003',
+    requestedByStaffId: 'ST-BLESSING',
+    requestedByStaffName: 'Blessing Stock',
+    returnDate: '2026-06-11',
+    status: 'Closed',
+    reason: 'Damaged',
+    resolution: 'No Credit',
+    supplierContactPerson: 'Tinashe L.',
+    supplierPhone: '+263 77 440 1100',
+    supplierEmail: 'returns@lubricantsdirect.example',
+    dispatchMethod: 'Supplier Acknowledgement Only',
+    courierReference: 'N/A',
+    supplierCreditNoteNumber: '',
+    supplierCreditNoteAmount: 0,
+    replacementExpected: false,
+    notes: 'Damaged goods were rejected at receiving and never accepted into stock. Closed as supplier rejection only.',
+    createdAt: '2026-06-11T12:40:00Z',
+    updatedAt: '2026-06-11T13:00:00Z'
+  }
+];
+
+export const mockSupplierReturnLines: SupplierReturnLine[] = [
+  { lineId: 'SRT-LINE-0001', supplierReturnId: 'SRT-ID-0001', productId: 'STOCK-P-03', sku: 'BP-GD6-F', productName: 'Brake Pads Toyota GD6 Front', brand: 'Toyota', manufacturer: 'Bosch', grnLineId: 'GRN-LINE-0003', poLineId: 'PO-LINE-0002', qtyReceived: 8, qtyAcceptedIntoStock: 8, qtyAlreadyReturned: 0, qtyReturnRequested: 2, qtyReturnApproved: 2, qtyPostedOut: 0, unitCost: 22, lineTotal: 44, shelfLocation: 'A3-S6', returnReason: 'Damaged', resolution: 'Credit Note Expected', lineStatus: 'Pending', stockWasPosted: true, notes: 'Two packs damaged after inspection.' },
+  { lineId: 'SRT-LINE-0002', supplierReturnId: 'SRT-ID-0002', productId: 'STOCK-P-RAD-COROLLA', sku: 'RAD-COROLLA', productName: 'Radiator Toyota Corolla', brand: 'Toyota', manufacturer: 'Denso', grnLineId: 'GRN-LINE-0001', poLineId: 'PO-LINE-0004', qtyReceived: 2, qtyAcceptedIntoStock: 2, qtyAlreadyReturned: 0, qtyReturnRequested: 1, qtyReturnApproved: 1, qtyPostedOut: 0, unitCost: 75, lineTotal: 75, shelfLocation: 'C2-S1', returnReason: 'Wrong Product', resolution: 'Replacement Expected', lineStatus: 'Draft', stockWasPosted: true, notes: 'Wrong radiator variant supplied.' },
+  { lineId: 'SRT-LINE-0003', supplierReturnId: 'SRT-ID-0003', productId: 'STOCK-P-04', sku: 'OIL-5W30', productName: 'Engine Oil 5W30 5L', brand: 'SCI Industrial', manufacturer: 'Denso', grnLineId: 'GRN-LINE-0006', poLineId: 'PO-LINE-0003', qtyReceived: 42, qtyAcceptedIntoStock: 40, qtyAlreadyReturned: 0, qtyReturnRequested: 2, qtyReturnApproved: 2, qtyPostedOut: 2, unitCost: 14.5, lineTotal: 29, shelfLocation: 'B1-S1', returnReason: 'Over Supplied', resolution: 'Credit Note Expected', lineStatus: 'Posted', stockWasPosted: true, notes: 'Two over-supplied cans posted out.' },
+  { lineId: 'SRT-LINE-0004', supplierReturnId: 'SRT-ID-0004', productId: 'STOCK-P-04', sku: 'OIL-5W30', productName: 'Engine Oil 5W30 5L', brand: 'SCI Industrial', manufacturer: 'Denso', grnLineId: 'GRN-LINE-0006', poLineId: 'PO-LINE-0003', qtyReceived: 2, qtyAcceptedIntoStock: 0, qtyAlreadyReturned: 0, qtyReturnRequested: 2, qtyReturnApproved: 2, qtyPostedOut: 0, unitCost: 14.5, lineTotal: 29, shelfLocation: 'Receiving Hold', returnReason: 'Damaged', resolution: 'No Credit', lineStatus: 'Closed', stockWasPosted: false, notes: 'Rejected at receiving. No stock reduction required.' }
+];
+
+export const mockSupplierReturnActivityEvents: SupplierReturnActivityEvent[] = [
+  { id: 'SRT-ACT-0001', supplierReturnId: 'SRT-ID-0001', supplierReturnNumber: 'SRT-0001', grnId: 'GRN-ID-0001', grnNumber: 'GRN-0001', poId: 'PO-ID-0001', poNumber: 'PO-0001', eventType: 'SUPPLIER_RETURN_DRAFT_CREATED', message: 'SRT-0001 created from GRN for damaged goods review.', operator: 'Blessing Stock', createdAt: '2026-06-11T10:35:00Z' },
+  { id: 'SRT-ACT-0002', supplierReturnId: 'SRT-ID-0001', supplierReturnNumber: 'SRT-0001', grnId: 'GRN-ID-0001', grnNumber: 'GRN-0001', poId: 'PO-ID-0001', poNumber: 'PO-0001', eventType: 'SUPPLIER_RETURN_SUBMITTED_FOR_APPROVAL', message: 'Damaged supplier return submitted for approval. Stock not reduced.', operator: 'Blessing Stock', createdAt: '2026-06-11T10:40:00Z' },
+  { id: 'SRT-ACT-0003', supplierReturnId: 'SRT-ID-0003', supplierReturnNumber: 'SRT-0003', grnId: 'GRN-ID-0002', grnNumber: 'GRN-0002', poId: 'PO-ID-0002', poNumber: 'PO-0002', eventType: 'SUPPLIER_RETURN_POSTED_TO_STOCK', message: 'Posted supplier return stock-out for accepted over-supply only.', operator: 'Admin User', createdAt: '2026-06-11T12:20:00Z' },
+  { id: 'SRT-ACT-0004', supplierReturnId: 'SRT-ID-0004', supplierReturnNumber: 'SRT-0004', grnId: 'GRN-ID-0003', grnNumber: 'GRN-0003', poId: 'PO-ID-0002', poNumber: 'PO-0002', eventType: 'SUPPLIER_REJECTION_RECORDED_NO_STOCK_IMPACT', message: 'Supplier rejection recorded for goods never accepted into stock.', operator: 'Blessing Stock', createdAt: '2026-06-11T13:00:00Z' }
+];
+
+export const mockSupplierReturnCreditNotes: SupplierReturnCreditNotePlaceholder[] = [
+  { creditNoteId: 'SRT-CN-0001', supplierReturnId: 'SRT-ID-0003', supplierReturnNumber: 'SRT-0003', supplierCreditNoteNumber: 'LD-CN-PENDING', supplierCreditNoteAmount: 29, receivedDate: '', status: 'Pending Accounting Review', notes: 'Credit note placeholder only. No cashbook or supplier payment posting.', createdAt: '2026-06-11T12:20:00Z' }
+];
+
+export const mockStockAdjustments: StockAdjustment[] = [
+  {
+    adjustmentId: 'STA-ID-0001',
+    adjustmentNumber: 'STA-0001',
+    vendorId: 'SCI-LOG-ZW',
+    branchId: 'Harare Main',
+    warehouseId: 'Main Warehouse',
+    requestedByStaffId: 'ST-ADMIN',
+    requestedByStaffName: 'Admin User',
+    postedByStaffId: 'ST-ADMIN',
+    postedByStaffName: 'Admin User',
+    adjustmentDate: '2026-06-10',
+    status: 'Posted',
+    reason: 'Opening Balance',
+    riskLevel: 'Low',
+    approvalRequired: false,
+    notes: 'Opening balance adjustment for Engine Oil 5W30. Inventory value pending accounting review only.',
+    createdAt: '2026-06-10T08:00:00Z',
+    updatedAt: '2026-06-10T08:10:00Z'
+  },
+  {
+    adjustmentId: 'STA-ID-0002',
+    adjustmentNumber: 'STA-0002',
+    vendorId: 'SCI-LOG-ZW',
+    branchId: 'Harare Main',
+    warehouseId: 'Main Warehouse',
+    requestedByStaffId: 'ST-BLESSING',
+    requestedByStaffName: 'Blessing Stock',
+    adjustmentDate: '2026-06-11',
+    status: 'Pending Approval',
+    reason: 'Damaged Stock',
+    riskLevel: 'High',
+    approvalRequired: true,
+    notes: 'Damaged brake pads require approval before stock can be reduced.',
+    createdAt: '2026-06-11T08:45:00Z',
+    updatedAt: '2026-06-11T08:50:00Z'
+  },
+  {
+    adjustmentId: 'STA-ID-0003',
+    adjustmentNumber: 'STA-0003',
+    vendorId: 'SCI-LOG-ZW',
+    branchId: 'Harare Main',
+    warehouseId: 'Main Warehouse',
+    requestedByStaffId: 'ST-BLESSING',
+    requestedByStaffName: 'Blessing Stock',
+    adjustmentDate: '2026-06-11',
+    status: 'Draft',
+    reason: 'Physical Count Correction',
+    riskLevel: 'Medium',
+    approvalRequired: false,
+    notes: 'Draft count correction for Ball Joint Honda Fit GD1. Draft does not affect stock.',
+    createdAt: '2026-06-11T09:10:00Z',
+    updatedAt: '2026-06-11T09:10:00Z'
+  },
+  {
+    adjustmentId: 'STA-ID-0004',
+    adjustmentNumber: 'STA-0004',
+    vendorId: 'SCI-LOG-ZW',
+    branchId: 'Harare Main',
+    warehouseId: 'Main Warehouse',
+    requestedByStaffId: 'ST-BLESSING',
+    requestedByStaffName: 'Blessing Stock',
+    adjustmentDate: '2026-06-11',
+    status: 'Pending Approval',
+    reason: 'Theft / Loss',
+    riskLevel: 'Critical',
+    approvalRequired: true,
+    notes: 'Critical theft/loss adjustment for Radiator Toyota Corolla. Owner review required.',
+    createdAt: '2026-06-11T10:15:00Z',
+    updatedAt: '2026-06-11T10:20:00Z'
+  }
+];
+
+export const mockStockAdjustmentLines: StockAdjustmentLine[] = [
+  { lineId: 'STA-LINE-0001', adjustmentId: 'STA-ID-0001', productId: 'STOCK-P-04', sku: 'OIL-5W30', productName: 'Engine Oil 5W30 5L', brand: 'SCI Industrial', shelfLocation: 'B1-S1', currentQty: 0, adjustmentDirection: 'Increase', adjustmentQty: 20, newQty: 20, unitCost: 14.5, valueImpact: 290, reason: 'Opening Balance', riskLevel: 'Low', notes: 'Opening balance posted.' },
+  { lineId: 'STA-LINE-0002', adjustmentId: 'STA-ID-0002', productId: 'STOCK-P-03', sku: 'BP-GD6-F', productName: 'Brake Pads Toyota GD6 Front', brand: 'Toyota', shelfLocation: 'A3-S6', currentQty: 13, adjustmentDirection: 'Decrease', adjustmentQty: 3, newQty: 10, unitCost: 16.5, valueImpact: -49.5, reason: 'Damaged Stock', riskLevel: 'High', notes: 'Damaged stock awaiting approval.' },
+  { lineId: 'STA-LINE-0003', adjustmentId: 'STA-ID-0003', productId: 'STOCK-P-02', sku: 'BJ-CBHO49', productName: 'Ball Joint Honda Fit GD1', brand: 'Honda', shelfLocation: 'A2-S5', currentQty: 28, adjustmentDirection: 'Set Quantity', adjustmentQty: 0, newQty: 30, unitCost: 7.25, valueImpact: 14.5, reason: 'Physical Count Correction', riskLevel: 'Medium', notes: 'Draft physical count correction.' },
+  { lineId: 'STA-LINE-0004', adjustmentId: 'STA-ID-0004', productId: 'STOCK-P-RAD-COROLLA', sku: 'RAD-COROLLA', productName: 'Radiator Toyota Corolla', brand: 'Toyota', shelfLocation: 'C2-S1', currentQty: 2, adjustmentDirection: 'Decrease', adjustmentQty: 2, newQty: 0, unitCost: 75, valueImpact: -150, reason: 'Theft / Loss', riskLevel: 'Critical', notes: 'Critical loss awaiting Owner approval.' }
+];
+
+export const mockStockAdjustmentActivityEvents: StockAdjustmentActivityEvent[] = [
+  { id: 'STA-ACT-0001', adjustmentId: 'STA-ID-0001', adjustmentNumber: 'STA-0001', eventType: 'STOCK_ADJUSTMENT_POSTED', message: 'STA-0001 posted opening balance. No cashbook posting.', operator: 'Admin User', createdAt: '2026-06-10T08:10:00Z' },
+  { id: 'STA-ACT-0002', adjustmentId: 'STA-ID-0002', adjustmentNumber: 'STA-0002', eventType: 'STOCK_ADJUSTMENT_SUBMITTED_FOR_APPROVAL', message: 'Damaged stock adjustment submitted. Stock not changed.', operator: 'Blessing Stock', createdAt: '2026-06-11T08:50:00Z' },
+  { id: 'STA-ACT-0003', adjustmentId: 'STA-ID-0003', adjustmentNumber: 'STA-0003', eventType: 'STOCK_ADJUSTMENT_DRAFT_CREATED', message: 'Draft physical count correction created. Stock not changed.', operator: 'Blessing Stock', createdAt: '2026-06-11T09:10:00Z' },
+  { id: 'STA-ACT-0004', adjustmentId: 'STA-ID-0004', adjustmentNumber: 'STA-0004', eventType: 'STOCK_ADJUSTMENT_HIGH_RISK', message: 'Critical theft/loss adjustment requires Owner review.', operator: 'Blessing Stock', createdAt: '2026-06-11T10:20:00Z' }
+];
+
 export const mockProductLedgerEntries: ProductLedgerEntry[] = [
   { id: 'LED-BJ-001', vendorId: 'SCI-LOG-ZW', productId: 'STOCK-P-02', sku: 'BJ-CBHO49', productNumericNumber: '000000011', alu: 'ALU-BJ-CBHO49', dateTime: '2026-06-01T08:00:00Z', movementType: 'Opening Balance', referenceType: 'Manual', referenceNo: 'OPEN-0001', branch: 'Harare Main', warehouse: 'Harare Spares Depot', shelfLocation: 'A2-S5', qtyIn: 15, qtyOut: 0, balanceAfter: 15, unitCost: 7, sellingPrice: 12, staffId: 'ST-ADMIN', staffName: 'Admin User', notes: 'Opening stock loaded for build-development.', riskFlag: 'None' },
   { id: 'LED-BJ-002', vendorId: 'SCI-LOG-ZW', productId: 'STOCK-P-02', sku: 'BJ-CBHO49', productNumericNumber: '000000011', alu: 'ALU-BJ-CBHO49', dateTime: '2026-06-02T10:15:00Z', movementType: 'Sale', referenceType: 'Receipt', referenceNo: 'RCT-0001', branch: 'Harare Main', warehouse: 'Harare Spares Depot', shelfLocation: 'A2-S5', qtyIn: 0, qtyOut: 2, balanceAfter: 13, unitCost: 7, sellingPrice: 12, staffId: 'ST-MARY', staffName: 'Mary Cashier', notes: 'Retail sale.', riskFlag: 'None' },
@@ -678,6 +915,8 @@ export const mockInventoryMovements: InventoryMovement[] = [
   { ...movementBase, movementId: 'MOV-STL-001', productId: 'prod-steel-angle', sku: 'STL-A40', alu: 'ALU-STL-A40', productNumericNumber: '000000007', productName: 'Steel Angle Bar 40x40x3mm (2m)', shelfLocation: '', branchId: 'BR-HARARE', warehouseId: 'WH-HARARE-01', movementType: 'OPENING_BALANCE', referenceType: 'MANUAL', referenceNumber: 'OPEN-STL-01', qtyIn: 10, qtyOut: 0, balanceBefore: 0, balanceAfter: 10, unitCost: 11.2, sellingPrice: 22.8, totalCostImpact: 112, movementDate: '2026-05-10T08:00:00Z', notes: 'Harare branch opening stock.', riskFlag: 'None' },
   { ...movementBase, movementId: 'MOV-STL-002', productId: 'prod-steel-angle', sku: 'STL-A40', alu: 'ALU-STL-A40', productNumericNumber: '000000007', productName: 'Steel Angle Bar 40x40x3mm (2m)', shelfLocation: '', branchId: 'BR-HARARE', warehouseId: 'WH-HARARE-01', movementType: 'SALE', referenceType: 'RECEIPT', referenceNumber: 'RCT-STL-01', qtyIn: 0, qtyOut: 10, balanceBefore: 10, balanceAfter: 0, unitCost: 11.2, sellingPrice: 22.8, totalCostImpact: -112, staffId: 'ST-003', staffName: 'John Connor', movementDate: '2026-05-15T14:00:00Z', notes: 'Out of stock after bulk sale.', riskFlag: 'None' }
 ];
+
+export const mockInventoryMovementRecords: InventoryMovement[] = mockInventoryMovements;
 
 export const mockSuppliers = [
   { id: 'SUP-MOTOR-001', name: 'ABC Motor Spares Supplier' },

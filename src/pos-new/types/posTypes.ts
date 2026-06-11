@@ -430,6 +430,8 @@ export type ProductLedgerMovementType =
   | 'Transfer Out'
   | 'Supplier Return'
   | 'Damage / Write-Off'
+  | 'Write Off'
+  | 'Reversal'
   | 'Correction';
 
 export type ProductLedgerReferenceType =
@@ -507,15 +509,22 @@ export type InventoryMovementType =
   | 'OPENING_BALANCE'
   | 'SALE'
   | 'SALE_RETURN'
+  | 'CUSTOMER_RETURN'
   | 'GOODS_RECEIVED'
   | 'STOCK_ADJUSTMENT_IN'
   | 'STOCK_ADJUSTMENT_OUT'
   | 'STOCKTAKE_ADJUSTMENT_IN'
   | 'STOCKTAKE_ADJUSTMENT_OUT'
+  | 'STOCKTAKE_GAIN'
+  | 'STOCKTAKE_LOSS'
   | 'TRANSFER_IN'
   | 'TRANSFER_OUT'
+  | 'BRANCH_TRANSFER_IN'
+  | 'BRANCH_TRANSFER_OUT'
   | 'SUPPLIER_RETURN'
   | 'DAMAGE_WRITEOFF'
+  | 'WRITE_OFF'
+  | 'REVERSAL'
   | 'MANUAL_CORRECTION';
 
 export type InventoryReferenceType =
@@ -603,6 +612,31 @@ export interface InventoryMovementSummary {
   totalSupplierReturnQtyOut: number;
   netMovement: number;
   highRiskMovements: number;
+}
+
+export type InventoryMovementRecord = InventoryMovement;
+export type InventoryMovementFilterState = InventoryMovementFilters;
+
+export interface ProductLedgerRow {
+  movementId: string;
+  productId: string;
+  sku: string;
+  productName: string;
+  movementDate: string;
+  movementType: InventoryMovementType;
+  referenceType: InventoryReferenceType;
+  referenceNumber: string;
+  branchId: string;
+  warehouseId: string;
+  qtyIn: number;
+  qtyOut: number;
+  balanceBefore: number;
+  balanceAfter: number;
+  unitCost: number;
+  valueImpact: number;
+  staffId: string;
+  staffName: string;
+  notes: string;
 }
 
 export type MovementClass = 'Fast Moving' | 'Normal Moving' | 'Slow Moving' | 'Dead Stock' | 'No Movement Data';
@@ -900,6 +934,7 @@ export type OperationalApprovalCategory =
   | 'Inventory Import Approval'
   | 'Purchase Order'
   | 'Goods Receiving'
+  | 'Supplier Return'
   | 'Delivery Provider Approval'
   | 'Customer Approval';
 
@@ -1588,18 +1623,317 @@ export interface GoodsReceivedNote {
   status: 'Pending Approval' | 'Posted' | 'Rejected';
 }
 
+export type SupplierReturnStatus =
+  | 'Draft'
+  | 'Pending Approval'
+  | 'Approved'
+  | 'Posted'
+  | 'Dispatched To Supplier'
+  | 'Supplier Accepted'
+  | 'Supplier Rejected'
+  | 'Credit Note Pending'
+  | 'Credit Note Received'
+  | 'Replacement Pending'
+  | 'Replacement Received'
+  | 'Cancelled'
+  | 'Closed';
+
+export type SupplierReturnReason =
+  | 'Damaged'
+  | 'Wrong Product'
+  | 'Over Supplied'
+  | 'Quality Issue'
+  | 'Expired'
+  | 'Supplier Recall'
+  | 'Duplicate Supply'
+  | 'Price Dispute'
+  | 'Not Ordered'
+  | 'Other';
+
+export type SupplierReturnResolution =
+  | 'Credit Note Expected'
+  | 'Replacement Expected'
+  | 'Supplier Refund Expected'
+  | 'No Credit'
+  | 'Internal Write Off Review'
+  | 'Pending Supplier Decision';
+
+export type SupplierReturnLineStatus =
+  | 'Draft'
+  | 'Pending'
+  | 'Approved'
+  | 'Posted'
+  | 'Dispatched'
+  | 'Accepted By Supplier'
+  | 'Rejected By Supplier'
+  | 'Closed';
+
 export interface SupplierReturn {
-  id: string;
+  supplierReturnId: string;
+  supplierReturnNumber: string;
+  vendorId: string;
+  branchId: string;
+  warehouseId: string;
+  supplierId: string;
   supplierName: string;
-  originalGrn: string;
+  poId?: string;
+  poNumber?: string;
+  grnId?: string;
+  grnNumber?: string;
+  requestedByStaffId: string;
+  requestedByStaffName: string;
+  approvedByStaffId?: string;
+  approvedByStaffName?: string;
+  returnDate: string;
+  status: SupplierReturnStatus;
+  reason: SupplierReturnReason;
+  resolution: SupplierReturnResolution;
+  supplierContactPerson: string;
+  supplierPhone: string;
+  supplierEmail: string;
+  dispatchMethod: string;
+  courierReference?: string;
+  supplierCreditNoteNumber?: string;
+  supplierCreditNoteAmount?: number;
+  replacementExpected: boolean;
+  notes: string;
+  createdAt: string;
+  updatedAt: string;
+  id?: string;
+  originalGrn?: string;
+  sku?: string;
+  productName?: string;
+  quantityReturned?: number;
+  condition?: string;
+  createdDate?: string;
+  requestedBy?: string;
+}
+
+export interface SupplierReturnLine {
+  lineId: string;
+  supplierReturnId: string;
+  productId: string;
   sku: string;
   productName: string;
-  quantityReturned: number;
-  reason: 'Wrong item supplied' | 'Damaged item' | 'Short expiry' | 'Warranty claim' | 'Over supplied' | 'Other' | string;
-  condition: 'Resellable' | 'Damaged' | 'Repair needed' | 'Scrap' | string;
-  status: 'Draft' | 'Pending Approval' | 'Shipped' | 'Credited';
-  createdDate: string;
-  requestedBy: string;
+  brand: string;
+  manufacturer: string;
+  grnLineId?: string;
+  poLineId?: string;
+  qtyReceived: number;
+  qtyAcceptedIntoStock: number;
+  qtyAlreadyReturned: number;
+  qtyReturnRequested: number;
+  qtyReturnApproved: number;
+  qtyPostedOut: number;
+  unitCost: number;
+  lineTotal: number;
+  shelfLocation: string;
+  returnReason: SupplierReturnReason;
+  resolution: SupplierReturnResolution;
+  lineStatus: SupplierReturnLineStatus;
+  stockWasPosted: boolean;
+  notes: string;
+}
+
+export interface SupplierReturnCreditNotePlaceholder {
+  creditNoteId: string;
+  supplierReturnId: string;
+  supplierReturnNumber: string;
+  supplierCreditNoteNumber: string;
+  supplierCreditNoteAmount: number;
+  receivedDate: string;
+  status: 'Pending Accounting Review' | 'Captured' | 'Cancelled';
+  notes: string;
+  createdAt: string;
+}
+
+export interface SupplierReturnDispatchDetails {
+  dispatchMethod: string;
+  courierReference?: string;
+  dispatchNotes?: string;
+  dispatchedAt?: string;
+  dispatchedByStaffId?: string;
+  dispatchedByStaffName?: string;
+}
+
+export type SupplierReturnActivityEventType =
+  | 'SUPPLIER_RETURN_DRAFT_CREATED'
+  | 'SUPPLIER_RETURN_UPDATED'
+  | 'SUPPLIER_RETURN_SUBMITTED_FOR_APPROVAL'
+  | 'SUPPLIER_RETURN_APPROVED'
+  | 'SUPPLIER_RETURN_POSTED'
+  | 'SUPPLIER_RETURN_POSTED_TO_STOCK'
+  | 'SUPPLIER_REJECTION_RECORDED_NO_STOCK_IMPACT'
+  | 'SUPPLIER_RETURN_DISPATCHED'
+  | 'SUPPLIER_CREDIT_NOTE_RECORDED'
+  | 'SUPPLIER_REPLACEMENT_EXPECTED'
+  | 'SUPPLIER_RETURN_CLOSED'
+  | 'SUPPLIER_RETURN_CANCELLED';
+
+export interface SupplierReturnActivityEvent {
+  id: string;
+  supplierReturnId: string;
+  supplierReturnNumber: string;
+  grnId?: string;
+  grnNumber?: string;
+  poId?: string;
+  poNumber?: string;
+  eventType: SupplierReturnActivityEventType;
+  message: string;
+  operator: string;
+  createdAt: string;
+}
+
+export interface SupplierReturnFilterState {
+  supplierReturnNumber?: string;
+  supplier?: string;
+  poNumber?: string;
+  grnNumber?: string;
+  branch?: string;
+  warehouse?: string;
+  status?: SupplierReturnStatus | 'ALL';
+  reason?: SupplierReturnReason | 'ALL';
+  resolution?: SupplierReturnResolution | 'ALL';
+  dateFrom?: string;
+  dateTo?: string;
+}
+
+export interface SupplierReturnSummary {
+  draftReturns: number;
+  pendingApproval: number;
+  postedReturns: number;
+  dispatched: number;
+  creditNotesPending: number;
+  replacementsPending: number;
+  supplierRejected: number;
+  closedReturns: number;
+  returnQty: number;
+  returnValueEstimate: number;
+}
+
+export type StockAdjustmentStatus =
+  | 'Draft'
+  | 'Pending Approval'
+  | 'Approved'
+  | 'Posted'
+  | 'Rejected'
+  | 'Cancelled'
+  | 'Reversed';
+
+export type StockAdjustmentReason =
+  | 'Opening Balance'
+  | 'Physical Count Correction'
+  | 'Damaged Stock'
+  | 'Expired Stock'
+  | 'Theft / Loss'
+  | 'Internal Use'
+  | 'Data Correction'
+  | 'Supplier Correction'
+  | 'Customer Return Correction'
+  | 'Branch Transfer Correction'
+  | 'Write Off'
+  | 'Other';
+
+export type StockAdjustmentDirection =
+  | 'Increase'
+  | 'Decrease'
+  | 'Set Quantity';
+
+export type StockAdjustmentRiskLevel =
+  | 'Low'
+  | 'Medium'
+  | 'High'
+  | 'Critical';
+
+export interface StockAdjustment {
+  adjustmentId: string;
+  adjustmentNumber: string;
+  vendorId: string;
+  branchId: string;
+  warehouseId: string;
+  requestedByStaffId: string;
+  requestedByStaffName: string;
+  approvedByStaffId?: string;
+  approvedByStaffName?: string;
+  postedByStaffId?: string;
+  postedByStaffName?: string;
+  adjustmentDate: string;
+  status: StockAdjustmentStatus;
+  reason: StockAdjustmentReason;
+  riskLevel: StockAdjustmentRiskLevel;
+  approvalRequired: boolean;
+  notes: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface StockAdjustmentLine {
+  lineId: string;
+  adjustmentId: string;
+  productId: string;
+  sku: string;
+  productName: string;
+  brand: string;
+  shelfLocation: string;
+  currentQty: number;
+  adjustmentDirection: StockAdjustmentDirection;
+  adjustmentQty: number;
+  newQty: number;
+  unitCost: number;
+  valueImpact: number;
+  reason: StockAdjustmentReason;
+  riskLevel: StockAdjustmentRiskLevel;
+  notes: string;
+}
+
+export type StockAdjustmentActivityEventType =
+  | 'STOCK_ADJUSTMENT_DRAFT_CREATED'
+  | 'STOCK_ADJUSTMENT_DRAFT_UPDATED'
+  | 'STOCK_ADJUSTMENT_LINE_UPDATED'
+  | 'STOCK_ADJUSTMENT_SUBMITTED_FOR_APPROVAL'
+  | 'STOCK_ADJUSTMENT_APPROVED'
+  | 'STOCK_ADJUSTMENT_REJECTED'
+  | 'STOCK_ADJUSTMENT_POSTED'
+  | 'STOCK_ADJUSTMENT_CANCELLED'
+  | 'STOCK_ADJUSTMENT_REVERSE_REQUESTED'
+  | 'STOCK_ADJUSTMENT_HIGH_RISK'
+  | 'STOCK_ADJUSTMENT_NEGATIVE_STOCK_BLOCKED';
+
+export interface StockAdjustmentActivityEvent {
+  id: string;
+  adjustmentId: string;
+  adjustmentNumber: string;
+  eventType: StockAdjustmentActivityEventType;
+  message: string;
+  operator: string;
+  createdAt: string;
+}
+
+export interface StockAdjustmentFilterState {
+  adjustmentNumber?: string;
+  product?: string;
+  sku?: string;
+  branch?: string;
+  warehouse?: string;
+  status?: StockAdjustmentStatus | 'ALL';
+  reason?: StockAdjustmentReason | 'ALL';
+  riskLevel?: StockAdjustmentRiskLevel | 'ALL';
+  requestedBy?: string;
+  dateFrom?: string;
+  dateTo?: string;
+}
+
+export interface StockAdjustmentSummary {
+  draftAdjustments: number;
+  pendingApproval: number;
+  approved: number;
+  postedToday: number;
+  highRisk: number;
+  critical: number;
+  positiveAdjustments: number;
+  negativeAdjustments: number;
+  writeOffValue: number;
+  awaitingOwnerReview: number;
 }
 
 export interface StockAdjustmentRequest {
