@@ -37,6 +37,13 @@ export type PermissionKey =
   | 'purchaseOrders.cancel'
   | 'purchaseOrders.receive'
   | 'purchaseOrders.export'
+  | 'goodsReceiving.view'
+  | 'goodsReceiving.create'
+  | 'goodsReceiving.edit'
+  | 'goodsReceiving.approve'
+  | 'goodsReceiving.post'
+  | 'goodsReceiving.cancel'
+  | 'goodsReceiving.reverse'
   | 'stocktake.create'
   | 'stocktake.count'
   | 'stocktake.approveAdjustment'
@@ -106,6 +113,13 @@ const ALL_PERMISSIONS: PermissionKey[] = [
   'purchaseOrders.cancel',
   'purchaseOrders.receive',
   'purchaseOrders.export',
+  'goodsReceiving.view',
+  'goodsReceiving.create',
+  'goodsReceiving.edit',
+  'goodsReceiving.approve',
+  'goodsReceiving.post',
+  'goodsReceiving.cancel',
+  'goodsReceiving.reverse',
   'stocktake.create',
   'stocktake.count',
   'stocktake.approveAdjustment',
@@ -151,6 +165,7 @@ const ROLE_PERMISSIONS: Record<Role, PermissionKey[]> = {
     'customers.createRequest', 'customers.approve',
     'inventory.view', 'inventory.import', 'inventory.approveImport', 'inventory.adjust', 'inventory.approveAdjustment',
     'purchaseOrders.view', 'purchaseOrders.create', 'purchaseOrders.edit', 'purchaseOrders.approve', 'purchaseOrders.cancel', 'purchaseOrders.receive', 'purchaseOrders.export',
+    'goodsReceiving.view', 'goodsReceiving.create', 'goodsReceiving.edit', 'goodsReceiving.approve', 'goodsReceiving.post', 'goodsReceiving.cancel',
     'stocktake.create', 'stocktake.count', 'stocktake.approveAdjustment',
     'ideliver.createProvider', 'delivery.broadcast', 'delivery.review',
     'tasks.view', 'tasks.assign', 'tasks.close',
@@ -168,6 +183,7 @@ const ROLE_PERMISSIONS: Record<Role, PermissionKey[]> = {
     'customers.createRequest',
     'inventory.view',
     'purchaseOrders.view', 'purchaseOrders.create', 'purchaseOrders.edit', 'purchaseOrders.receive',
+    'goodsReceiving.view', 'goodsReceiving.create', 'goodsReceiving.edit', 'goodsReceiving.post',
     'stocktake.create', 'stocktake.count',
     'delivery.broadcast', 'delivery.review',
     'tasks.view', 'tasks.assign', 'tasks.close',
@@ -189,6 +205,7 @@ const ROLE_PERMISSIONS: Record<Role, PermissionKey[]> = {
     'sales.viewHistory',
     'inventory.view', 'inventory.import', 'inventory.adjust',
     'purchaseOrders.view', 'purchaseOrders.create', 'purchaseOrders.edit', 'purchaseOrders.receive',
+    'goodsReceiving.view', 'goodsReceiving.create', 'goodsReceiving.edit',
     'stocktake.create', 'stocktake.count',
     'tasks.view',
     'approvals.view',

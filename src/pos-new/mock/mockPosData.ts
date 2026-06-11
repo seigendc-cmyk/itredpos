@@ -74,7 +74,12 @@ import {
   CustomerActivityEvent,
   PurchaseOrder,
   PurchaseOrderLine,
-  PurchaseOrderActivityEvent
+  PurchaseOrderActivityEvent,
+  GoodsReceivingNote,
+  GoodsReceivingLine,
+  GoodsReceivingVariance,
+  GoodsReceivingActivityEvent,
+  POReceivingSummary
 } from '../types/posTypes';
 
 export const mockVendors: Vendor[] = [
@@ -493,6 +498,124 @@ export const mockPurchaseOrderActivityEvents: PurchaseOrderActivityEvent[] = [
   { id: 'PO-ACT-0003', poId: 'PO-ID-0002', poNumber: 'PO-0002', eventType: 'PURCHASE_ORDER_SENT_TO_SUPPLIER', message: 'PO-0002 marked sent to supplier. Memo remains non-financial.', operator: 'Admin User', createdAt: '2026-06-09T11:05:00Z' },
   { id: 'PO-ACT-0004', poId: 'PO-ID-0003', poNumber: 'PO-0003', eventType: 'PURCHASE_ORDER_RECEIVING_DRAFT_CREATED', message: 'Receiving draft prepared from PO-0003. Stock changes only after GRN posting.', operator: 'Blessing Stock', createdAt: '2026-06-10T14:35:00Z' },
   { id: 'PO-ACT-0005', poId: 'PO-ID-0004', poNumber: 'PO-0004', eventType: 'PURCHASE_ORDER_DRAFT_CREATED', message: 'PO-0004 memo draft created. No stock or accounting posted.', operator: 'Blessing Stock', createdAt: '2026-06-11T08:05:00Z' }
+];
+
+export const mockGoodsReceivingNotes: GoodsReceivingNote[] = [
+  {
+    grnId: 'GRN-ID-0001',
+    grnNumber: 'GRN-0001',
+    vendorId: 'SCI-LOG-ZW',
+    poId: 'PO-ID-0003',
+    poNumber: 'PO-0003',
+    branchId: 'Harare Main',
+    warehouseId: 'Main Warehouse',
+    supplierId: 'SUP-RADIATOR',
+    supplierName: 'Radiator Imports',
+    receivedByStaffId: 'ST-BLESSING',
+    receivedByStaffName: 'Blessing Stock',
+    receivedDate: '2026-06-10',
+    supplierInvoiceNumber: 'RI-9044',
+    supplierInvoiceDate: '2026-06-10',
+    supplierInvoiceAmount: 150,
+    deliveryNoteNumber: 'DN-RI-441',
+    vehicleOrCourierReference: 'Courier Bike HRE-22',
+    receivingStatus: 'Posted',
+    approvalRequired: false,
+    approvedByStaffId: 'ST-ADMIN',
+    approvedByStaffName: 'Admin User',
+    postedAt: '2026-06-10T14:35:00Z',
+    notes: 'Partial receipt against radiator PO. Stock was updated only after posting.',
+    createdAt: '2026-06-10T14:15:00Z',
+    updatedAt: '2026-06-10T14:35:00Z'
+  },
+  {
+    grnId: 'GRN-ID-0002',
+    grnNumber: 'GRN-0002',
+    vendorId: 'SCI-LOG-ZW',
+    poId: 'PO-ID-0001',
+    poNumber: 'PO-0001',
+    branchId: 'Harare Main',
+    warehouseId: 'Main Warehouse',
+    supplierId: 'SUP-MOTOR-SPARES',
+    supplierName: 'Motor Spares Wholesalers',
+    receivedByStaffId: 'ST-BLESSING',
+    receivedByStaffName: 'Blessing Stock',
+    receivedDate: '2026-06-11',
+    supplierInvoiceNumber: '',
+    supplierInvoiceDate: '',
+    supplierInvoiceAmount: 0,
+    deliveryNoteNumber: 'DN-MSW-DRAFT',
+    vehicleOrCourierReference: 'Supplier truck pending invoice',
+    receivingStatus: 'Draft',
+    approvalRequired: false,
+    notes: 'Draft receiving batch. No stock movement posted.',
+    createdAt: '2026-06-11T09:20:00Z',
+    updatedAt: '2026-06-11T09:20:00Z'
+  },
+  {
+    grnId: 'GRN-ID-0003',
+    grnNumber: 'GRN-0003',
+    vendorId: 'SCI-LOG-ZW',
+    poId: 'PO-ID-0002',
+    poNumber: 'PO-0002',
+    branchId: 'Harare Main',
+    warehouseId: 'Main Warehouse',
+    supplierId: 'SUP-LUBRICANTS',
+    supplierName: 'Lubricants Direct',
+    receivedByStaffId: 'ST-BLESSING',
+    receivedByStaffName: 'Blessing Stock',
+    receivedDate: '2026-06-11',
+    supplierInvoiceNumber: 'LD-7781',
+    supplierInvoiceDate: '2026-06-11',
+    supplierInvoiceAmount: 580,
+    deliveryNoteNumber: 'DN-LD-112',
+    vehicleOrCourierReference: 'LD Truck 15',
+    receivingStatus: 'Posted',
+    approvalRequired: false,
+    approvedByStaffId: 'ST-ADMIN',
+    approvedByStaffName: 'Admin User',
+    postedAt: '2026-06-11T10:10:00Z',
+    notes: 'Posted full receipt. No cashbook payment created.',
+    createdAt: '2026-06-11T09:55:00Z',
+    updatedAt: '2026-06-11T10:10:00Z'
+  }
+];
+
+export const mockGoodsReceivingLines: GoodsReceivingLine[] = [
+  { lineId: 'GRN-LINE-0001', grnId: 'GRN-ID-0001', poId: 'PO-ID-0003', poLineId: 'PO-LINE-0004', productId: 'STOCK-P-RAD-COROLLA', sku: 'RAD-COROLLA', productName: 'Radiator Toyota Corolla', brand: 'Toyota', manufacturer: 'Denso', unitOfMeasure: 'pcs', qtyOrdered: 5, qtyPreviouslyReceived: 0, qtyOutstandingBeforeGRN: 5, qtyReceivedNow: 2, qtyAccepted: 2, qtyRejected: 0, qtyOutstandingAfterGRN: 3, previousCostPrice: 72, receivedUnitCost: 75, sellingPrice: 110, shelfLocation: 'C2-S1', varianceType: 'Short', lineStatus: 'Partially Received', removeFromCurrentGRN: false, markUnavailableFromSupplier: false, notes: 'Partial supply, three outstanding.' },
+  { lineId: 'GRN-LINE-0002', grnId: 'GRN-ID-0002', poId: 'PO-ID-0001', poLineId: 'PO-LINE-0001', productId: 'STOCK-P-02', sku: 'BJ-CBHO49', productName: 'Ball Joint Honda Fit GD1', brand: 'Honda', manufacturer: 'Genuine Parts', unitOfMeasure: 'pcs', qtyOrdered: 24, qtyPreviouslyReceived: 0, qtyOutstandingBeforeGRN: 24, qtyReceivedNow: 24, qtyAccepted: 24, qtyRejected: 0, qtyOutstandingAfterGRN: 0, previousCostPrice: 7, receivedUnitCost: 7, sellingPrice: 12, shelfLocation: 'A2-S5', varianceType: 'None', lineStatus: 'Pending', removeFromCurrentGRN: false, markUnavailableFromSupplier: false, notes: 'Draft full receipt candidate.' },
+  { lineId: 'GRN-LINE-0003', grnId: 'GRN-ID-0002', poId: 'PO-ID-0001', poLineId: 'PO-LINE-0002', productId: 'STOCK-P-03', sku: 'BP-GD6-F', productName: 'Brake Pads Toyota GD6 Front', brand: 'Toyota', manufacturer: 'Bosch', unitOfMeasure: 'pcs', qtyOrdered: 12, qtyPreviouslyReceived: 0, qtyOutstandingBeforeGRN: 12, qtyReceivedNow: 8, qtyAccepted: 8, qtyRejected: 0, qtyOutstandingAfterGRN: 4, previousCostPrice: 16, receivedUnitCost: 22, sellingPrice: 30, shelfLocation: 'A3-S6', varianceType: 'Cost Increase', lineStatus: 'Variance Review', removeFromCurrentGRN: false, markUnavailableFromSupplier: false, notes: 'Cost increase over 15 percent requires review.' },
+  { lineId: 'GRN-LINE-0004', grnId: 'GRN-ID-0002', poId: 'PO-ID-0001', poLineId: 'PO-LINE-0002', productId: 'STOCK-P-03', sku: 'BP-GD6-F', productName: 'Brake Pads Toyota GD6 Front', brand: 'Toyota', manufacturer: 'Bosch', unitOfMeasure: 'pcs', qtyOrdered: 12, qtyPreviouslyReceived: 0, qtyOutstandingBeforeGRN: 12, qtyReceivedNow: 0, qtyAccepted: 0, qtyRejected: 0, qtyOutstandingAfterGRN: 12, previousCostPrice: 16, receivedUnitCost: 16, sellingPrice: 28, shelfLocation: 'A3-S6', varianceType: 'Short', lineStatus: 'Not Supplied', removeFromCurrentGRN: false, markUnavailableFromSupplier: true, notes: 'Supplier did not supply in this delivery.' },
+  { lineId: 'GRN-LINE-0005', grnId: 'GRN-ID-0002', poId: 'PO-ID-0001', poLineId: 'PO-LINE-0001', productId: 'STOCK-P-02', sku: 'BJ-CBHO49', productName: 'Ball Joint Honda Fit GD1', brand: 'Honda', manufacturer: 'Genuine Parts', unitOfMeasure: 'pcs', qtyOrdered: 24, qtyPreviouslyReceived: 0, qtyOutstandingBeforeGRN: 24, qtyReceivedNow: 0, qtyAccepted: 0, qtyRejected: 0, qtyOutstandingAfterGRN: 24, previousCostPrice: 7, receivedUnitCost: 7, sellingPrice: 12, shelfLocation: 'A2-S5', varianceType: 'None', lineStatus: 'Removed From GRN', removeFromCurrentGRN: true, markUnavailableFromSupplier: false, notes: 'Removed from current receiving batch; remains outstanding on PO.' },
+  { lineId: 'GRN-LINE-0006', grnId: 'GRN-ID-0003', poId: 'PO-ID-0002', poLineId: 'PO-LINE-0003', productId: 'STOCK-P-04', sku: 'OIL-5W30', productName: 'Engine Oil 5W30 5L', brand: 'SCI Industrial', manufacturer: 'Denso', unitOfMeasure: 'cans', qtyOrdered: 40, qtyPreviouslyReceived: 0, qtyOutstandingBeforeGRN: 40, qtyReceivedNow: 42, qtyAccepted: 40, qtyRejected: 2, qtyOutstandingAfterGRN: 0, previousCostPrice: 14.5, receivedUnitCost: 14.5, sellingPrice: 22, shelfLocation: 'B1-S1', varianceType: 'Damaged', lineStatus: 'Received', removeFromCurrentGRN: false, markUnavailableFromSupplier: false, damagedReason: 'Two cans leaking on arrival.', notes: 'Rejected damaged quantity does not enter available stock.' }
+];
+
+export const mockGoodsReceivingVariances: GoodsReceivingVariance[] = [
+  { varianceId: 'GRN-VAR-0001', grnId: 'GRN-ID-0001', lineId: 'GRN-LINE-0001', varianceType: 'Short', severity: 'Medium', message: 'Short receipt: 2 received against 5 outstanding.', approvalRequired: false, resolved: true },
+  { varianceId: 'GRN-VAR-0002', grnId: 'GRN-ID-0002', lineId: 'GRN-LINE-0003', varianceType: 'Cost Increase', severity: 'High', message: 'Cost increase above 15 percent requires approval before posting.', approvalRequired: true, resolved: false },
+  { varianceId: 'GRN-VAR-0003', grnId: 'GRN-ID-0003', lineId: 'GRN-LINE-0006', varianceType: 'Damaged', severity: 'Medium', message: 'Damaged goods rejected from available stock.', approvalRequired: false, resolved: true },
+  { varianceId: 'GRN-VAR-0004', grnId: 'GRN-ID-0002', varianceType: 'Missing Supplier Invoice', severity: 'High', message: 'Supplier invoice missing on draft GRN.', approvalRequired: true, resolved: false }
+];
+
+export const mockGoodsReceivingActivityEvents: GoodsReceivingActivityEvent[] = [
+  { id: 'GRN-ACT-0001', grnId: 'GRN-ID-0001', grnNumber: 'GRN-0001', poId: 'PO-ID-0003', poNumber: 'PO-0003', eventType: 'GRN_DRAFT_CREATED_FROM_PO', message: 'GRN-0001 draft created from PO-0003.', operator: 'Blessing Stock', createdAt: '2026-06-10T14:15:00Z' },
+  { id: 'GRN-ACT-0002', grnId: 'GRN-ID-0001', grnNumber: 'GRN-0001', poId: 'PO-ID-0003', poNumber: 'PO-0003', eventType: 'GRN_POSTED_TO_STOCK', message: 'GRN-0001 posted accepted quantities to stock.', operator: 'Blessing Stock', createdAt: '2026-06-10T14:35:00Z' },
+  { id: 'GRN-ACT-0003', grnId: 'GRN-ID-0002', grnNumber: 'GRN-0002', poId: 'PO-ID-0001', poNumber: 'PO-0001', eventType: 'GRN_SUPPLIER_INVOICE_MISSING', message: 'Supplier invoice missing on draft GRN.', operator: 'Blessing Stock', createdAt: '2026-06-11T09:20:00Z' },
+  { id: 'GRN-ACT-0004', grnId: 'GRN-ID-0002', grnNumber: 'GRN-0002', poId: 'PO-ID-0001', poNumber: 'PO-0001', eventType: 'GRN_LINE_REMOVED_FROM_CURRENT_RECEIVING', message: 'Line removed from current receiving batch; PO outstanding unchanged.', operator: 'Blessing Stock', createdAt: '2026-06-11T09:25:00Z' },
+  { id: 'GRN-ACT-0005', grnId: 'GRN-ID-0003', grnNumber: 'GRN-0003', poId: 'PO-ID-0002', poNumber: 'PO-0002', eventType: 'GRN_DAMAGED_GOODS_RECORDED', message: 'Damaged goods rejected and excluded from available stock.', operator: 'Blessing Stock', createdAt: '2026-06-11T10:05:00Z' }
+];
+
+export const mockPOReceivingSummaries: POReceivingSummary[] = [
+  { poId: 'PO-ID-0001', poNumber: 'PO-0001', supplierName: 'Motor Spares Wholesalers', fulfillmentStatus: 'Not Received', totalOrderedQty: 36, totalPostedReceivedQty: 0, totalOutstandingQty: 36, postedGRNCount: 0, draftGRNCount: 1, lineStates: [
+    { poLineId: 'PO-LINE-0001', productId: 'STOCK-P-02', sku: 'BJ-CBHO49', productName: 'Ball Joint Honda Fit GD1', qtyOrdered: 24, qtyPostedReceived: 0, qtyOutstanding: 24, fulfillmentStatus: 'Not Received' },
+    { poLineId: 'PO-LINE-0002', productId: 'STOCK-P-03', sku: 'BP-GD6-F', productName: 'Brake Pads Toyota GD6 Front', qtyOrdered: 12, qtyPostedReceived: 0, qtyOutstanding: 12, fulfillmentStatus: 'Not Received' }
+  ] },
+  { poId: 'PO-ID-0002', poNumber: 'PO-0002', supplierName: 'Lubricants Direct', fulfillmentStatus: 'Fully Received', totalOrderedQty: 40, totalPostedReceivedQty: 38, totalOutstandingQty: 0, postedGRNCount: 1, draftGRNCount: 0, lineStates: [
+    { poLineId: 'PO-LINE-0003', productId: 'STOCK-P-04', sku: 'OIL-5W30', productName: 'Engine Oil 5W30 5L', qtyOrdered: 40, qtyPostedReceived: 38, qtyOutstanding: 0, fulfillmentStatus: 'Fully Received' }
+  ] },
+  { poId: 'PO-ID-0003', poNumber: 'PO-0003', supplierName: 'Radiator Imports', fulfillmentStatus: 'Partially Received', totalOrderedQty: 5, totalPostedReceivedQty: 2, totalOutstandingQty: 3, postedGRNCount: 1, draftGRNCount: 0, lineStates: [
+    { poLineId: 'PO-LINE-0004', productId: 'STOCK-P-RAD-COROLLA', sku: 'RAD-COROLLA', productName: 'Radiator Toyota Corolla', qtyOrdered: 5, qtyPostedReceived: 2, qtyOutstanding: 3, fulfillmentStatus: 'Partially Received' }
+  ] }
 ];
 
 export const mockProductLedgerEntries: ProductLedgerEntry[] = [

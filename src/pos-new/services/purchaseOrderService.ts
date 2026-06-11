@@ -12,6 +12,7 @@ import {
   mockPurchaseOrders
 } from '../mock/mockPosData';
 import { createOperationalApproval } from './approvalService';
+import { createGRNDraftFromPO, getPOReceivingSummary } from './goodsReceivingService';
 
 const PO_KEY = 'itred_pos_purchase_orders_v1';
 const PO_LINE_KEY = 'itred_pos_purchase_order_lines_v1';
@@ -350,20 +351,25 @@ export async function closePurchaseOrder(poId: string, staffId: string, notes = 
   );
 }
 
-export async function createGoodsReceivingDraftFromPO(poId: string): Promise<{ message: string; order: PurchaseOrder; lines: PurchaseOrderLine[] } | null> {
+export async function createGoodsReceivingDraftFromPO(poId: string): Promise<{ message: string; order: PurchaseOrder; lines: PurchaseOrderLine[]; grnId?: string; grnNumber?: string } | null> {
   const order = await getPurchaseOrderById(poId);
   if (!order) return null;
-  const lines = await getPurchaseOrderLines(poId);
+  const draft = await createGRNDraftFromPO(poId, order.requestedByStaffName);
+  const summary = await getPOReceivingSummary(poId);
+  const outstandingLineIds = new Set((summary?.lineStates || []).filter((line) => line.qtyOutstanding > 0).map((line) => line.poLineId));
+  const lines = (await getPurchaseOrderLines(poId)).filter((line) => outstandingLineIds.has(line.lineId));
   await recordActivity(
     order,
     'PURCHASE_ORDER_RECEIVING_DRAFT_CREATED',
     order.requestedByStaffName,
-    'Goods Receiving draft prepared from PO. Stock will update only after received quantities are posted.'
+    `${draft?.grnNumber || 'Goods Receiving draft'} prepared from outstanding PO lines. Stock will update only after received quantities are posted.`
   );
   return {
     message: 'Goods Receiving draft prepared from PO. Stock will update only after received quantities are posted.',
     order,
-    lines
+    lines,
+    grnId: draft?.grnId,
+    grnNumber: draft?.grnNumber
   };
 }
 

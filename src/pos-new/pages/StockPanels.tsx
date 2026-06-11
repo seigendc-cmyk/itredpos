@@ -29,6 +29,13 @@ import {
   PurchaseOrderSource,
   PurchaseOrderStatus,
   PurchaseOrderSummary,
+  GoodsReceivingActivityEvent,
+  GoodsReceivingFilterState,
+  GoodsReceivingLine,
+  GoodsReceivingNote,
+  GoodsReceivingPostingResult,
+  GoodsReceivingStatus,
+  ReceivingVarianceType,
   GRNLine, 
   GoodsReceivedNote, 
   SupplierReturn, 
@@ -38,6 +45,7 @@ import {
   ApprovalRequestType 
 } from '../types';
 import PurchaseOrderForm from '../components/PurchaseOrderForm';
+import GoodsReceivingForm from '../components/GoodsReceivingForm';
 import {
   postGoodsReceivedMovement,
   postStockAdjustmentMovement,
@@ -48,7 +56,6 @@ import {
   approvePurchaseOrder,
   cancelPurchaseOrder,
   closePurchaseOrder,
-  createGoodsReceivingDraftFromPO,
   exportPurchaseOrderPlaceholder,
   getPurchaseOrderActivityEvents,
   getPurchaseOrderLines,
@@ -57,6 +64,21 @@ import {
   markPurchaseOrderSent,
   submitPurchaseOrderForApproval
 } from '../services/purchaseOrderService';
+import {
+  approveGRN,
+  cancelGRN,
+  closePOWithOutstanding,
+  createGRNDraftFromPO,
+  exportGRNPlaceholder,
+  getGoodsReceivingActivityEvents,
+  getGoodsReceivingLines,
+  getGoodsReceivingNotes,
+  getPOReceivingSummary,
+  postGRN,
+  reopenPOPlaceholder,
+  reverseGRNPlaceholder,
+  submitGRNForApproval
+} from '../services/goodsReceivingService';
 import { canPerformAction } from '../utils/posPermissions';
 
 interface StockProduct extends Product {
@@ -200,6 +222,47 @@ export default function StockPanels({
   };
 
   const [grnFeedback, setGrnFeedback] = useState<{ type: 'success' | 'error' | 'warning', msg: string } | null>(null);
+
+  const [goodsReceivingNotes, setGoodsReceivingNotes] = useState<GoodsReceivingNote[]>([]);
+  const [goodsReceivingLineMap, setGoodsReceivingLineMap] = useState<Record<string, GoodsReceivingLine[]>>({});
+  const [goodsReceivingEvents, setGoodsReceivingEvents] = useState<GoodsReceivingActivityEvent[]>([]);
+  const [goodsReceivingFilters, setGoodsReceivingFilters] = useState<GoodsReceivingFilterState>({
+    status: 'ALL',
+    varianceType: 'ALL'
+  });
+  const [goodsReceivingFormOpen, setGoodsReceivingFormOpen] = useState(false);
+  const [activeGoodsReceivingNote, setActiveGoodsReceivingNote] = useState<GoodsReceivingNote | null>(null);
+  const [goodsReceivingNotice, setGoodsReceivingNotice] = useState<string | null>(null);
+
+  const refreshGoodsReceiving = async (filters = goodsReceivingFilters) => {
+    const [notes, events] = await Promise.all([
+      getGoodsReceivingNotes(filters),
+      getGoodsReceivingActivityEvents(filters)
+    ]);
+    const linePairs = await Promise.all(notes.map(async (note) => [note.grnId, await getGoodsReceivingLines(note.grnId)] as const));
+    setGoodsReceivingNotes(notes);
+    setGoodsReceivingEvents(events);
+    setGoodsReceivingLineMap(Object.fromEntries(linePairs));
+  };
+
+  useEffect(() => {
+    refreshGoodsReceiving();
+  }, []);
+
+  const goodsReceivingSummary = useMemo(() => {
+    const today = new Date().toISOString().slice(0, 10);
+    const allLines = Object.values(goodsReceivingLineMap).flat();
+    return {
+      draftGRNs: goodsReceivingNotes.filter((note) => note.receivingStatus === 'Draft').length,
+      pendingApproval: goodsReceivingNotes.filter((note) => note.receivingStatus === 'Pending Approval').length,
+      postedToday: goodsReceivingNotes.filter((note) => (note.receivingStatus === 'Posted' || note.receivingStatus === 'Partially Posted') && note.postedAt?.slice(0, 10) === today).length,
+      partialReceipts: allLines.filter((line) => line.lineStatus === 'Partially Received').length,
+      grnVariances: allLines.filter((line) => line.varianceType !== 'None').length,
+      outstandingPOLines: allLines.filter((line) => line.qtyOutstandingAfterGRN > 0 && !line.removeFromCurrentGRN).length,
+      supplierInvoiceMissing: goodsReceivingNotes.filter((note) => !note.supplierInvoiceNumber.trim()).length,
+      awaitingStockPosting: goodsReceivingNotes.filter((note) => note.receivingStatus === 'Draft' || note.receivingStatus === 'Pending Approval').length
+    };
+  }, [goodsReceivingLineMap, goodsReceivingNotes]);
 
   // 3. Supplier Returns State & Form Binding
   const [supplierReturns, setSupplierReturns] = useState<SupplierReturn[]>(() => {
@@ -419,38 +482,8 @@ export default function StockPanels({
   // A. RECEIVE PO DISPATCHER: prepares a GRN draft from a PO and switches tab.
   // Stock quantity changes only happen later if the Goods Receiving form is posted.
   const handleQuickReceivePO = async (po: PurchaseOrder) => {
-    const draft = await createGoodsReceivingDraftFromPO(po.poId);
-    if (!draft) return;
-    setGrnPoRef(po.poNumber);
-    setGrnSupplier(po.supplierName);
-    setGrnBranch(po.deliveryBranchId);
-    setGrnWarehouse(po.deliveryWarehouseId);
-
-    const loadedLines: GRNLine[] = draft.lines.map((poLine) => {
-      const matchInStock = localStock.find((p) => (p.sku || p.code) === poLine.sku);
-      const outstanding = Math.max(poLine.qtyOutstanding, 0);
-      return {
-        sku: poLine.sku,
-        productName: poLine.productName,
-        orderedQty: outstanding || poLine.qtyOrdered,
-        receivedQty: outstanding || poLine.qtyOrdered,
-        costPrice: poLine.estimatedUnitCost,
-        prevCostPrice: matchInStock ? (matchInStock.costPrice ?? matchInStock.cost) : (poLine.lastCostPrice || poLine.estimatedUnitCost),
-        currentPrice: matchInStock ? (matchInStock.sellingPrice ?? matchInStock.price) : (poLine.currentSellingPrice || poLine.estimatedUnitCost * 1.5),
-        suggestedPrice: matchInStock ? (matchInStock.sellingPrice ?? matchInStock.price) : (poLine.currentSellingPrice || poLine.estimatedUnitCost * 1.5),
-        status: 'Matched',
-        accepted: false,
-        rejected: false,
-        priceUpdated: false,
-        flagged: false
-      };
-    });
-
-    setGrnLines(loadedLines);
-    setGrnFeedback({ type: 'warning', msg: draft.message });
-    setPoFeedback(draft.message);
+    await handleCreateGRNFromPO(po);
     setActiveTab('Goods Receiving');
-    refreshPurchaseOrders();
   };
 
   const handlePOStatusAction = async (po: PurchaseOrder, action: 'submit' | 'approve' | 'sent' | 'cancel' | 'close' | 'export') => {
@@ -497,6 +530,134 @@ export default function StockPanels({
       setPoFeedback(result.message);
     }
     refreshPurchaseOrders();
+  };
+
+  const openGoodsReceivingForm = async (note: GoodsReceivingNote) => {
+    setActiveGoodsReceivingNote(note);
+    setGoodsReceivingFormOpen(true);
+  };
+
+  const handleCreateGRNFromPO = async (po?: PurchaseOrder) => {
+    const targetPO = po || purchaseOrders.find((order) => order.status === 'Approved' || order.status === 'Sent To Supplier' || order.status === 'Partially Received');
+    if (!targetPO) {
+      setGoodsReceivingNotice('No approved, sent, or partially received Purchase Order is available for GRN draft creation.');
+      return;
+    }
+    if (!canPerformAction(simulatedRole, 'goodsReceiving.create')) {
+      setGoodsReceivingNotice('You do not have permission to perform this action.');
+      return;
+    }
+    const draft = await createGRNDraftFromPO(targetPO.poId, staffName);
+    if (!draft) {
+      setGoodsReceivingNotice(`${targetPO.poNumber} has no outstanding lines available for a new GRN draft.`);
+      return;
+    }
+    await refreshGoodsReceiving();
+    await refreshPurchaseOrders();
+    setGoodsReceivingNotice(`${draft.grnNumber} draft created from ${targetPO.poNumber}. Draft GRN has not updated stock.`);
+    setActiveGoodsReceivingNote(draft);
+    setGoodsReceivingFormOpen(true);
+  };
+
+  const applyPostedGRNToLocalStock = (result: GoodsReceivingPostingResult) => {
+    if (!result.stockPosted) return;
+    let nextStock = [...localStock];
+    result.postedLines.forEach((line) => {
+      nextStock = nextStock.map((item) => {
+        if ((item.sku || item.code) !== line.sku) return item;
+        const currentQty = item.qtyOnHand ?? item.stock;
+        const nextQty = currentQty + line.qtyAccepted;
+        onUpdateStock(item.id, item.stock + line.qtyAccepted);
+        return {
+          ...item,
+          stock: item.stock + line.qtyAccepted,
+          qtyOnHand: nextQty,
+          cost: line.receivedUnitCost,
+          costPrice: line.receivedUnitCost,
+          price: line.sellingPrice,
+          sellingPrice: line.sellingPrice,
+          shelfLocation: line.shelfLocation || item.shelfLocation,
+          lastMovementDate: new Date().toISOString().slice(0, 10),
+          healthStatus: nextQty > item.minStock ? 'In Stock' : item.healthStatus
+        };
+      });
+    });
+    saveLocalStockState(nextStock);
+  };
+
+  const handleGRNPosted = async (result: GoodsReceivingPostingResult) => {
+    applyPostedGRNToLocalStock(result);
+    setGoodsReceivingNotice(result.message);
+    triggerNewActivityEvent('STOCK_RECEIVED', `${result.grnNumber} posted accepted quantities to stock.`, 'Low');
+    await refreshGoodsReceiving();
+    await refreshPurchaseOrders();
+  };
+
+  const handleGoodsReceivingAction = async (note: GoodsReceivingNote, action: 'post' | 'submit' | 'approve' | 'cancel' | 'reverse' | 'export') => {
+    if (action === 'post') {
+      if (!canPerformAction(simulatedRole, 'goodsReceiving.post')) {
+        setGoodsReceivingNotice('You do not have permission to perform this action.');
+        return;
+      }
+      const result = await postGRN(note.grnId, staffName);
+      if (result) {
+        if (result.stockPosted) applyPostedGRNToLocalStock(result);
+        setGoodsReceivingNotice(result.message);
+      }
+    }
+    if (action === 'submit') {
+      await submitGRNForApproval(note.grnId);
+      setGoodsReceivingNotice(`${note.grnNumber} submitted for approval. Stock not updated.`);
+    }
+    if (action === 'approve') {
+      if (!canPerformAction(simulatedRole, 'goodsReceiving.approve') && !canPerformAction(simulatedRole, 'approvals.approve')) {
+        setGoodsReceivingNotice('You do not have permission to perform this action.');
+        return;
+      }
+      await approveGRN(note.grnId, staffName, 'Approved from Goods Receiving tab.');
+      setGoodsReceivingNotice(`${note.grnNumber} approved for posting.`);
+    }
+    if (action === 'cancel') {
+      const reason = window.prompt(`Reason for cancelling ${note.grnNumber}?`);
+      if (!reason) return;
+      await cancelGRN(note.grnId, staffName, reason);
+      setGoodsReceivingNotice(`${note.grnNumber} cancelled. No stock was updated.`);
+    }
+    if (action === 'reverse') {
+      const reason = window.prompt(`Reason for reversing ${note.grnNumber} placeholder?`);
+      if (!reason) return;
+      await reverseGRNPlaceholder(note.grnId, staffName, reason);
+      setGoodsReceivingNotice(`${note.grnNumber} reversal placeholder recorded.`);
+    }
+    if (action === 'export') {
+      const result = await exportGRNPlaceholder(note.grnId);
+      setGoodsReceivingNotice(result.message);
+    }
+    await refreshGoodsReceiving();
+    await refreshPurchaseOrders();
+  };
+
+  const handleClosePOWithOutstanding = async (po: PurchaseOrder) => {
+    if (!canPerformAction(simulatedRole, 'purchaseOrders.cancel') && simulatedRole !== 'Owner' && simulatedRole !== 'Manager') {
+      setGoodsReceivingNotice('You do not have permission to perform this action.');
+      return;
+    }
+    const summary = await getPOReceivingSummary(po.poId);
+    if (!summary || summary.totalOutstandingQty <= 0) {
+      setGoodsReceivingNotice(`${po.poNumber} has no outstanding quantity to close.`);
+      return;
+    }
+    const reason = window.prompt(`Reason for closing ${po.poNumber} with ${summary.totalOutstandingQty} outstanding units?`);
+    if (!reason) return;
+    await closePOWithOutstanding(po.poId, staffName, reason);
+    setGoodsReceivingNotice(`${po.poNumber} closed with outstanding quantities. No stock was posted for unreceived items.`);
+    await refreshPurchaseOrders();
+  };
+
+  const handleKeepPOOpen = async (po: PurchaseOrder) => {
+    await reopenPOPlaceholder(po.poId, staffName, 'Outstanding quantities remain available for future GRNs.');
+    setGoodsReceivingNotice(`${po.poNumber} kept open for future fulfillment. Outstanding lines remain available for future GRNs.`);
+    await refreshPurchaseOrders();
   };
 
 
@@ -1145,6 +1306,193 @@ export default function StockPanels({
 
       {/* TAB SUB-PAGES SWAP ROUTERS */}
       {activeTab === 'Goods Receiving' && (
+        <div className="bg-white border border-[#b1b5c2] p-5 space-y-5">
+          <div className="flex flex-col lg:flex-row justify-between gap-4 border-b border-gray-150 pb-3">
+            <div>
+              <span className="font-extrabold text-[#111827] text-[13px] uppercase flex items-center gap-2">
+                <ShoppingBag className="w-4 h-4 text-orange-500" />
+                Goods Receiving
+              </span>
+              <p className="text-[9.5px] text-slate-700 mt-1 uppercase font-semibold">
+                Receive supplier deliveries against Purchase Orders. Stock updates only after GRN is posted.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => handleCreateGRNFromPO()}
+              className="px-4 py-2 bg-orange-600 hover:bg-orange-700 border border-orange-700 text-white font-black uppercase text-[9.5px] rounded-none cursor-pointer flex items-center gap-2 self-start"
+            >
+              <PlusCircle className="w-4 h-4" />
+              Load From PO
+            </button>
+          </div>
+
+          <div className="border border-orange-300 bg-orange-50 p-3 text-[9.5px] uppercase font-black text-slate-800">
+            Draft and pending GRNs do not affect stock. Only posted GRNs update inventory balances and product ledger. GRN captures supplier invoice details for later accounting review, but does not post cashbook, supplier payment, tax payment, or COGS.
+          </div>
+
+          {goodsReceivingNotice && (
+            <div className="border border-[#b1b5c2] bg-slate-50 p-3 text-[9.5px] uppercase font-black text-slate-800">
+              {goodsReceivingNotice}
+            </div>
+          )}
+
+          <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-8 gap-3">
+            <POMetric label="Draft GRNs" value={goodsReceivingSummary.draftGRNs} />
+            <POMetric label="Pending Approval" value={goodsReceivingSummary.pendingApproval} />
+            <POMetric label="Posted Today" value={goodsReceivingSummary.postedToday} />
+            <POMetric label="Partial Receipts" value={goodsReceivingSummary.partialReceipts} />
+            <POMetric label="GRN Variances" value={goodsReceivingSummary.grnVariances} />
+            <POMetric label="Outstanding PO Lines" value={goodsReceivingSummary.outstandingPOLines} />
+            <POMetric label="Supplier Invoice Missing" value={goodsReceivingSummary.supplierInvoiceMissing} />
+            <POMetric label="Awaiting Stock Posting" value={goodsReceivingSummary.awaitingStockPosting} />
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3 bg-slate-50 border border-[#b1b5c2] p-3">
+            <POFilterInput label="GRN Number" value={goodsReceivingFilters.grnNumber || ''} onChange={(value) => setGoodsReceivingFilters((prev) => ({ ...prev, grnNumber: value }))} />
+            <POFilterInput label="PO Number" value={goodsReceivingFilters.poNumber || ''} onChange={(value) => setGoodsReceivingFilters((prev) => ({ ...prev, poNumber: value }))} />
+            <POFilterInput label="Supplier" value={goodsReceivingFilters.supplier || ''} onChange={(value) => setGoodsReceivingFilters((prev) => ({ ...prev, supplier: value }))} />
+            <POFilterInput label="Branch" value={goodsReceivingFilters.branch || ''} onChange={(value) => setGoodsReceivingFilters((prev) => ({ ...prev, branch: value }))} />
+            <POFilterInput label="Warehouse" value={goodsReceivingFilters.warehouse || ''} onChange={(value) => setGoodsReceivingFilters((prev) => ({ ...prev, warehouse: value }))} />
+            <POFilterSelect label="Status" value={goodsReceivingFilters.status || 'ALL'} options={['ALL', 'Draft', 'Pending Approval', 'Posted', 'Partially Posted', 'Cancelled', 'Rejected', 'Reversed']} onChange={(value) => setGoodsReceivingFilters((prev) => ({ ...prev, status: value as GoodsReceivingStatus | 'ALL' }))} />
+            <POFilterInput label="Date From" type="date" value={goodsReceivingFilters.dateFrom || ''} onChange={(value) => setGoodsReceivingFilters((prev) => ({ ...prev, dateFrom: value }))} />
+            <POFilterInput label="Date To" type="date" value={goodsReceivingFilters.dateTo || ''} onChange={(value) => setGoodsReceivingFilters((prev) => ({ ...prev, dateTo: value }))} />
+            <POFilterSelect label="Variance Type" value={goodsReceivingFilters.varianceType || 'ALL'} options={['ALL', 'None', 'Short', 'Over', 'Cost Increase', 'Cost Decrease', 'Unordered Item', 'Damaged', 'Wrong Product', 'Missing Supplier Invoice']} onChange={(value) => setGoodsReceivingFilters((prev) => ({ ...prev, varianceType: value as ReceivingVarianceType | 'ALL' }))} />
+            <POFilterInput label="Received By" value={goodsReceivingFilters.receivedBy || ''} onChange={(value) => setGoodsReceivingFilters((prev) => ({ ...prev, receivedBy: value }))} />
+            <button type="button" onClick={() => refreshGoodsReceiving(goodsReceivingFilters)} className="px-3 py-2 bg-[#1e222b] text-white border border-[#1e222b] font-black uppercase text-[9px] rounded-none self-end">Apply Filters</button>
+            <button
+              type="button"
+              onClick={() => {
+                const reset = { status: 'ALL' as const, varianceType: 'ALL' as const };
+                setGoodsReceivingFilters(reset);
+                refreshGoodsReceiving(reset);
+              }}
+              className="px-3 py-2 bg-white text-[#1e222b] border border-[#b1b5c2] font-black uppercase text-[9px] rounded-none self-end"
+            >
+              Clear Filters
+            </button>
+          </div>
+
+          <div className="overflow-x-auto pos-custom-scroll">
+            <table className="w-full min-w-[1360px] text-[10px] text-left border-collapse">
+              <thead>
+                <tr className="bg-[#1e222b] text-white font-black uppercase text-[8px] h-9 select-none">
+                  <th className="py-2 px-3">GRN Number</th>
+                  <th className="py-2 px-3">Date</th>
+                  <th className="py-2 px-3">PO Number</th>
+                  <th className="py-2 px-3">Supplier</th>
+                  <th className="py-2 px-3">Branch</th>
+                  <th className="py-2 px-3">Warehouse</th>
+                  <th className="py-2 px-3 text-right">Lines</th>
+                  <th className="py-2 px-3 text-right">Accepted Qty</th>
+                  <th className="py-2 px-3 text-right">Rejected Qty</th>
+                  <th className="py-2 px-3">Invoice Number</th>
+                  <th className="py-2 px-3 text-right">Invoice Amount</th>
+                  <th className="py-2 px-3 text-center">Status</th>
+                  <th className="py-2 px-3">Variance</th>
+                  <th className="py-2 px-3">Received By</th>
+                  <th className="py-2 px-3 text-center">Action</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-200">
+                {goodsReceivingNotes.length === 0 ? (
+                  <tr>
+                    <td colSpan={15} className="py-8 text-center uppercase font-bold text-slate-500">No GRNs match the current filters.</td>
+                  </tr>
+                ) : goodsReceivingNotes.map((note) => {
+                  const lines = goodsReceivingLineMap[note.grnId] || [];
+                  const acceptedQty = lines.reduce((sum, line) => sum + line.qtyAccepted, 0);
+                  const rejectedQty = lines.reduce((sum, line) => sum + line.qtyRejected, 0);
+                  const varianceText = Array.from(new Set(lines.map((line) => line.varianceType).filter((variance) => variance !== 'None'))).join(', ') || 'None';
+                  return (
+                    <tr key={note.grnId} className="hover:bg-slate-50 transition-colors h-11">
+                      <td className="py-2 px-3 font-black text-orange-700">{note.grnNumber}</td>
+                      <td className="py-2 px-3 font-mono text-slate-600">{note.receivedDate}</td>
+                      <td className="py-2 px-3 font-black text-[#1e222b]">{note.poNumber || 'Manual'}</td>
+                      <td className="py-2 px-3 uppercase font-extrabold text-[#111827]">{note.supplierName}</td>
+                      <td className="py-2 px-3 uppercase">{note.branchId}</td>
+                      <td className="py-2 px-3 uppercase">{note.warehouseId}</td>
+                      <td className="py-2 px-3 text-right font-bold">{lines.length}</td>
+                      <td className="py-2 px-3 text-right font-mono font-black">{acceptedQty}</td>
+                      <td className="py-2 px-3 text-right font-mono font-black">{rejectedQty}</td>
+                      <td className="py-2 px-3 uppercase">{note.supplierInvoiceNumber || 'Missing'}</td>
+                      <td className="py-2 px-3 text-right font-mono font-black">USD {note.supplierInvoiceAmount.toFixed(2)}</td>
+                      <td className="py-2 px-3 text-center whitespace-nowrap">
+                        <span className={`inline-block px-2 py-0.5 text-[8px] uppercase tracking-wide rounded-none ${grnStatusClass(note.receivingStatus)}`}>
+                          {note.receivingStatus}
+                        </span>
+                      </td>
+                      <td className="py-2 px-3 uppercase font-bold">{varianceText}</td>
+                      <td className="py-2 px-3 uppercase">{note.receivedByStaffName}</td>
+                      <td className="py-2 px-3">
+                        <div className="flex flex-wrap gap-1 justify-center">
+                          <POAction label="View / Edit" onClick={() => openGoodsReceivingForm(note)} />
+                          {note.receivingStatus === 'Draft' && <POAction label="Post GRN" primary onClick={() => handleGoodsReceivingAction(note, 'post')} />}
+                          {note.receivingStatus === 'Draft' && <POAction label="Submit for Approval" onClick={() => handleGoodsReceivingAction(note, 'submit')} />}
+                          {note.receivingStatus === 'Pending Approval' && <POAction label="Approve" onClick={() => handleGoodsReceivingAction(note, 'approve')} />}
+                          {note.receivingStatus === 'Draft' && <POAction label="Cancel" onClick={() => handleGoodsReceivingAction(note, 'cancel')} />}
+                          {(note.receivingStatus === 'Posted' || note.receivingStatus === 'Partially Posted') && <POAction label="Reverse Placeholder" onClick={() => handleGoodsReceivingAction(note, 'reverse')} />}
+                          <POAction label="Prepare Export" onClick={() => handleGoodsReceivingAction(note, 'export')} />
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            <div className="border border-[#b1b5c2]">
+              <div className="bg-[#1e222b] text-white px-3 py-2 text-[9px] uppercase font-black border-b-2 border-orange-500">Purchase Orders Available For Receiving</div>
+              <div className="divide-y divide-gray-200 max-h-[260px] overflow-y-auto">
+                {purchaseOrders.filter((po) => ['Approved', 'Sent To Supplier', 'Partially Received'].includes(po.status)).map((po) => (
+                  <div key={po.poId} className="p-3 flex flex-col md:flex-row justify-between gap-2 text-[9.5px] uppercase">
+                    <div>
+                      <div className="font-black text-[#1e222b]">{po.poNumber} - {po.supplierName}</div>
+                      <div className="text-slate-600 font-semibold">Status: {po.status} | Expected: {po.expectedDeliveryDate}</div>
+                    </div>
+                    <div className="flex flex-wrap gap-1">
+                      <POAction label="Create GRN" primary onClick={() => handleCreateGRNFromPO(po)} />
+                      <POAction label="Keep PO Open" onClick={() => handleKeepPOOpen(po)} />
+                      <POAction label="Close PO With Outstanding" onClick={() => handleClosePOWithOutstanding(po)} />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="border border-[#b1b5c2]">
+              <div className="bg-[#1e222b] text-white px-3 py-2 text-[9px] uppercase font-black border-b-2 border-orange-500">Goods Receiving Activity Feed</div>
+              <div className="divide-y divide-gray-200 max-h-[260px] overflow-y-auto">
+                {goodsReceivingEvents.slice(0, 8).map((event) => (
+                  <div key={event.id} className="p-3 text-[9.5px] uppercase">
+                    <div className="font-black text-[#1e222b]">{(event.grnNumber || event.poNumber || 'GRN')} - {event.eventType.replaceAll('_', ' ')}</div>
+                    <div className="text-slate-600 font-semibold">{event.message}</div>
+                    <div className="text-[8px] text-slate-400 font-mono mt-1">{event.createdAt} BY {event.operator}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          <GoodsReceivingForm
+            open={goodsReceivingFormOpen}
+            grn={activeGoodsReceivingNote}
+            role={simulatedRole}
+            staffName={staffName}
+            onClose={() => setGoodsReceivingFormOpen(false)}
+            onChanged={(message) => {
+              setGoodsReceivingNotice(message);
+              refreshGoodsReceiving();
+            }}
+            onPosted={handleGRNPosted}
+            onViewLedger={() => setGoodsReceivingNotice('Product Ledger can be opened from the Inventory Product Ledger tab; posted GRN movements are recorded as GOODS_RECEIVED.')}
+          />
+        </div>
+      )}
+
+      {false && activeTab === 'Goods Receiving' && (
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
           
           {/* Main Receiving Form */}
@@ -1490,7 +1838,7 @@ export default function StockPanels({
             <POFilterInput label="Supplier" value={purchaseOrderFilters.supplier || ''} onChange={(value) => setPurchaseOrderFilters((prev) => ({ ...prev, supplier: value }))} />
             <POFilterInput label="Branch" value={purchaseOrderFilters.branch || ''} onChange={(value) => setPurchaseOrderFilters((prev) => ({ ...prev, branch: value }))} />
             <POFilterInput label="Warehouse" value={purchaseOrderFilters.warehouse || ''} onChange={(value) => setPurchaseOrderFilters((prev) => ({ ...prev, warehouse: value }))} />
-            <POFilterSelect label="Status" value={purchaseOrderFilters.status || 'ALL'} options={['ALL', 'Draft', 'Pending Approval', 'Approved', 'Sent To Supplier', 'Partially Received', 'Fully Received', 'Cancelled', 'Closed']} onChange={(value) => setPurchaseOrderFilters((prev) => ({ ...prev, status: value as PurchaseOrderStatus | 'ALL' }))} />
+            <POFilterSelect label="Status" value={purchaseOrderFilters.status || 'ALL'} options={['ALL', 'Draft', 'Pending Approval', 'Approved', 'Sent To Supplier', 'Partially Received', 'Fully Received', 'Cancelled', 'Closed', 'Closed With Outstanding']} onChange={(value) => setPurchaseOrderFilters((prev) => ({ ...prev, status: value as PurchaseOrderStatus | 'ALL' }))} />
             <POFilterSelect label="Priority" value={purchaseOrderFilters.priority || 'ALL'} options={['ALL', 'Low', 'Normal', 'High', 'Urgent']} onChange={(value) => setPurchaseOrderFilters((prev) => ({ ...prev, priority: value as PurchaseOrderPriority | 'ALL' }))} />
             <POFilterSelect label="Source" value={purchaseOrderFilters.source || 'ALL'} options={['ALL', 'Manual', 'Low Stock Recommendation', 'Stock Health Recommendation', 'Supplier Reorder', 'Import Draft', 'Owner Request']} onChange={(value) => setPurchaseOrderFilters((prev) => ({ ...prev, source: value as PurchaseOrderSource | 'ALL' }))} />
             <POFilterInput label="Date From" type="date" value={purchaseOrderFilters.dateFrom || ''} onChange={(value) => setPurchaseOrderFilters((prev) => ({ ...prev, dateFrom: value }))} />
@@ -2278,6 +2626,17 @@ function poStatusClass(status: PurchaseOrderStatus): string {
   if (status === 'Partially Received') return 'bg-purple-50 text-purple-800 border border-purple-300 font-bold';
   if (status === 'Fully Received') return 'bg-emerald-50 text-emerald-800 border border-emerald-300 font-bold';
   if (status === 'Cancelled') return 'bg-red-50 text-red-800 border border-red-300 font-bold';
+  if (status === 'Closed With Outstanding') return 'bg-rose-50 text-rose-800 border border-rose-300 font-bold';
+  return 'bg-gray-100 text-slate-700 border border-gray-300';
+}
+
+function grnStatusClass(status: GoodsReceivingStatus): string {
+  if (status === 'Draft') return 'bg-slate-100 text-slate-700 border border-slate-300';
+  if (status === 'Pending Approval') return 'bg-amber-50 text-amber-800 border border-amber-300 font-black';
+  if (status === 'Posted') return 'bg-emerald-50 text-emerald-800 border border-emerald-300 font-bold';
+  if (status === 'Partially Posted') return 'bg-sky-50 text-sky-800 border border-sky-300 font-bold';
+  if (status === 'Cancelled') return 'bg-red-50 text-red-800 border border-red-300 font-bold';
+  if (status === 'Rejected') return 'bg-rose-50 text-rose-800 border border-rose-300 font-bold';
   return 'bg-gray-100 text-slate-700 border border-gray-300';
 }
 

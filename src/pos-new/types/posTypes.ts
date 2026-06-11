@@ -883,7 +883,8 @@ export type ApprovalRequestType =
   | 'Stock Adjustment Approval'
   | 'Supplier Return Approval'
   | 'Stocktake Variance Approval'
-  | 'Purchase Order Approval';
+  | 'Purchase Order Approval'
+  | 'Goods Receiving Approval';
 
 export type ApprovalStatus = 'Pending' | 'Approved' | 'Rejected';
 
@@ -898,6 +899,7 @@ export type OperationalApprovalCategory =
   | 'Stocktake Variance'
   | 'Inventory Import Approval'
   | 'Purchase Order'
+  | 'Goods Receiving'
   | 'Delivery Provider Approval'
   | 'Customer Approval';
 
@@ -1198,7 +1200,8 @@ export type PurchaseOrderStatus =
   | 'Partially Received'
   | 'Fully Received'
   | 'Cancelled'
-  | 'Closed';
+  | 'Closed'
+  | 'Closed With Outstanding';
 
 export type PurchaseOrderPriority = 'Low' | 'Normal' | 'High' | 'Urgent';
 
@@ -1309,7 +1312,11 @@ export type PurchaseOrderActivityEventType =
   | 'PURCHASE_ORDER_EXPORT_PREPARED'
   | 'PURCHASE_ORDER_CANCELLED'
   | 'PURCHASE_ORDER_RECEIVING_DRAFT_CREATED'
-  | 'PURCHASE_ORDER_CLOSED';
+  | 'PURCHASE_ORDER_CLOSED'
+  | 'PURCHASE_ORDER_PARTIALLY_RECEIVED'
+  | 'PURCHASE_ORDER_FULLY_RECEIVED'
+  | 'PURCHASE_ORDER_CLOSED_WITH_OUTSTANDING'
+  | 'PURCHASE_ORDER_LEFT_OPEN_FOR_FULFILLMENT';
 
 export interface PurchaseOrderActivityEvent {
   id: string;
@@ -1346,6 +1353,209 @@ export interface PurchaseOrderSummary {
   cancelled: number;
   estimatedPOValue: number;
   outstandingQty: number;
+}
+
+export type GoodsReceivingStatus =
+  | 'Draft'
+  | 'Pending Approval'
+  | 'Posted'
+  | 'Partially Posted'
+  | 'Cancelled'
+  | 'Rejected'
+  | 'Reversed';
+
+export type GoodsReceivingLineStatus =
+  | 'Pending'
+  | 'Received'
+  | 'Partially Received'
+  | 'Not Supplied'
+  | 'Removed From GRN'
+  | 'Over Received'
+  | 'Variance Review'
+  | 'Cancelled';
+
+export type ReceivingVarianceType =
+  | 'None'
+  | 'Short'
+  | 'Over'
+  | 'Cost Increase'
+  | 'Cost Decrease'
+  | 'Unordered Item'
+  | 'Damaged'
+  | 'Wrong Product'
+  | 'Missing Supplier Invoice';
+
+export type POFulfillmentStatus =
+  | 'Not Received'
+  | 'Partially Received'
+  | 'Fully Received'
+  | 'Closed With Outstanding'
+  | 'Cancelled';
+
+export interface GoodsReceivingNote {
+  grnId: string;
+  grnNumber: string;
+  vendorId: string;
+  poId?: string;
+  poNumber?: string;
+  branchId: string;
+  warehouseId: string;
+  supplierId: string;
+  supplierName: string;
+  receivedByStaffId: string;
+  receivedByStaffName: string;
+  receivedDate: string;
+  supplierInvoiceNumber: string;
+  supplierInvoiceDate: string;
+  supplierInvoiceAmount: number;
+  deliveryNoteNumber: string;
+  vehicleOrCourierReference?: string;
+  receivingStatus: GoodsReceivingStatus;
+  approvalRequired: boolean;
+  approvedByStaffId?: string;
+  approvedByStaffName?: string;
+  postedAt?: string;
+  notes: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface GoodsReceivingLine {
+  lineId: string;
+  grnId: string;
+  poId?: string;
+  poLineId?: string;
+  productId: string;
+  sku: string;
+  productName: string;
+  brand: string;
+  manufacturer: string;
+  unitOfMeasure: string;
+  qtyOrdered: number;
+  qtyPreviouslyReceived: number;
+  qtyOutstandingBeforeGRN: number;
+  qtyReceivedNow: number;
+  qtyAccepted: number;
+  qtyRejected: number;
+  qtyOutstandingAfterGRN: number;
+  previousCostPrice: number;
+  receivedUnitCost: number;
+  sellingPrice: number;
+  shelfLocation: string;
+  varianceType: ReceivingVarianceType;
+  lineStatus: GoodsReceivingLineStatus;
+  removeFromCurrentGRN: boolean;
+  markUnavailableFromSupplier: boolean;
+  damagedReason?: string;
+  notes: string;
+}
+
+export interface GoodsReceivingSupplierInvoice {
+  grnId: string;
+  supplierInvoiceNumber: string;
+  supplierInvoiceDate: string;
+  supplierInvoiceAmount: number;
+  capturedForAccountingReview: boolean;
+}
+
+export interface GoodsReceivingVariance {
+  varianceId: string;
+  grnId: string;
+  lineId?: string;
+  varianceType: ReceivingVarianceType;
+  severity: RiskLevel;
+  message: string;
+  approvalRequired: boolean;
+  resolved: boolean;
+}
+
+export interface GoodsReceivingPostingResult {
+  grnId: string;
+  grnNumber: string;
+  status: GoodsReceivingStatus;
+  stockPosted: boolean;
+  approvalRequired: boolean;
+  postedLines: GoodsReceivingLine[];
+  skippedLines: GoodsReceivingLine[];
+  message: string;
+}
+
+export type GoodsReceivingActivityEventType =
+  | 'GRN_DRAFT_CREATED_FROM_PO'
+  | 'GRN_DRAFT_UPDATED'
+  | 'GRN_LINE_UPDATED'
+  | 'GRN_LINE_REMOVED_FROM_CURRENT_RECEIVING'
+  | 'GRN_LINE_MARKED_NOT_SUPPLIED'
+  | 'GRN_SUBMITTED_FOR_APPROVAL'
+  | 'GRN_APPROVED'
+  | 'GRN_POSTED_TO_STOCK'
+  | 'GOODS_RECEIVED_POSTED'
+  | 'GRN_CANCELLED'
+  | 'GRN_REVERSED_PLACEHOLDER'
+  | 'PURCHASE_ORDER_PARTIALLY_RECEIVED'
+  | 'PURCHASE_ORDER_FULLY_RECEIVED'
+  | 'PURCHASE_ORDER_CLOSED_WITH_OUTSTANDING'
+  | 'PURCHASE_ORDER_LEFT_OPEN_FOR_FULFILLMENT'
+  | 'GRN_SHORT_RECEIPT'
+  | 'GRN_OVER_RECEIPT'
+  | 'GRN_COST_INCREASE_REVIEW_REQUIRED'
+  | 'GRN_DAMAGED_GOODS_RECORDED'
+  | 'GRN_SUPPLIER_INVOICE_MISSING'
+  | 'GRN_UNORDERED_ITEM_REVIEW_REQUIRED';
+
+export interface GoodsReceivingActivityEvent {
+  id: string;
+  grnId?: string;
+  grnNumber?: string;
+  poId?: string;
+  poNumber?: string;
+  eventType: GoodsReceivingActivityEventType;
+  message: string;
+  operator: string;
+  createdAt: string;
+}
+
+export interface GoodsReceivingFilterState {
+  grnNumber?: string;
+  poNumber?: string;
+  supplier?: string;
+  branch?: string;
+  warehouse?: string;
+  status?: GoodsReceivingStatus | 'ALL';
+  dateFrom?: string;
+  dateTo?: string;
+  varianceType?: ReceivingVarianceType | 'ALL';
+  receivedBy?: string;
+}
+
+export interface POReceivingLineState {
+  poLineId: string;
+  productId: string;
+  sku: string;
+  productName: string;
+  qtyOrdered: number;
+  qtyPostedReceived: number;
+  qtyOutstanding: number;
+  fulfillmentStatus: POFulfillmentStatus;
+}
+
+export interface POReceivingSummary {
+  poId: string;
+  poNumber: string;
+  supplierName: string;
+  fulfillmentStatus: POFulfillmentStatus;
+  totalOrderedQty: number;
+  totalPostedReceivedQty: number;
+  totalOutstandingQty: number;
+  postedGRNCount: number;
+  draftGRNCount: number;
+  lineStates: POReceivingLineState[];
+}
+
+export interface POCloseRequest {
+  poId: string;
+  staffId: string;
+  reason: string;
 }
 
 export interface GRNLine {
