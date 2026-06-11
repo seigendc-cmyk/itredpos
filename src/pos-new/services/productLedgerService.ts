@@ -17,29 +17,38 @@ const LEDGER_MOVEMENT_TYPE_MAP: Record<InventoryMovementType, string> = {
   OPENING_BALANCE: 'Opening Balance',
   SALE: 'Sale',
   SALE_RETURN: 'Return',
+  CUSTOMER_RETURN: 'Return',
   GOODS_RECEIVED: 'Goods Received',
   STOCK_ADJUSTMENT_IN: 'Stock Adjustment',
   STOCK_ADJUSTMENT_OUT: 'Stock Adjustment',
   STOCKTAKE_ADJUSTMENT_IN: 'Stocktake Adjustment',
   STOCKTAKE_ADJUSTMENT_OUT: 'Stocktake Adjustment',
+  STOCKTAKE_GAIN: 'Stocktake Adjustment',
+  STOCKTAKE_LOSS: 'Stocktake Adjustment',
   TRANSFER_IN: 'Transfer In',
   TRANSFER_OUT: 'Transfer Out',
+  BRANCH_TRANSFER_IN: 'Transfer In',
+  BRANCH_TRANSFER_OUT: 'Transfer Out',
   SUPPLIER_RETURN: 'Supplier Return',
   DAMAGE_WRITEOFF: 'Damage / Write-Off',
+  WRITE_OFF: 'Write Off',
+  REVERSAL: 'Reversal',
   MANUAL_CORRECTION: 'Correction'
 };
 
 const DISPLAY_TO_MOVEMENT_TYPE: Record<string, InventoryMovementType | InventoryMovementType[]> = {
   'Opening Balance': 'OPENING_BALANCE',
   Sale: 'SALE',
-  Return: 'SALE_RETURN',
+  Return: ['SALE_RETURN', 'CUSTOMER_RETURN'],
   'Goods Received': 'GOODS_RECEIVED',
   'Stock Adjustment': ['STOCK_ADJUSTMENT_IN', 'STOCK_ADJUSTMENT_OUT'],
-  'Stocktake Adjustment': ['STOCKTAKE_ADJUSTMENT_IN', 'STOCKTAKE_ADJUSTMENT_OUT'],
-  'Transfer In': 'TRANSFER_IN',
-  'Transfer Out': 'TRANSFER_OUT',
+  'Stocktake Adjustment': ['STOCKTAKE_ADJUSTMENT_IN', 'STOCKTAKE_ADJUSTMENT_OUT', 'STOCKTAKE_GAIN', 'STOCKTAKE_LOSS'],
+  'Transfer In': ['TRANSFER_IN', 'BRANCH_TRANSFER_IN'],
+  'Transfer Out': ['TRANSFER_OUT', 'BRANCH_TRANSFER_OUT'],
   'Supplier Return': 'SUPPLIER_RETURN',
-  'Damage / Write-Off': 'DAMAGE_WRITEOFF',
+  'Damage / Write-Off': ['DAMAGE_WRITEOFF', 'WRITE_OFF'],
+  'Write Off': 'WRITE_OFF',
+  Reversal: 'REVERSAL',
   Correction: 'MANUAL_CORRECTION'
 };
 
@@ -175,22 +184,25 @@ export function getLedgerSummaryFromMovements(entries: InventoryMovement[]): Pro
     totalQtyOut: entries.reduce((sum, entry) => sum + entry.qtyOut, 0),
     closingBalance: closing?.balanceAfter ?? 0,
     salesMovements: entries.filter((entry) => entry.movementType === 'SALE').length,
-    returnMovements: entries.filter((entry) => entry.movementType === 'SALE_RETURN').length,
+    returnMovements: entries.filter((entry) => entry.movementType === 'SALE_RETURN' || entry.movementType === 'CUSTOMER_RETURN').length,
     goodsReceivedMovements: entries.filter((entry) => entry.movementType === 'GOODS_RECEIVED').length,
     adjustmentMovements: entries.filter(
       (entry) =>
         entry.movementType === 'STOCK_ADJUSTMENT_IN' ||
         entry.movementType === 'STOCK_ADJUSTMENT_OUT' ||
         entry.movementType === 'MANUAL_CORRECTION' ||
-        entry.movementType === 'DAMAGE_WRITEOFF'
+        entry.movementType === 'DAMAGE_WRITEOFF' ||
+        entry.movementType === 'WRITE_OFF'
     ).length,
     stocktakeVariances: entries.filter(
       (entry) =>
         entry.movementType === 'STOCKTAKE_ADJUSTMENT_IN' ||
-        entry.movementType === 'STOCKTAKE_ADJUSTMENT_OUT'
+        entry.movementType === 'STOCKTAKE_ADJUSTMENT_OUT' ||
+        entry.movementType === 'STOCKTAKE_GAIN' ||
+        entry.movementType === 'STOCKTAKE_LOSS'
     ).length,
     transferMovements: entries.filter(
-      (entry) => entry.movementType === 'TRANSFER_IN' || entry.movementType === 'TRANSFER_OUT'
+      (entry) => entry.movementType === 'TRANSFER_IN' || entry.movementType === 'TRANSFER_OUT' || entry.movementType === 'BRANCH_TRANSFER_IN' || entry.movementType === 'BRANCH_TRANSFER_OUT'
     ).length,
     lastMovementDate: closing?.movementDate || '',
     currentSystemQty: closing?.balanceAfter ?? 0

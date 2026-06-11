@@ -75,6 +75,7 @@ export async function getInventoryMovementsByFilters(
     const matchesShelf = !filters.shelfLocation || filters.shelfLocation === 'ALL' || movement.shelfLocation === filters.shelfLocation;
     const matchesMovement = !filters.movementType || filters.movementType === 'ALL' || movement.movementType === filters.movementType;
     const matchesReference = !filters.referenceType || filters.referenceType === 'ALL' || movement.referenceType === filters.referenceType;
+    const matchesReferenceNumber = !filters.referenceNumber || movement.referenceNumber.toLowerCase().includes(filters.referenceNumber.toLowerCase());
     const matchesStaff = !filters.staffName || filters.staffName === 'ALL' || movement.staffName === filters.staffName;
     const matchesStatus = !filters.status || filters.status === 'ALL' || movement.status === filters.status;
 
@@ -86,8 +87,19 @@ export async function getInventoryMovementsByFilters(
 
     return matchesDateFrom && matchesDateTo && matchesVendor && matchesProduct && matchesSku && matchesBranch &&
       matchesWarehouse && matchesShelf && matchesMovement && matchesReference && matchesStaff && matchesStatus &&
-      matchesSector && matchesCategory;
+      matchesReferenceNumber && matchesSector && matchesCategory;
   }).sort((a, b) => new Date(a.movementDate).getTime() - new Date(b.movementDate).getTime());
+}
+
+export async function getInventoryMovements(
+  filters: InventoryMovementFilters = {},
+  productContext?: Array<{ id: string; industrialSector?: string; productCategory?: string; category?: string }>
+): Promise<InventoryMovement[]> {
+  return getInventoryMovementsByFilters(filters, productContext);
+}
+
+export async function getInventoryMovementById(movementId: string): Promise<InventoryMovement | null> {
+  return loadInventoryMovements().find((movement) => movement.movementId === movementId) || null;
 }
 
 export async function calculateRunningBalance(productId: string, warehouseId: string): Promise<number> {
@@ -115,6 +127,10 @@ export async function postInventoryMovement(payload: InventoryMovementPayload): 
   addInventoryMovement(movement);
   recordInventoryEvent('INVENTORY_MOVEMENT_POSTED', `${movement.movementType} posted for ${movement.sku}.`, movement.movementId);
   return movement;
+}
+
+export async function createInventoryMovement(payload: InventoryMovementPayload): Promise<InventoryMovement> {
+  return postInventoryMovement({ ...payload, status: payload.status || 'Draft' });
 }
 
 export async function postSaleMovement(payload: InventoryMovementPayload): Promise<InventoryMovement> {
@@ -214,16 +230,32 @@ export async function getInventoryMovementSummary(
   const movements = await getInventoryMovementsByFilters(filters, productContext);
   return {
     totalSaleQtyOut: movements.filter((movement) => movement.movementType === 'SALE').reduce((sum, movement) => sum + movement.qtyOut, 0),
-    totalReturnQtyIn: movements.filter((movement) => movement.movementType === 'SALE_RETURN').reduce((sum, movement) => sum + movement.qtyIn, 0),
+    totalReturnQtyIn: movements.filter((movement) => movement.movementType === 'SALE_RETURN' || movement.movementType === 'CUSTOMER_RETURN').reduce((sum, movement) => sum + movement.qtyIn, 0),
     totalGoodsReceivedQtyIn: movements.filter((movement) => movement.movementType === 'GOODS_RECEIVED').reduce((sum, movement) => sum + movement.qtyIn, 0),
-    totalAdjustmentQtyIn: movements.filter((movement) => movement.movementType === 'STOCK_ADJUSTMENT_IN' || movement.movementType === 'STOCKTAKE_ADJUSTMENT_IN' || movement.movementType === 'MANUAL_CORRECTION').reduce((sum, movement) => sum + movement.qtyIn, 0),
-    totalAdjustmentQtyOut: movements.filter((movement) => movement.movementType === 'STOCK_ADJUSTMENT_OUT' || movement.movementType === 'STOCKTAKE_ADJUSTMENT_OUT' || movement.movementType === 'DAMAGE_WRITEOFF' || movement.movementType === 'MANUAL_CORRECTION').reduce((sum, movement) => sum + movement.qtyOut, 0),
-    totalTransferIn: movements.filter((movement) => movement.movementType === 'TRANSFER_IN').reduce((sum, movement) => sum + movement.qtyIn, 0),
-    totalTransferOut: movements.filter((movement) => movement.movementType === 'TRANSFER_OUT').reduce((sum, movement) => sum + movement.qtyOut, 0),
+    totalAdjustmentQtyIn: movements.filter((movement) => movement.movementType === 'STOCK_ADJUSTMENT_IN' || movement.movementType === 'STOCKTAKE_ADJUSTMENT_IN' || movement.movementType === 'STOCKTAKE_GAIN' || movement.movementType === 'MANUAL_CORRECTION').reduce((sum, movement) => sum + movement.qtyIn, 0),
+    totalAdjustmentQtyOut: movements.filter((movement) => movement.movementType === 'STOCK_ADJUSTMENT_OUT' || movement.movementType === 'STOCKTAKE_ADJUSTMENT_OUT' || movement.movementType === 'STOCKTAKE_LOSS' || movement.movementType === 'DAMAGE_WRITEOFF' || movement.movementType === 'WRITE_OFF' || movement.movementType === 'MANUAL_CORRECTION').reduce((sum, movement) => sum + movement.qtyOut, 0),
+    totalTransferIn: movements.filter((movement) => movement.movementType === 'TRANSFER_IN' || movement.movementType === 'BRANCH_TRANSFER_IN').reduce((sum, movement) => sum + movement.qtyIn, 0),
+    totalTransferOut: movements.filter((movement) => movement.movementType === 'TRANSFER_OUT' || movement.movementType === 'BRANCH_TRANSFER_OUT').reduce((sum, movement) => sum + movement.qtyOut, 0),
     totalSupplierReturnQtyOut: movements.filter((movement) => movement.movementType === 'SUPPLIER_RETURN').reduce((sum, movement) => sum + movement.qtyOut, 0),
     netMovement: movements.reduce((sum, movement) => sum + movement.qtyIn - movement.qtyOut, 0),
     highRiskMovements: movements.filter((movement) => movement.riskFlag === 'High' || movement.riskFlag === 'Critical').length
   };
+}
+
+export async function getProductLedger(productId: string, filters: InventoryMovementFilters = {}): Promise<InventoryMovement[]> {
+  return getInventoryMovementsByFilters({ ...filters, productId });
+}
+
+export async function getProductStockBalance(productId: string, branchId: string, warehouseId: string): Promise<number> {
+  const movements = loadInventoryMovements()
+    .filter((movement) => movement.productId === productId && movement.branchId === branchId && movement.warehouseId === warehouseId && movement.status === 'Posted')
+    .sort((a, b) => new Date(a.movementDate).getTime() - new Date(b.movementDate).getTime());
+  return movements.at(-1)?.balanceAfter || 0;
+}
+
+export async function exportInventoryMovementsPlaceholder(filters: InventoryMovementFilters = {}): Promise<{ message: string; filters: InventoryMovementFilters }> {
+  recordInventoryEvent('INVENTORY_MOVEMENT_EXPORT_PREPARED', 'Inventory movement export placeholder prepared.');
+  return { message: 'Inventory movement export placeholder prepared.', filters };
 }
 
 export async function getInventoryMovementEvents(): Promise<Array<{ id: string; eventType: string; message: string; createdAt: string }>> {

@@ -587,6 +587,7 @@ export interface InventoryMovementFilters {
   shelfLocation?: string;
   movementType?: 'ALL' | InventoryMovementType;
   referenceType?: 'ALL' | InventoryReferenceType;
+  referenceNumber?: string;
   staffName?: string;
   status?: 'ALL' | InventoryMovementStatus;
   sector?: string;

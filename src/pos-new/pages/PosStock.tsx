@@ -78,7 +78,8 @@ import {
   postStocktakeAdjustmentMovement,
   postTransferMovement,
   getInventoryMovementEvents,
-  reverseInventoryMovement
+  reverseInventoryMovement,
+  exportInventoryMovementsPlaceholder
 } from '../services/inventoryMovementService';
 import { evaluateStockHealth, getStockHealthRows, getStockHealthSummary } from '../services/stockHealthService';
 import {
@@ -312,8 +313,13 @@ export default function PosStock({
   });
   const [movementSummaryFilters, setMovementSummaryFilters] = useState<InventoryMovementFilters>({
     vendorId: 'SCI-LOG-ZW',
+    productId: 'ALL',
+    movementType: 'ALL',
+    referenceType: 'ALL',
     branchId: 'ALL',
     warehouseId: 'ALL',
+    staffName: 'ALL',
+    status: 'ALL',
     sector: 'ALL',
     category: 'ALL'
   });
@@ -661,6 +667,15 @@ export default function PosStock({
 
   const handleInventoryReportExport = async (reportType: InventoryReportType) => {
     const result = await exportInventoryReportPlaceholder(reportType);
+    setReportNotice(result.message);
+  };
+
+  const handleInventoryMovementExport = async () => {
+    if (!canPerformAction(session?.role || 'Owner', 'inventoryMovements.export')) {
+      setReportNotice('You do not have permission to perform this action.');
+      return;
+    }
+    const result = await exportInventoryMovementsPlaceholder(movementSummaryFilters);
     setReportNotice(result.message);
   };
 
@@ -1253,23 +1268,40 @@ export default function PosStock({
             <LedgerMetric label="Net Movement" value={inventorySummary.netMovement} />
             <LedgerMetric label="High Risk" value={inventorySummary.highRiskMovements} />
           </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-3 bg-slate-50 border border-[#b1b5c2] p-3">
+            <LedgerSelect label="Product" value={movementSummaryFilters.productId || 'ALL'} onChange={(value) => setMovementSummaryFilters((current) => ({ ...current, productId: value === 'ALL' ? 'ALL' : value }))} options={['ALL', ...localStock.map((item) => item.id)]} />
+            <LedgerInput label="SKU" value={movementSummaryFilters.sku || ''} onChange={(value) => setMovementSummaryFilters((current) => ({ ...current, sku: value }))} />
+            <LedgerSelect label="Movement Type" value={movementSummaryFilters.movementType || 'ALL'} onChange={(value) => setMovementSummaryFilters((current) => ({ ...current, movementType: value as InventoryMovementType | 'ALL' }))} options={['ALL', 'GOODS_RECEIVED', 'SUPPLIER_RETURN', 'SALE', 'CUSTOMER_RETURN', 'STOCK_ADJUSTMENT_IN', 'STOCK_ADJUSTMENT_OUT', 'STOCKTAKE_GAIN', 'STOCKTAKE_LOSS', 'BRANCH_TRANSFER_IN', 'BRANCH_TRANSFER_OUT', 'OPENING_BALANCE', 'WRITE_OFF', 'REVERSAL']} />
+            <LedgerSelect label="Reference Type" value={movementSummaryFilters.referenceType || 'ALL'} onChange={(value) => setMovementSummaryFilters((current) => ({ ...current, referenceType: value as InventoryReferenceType | 'ALL' }))} options={['ALL', 'RECEIPT', 'RETURN', 'GRN', 'STOCKTAKE', 'ADJUSTMENT', 'TRANSFER', 'SUPPLIER_RETURN', 'DAMAGE', 'MANUAL']} />
+            <LedgerInput label="Reference Number" value={movementSummaryFilters.referenceNumber || ''} onChange={(value) => setMovementSummaryFilters((current) => ({ ...current, referenceNumber: value }))} />
+            <LedgerSelect label="Branch" value={movementSummaryFilters.branchId || 'ALL'} onChange={(value) => setMovementSummaryFilters((current) => ({ ...current, branchId: value }))} options={healthBranchOptions as string[]} />
+            <LedgerSelect label="Warehouse" value={movementSummaryFilters.warehouseId || 'ALL'} onChange={(value) => setMovementSummaryFilters((current) => ({ ...current, warehouseId: value }))} options={healthWarehouseOptions as string[]} />
+            <LedgerInput label="Date From" value={movementSummaryFilters.dateFrom || ''} onChange={(value) => setMovementSummaryFilters((current) => ({ ...current, dateFrom: value }))} />
+            <LedgerInput label="Date To" value={movementSummaryFilters.dateTo || ''} onChange={(value) => setMovementSummaryFilters((current) => ({ ...current, dateTo: value }))} />
+            <LedgerSelect label="Staff" value={movementSummaryFilters.staffName || 'ALL'} onChange={(value) => setMovementSummaryFilters((current) => ({ ...current, staffName: value }))} options={['ALL', ...Array.from(new Set(allInventoryMovements.map((movement) => movement.staffName)))]} />
+            <LedgerSelect label="Status" value={movementSummaryFilters.status || 'ALL'} onChange={(value) => setMovementSummaryFilters((current) => ({ ...current, status: value as InventoryMovementStatus | 'ALL' }))} options={['ALL', 'Draft', 'Posted', 'Pending Approval', 'Reversed', 'Rejected']} />
+            <button type="button" onClick={handleInventoryMovementExport} className="px-3 py-2 bg-orange-600 text-white border border-orange-700 font-black uppercase text-[9px] rounded-none self-end">Export Placeholder</button>
+          </div>
           <div className="overflow-x-auto pos-custom-scroll">
-            <table className="w-full min-w-[1280px] text-[10.5px] text-left border-collapse">
+            <table className="w-full min-w-[1580px] text-[10.5px] text-left border-collapse">
               <thead>
                 <tr className="bg-[#1e222b] text-white uppercase text-[8.5px] font-black h-9">
                   <th className="py-2 px-3">Date / Time</th>
                   <th className="py-2 px-3">Product</th>
+                  <th className="py-2 px-3">SKU</th>
                   <th className="py-2 px-3">Movement</th>
                   <th className="py-2 px-3">Reference</th>
                   <th className="py-2 px-3">Branch</th>
                   <th className="py-2 px-3">Warehouse</th>
-                  <th className="py-2 px-3">Shelf</th>
                   <th className="py-2 px-3 text-right">In</th>
                   <th className="py-2 px-3 text-right">Out</th>
                   <th className="py-2 px-3 text-right">Before</th>
                   <th className="py-2 px-3 text-right">After</th>
+                  <th className="py-2 px-3 text-right">Unit Cost</th>
+                  <th className="py-2 px-3 text-right">Value Impact</th>
+                  <th className="py-2 px-3">Staff</th>
                   <th className="py-2 px-3">Status</th>
-                  <th className="py-2 px-3">Risk</th>
+                  <th className="py-2 px-3 text-center">Action</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-200">
@@ -1277,17 +1309,29 @@ export default function PosStock({
                   <tr key={movement.movementId} className="hover:bg-slate-50">
                     <td className="py-2 px-3 whitespace-nowrap">{movement.movementDate.replace('T', ' ').replace('Z', '')}</td>
                     <td className="py-2 px-3 font-black uppercase">{movement.productName}</td>
+                    <td className="py-2 px-3 font-black">{movement.sku}</td>
                     <td className="py-2 px-3 font-black uppercase">{formatMovementTypeLabel(movement.movementType)}</td>
                     <td className="py-2 px-3 uppercase">{movement.referenceType}: {movement.referenceNumber}</td>
                     <td className="py-2 px-3 uppercase">{movement.branchId}</td>
                     <td className="py-2 px-3 uppercase">{movement.warehouseId}</td>
-                    <td className="py-2 px-3 uppercase">{movement.shelfLocation || 'N/A'}</td>
                     <td className="py-2 px-3 text-right font-black text-emerald-700">{movement.qtyIn || ''}</td>
                     <td className="py-2 px-3 text-right font-black text-rose-700">{movement.qtyOut || ''}</td>
                     <td className="py-2 px-3 text-right">{movement.balanceBefore}</td>
                     <td className="py-2 px-3 text-right font-black">{movement.balanceAfter}</td>
+                    <td className="py-2 px-3 text-right">USD {movement.unitCost.toFixed(2)}</td>
+                    <td className={`py-2 px-3 text-right font-black ${movement.totalCostImpact < 0 ? 'text-rose-700' : 'text-emerald-700'}`}>USD {movement.totalCostImpact.toFixed(2)}</td>
+                    <td className="py-2 px-3 uppercase">{movement.staffName}</td>
                     <td className="py-2 px-3 uppercase">{movement.status}</td>
-                    <td className="py-2 px-3 uppercase font-black">{movement.riskFlag}</td>
+                    <td className="py-2 px-3">
+                      <div className="flex flex-wrap gap-1 justify-center">
+                        <button type="button" onClick={() => setReportNotice(`Source ${movement.referenceType} ${movement.referenceNumber} selected for review.`)} className="px-2 py-1 border border-[#b1b5c2] text-[8px] font-black uppercase">View Source</button>
+                        <button type="button" onClick={() => {
+                          const product = localStock.find((item) => item.id === movement.productId);
+                          if (product) void openProductLedger(product);
+                        }} className="px-2 py-1 border border-orange-300 bg-orange-50 text-orange-800 text-[8px] font-black uppercase">Ledger</button>
+                        <button type="button" onClick={handleInventoryMovementExport} className="px-2 py-1 border border-[#b1b5c2] text-[8px] font-black uppercase">Export</button>
+                      </div>
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -1667,7 +1711,7 @@ export default function PosStock({
                       <th className="py-2 px-3 text-right">Balance Before</th>
                       <th className="py-2 px-3 text-right">Balance After</th>
                       <th className="py-2 px-3 text-right">Unit Cost</th>
-                      <th className="py-2 px-3 text-right">Selling Price</th>
+                      <th className="py-2 px-3 text-right">Value Impact</th>
                       <th className="py-2 px-3">Staff</th>
                       <th className="py-2 px-3">Status</th>
                       <th className="py-2 px-3">Notes</th>
@@ -1695,7 +1739,7 @@ export default function PosStock({
                         <td className="py-2 px-3 text-right font-black">{entry.balanceBefore}</td>
                         <td className="py-2 px-3 text-right font-black">{entry.balanceAfter}</td>
                         <td className="py-2 px-3 text-right">USD {entry.unitCost.toFixed(2)}</td>
-                        <td className="py-2 px-3 text-right">USD {entry.sellingPrice.toFixed(2)}</td>
+                        <td className={`py-2 px-3 text-right font-black ${entry.totalCostImpact < 0 ? 'text-rose-700' : 'text-emerald-700'}`}>USD {entry.totalCostImpact.toFixed(2)}</td>
                         <td className="py-2 px-3 uppercase">{entry.staffName}</td>
                         <td className="py-2 px-3 uppercase font-black">{entry.status}</td>
                         <td className="py-2 px-3">{entry.notes}</td>
