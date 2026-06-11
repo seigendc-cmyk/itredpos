@@ -1,4 +1,3 @@
-import { useEffect, useMemo, useState } from 'react';
 import { 
   Terminal, 
   Box, 
@@ -12,10 +11,12 @@ import {
   Lock,
   Truck,
   RefreshCw,
-  BriefcaseBusiness
+  BriefcaseBusiness,
+  ClipboardCheck,
+  History,
+  ListChecks
 } from 'lucide-react';
-import { POSFeatureEntitlement, POSFeatureKey, PosPageId, PosSession } from '../types';
-import { getPOSFeatureEntitlements } from '../services/posEntitlementService';
+import { PosPageId, PosSession } from '../types';
 
 interface PosSidebarProps {
   activePage: PosPageId;
@@ -36,38 +37,20 @@ export default function PosSidebar({
   onSignOut,
   allowedPages
 }: PosSidebarProps) {
-  const [entitlements, setEntitlements] = useState<POSFeatureEntitlement[]>([]);
-  const [planMessage, setPlanMessage] = useState<string | null>(null);
-
-  useEffect(() => {
-    const vendorId = session?.vendor === 'SCI Logistics Ltd' ? 'SCI-LOG-ZW' : session?.vendor || 'SCI-LOG-ZW';
-    void getPOSFeatureEntitlements(vendorId).then(setEntitlements);
-  }, [session?.vendor]);
-
-  const entitlementByFeature = useMemo(() => {
-    return entitlements.reduce<Partial<Record<POSFeatureKey, POSFeatureEntitlement>>>((acc, entitlement) => {
-      acc[entitlement.featureKey] = entitlement;
-      return acc;
-    }, {});
-  }, [entitlements]);
-
-  const showPlanMessage = () => {
-    setPlanMessage('Feature access is controlled by local role permissions during build-development.');
-    setTimeout(() => setPlanMessage(null), 4500);
-  };
-  
-  // Custom navigation items representing the requested lists
   const navigationItems = [
     { id: 'DASHBOARD' as const, label: 'Dashboard', icon: Monitor },
-    { id: 'OWNER_DESK' as const, label: 'Owner Desk', icon: BriefcaseBusiness, feature: 'OWNER_DESK' as POSFeatureKey },
-    { id: 'SALES' as const, label: 'Sales Terminal', icon: Terminal, actionHighlight: true, feature: 'SALES_TERMINAL' as POSFeatureKey },
-    { id: 'DELIVERY' as const, label: 'Delivery Desk', icon: Truck, feature: 'DELIVERY_DESK' as POSFeatureKey },
-    { id: 'STOCK' as const, label: 'Stock Control', icon: Box, feature: 'STOCK_CONTROL' as POSFeatureKey },
-    { id: 'SHIFT' as const, label: 'Shift Control', icon: Clock, feature: 'SHIFT_CONTROL' as POSFeatureKey },
-    { id: 'CASH' as const, label: 'Cash Control', icon: DollarSign, feature: 'CASH_CONTROL' as POSFeatureKey },
-    { id: 'BI_DESK' as const, label: 'BI Desk', icon: BarChart2, feature: 'BI_DESK' as POSFeatureKey },
-    { id: 'SYNC_DESK' as const, label: 'Sync Desk', icon: RefreshCw, feature: 'SYNC_DESK' as POSFeatureKey },
-    { id: 'SETTINGS' as const, label: 'Settings', icon: Settings, feature: 'SETTINGS' as POSFeatureKey },
+    { id: 'OWNER_DESK' as const, label: 'Owner Desk', icon: BriefcaseBusiness },
+    { id: 'SALES' as const, label: 'Sales Terminal', icon: Terminal },
+    { id: 'SALES_HISTORY' as const, label: 'Sales History', icon: History },
+    { id: 'DELIVERY' as const, label: 'Delivery Desk', icon: Truck },
+    { id: 'STOCK' as const, label: 'Inventory', icon: Box },
+    { id: 'TASK_DESK' as const, label: 'Task Desk', icon: ListChecks },
+    { id: 'APPROVALS' as const, label: 'Approvals', icon: ClipboardCheck },
+    { id: 'SHIFT' as const, label: 'Shift Control', icon: Clock },
+    { id: 'CASH' as const, label: 'Cash Control', icon: DollarSign },
+    { id: 'BI_DESK' as const, label: 'BI Desk', icon: BarChart2 },
+    { id: 'SYNC_DESK' as const, label: 'Sync Desk', icon: RefreshCw },
+    { id: 'SETTINGS' as const, label: 'Settings', icon: Settings },
   ].filter(item => !allowedPages || allowedPages.includes(item.id));
 
 
@@ -75,12 +58,12 @@ export default function PosSidebar({
     <aside id="pos-sidebar-root" className="w-64 bg-slate-950 border-r border-slate-800 text-slate-300 flex flex-col justify-between h-screen shrink-0 relative select-none font-mono">
       <div>
         
-        {/* Brand/Hardware Console title */}
+        {/* Brand title */}
         <div className="p-4 border-b border-slate-800 flex items-center gap-2.5 bg-slate-900/40">
           <Layers className="w-5 h-5 text-[#00f0ff] animate-pulse" />
           <div>
-            <div className="font-extrabold text-sm text-slate-100 tracking-wider">iTredPOS v4.2</div>
-            <div className="text-[9px] text-[#00f0ff] uppercase tracking-widest font-bold leading-none">Industrial OS Core</div>
+            <div className="font-extrabold text-sm text-slate-100 tracking-wider">iTred Commerce POS</div>
+            <div className="text-[9px] text-orange-400 uppercase tracking-widest font-bold leading-none">Vendor Commerce Terminal</div>
           </div>
         </div>
 
@@ -130,51 +113,30 @@ export default function PosSidebar({
         {/* Menu list */}
         <nav className="p-2 space-y-1">
           <div className="text-[9px] text-slate-600 font-bold px-2 py-1.5 uppercase tracking-wider">
-            OPERATIONAL COMMANDS:
+            Main Navigation
           </div>
 
           <div className="space-y-0.5">
-            {planMessage && (
-              <div className="mb-2 border border-orange-500/60 bg-orange-950/30 px-2 py-2 text-[9px] leading-snug text-orange-200 font-bold uppercase">
-                {planMessage}
-              </div>
-            )}
             {navigationItems.map(item => {
               const IconComp = item.icon;
               const isActive = activePage === item.id;
-              const entitlement = item.feature ? entitlementByFeature[item.feature] : null;
-              // During build-development, Owner has full access. Plan-based feature enforcement will be implemented later from the internal iTredVD Console backend.
-              const isPlanDisabled = false;
 
               return (
                 <button
                   id={`nav-item-${item.id.toLowerCase()}`}
                   key={item.id}
-                  onClick={() => {
-                    if (isPlanDisabled) {
-                      showPlanMessage();
-                      return;
-                    }
-                    onPageChange(item.id);
-                  }}
+                  onClick={() => onPageChange(item.id)}
                   className={`w-full text-left py-2.5 px-3 flex items-center gap-3 transition-colors text-xs rounded-none border-l-2 outline-none cursor-pointer ${
-                    isPlanDisabled
-                      ? 'border-transparent text-slate-600 bg-slate-950/60 cursor-not-allowed'
-                      : isActive 
+                    isActive 
                       ? 'bg-slate-900 text-[#00f0ff] font-bold border-[#00f0ff]' 
                       : 'border-transparent text-slate-400 hover:text-slate-100 hover:bg-slate-900/60'
                   }`}
                 >
-                  <IconComp className={`w-4 h-4 shrink-0 ${isPlanDisabled ? 'text-slate-700' : isActive ? 'text-[#00f0ff]' : 'text-slate-500'}`} />
+                  <IconComp className={`w-4 h-4 shrink-0 ${isActive ? 'text-[#00f0ff]' : 'text-slate-500'}`} />
                   <span className="flex-1 truncate uppercase tracking-wide">{item.label}</span>
-                  {isPlanDisabled && entitlement && (
-                    <span className="text-[7px] border border-slate-700 px-1 py-0.5 text-slate-500 uppercase">
-                      {entitlement.status}
-                    </span>
-                  )}
                   
                   {/* Active flashing LED dots */}
-                  {isActive && !isPlanDisabled && (
+                  {isActive && (
                     <span className="w-1.5 h-1.5 bg-[#00f0ff] animate-pulse"></span>
                   )}
                 </button>
@@ -188,11 +150,11 @@ export default function PosSidebar({
       <div className="p-4 border-t border-slate-900 bg-slate-900/10 text-[9px] text-slate-500 space-y-1.5 font-mono">
         <div className="flex items-center gap-1.5">
           <span className="inline-block w-1.5 h-1.5 bg-emerald-500 rounded-none shrink-0"></span>
-          <span>LASER: CALIBRATED (CCD-B2)</span>
+          <span>TERMINAL DEVICES: READY</span>
         </div>
         <div className="flex items-center gap-1.5">
           <span className="inline-block w-1.5 h-1.5 bg-slate-500 rounded-none shrink-0"></span>
-          <span>NET BYPASS: OFFLINE LOCK_ON</span>
+          <span>BACKEND: MOCK / LOCAL SERVICES</span>
         </div>
         
         {/* Simple sign-out action (back to dashboard fallback) and Disconnect router */}
@@ -212,7 +174,7 @@ export default function PosSidebar({
             className="w-full text-[10px] text-slate-500 hover:text-white uppercase transition-colors flex items-center gap-1.5 cursor-pointer outline-none"
           >
             <LogOut className="w-3 h-3 text-slate-600" />
-            Reset Seats / Dash
+            Return to Dashboard
           </button>
           
           <button 
@@ -223,7 +185,7 @@ export default function PosSidebar({
             className="w-full text-[10px] text-amber-500/80 hover:text-amber-400 uppercase transition-colors flex items-center gap-1.5 cursor-pointer outline-none"
           >
             <Lock className="w-3 h-3 text-amber-600" />
-            Exit Terminal Gateway
+            Exit Terminal
           </button>
         </div>
       </div>

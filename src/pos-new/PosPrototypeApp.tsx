@@ -12,6 +12,9 @@ import PosStaffAccess from './pages/PosStaffAccess';
 import PosDeliveryDesk from './pages/PosDeliveryDesk';
 import PosSyncDesk from './pages/PosSyncDesk';
 import PosOwnerDesk from './pages/PosOwnerDesk';
+import PosSalesHistory from './pages/PosSalesHistory';
+import PosTaskDesk from './pages/PosTaskDesk';
+import PosApprovals from './pages/PosApprovals';
 import { 
   Product, 
   Transaction, 
@@ -178,7 +181,7 @@ export default function PosPrototypeApp() {
 
   const [rolePermissions, setRolePermissions] = useState<Record<string, PosPageId[]>>(() => {
     let parsed = readStoredValue<Record<string, PosPageId[]> | null>('itred_pos_role_permissions', null);
-    const validPageIds: PosPageId[] = ['DASHBOARD', 'OWNER_DESK', 'SALES', 'DELIVERY', 'STOCK', 'SHIFT', 'CASH', 'BI_DESK', 'SYNC_DESK', 'SETTINGS'];
+    const validPageIds: PosPageId[] = ['DASHBOARD', 'OWNER_DESK', 'SALES', 'SALES_HISTORY', 'DELIVERY', 'STOCK', 'TASK_DESK', 'APPROVALS', 'SHIFT', 'CASH', 'BI_DESK', 'SYNC_DESK', 'SETTINGS'];
     const hasInvalidPage = Object.values(parsed || {}).some((pages) =>
       Array.isArray(pages) && pages.some((page) => !validPageIds.includes(page as PosPageId))
     );
@@ -187,6 +190,9 @@ export default function PosPrototypeApp() {
       !parsed['Cashier'] ||
       !parsed['Cashier'].includes('DELIVERY') ||
       !parsed['Owner']?.includes('OWNER_DESK') ||
+      !parsed['Owner']?.includes('SALES_HISTORY') ||
+      !parsed['Owner']?.includes('TASK_DESK') ||
+      !parsed['Owner']?.includes('APPROVALS') ||
       hasInvalidPage
     ) {
       parsed = {
@@ -328,7 +334,9 @@ export default function PosPrototypeApp() {
   // Dynamic authorization check & routing redirect logic
   useEffect(() => {
     const userRole = activeSession ? activeSession.role : 'SysAdmin';
-    const allowed = rolePermissions[userRole] || ['DASHBOARD', 'SETTINGS'];
+    const allowed = userRole === 'Owner' || userRole === 'SysAdmin'
+      ? getAllowedMenusForRole(userRole)
+      : rolePermissions[userRole] || ['DASHBOARD', 'SETTINGS'];
     if (allowed && !allowed.includes(activePage)) {
       if (allowed.length > 0) {
         setActivePage(allowed[0]);
@@ -698,8 +706,8 @@ export default function PosPrototypeApp() {
       'SysAdmin': getAllowedMenusForRole('SysAdmin'),
       'Manager': getAllowedMenusForRole('Manager'),
       'Supervisor': getAllowedMenusForRole('Supervisor'),
-      'Cashier': ['DASHBOARD', 'SALES', 'DELIVERY', 'SHIFT'],
-      'Stock Controller': ['DASHBOARD', 'STOCK']
+      'Cashier': getAllowedMenusForRole('Cashier'),
+      'Stock Controller': getAllowedMenusForRole('Stock Controller')
     });
     setHardwareSetting({
       laserFocus: 'LASER_FOCUS: INTENSE_RED',
@@ -734,7 +742,9 @@ export default function PosPrototypeApp() {
   }
 
   const userRoleForAccess = activeSession ? activeSession.role : 'SysAdmin';
-  const allowedForAccess = rolePermissions[userRoleForAccess] || ['DASHBOARD', 'SETTINGS'];
+  const allowedForAccess = userRoleForAccess === 'Owner' || userRoleForAccess === 'SysAdmin'
+    ? getAllowedMenusForRole(userRoleForAccess)
+    : rolePermissions[userRoleForAccess] || ['DASHBOARD', 'SETTINGS'];
   const isPageRestricted = !allowedForAccess.includes(activePage);
 
   return (
@@ -801,6 +811,10 @@ export default function PosPrototypeApp() {
         />
       )}
 
+      {activePage === 'SALES_HISTORY' && (
+        <PosSalesHistory session={activeSession} />
+      )}
+
       {activePage === 'DELIVERY' && (
         <PosDeliveryDesk 
           session={activeSession}
@@ -816,6 +830,14 @@ export default function PosPrototypeApp() {
           onUpdateProduct={handleUpdateProduct}
           session={activeSession}
         />
+      )}
+
+      {activePage === 'TASK_DESK' && (
+        <PosTaskDesk session={activeSession} />
+      )}
+
+      {activePage === 'APPROVALS' && (
+        <PosApprovals session={activeSession} />
       )}
 
       {activePage === 'SHIFT' && (

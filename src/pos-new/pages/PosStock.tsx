@@ -1195,7 +1195,7 @@ export default function PosStock({
               <strong>Warehouse:</strong> <span className="text-[#1e222b] font-bold">Main Warehouse</span>
             </span>
             <span className="flex items-center gap-1">
-              <strong>Last Sync Status:</strong> <span className="text-slate-700 font-bold">Local Prototype Data</span>
+              <strong>Last Sync Status:</strong> <span className="text-slate-700 font-bold">Build Development Data</span>
             </span>
           </div>
         </div>

@@ -2112,7 +2112,7 @@ export default function PosSales({
                     TRANSACTION DISCHARGED
                   </h3>
                   <p className="text-[9px] text-[#f97316] font-bold uppercase">
-                    SYS INTEGRITY CONFIRMED • SCI POS
+                    Transaction confirmed - iTred Commerce POS
                   </p>
                 </div>
 

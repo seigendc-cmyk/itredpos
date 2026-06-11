@@ -396,7 +396,7 @@ export default function PosBIDesk({
               <strong>Terminal:</strong> <span className="text-[#13151a] font-extrabold">{terminalName}</span>
             </span>
             <span className="flex items-center gap-1">
-              <strong>Current BI Mode:</strong> <span className="text-orange-600">Local Prototype Rules</span>
+              <strong>Current BI Mode:</strong> <span className="text-orange-600">Build Development Rules</span>
             </span>
             <span className="flex items-center gap-1">
               <strong>Last Evaluation:</strong> <span className="text-slate-800">Today (Real-time scan)</span>

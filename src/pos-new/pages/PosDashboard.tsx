@@ -186,7 +186,7 @@ export default function PosDashboard({
         </div>
       </div>
 
-      {/* Console Status Notification Feed Feedback */}
+      {/* Status notification feedback */}
       <div className={`p-3 border text-[10px] tracking-wide uppercase transition-all duration-300 flex items-center justify-between ${
         notificationType === 'success' ? 'bg-emerald-950/30 border-emerald-800 text-emerald-400' :
         notificationType === 'warning' ? 'bg-amber-950/30 border-amber-800 text-amber-400' :
@@ -495,7 +495,7 @@ export default function PosDashboard({
           <div className="space-y-3">
             <h3 className="text-[11px] font-black uppercase text-slate-400 tracking-wider flex items-center gap-2">
               <TableActionsIcon className="w-4 h-4 text-emerald-400" />
-              6. Quick Actions Console
+              6. Quick Actions
             </h3>
 
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">

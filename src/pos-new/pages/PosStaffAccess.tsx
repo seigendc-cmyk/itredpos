@@ -13,7 +13,7 @@ export default function PosStaffAccess({
   onBackToBios
 }: PosStaffAccessProps) {
   
-  // Clean, literal mock data requested by User
+  // Build-development tenant data source.
   const vendors = mockVendors.map(v => v.name);
   const branches = mockBranches;
   const terminals = mockTerminals;
@@ -77,11 +77,11 @@ export default function PosStaffAccess({
       {/* Title & Metadata Header */}
       <div className="w-full max-w-lg mb-6 text-center space-y-1">
         <div className="text-[10px] tracking-widest text-[#00f0ff] font-bold uppercase">
-          SECURE SYSTEMS GATEWAY • INDUSTRIAL STANDARD
+          iTred Commerce POS - Vendor Commerce Terminal
         </div>
         <h1 className="text-xl font-black text-slate-100 tracking-tight flex items-center justify-center gap-2">
           <Cpu className="w-5 h-5 text-amber-500 animate-pulse" />
-          SCI POS Access
+          Staff Access
         </h1>
         <div className="h-[1px] bg-gradient-to-r from-transparent via-slate-800 to-transparent my-2" />
       </div>
@@ -255,11 +255,11 @@ export default function PosStaffAccess({
           onClick={onBackToBios}
           className="text-xs text-slate-500 hover:text-slate-300 transition-colors underline cursor-pointer"
         >
-          &larr; Return to Motherboard Diagnostics
+          &larr; Return to Main Application
         </button>
         <div className="text-[9px] text-slate-600 leading-normal max-w-md mx-auto uppercase">
-          SCI POS GATEWAY v8.12 • SECURE TRANSACTION ENVELOPE SYNC<br />
-          COMPLIES WITH HEAVY MATERIAL DISTRIBUTED STORES REGULATION E-519A
+          iTred Commerce POS - Vendor Commerce Terminal<br />
+          Mode: Build Development / Backend: Mock / Local Services
         </div>
       </div>
     </div>

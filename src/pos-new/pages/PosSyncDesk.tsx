@@ -302,7 +302,7 @@ export default function PosSyncDesk({ session }: PosSyncDeskProps) {
               <strong>Cashier Role:</strong> <span className="text-emerald-700 font-extrabold uppercase">{userRole} ({staffName})</span>
             </span>
             <span className="flex items-center gap-1">
-              <strong>Mode:</strong> <span className="bg-blue-50 text-blue-700 font-bold px-1">Local Prototype</span>
+              <strong>Mode:</strong> <span className="bg-blue-50 text-blue-700 font-bold px-1">Build Development</span>
             </span>
           </div>
         </div>

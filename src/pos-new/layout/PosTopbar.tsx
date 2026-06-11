@@ -2,11 +2,6 @@ import { useState, useEffect } from 'react';
 import { 
   Clock, 
   Cpu, 
-  RefreshCw, 
-  Settings, 
-  Lock, 
-  Unlock, 
-  AlertTriangle,
   Zap,
   LogOut,
   Wifi,
@@ -82,12 +77,20 @@ export default function PosTopbar({
     return () => clearInterval(timer);
   }, []);
 
-  const handleTestDrawerSolenoid = () => {
-    alert("SOLENOID ENERGIZED - DRAW KEY PULSE: 24VDC AUDIT OK");
-  };
-
-  const handleRecalibrateLaser = () => {
-    alert("BARCODE CCD LASER: CYCLED AND COLLIMATED AT 650NM (RED_LED_ON)");
+  const pageSubtitle: Record<PosPageId, string> = {
+    DASHBOARD: 'Operations Overview',
+    OWNER_DESK: 'Owner Review Desk',
+    SALES: 'Sales Terminal',
+    SALES_HISTORY: 'Sales History',
+    DELIVERY: 'Delivery Desk',
+    STOCK: 'Inventory',
+    TASK_DESK: 'Task Desk',
+    APPROVALS: 'Approvals',
+    SHIFT: 'Shift Control',
+    CASH: 'Cash Control',
+    BI_DESK: 'BI Desk',
+    SYNC_DESK: 'Sync Desk',
+    SETTINGS: 'Settings'
   };
 
   return (
@@ -95,7 +98,7 @@ export default function PosTopbar({
       {/* Current contextual page heading and active session details */}
       <div className="flex items-center gap-3 overflow-hidden">
         <div className="bg-amber-500/10 border border-amber-500/45 text-amber-500 px-2.5 py-1 text-[10px] font-black uppercase tracking-wider shrink-0">
-          SCI POS Prototype
+          iTred Commerce POS
         </div>
 
         <div className="bg-slate-950 px-2.5 py-1 border border-slate-800 text-[10px] text-[#00f0ff] font-bold uppercase tracking-wider shrink-0">
@@ -118,13 +121,7 @@ export default function PosTopbar({
           </div>
         ) : (
           <span className="text-slate-500 uppercase text-[10px] hidden md:inline truncate max-w-sm">
-            {activePage === 'DASHBOARD' ? "Operations Diagnostic Board Overview" :
-             activePage === 'SALES' ? "Dynamic Scanning POS Register Terminal Instance" :
-             activePage === 'STOCK' ? "Physical Materials Inventory Dispatch ledger" :
-             activePage === 'SHIFT' ? "Electromagnetic Shift Lock & User Sessions Gates" :
-             activePage === 'CASH' ? "Chronological Cash solenoid Drawer Audits" :
-             activePage === 'BI_DESK' ? "Net Revenues & Performance Telemetry Desk" :
-             "Modular System Configuration and Hardware Calibrations"}
+            {pageSubtitle[activePage]}
           </span>
         )}
       </div>
@@ -138,25 +135,6 @@ export default function PosTopbar({
           </div>
         )}
         
-        {/* Solenoid Drawer test */}
-        <div className="hidden lg:flex items-center gap-1.5 border-r border-slate-800 pr-4">
-          <button
-            onClick={handleTestDrawerSolenoid}
-            className="bg-slate-950 hover:bg-slate-800 border border-slate-800 text-slate-400 p-1.5 hover:text-white transition-colors cursor-pointer"
-            title="Send test pulse to Solenoid Drawer"
-          >
-            Open Test Drawer
-          </button>
-          
-          <button
-            onClick={handleRecalibrateLaser}
-            className="bg-slate-950 hover:bg-slate-800 border border-slate-800 text-slate-400 p-1.5 hover:text-white transition-colors cursor-pointer text-[10px] uppercase font-bold"
-            title="Trigger quick laser CCD alignment cycle"
-          >
-            Calibrate Laser
-          </button>
-        </div>
-
         {/* Dynamic ticking clock widget */}
         <div className="flex items-center gap-2 text-slate-300 border-r border-slate-800 pr-4 bg-slate-950 px-2.5 py-1.5 border border-slate-850">
           <Clock className="w-3.5 h-3.5 text-[#00f0ff]" />

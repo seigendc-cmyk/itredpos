@@ -36,7 +36,7 @@ import {
   ReceiptSetting
 } from '../types';
 import { Role } from '../types';
-import { getAllowedMenusForRole } from '../utils/posPermissions';
+import { getAllowedMenusForRole, hasPermission } from '../utils/posPermissions';
 import A5FloatingForm from '../components/A5FloatingForm';
 
 interface PosSettingsProps {
@@ -108,7 +108,8 @@ export default function PosSettings({
   onUpdateTerminalUnit,
   onResetAllState,
   activeOperatorName,
-  onUpdateOperatorName
+  onUpdateOperatorName,
+  activeRole
 }: PosSettingsProps) {
 
   // Current active configuration section tab
@@ -358,9 +359,13 @@ export default function PosSettings({
   const [hardForm, setHardForm] = useState<HardwareSetting>({ ...hardwareSetting });
   const handleSaveHardware = (e: React.FormEvent) => {
     e.preventDefault();
+    if (activeRole && !hasPermission(activeRole as Role, 'hardware.configure')) {
+      triggerToast('You do not have permission to perform this action.');
+      return;
+    }
     onUpdateHardwareSetting(hardForm);
     // Sync other components
-    triggerToast("SIGNAL ADAPTER CALIBRATIONS VERIFIED.");
+    triggerToast("Hardware and device settings saved.");
   };
 
   // --- SUB-FORM 8: TAX & VAT STATE ---
@@ -404,6 +409,26 @@ export default function PosSettings({
     { id: 'BUILD_STATUS' as const, label: 'Build Status', icon: Info, color: 'text-orange-500' },
     { id: 'RESET' as const, label: 'System Maintenance', icon: AlertTriangle, color: 'text-red-500 font-extrabold' },
   ];
+
+  const hardwareDevices = [
+    { deviceName: 'Cash Drawer', connectionType: hardForm.drawerSignal, status: 'Ready', lastTest: 'Placeholder', permissionRequired: 'hardware.configure' },
+    { deviceName: 'Receipt Printer', connectionType: 'USB / Network', status: 'Not Connected', lastTest: 'Placeholder', permissionRequired: 'hardware.configure' },
+    { deviceName: 'Barcode Scanner', connectionType: 'USB HID', status: 'Ready', lastTest: 'Placeholder', permissionRequired: 'hardware.configure' },
+    { deviceName: 'Laser Scanner', connectionType: hardForm.laserFocus, status: 'Ready', lastTest: 'Placeholder', permissionRequired: 'hardware.configure' },
+    { deviceName: 'Customer Display', connectionType: 'USB / Serial', status: 'Not Connected', lastTest: 'Placeholder', permissionRequired: 'hardware.configure' },
+    { deviceName: 'USB Camera', connectionType: 'USB Camera', status: 'Not Connected', lastTest: 'Placeholder', permissionRequired: 'hardware.configure' },
+    { deviceName: 'Fiscal Device', connectionType: 'Not Connected', status: 'Disabled In Development', lastTest: 'Placeholder', permissionRequired: 'hardware.configure' },
+    { deviceName: 'Terminal Device Settings', connectionType: terminalUnit, status: 'Configured', lastTest: 'Placeholder', permissionRequired: 'hardware.configure' }
+  ];
+
+  const canConfigureHardware = activeRole ? hasPermission(activeRole as Role, 'hardware.configure') : false;
+  const handleHardwareDeviceAction = (label: string) => {
+    if (!canConfigureHardware) {
+      triggerToast('You do not have permission to perform this action.');
+      return;
+    }
+    triggerToast(`${label} placeholder queued.`);
+  };
 
   return (
     <div className="space-y-6 select-none industrial-font-sans text-xs" id="pos-admin-settings-panel">
@@ -1376,24 +1401,24 @@ export default function PosSettings({
               </div>
             )}
 
-            {/* TAB 7: HARDWARE CONFIG */}
+            {/* TAB 7: HARDWARE & DEVICES */}
             {activeSection === 'HARDWARE' && (
               <form onSubmit={handleSaveHardware} className="space-y-5">
                 <div className="border-b border-slate-800 pb-2 flex items-center justify-between">
                   <span className="text-xs font-bold text-white uppercase tracking-wider flex items-center gap-2">
                     <Cpu className="w-4 h-4 text-orange-400" />
-                    HARDWARE CONFIGURATION OVERRIDES
+                    HARDWARE & DEVICES
                   </span>
-                  <span className="text-[9px] text-[#00f0ff] uppercase bg-slate-950 px-1 border border-slate-900">SERIAL BUS DETECT</span>
+                  <span className="text-[9px] text-orange-600 uppercase bg-slate-50 px-1 border border-[#b1b5c2]">Permission: hardware.configure</span>
                 </div>
 
                 <p className="text-[10px] text-slate-450 uppercase mb-4 leading-normal">
-                  Override signals transmitted to local serial adapters, barcode reader modules, and high pressure solenoid drawer actuators.
+                  Manage local terminal device settings for build-development. Device actions are placeholders and require hardware configuration permission.
                 </p>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div className="space-y-1">
-                    <label className="block text-slate-500 text-[10px] uppercase font-bold">DEFAULT TERMINAL UNIT COMPORT ID</label>
+                    <label className="block text-slate-500 text-[10px] uppercase font-bold">Terminal Device ID</label>
                     <input 
                       type="text" 
                       value={terminalUnit}
@@ -1404,7 +1429,7 @@ export default function PosSettings({
                   </div>
 
                   <div className="space-y-1">
-                    <label className="block text-slate-500 text-[10px] uppercase font-bold">OPERATOR SHIFT BYPASS OVERRIDE ID</label>
+                    <label className="block text-slate-500 text-[10px] uppercase font-bold">Default Operator Label</label>
                     <input 
                       type="text" 
                       value={activeOperatorName}
@@ -1415,30 +1440,71 @@ export default function PosSettings({
                   </div>
 
                   <div className="space-y-1">
-                    <label className="block text-slate-500 text-[10px] uppercase font-bold">BARCODE LASER WAVEFRONT SPECS</label>
+                    <label className="block text-slate-500 text-[10px] uppercase font-bold">Scanner Profile</label>
                     <select
                       value={hardForm.laserFocus}
                       onChange={e => setHardForm({ ...hardForm, laserFocus: e.target.value })}
                       className="w-full bg-slate-950 border border-slate-850 p-2 text-slate-300 text-xs outline-none"
                     >
-                      <option value="LASER_FOCUS: INTENSE_RED">LASER_FOCUS: SILICON_RED (HIGH SPEED)</option>
-                      <option value="LASER_FOCUS: GREEN_MATRIX">LASER_FOCUS: MATRIX_GREEN (DIFFUSE BINS)</option>
-                      <option value="LASER_FOCUS: DIRECT_CCD_CAMERA">LASER_FOCUS: Direct CCD SENSOR FEED (CAMERA)</option>
+                      <option value="LASER_FOCUS: INTENSE_RED">Standard Laser Scanner</option>
+                      <option value="LASER_FOCUS: GREEN_MATRIX">2D Matrix Scanner</option>
+                      <option value="LASER_FOCUS: DIRECT_CCD_CAMERA">Camera Scanner</option>
                     </select>
                   </div>
 
                   <div className="space-y-1">
-                    <label className="block text-slate-500 text-[10px] uppercase font-bold">SOLENOID DRAWER VOLTAGE PULSE</label>
+                    <label className="block text-slate-500 text-[10px] uppercase font-bold">Cash Drawer Connection</label>
                     <select
                       value={hardForm.drawerSignal}
                       onChange={e => setHardForm({ ...hardForm, drawerSignal: e.target.value })}
                       className="w-full bg-slate-100 text-slate-950 font-bold border border-slate-850 p-2 text-xs outline-none"
                     >
-                      <option value="12VDC_ELECTRO_M_PULSE">12VDC ELECTRO-MECHANICAL PULSE</option>
-                      <option value="24VDC_HEAVY_FACTORY">24VDC HEAVY FACTORY SOLENOID VOLTAGE</option>
-                      <option value="MANUAL_KEYBOARD_ONLY">MANUAL COGNITIVE KEYBOARD COMMAND ONLY</option>
+                      <option value="12VDC_ELECTRO_M_PULSE">Standard Drawer Pulse</option>
+                      <option value="24VDC_HEAVY_FACTORY">High Voltage Drawer Pulse</option>
+                      <option value="MANUAL_KEYBOARD_ONLY">Manual Key Only</option>
                     </select>
                   </div>
+                </div>
+
+                <div className="bg-white border border-[#b1b5c2] overflow-x-auto">
+                  <table className="w-full min-w-[980px] text-left">
+                    <thead className="bg-[#1e222b] text-white">
+                      <tr>
+                        {['Device Name', 'Connection Type', 'Status', 'Last Test', 'Permission Required', 'Action'].map((heading) => (
+                          <th key={heading} className="px-3 py-2 text-[10px] uppercase font-black">{heading}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {hardwareDevices.map((device) => (
+                        <tr key={device.deviceName} className="border-t border-[#d6d9e0] text-[11px] text-slate-700">
+                          <td className="px-3 py-2 font-black text-[#1e222b]">{device.deviceName}</td>
+                          <td className="px-3 py-2 font-bold">{device.connectionType}</td>
+                          <td className="px-3 py-2 font-bold">{device.status}</td>
+                          <td className="px-3 py-2 font-bold">{device.lastTest}</td>
+                          <td className="px-3 py-2 font-bold">{device.permissionRequired}</td>
+                          <td className="px-3 py-2">
+                            <div className="flex flex-wrap gap-1.5">
+                              {['Test Device Placeholder', 'Configure Placeholder', 'Calibrate Placeholder', 'Disable Placeholder'].map((label) => (
+                                <button
+                                  key={`${device.deviceName}-${label}`}
+                                  type="button"
+                                  onClick={() => handleHardwareDeviceAction(`${label} for ${device.deviceName}`)}
+                                  className={`border px-2 py-1 text-[9px] font-black uppercase ${
+                                    canConfigureHardware
+                                      ? 'border-[#b1b5c2] bg-white hover:bg-orange-50 text-[#1e222b]'
+                                      : 'border-slate-300 bg-slate-100 text-slate-400 cursor-not-allowed'
+                                  }`}
+                                >
+                                  {label}
+                                </button>
+                              ))}
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
                 </div>
 
                 <div className="pt-3 border-t border-slate-900">
@@ -1447,7 +1513,7 @@ export default function PosSettings({
                     className="bg-orange-655 hover:bg-orange-700 text-slate-950 font-black uppercase tracking-wider px-6 py-2.5 rounded-none cursor-pointer flex items-center gap-1.5 bg-orange-500"
                   >
                     <Save className="w-4 h-4 text-slate-950" />
-                    SAVE DRIVER CHASSIS SIGNAL
+                    Save Hardware & Device Settings
                   </button>
                 </div>
               </form>
@@ -1641,6 +1707,7 @@ export default function PosSettings({
 
                 <div className="bg-white border-2 border-[#b1b5c2] p-4 text-[#1e222b]">
                   <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3">
+                    <ReadOnlyAccessMetric label="Product" value="iTred Commerce POS" />
                     <ReadOnlyAccessMetric label="Mode" value="Build Development" />
                     <ReadOnlyAccessMetric label="Backend" value="Mock / Local Services" />
                     <ReadOnlyAccessMetric label="Firebase" value="Not Connected" />
@@ -1651,7 +1718,7 @@ export default function PosSettings({
                     <ReadOnlyAccessMetric label="Last Build Check" value="Placeholder" />
                   </div>
                   <div className="mt-3 border border-orange-200 bg-orange-50 p-2 text-[10px] text-orange-900 font-bold uppercase">
-                    During build-development, Owner has full access. Plan-based feature enforcement will be implemented later from the internal iTredVD Console backend.
+                    During build-development, Owner has full access. Plan-based feature enforcement is deferred.
                   </div>
                 </div>
               </div>
