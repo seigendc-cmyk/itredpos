@@ -144,7 +144,7 @@ export interface TerminalControlEvent {
   createdAt: string;
 }
 
-export type Role = 'Owner' | 'SysAdmin' | 'Manager' | 'Cashier' | 'Stock Controller' | 'Supervisor';
+export type Role = 'Owner' | 'SysAdmin' | 'Manager' | 'Cashier' | 'Stock Controller' | 'Supervisor' | 'Delivery Staff';
 
 export type Permission = string;
 
@@ -218,26 +218,53 @@ export interface Product {
 export type ProductStatus = 'Draft' | 'Active' | 'Blocked' | 'Inactive' | 'Discontinued' | 'Pending Review';
 
 export type StockLocationType =
+  | 'Sales Floor'
   | 'Branch Sales Floor'
   | 'Branch Warehouse'
   | 'Main Warehouse'
+  | 'Back Store'
+  | 'Shelf'
   | 'Holding Area'
+  | 'Damaged Holding'
   | 'Damaged Stock'
+  | 'Return Holding'
+  | 'Supplier Return Preparation'
   | 'In Transit'
+  | 'Quarantine'
+  | 'Other'
   | 'Supplier Return Bay'
   | 'Virtual';
 
 export type StockBalanceStatus =
   | 'Available'
   | 'Low Stock'
+  | 'Out Of Stock'
   | 'Out of Stock'
   | 'Reserved'
   | 'Damaged'
+  | 'Return Holding'
   | 'In Transit'
   | 'Blocked'
+  | 'Quarantine'
+  | 'Reorder Required'
   | 'Stocktake Review';
 
-export type ProductRiskStatus = 'None' | 'Low Margin' | 'Supplier Risk' | 'Dead Stock' | 'Variance Risk' | 'Blocked Sale' | 'Credit Review';
+export type ProductRiskStatus =
+  | 'Normal'
+  | 'Low Stock'
+  | 'Out Of Stock'
+  | 'Overstocked'
+  | 'No Movement'
+  | 'Slow Moving'
+  | 'Fast Moving'
+  | 'Variance Risk'
+  | 'Blocked'
+  | 'None'
+  | 'Low Margin'
+  | 'Supplier Risk'
+  | 'Dead Stock'
+  | 'Blocked Sale'
+  | 'Credit Review';
 
 export interface ProductSectorAttributes {
   sector: string;
@@ -251,6 +278,16 @@ export interface ProductSectorAttributes {
   material?: string;
   weight?: string;
   warrantyPeriod?: string;
+  make?: string;
+  yearFrom?: string;
+  yearTo?: string;
+  side?: string;
+  partNumber?: string;
+  oemNumber?: string;
+  engineCode?: string;
+  chassisCode?: string;
+  productType?: string;
+  productGrade?: string;
   expiryRequired?: boolean;
   serialTrackingRequired?: boolean;
   batchTrackingRequired?: boolean;
@@ -264,17 +301,41 @@ export interface ProductMasterRecord {
   sku: string;
   barcode?: string;
   alu?: string;
+  vendorSku?: string;
   productNumericNumber?: string;
   productName: string;
+  description?: string;
   shortDescription?: string;
+  brand?: string;
+  manufacturer?: string;
+  supplierName?: string;
+  supplierItemCode?: string;
+  industrialSector?: string;
+  productCategory?: string;
+  productSubCategory?: string;
   productType: 'Stock Item' | 'Service' | 'Bundle' | 'Consumable' | 'Non-Stock';
   status: ProductStatus;
+  productStatus?: ProductStatus;
   riskStatus: ProductRiskStatus;
   category: string;
   unitOfMeasure: string;
+  condition?: string;
+  colour?: string;
+  make?: string;
+  model?: string;
+  yearFrom?: string;
+  yearTo?: string;
+  side?: string;
+  partNumber?: string;
+  oemNumber?: string;
+  tags?: string[];
   taxCode: string;
+  taxMode?: string;
+  vatRate?: number;
   defaultSellingPrice: number;
   defaultCostPrice: number;
+  reorderLevel?: number;
+  reorderQty?: number;
   marginPercent: number;
   preferredSupplierId?: string;
   preferredSupplierName?: string;
@@ -318,11 +379,15 @@ export interface ProductStockBalance {
   qtyReserved: number;
   qtyAvailable: number;
   qtyDamaged: number;
+  qtyReturnHolding?: number;
   qtyInTransit: number;
+  qtyBlocked?: number;
   reorderLevel: number;
   reorderQty: number;
   status: StockBalanceStatus;
   lastMovementDate?: string;
+  lastMovementAt?: string;
+  lastStocktakeAt?: string;
   updatedAt: string;
 }
 
@@ -335,12 +400,15 @@ export interface ProductReorderRule {
   productId: string;
   branchId: string;
   warehouseId: string;
+  locationType?: StockLocationType;
   minQty: number;
   maxQty: number;
   reorderQty: number;
   preferredSupplierId?: string;
+  preferredSupplierName?: string;
   leadTimeDays: number;
   isActive: boolean;
+  status?: 'Active' | 'Inactive' | 'Review';
   notes?: string;
 }
 
@@ -350,6 +418,7 @@ export interface ProductSupplierLink {
   supplierId: string;
   supplierName: string;
   supplierSku?: string;
+  supplierItemCode?: string;
   supplierBarcode?: string;
   lastCost: number;
   leadTimeDays: number;
@@ -365,6 +434,11 @@ export interface ProductPriceRecord {
   sellingPrice: number;
   costPrice: number;
   marginPercent: number;
+  markupPercent?: number;
+  taxMode?: string;
+  vatRate?: number;
+  lastCostPrice?: number;
+  currentSellingPrice?: number;
   currency: string;
   effectiveFrom: string;
   effectiveTo?: string;
@@ -373,10 +447,19 @@ export interface ProductPriceRecord {
 
 export interface ProductMasterFilterState {
   search?: string;
+  sku?: string;
+  barcode?: string;
+  alu?: string;
+  productName?: string;
+  brand?: string;
+  manufacturer?: string;
   status?: 'ALL' | ProductStatus;
+  productStatus?: 'ALL' | ProductStatus;
   riskStatus?: 'ALL' | ProductRiskStatus;
   sector?: string;
+  industrialSector?: string;
   category?: string;
+  subCategory?: string;
   supplier?: string;
   branchId?: string;
   warehouseId?: string;
@@ -387,11 +470,16 @@ export interface ProductMasterFilterState {
 export interface ProductMasterSummary {
   totalProducts: number;
   activeProducts: number;
+  draftProducts?: number;
   blockedProducts: number;
   inactiveProducts: number;
   lowStockProducts: number;
   outOfStockProducts: number;
   multiLocationProducts: number;
+  damagedHoldingProducts?: number;
+  returnHoldingProducts?: number;
+  inTransitProducts?: number;
+  reorderRequiredProducts?: number;
   supplierLinkedProducts: number;
   riskProducts: number;
 }
@@ -402,7 +490,10 @@ export interface ProductStockBalanceSummary {
   totalQtyAvailable: number;
   totalQtyReserved: number;
   totalQtyDamaged: number;
+  totalQtyReturnHolding?: number;
   totalQtyInTransit: number;
+  totalQtyBlocked?: number;
+  reorderRequiredLocations?: number;
   lowStockLocations: number;
   outOfStockLocations: number;
   stocktakeReviewLocations: number;
@@ -852,6 +943,32 @@ export type RecommendedStockAction =
   | 'Immediate Stock Review'
   | 'No Action';
 
+export type StockHealthStatus =
+  | 'Healthy'
+  | 'Low Stock'
+  | 'Out Of Stock'
+  | 'Dead Stock'
+  | 'Slow Moving'
+  | 'Fast Moving'
+  | 'Overstocked'
+  | 'Variance Risk'
+  | 'Damaged'
+  | 'Return Holding'
+  | 'Reorder Required'
+  | 'Review Required';
+
+export type StockHealthSeverity = 'Info' | 'Low' | 'Medium' | 'High' | 'Critical';
+
+export type InventoryRecommendationType =
+  | 'Create PO Recommendation'
+  | 'Transfer Stock Recommendation'
+  | 'Stocktake Recommendation'
+  | 'Price Review Recommendation'
+  | 'Supplier Review Recommendation'
+  | 'Dead Stock Clearance Recommendation'
+  | 'Overstock Review Recommendation'
+  | 'Damage Review Recommendation';
+
 export interface StockHealthFilters {
   vendorId?: string;
   branch?: string;
@@ -890,6 +1007,11 @@ export interface StockHealthRow {
   sku: string;
   alu: string;
   productName: string;
+  branchId?: string;
+  branchName?: string;
+  warehouseId?: string;
+  warehouseName?: string;
+  locationType?: StockLocationType;
   sector: string;
   category: string;
   brand: string;
@@ -898,10 +1020,23 @@ export interface StockHealthRow {
   warehouse: string;
   shelfLocation: string;
   qtyOnHand: number;
+  qtyAvailable?: number;
+  qtyReserved?: number;
+  qtyDamaged?: number;
+  qtyReturnHolding?: number;
+  qtyInTransit?: number;
   reorderLevel: number;
+  reorderQty?: number;
   lastSaleDate: string;
+  lastMovementDate?: string;
   lastReceivedDate: string;
   daysSinceLastSale: number | null;
+  movementCount?: number;
+  salesVelocity?: number;
+  stockHealthStatus?: StockHealthStatus;
+  severity?: StockHealthSeverity;
+  estimatedStockValue?: number;
+  notes?: string;
   stockStatus: string;
   movementClass: MovementClass;
   riskLevel: 'Low' | 'Medium' | 'High' | 'Critical';
@@ -909,6 +1044,22 @@ export interface StockHealthRow {
 }
 
 export type InventoryReportType =
+  | 'Inventory Summary'
+  | 'Low Stock'
+  | 'Out Of Stock'
+  | 'Dead Stock'
+  | 'Slow Moving'
+  | 'Fast Moving'
+  | 'Overstock'
+  | 'Stock Value'
+  | 'Variance Risk'
+  | 'Reorder Recommendation'
+  | 'Supplier Performance'
+  | 'GRN Delay'
+  | 'Transfer Delay'
+  | 'Damaged Holding'
+  | 'Return Holding'
+  | 'Movement Audit'
   | 'Stock Valuation'
   | 'Movement Summary'
   | 'Low Stock Report'
@@ -923,16 +1074,156 @@ export type InventoryReportType =
 
 export interface InventoryReportFilters {
   vendorId?: string;
+  search?: string;
+  sku?: string;
   branch?: string;
+  branchId?: string;
   warehouse?: string;
+  warehouseId?: string;
+  locationType?: 'ALL' | StockLocationType;
   industrialSector?: string;
   category?: string;
   brand?: string;
   supplier?: string;
   shelfLocation?: string;
+  stockHealthStatus?: 'ALL' | StockHealthStatus;
+  severity?: 'ALL' | StockHealthSeverity;
+  movementType?: 'ALL' | InventoryMovementType;
   dateFrom?: string;
   dateTo?: string;
   reportType?: InventoryReportType;
+}
+
+export type InventoryReportFilterState = InventoryReportFilters;
+
+export interface InventoryReportSummary {
+  totalStockValue: number;
+  lowStockItems: number;
+  outOfStockItems: number;
+  deadStockItems: number;
+  slowMovingItems: number;
+  fastMovingItems: number;
+  overstockedItems: number;
+  varianceRiskItems: number;
+  damagedHoldingQty: number;
+  returnHoldingQty: number;
+  inTransitQty: number;
+  reorderRecommendations: number;
+}
+
+export interface StockHealthRecommendation {
+  recommendationId: string;
+  recommendationType: InventoryRecommendationType;
+  severity: StockHealthSeverity;
+  productId?: string;
+  sku?: string;
+  productName?: string;
+  branchId?: string;
+  warehouseId?: string;
+  title: string;
+  description: string;
+  recommendedAction: string;
+  relatedReportType: InventoryReportType;
+  status: 'Open' | 'Reviewed' | 'Dismissed' | 'Converted Placeholder';
+  createdAt: string;
+}
+
+export interface InventoryValueReportRow {
+  sku: string;
+  productName: string;
+  branch: string;
+  warehouse: string;
+  location: string;
+  qtyOnHand: number;
+  availableQty: number;
+  unitCost: number;
+  estimatedStockValue: number;
+  damagedValue: number;
+  returnHoldingValue: number;
+  inTransitValue: number;
+  lastCost: number;
+  status: StockHealthStatus;
+}
+
+export interface StockMovementAuditRow {
+  movementId: string;
+  dateTime: string;
+  sku: string;
+  productName: string;
+  movementType: InventoryMovementType;
+  reference: string;
+  branch: string;
+  warehouse: string;
+  qtyIn: number;
+  qtyOut: number;
+  balanceBefore: number;
+  balanceAfter: number;
+  staff: string;
+  risk: string;
+  notes: string;
+}
+
+export interface SupplierPerformanceRow {
+  supplier: string;
+  productsSupplied: number;
+  purchaseOrders: number;
+  grns: number;
+  supplierReturns: number;
+  averageDeliveryDays: number;
+  lateDeliveries: number;
+  damagedWrongItems: number;
+  creditNotesPending: number;
+  performanceScore: number;
+  risk: StockHealthSeverity;
+}
+
+export interface TransferDelayRow {
+  transferNo: string;
+  source: string;
+  destination: string;
+  dispatchedDate: string;
+  expectedArrival: string;
+  receivedDate?: string;
+  daysInTransit: number;
+  status: string;
+  variance: string;
+}
+
+export interface GRNDelayRow {
+  grnNo: string;
+  poNo: string;
+  supplier: string;
+  expectedDelivery: string;
+  receivedDate?: string;
+  daysLate: number;
+  status: string;
+  variance: string;
+  invoiceStatus: string;
+}
+
+export interface ReorderRecommendationRow {
+  sku: string;
+  productName: string;
+  branch: string;
+  warehouse: string;
+  availableQty: number;
+  reorderLevel: number;
+  reorderQty: number;
+  preferredSupplier: string;
+  salesVelocity: number;
+  daysCover: number;
+  recommendation: string;
+  priority: StockHealthSeverity;
+}
+
+export interface InventoryReportActivityEvent {
+  id: string;
+  eventType: string;
+  reportType?: InventoryReportType;
+  message: string;
+  staffId?: string;
+  notes?: string;
+  createdAt: string;
 }
 
 export interface StockValuationRow {
@@ -2579,11 +2870,46 @@ export interface PurchaseDisciplineEvent {
   operator: string;
 }
 
-export type DeliveryStatus = 'Pending Assignment' | 'Assigned' | 'Out for Delivery' | 'Completed' | 'Failed' | 'Waiting Collection';
-export type DeliveryMethod = 'Vendor Delivery' | 'External Delivery' | 'Customer Collection' | 'Courier Placeholder';
+export type DeliveryMethod =
+  | 'No Delivery'
+  | 'Customer Collection'
+  | 'Vendor Delivery'
+  | 'iDeliver Service'
+  | 'External Delivery'
+  | 'Courier Placeholder';
+
+export type DeliveryStatus =
+  | 'Not Required'
+  | 'Draft'
+  | 'Pending Assignment'
+  | 'Broadcast To iDeliver'
+  | 'Provider Selected'
+  | 'Assigned'
+  | 'Accepted By Driver'
+  | 'Picked Up'
+  | 'In Transit'
+  | 'Arrived'
+  | 'Delivered'
+  | 'Delivery Failed'
+  | 'Cancelled'
+  | 'Returned To Vendor'
+  | 'Cash Pending Review'
+  | 'Closed'
+  | 'Out for Delivery'
+  | 'Completed'
+  | 'Failed'
+  | 'Waiting Collection';
+
 export type VehicleType = 'Bike' | 'Car' | 'Kombi' | 'Lorry' | 'Walking Courier' | 'Other';
-export type DeliveryCodeStatus = 'Not Generated' | 'Code Generated' | 'Code Sent' | 'Code Pending' | 'Code Confirmed';
+export type DeliveryCodeStatus = 'Not Generated' | 'Code Generated' | 'Code Sent' | 'Code Pending' | 'Code Confirmed' | DeliveryConfirmationStatus;
 export type DeliveryFailureReason = 'Customer unavailable' | 'Wrong address' | 'Customer rejected delivery' | 'Delivery person failed to confirm code' | 'Vehicle breakdown' | 'Product issue' | 'Other' | '';
+
+export type DeliveryPriority = 'Normal' | 'High' | 'Urgent';
+export type DeliveryPaymentMode = 'Already Paid' | 'Cash On Delivery' | 'Delivery Fee Cash' | 'Mixed Payment' | 'No Payment Due';
+export type DeliveryCashStatus = 'Not Required' | 'Pending Collection' | 'Collected By Driver' | 'Confirmed By Vendor' | 'Variance Review' | 'Missing Cash' | 'Closed';
+export type DeliveryProviderType = 'Vendor Staff' | 'iDeliver Partner' | 'External Courier' | 'Customer Pickup';
+export type DeliveryTrackingStatus = 'Not Started' | 'Location Shared' | 'En Route' | 'Delayed' | 'Arrived' | 'Completed' | 'Tracking Unavailable';
+export type DeliveryConfirmationStatus = 'Code Pending' | 'Code Sent' | 'Code Verified' | 'Code Failed' | 'Manual Override Required';
 
 export interface DeliveryOrder {
   id: string;
@@ -2647,6 +2973,199 @@ export interface DeliveryEvent {
   eventType: DeliveryEventType;
   message: string;
   operator: string;
+}
+
+export interface DeliveryRequest {
+  deliveryId: string;
+  deliveryNumber: string;
+  vendorId: string;
+  receiptId: string;
+  receiptNumber: string;
+  branchId: string;
+  branchName: string;
+  terminalId: string;
+  cashierStaffId: string;
+  cashierStaffName: string;
+  customerId?: string;
+  customerName: string;
+  customerPhone: string;
+  customerWhatsapp: string;
+  deliveryMethod: DeliveryMethod;
+  deliveryStatus: DeliveryStatus;
+  priority: DeliveryPriority;
+  deliveryAddress: string;
+  deliverySuburb?: string;
+  deliveryCityTown?: string;
+  deliveryNotes: string;
+  deliveryFee: number;
+  paymentMode: DeliveryPaymentMode;
+  cashStatus: DeliveryCashStatus;
+  totalReceiptAmount: number;
+  cashToCollect: number;
+  providerId?: string;
+  providerName?: string;
+  driverStaffId?: string;
+  driverName?: string;
+  driverPhone?: string;
+  confirmationCode: string;
+  confirmationStatus: DeliveryConfirmationStatus;
+  trackingStatus: DeliveryTrackingStatus;
+  requestedAt: string;
+  assignedAt?: string;
+  acceptedAt?: string;
+  pickedUpAt?: string;
+  deliveredAt?: string;
+  cancelledAt?: string;
+  failureReason?: string;
+  verificationAttempts?: number;
+  verifiedAt?: string;
+  verifiedByStaffId?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface DeliveryRequestLine {
+  lineId: string;
+  deliveryId: string;
+  productId: string;
+  sku: string;
+  productName: string;
+  qty: number;
+  receiptLineId?: string;
+  lineStatus: string;
+  notes: string;
+}
+
+export interface DeliveryProvider {
+  providerId: string;
+  providerName: string;
+  providerType: DeliveryProviderType;
+  phone: string;
+  vehiclePlaceholder: string;
+  active: boolean;
+  ratingPlaceholder: number;
+  completedDeliveries: number;
+  failedDeliveries: number;
+  cashVarianceCount: number;
+}
+
+export interface DeliveryAssignment {
+  assignmentId: string;
+  deliveryId: string;
+  providerId?: string;
+  providerName?: string;
+  driverStaffId?: string;
+  driverName?: string;
+  driverPhone?: string;
+  vehiclePlaceholder?: string;
+  assignedAt: string;
+  acceptedAt?: string;
+  assignedByStaffId: string;
+}
+
+export interface DeliveryTrackingEvent {
+  trackingEventId: string;
+  deliveryId: string;
+  dateTime: string;
+  status: DeliveryTrackingStatus;
+  locationText: string;
+  latitudePlaceholder?: string;
+  longitudePlaceholder?: string;
+  notes: string;
+  updatedByStaffId: string;
+}
+
+export interface DeliveryConfirmationCode {
+  codeId: string;
+  deliveryId: string;
+  code: string;
+  status: DeliveryConfirmationStatus;
+  sentToCustomer: boolean;
+  attempts: number;
+  verifiedAt?: string;
+  verifiedByStaffId?: string;
+  createdAt: string;
+}
+
+export interface DeliveryCashCollection {
+  cashCollectionId: string;
+  deliveryId: string;
+  paymentMode: DeliveryPaymentMode;
+  cashToCollect: number;
+  deliveryFeeCash: number;
+  amountCollectedByDriver: number;
+  driverCollectionNotes: string;
+  vendorCashConfirmed: boolean;
+  vendorConfirmedAmount: number;
+  cashVariance: number;
+  cashStatus: DeliveryCashStatus;
+  updatedAt: string;
+}
+
+export interface DeliveryActivityEvent {
+  id: string;
+  deliveryId?: string;
+  deliveryNumber?: string;
+  receiptNumber?: string;
+  eventType: string;
+  message: string;
+  staffId?: string;
+  notes?: string;
+  createdAt: string;
+}
+
+export interface DeliveryFilterState {
+  deliveryNumber?: string;
+  receiptNumber?: string;
+  customer?: string;
+  phone?: string;
+  deliveryMethod?: 'ALL' | DeliveryMethod;
+  deliveryStatus?: 'ALL' | DeliveryStatus;
+  provider?: string;
+  driver?: string;
+  cashStatus?: 'ALL' | DeliveryCashStatus;
+  confirmationStatus?: 'ALL' | DeliveryConfirmationStatus;
+  priority?: 'ALL' | DeliveryPriority;
+  dateFrom?: string;
+  dateTo?: string;
+}
+
+export interface DeliverySummary {
+  pendingAssignment: number;
+  broadcastToIDeliver: number;
+  assigned: number;
+  inTransit: number;
+  deliveredToday: number;
+  failedDeliveries: number;
+  cashPendingReview: number;
+  codeVerificationPending: number;
+  returnedToVendor: number;
+  urgentDeliveries: number;
+}
+
+export interface DeliveryBroadcastPayload {
+  deliveryNumber: string;
+  receiptNumber: string;
+  vendorId: string;
+  branchId: string;
+  customerName: string;
+  customerPhone: string;
+  deliveryAddress: string;
+  deliveryFee: number;
+  cashToCollect: number;
+  priority: DeliveryPriority;
+  itemCount: number;
+  notes: string;
+}
+
+export interface DeliveryWhatsAppMessageDraft {
+  draftId: string;
+  deliveryId: string;
+  messageType: 'Customer Code' | 'Customer Status' | 'Driver Assignment' | 'Vendor Cash Reminder';
+  recipient: string;
+  messageText: string;
+  createdAt: string;
+  status: 'Prepared' | 'Copied Placeholder' | 'Open WhatsApp Placeholder';
 }
 
 // Offline Terminal Queue & Sync Status Prototype Types
@@ -3054,6 +3573,157 @@ export interface AccountingReadinessCheck {
   requiredAction: string;
 }
 
+export type InventoryAccountingReadinessStatus =
+  | 'Pending Review'
+  | 'Reviewed'
+  | 'Approved For Posting'
+  | 'Posted Placeholder'
+  | 'Rejected'
+  | 'On Hold'
+  | 'Reversal Requested'
+  | 'Closed';
+
+export type InventoryAccountingImpactType =
+  | 'Inventory Asset Increase'
+  | 'Inventory Asset Decrease'
+  | 'Inventory Write Off'
+  | 'Stocktake Gain'
+  | 'Stocktake Loss'
+  | 'Supplier Return Credit Expected'
+  | 'GRN Supplier Invoice Pending'
+  | 'Transfer Neutral'
+  | 'Cost Variance Review'
+  | 'Unknown Impact Review';
+
+export type InventoryAccountingSourceType =
+  | 'GRN'
+  | 'Supplier Return'
+  | 'Stock Adjustment'
+  | 'Stocktake'
+  | 'Stock Transfer'
+  | 'Inventory Movement'
+  | 'Product Ledger';
+
+export type InventoryAccountingRiskLevel = 'Low' | 'Medium' | 'High' | 'Critical';
+
+export interface InventoryAccountingReadinessRecord {
+  readinessId: string;
+  readinessNumber: string;
+  vendorId: string;
+  sourceType: InventoryAccountingSourceType;
+  sourceId: string;
+  sourceNumber: string;
+  movementId?: string;
+  movementType: InventoryMovementType;
+  impactType: InventoryAccountingImpactType;
+  branchId: string;
+  branchName: string;
+  warehouseId: string;
+  warehouseName: string;
+  status: InventoryAccountingReadinessStatus;
+  riskLevel: InventoryAccountingRiskLevel;
+  totalValueImpact: number;
+  currency: string;
+  reviewedByStaffId?: string;
+  reviewedByStaffName?: string;
+  approvedByStaffId?: string;
+  approvedByStaffName?: string;
+  notes: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface InventoryAccountingReadinessLine {
+  lineId: string;
+  readinessId: string;
+  productId: string;
+  sku: string;
+  productName: string;
+  movementType: InventoryMovementType;
+  qtyIn: number;
+  qtyOut: number;
+  unitCost: number;
+  valueImpact: number;
+  debitAccountCode?: string;
+  debitAccountName?: string;
+  creditAccountCode?: string;
+  creditAccountName?: string;
+  mappingStatus: 'Mapped' | 'Unresolved' | 'Review Required';
+  notes: string;
+}
+
+export interface InventoryAccountingSummary {
+  pendingReview: number;
+  reviewed: number;
+  approvedForPosting: number;
+  onHold: number;
+  highRisk: number;
+  critical: number;
+  inventoryIncreaseValue: number;
+  inventoryDecreaseValue: number;
+  writeOffValue: number;
+  stocktakeLossValue: number;
+  supplierCreditExpected: number;
+  transferNeutral: number;
+}
+
+export interface InventoryAccountingFilterState {
+  readinessNumber?: string;
+  sourceType?: 'ALL' | InventoryAccountingSourceType;
+  sourceNumber?: string;
+  movementType?: 'ALL' | InventoryMovementType;
+  impactType?: 'ALL' | InventoryAccountingImpactType;
+  branchId?: string;
+  warehouseId?: string;
+  status?: 'ALL' | InventoryAccountingReadinessStatus;
+  riskLevel?: 'ALL' | InventoryAccountingRiskLevel;
+  dateFrom?: string;
+  dateTo?: string;
+}
+
+export interface InventoryAccountingActivityEvent {
+  id: string;
+  eventType: string;
+  readinessId?: string;
+  sourceNumber?: string;
+  message: string;
+  staffId?: string;
+  notes?: string;
+  createdAt: string;
+}
+
+export interface ChartOfAccountsPlaceholder {
+  accountCode: string;
+  accountName: string;
+  accountType: AccountType | 'Review';
+  normalBalance: 'Debit' | 'Credit';
+  linkedDomain: string;
+  status: 'Active' | 'Review' | 'Inactive';
+}
+
+export interface AccountingMappingRule {
+  ruleId: string;
+  movementType: InventoryMovementType;
+  impactType: InventoryAccountingImpactType;
+  debitAccountCode?: string;
+  creditAccountCode?: string;
+  mappingStatus: 'Mapped' | 'Unresolved' | 'Review Required';
+  notes: string;
+}
+
+export interface InventoryValuationSnapshot {
+  snapshotId: string;
+  productId: string;
+  sku: string;
+  productName: string;
+  qtyOnHand: number;
+  unitCost: number;
+  totalValue: number;
+  branchId: string;
+  warehouseId: string;
+  createdAt: string;
+}
+
 export type AccountingActivityEventType =
   | 'SALES_POSTING_REVIEWED'
   | 'PAYMENT_POSTING_REVIEWED'
@@ -3065,7 +3735,19 @@ export type AccountingActivityEventType =
   | 'COGS_RESERVE_REVIEW_REQUIRED'
   | 'INVENTORY_ASSET_POSTING_REVIEWED'
   | 'ACCOUNTING_READINESS_CHECK_RUN'
-  | 'ACCOUNTING_REPORT_EXPORT_PREPARED';
+  | 'ACCOUNTING_REPORT_EXPORT_PREPARED'
+  | 'INVENTORY_ACCOUNTING_REVIEW_PREPARED'
+  | 'INVENTORY_ACCOUNTING_REVIEWED'
+  | 'INVENTORY_ACCOUNTING_APPROVED_FOR_POSTING'
+  | 'INVENTORY_ACCOUNTING_ON_HOLD'
+  | 'INVENTORY_ACCOUNTING_REJECTED'
+  | 'INVENTORY_ACCOUNTING_POSTED_PLACEHOLDER'
+  | 'INVENTORY_VALUE_INCREASE_REVIEW'
+  | 'INVENTORY_VALUE_DECREASE_REVIEW'
+  | 'INVENTORY_WRITE_OFF_REVIEW'
+  | 'SUPPLIER_CREDIT_EXPECTED_REVIEW'
+  | 'STOCKTAKE_LOSS_ACCOUNTING_REVIEW'
+  | 'ACCOUNT_MAPPING_UNRESOLVED';
 
 export interface AccountingActivityEvent {
   id: string;

@@ -2,16 +2,39 @@ import {
   COAInventoryReportRow,
   InventoryMovement,
   InventoryReportFilters,
+  InventoryReportActivityEvent,
+  InventoryReportSummary,
   InventoryReportType,
+  InventoryValueReportRow,
   MovementSummaryReportTotals,
   MovementSummaryRow,
   Product,
   RecommendedStockAction,
+  ReorderRecommendationRow,
   ShelfLocationReportRow,
+  StockHealthRecommendation,
   StockValuationRow,
+  StockHealthRow,
+  StockMovementAuditRow,
+  SupplierPerformanceRow,
   SupplierStockReportRow
 } from '../types/posTypes';
 import { classifyMovementSpeed } from './stockHealthService';
+import {
+  mockGRNDelayRows,
+  mockInventoryReportActivityEvents,
+  mockInventoryValueReportRows,
+  mockStockHealthRecommendations,
+  mockStockHealthRows,
+  mockStockMovementAuditRows,
+  mockSupplierPerformanceRows,
+  mockTransferDelayRows
+} from '../mock/mockPosData';
+import {
+  calculateReorderRecommendation,
+  calculateStockHealthSeverity,
+  calculateStockHealthStatus
+} from '../utils/stockHealthUtils';
 
 const REPORT_EVENT_KEY = 'sci_pos_inventory_report_events';
 
@@ -224,7 +247,259 @@ export async function getSupplierStockReport(products: Product[], movements: Inv
   });
 }
 
-export async function exportInventoryReportPlaceholder(reportType: InventoryReportType): Promise<{ message: string }> {
+const RECOMMENDATION_KEY = 'sci_pos_inventory_recommendations';
+
+function normalizeText(value?: string): string {
+  return (value || '').trim().toLowerCase();
+}
+
+function getStoredRecommendations(): StockHealthRecommendation[] {
+  try {
+    const cached = localStorage.getItem(RECOMMENDATION_KEY);
+    return cached ? JSON.parse(cached) as StockHealthRecommendation[] : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveStoredRecommendations(recommendations: StockHealthRecommendation[]): StockHealthRecommendation[] {
+  try {
+    localStorage.setItem(RECOMMENDATION_KEY, JSON.stringify(recommendations));
+  } catch {
+    // localStorage may be unavailable in test contexts.
+  }
+  return recommendations;
+}
+
+function recordReportEvent(eventType: string, message: string, reportType?: InventoryReportType, staffId = 'SYSTEM', notes?: string): void {
+  try {
+    const cached = localStorage.getItem(REPORT_EVENT_KEY);
+    const events = cached ? JSON.parse(cached) as InventoryReportActivityEvent[] : [];
+    localStorage.setItem(REPORT_EVENT_KEY, JSON.stringify([{
+      id: `IRE-${Date.now()}`,
+      eventType,
+      reportType,
+      message,
+      staffId,
+      notes,
+      createdAt: new Date().toISOString()
+    }, ...events].slice(0, 150)));
+  } catch {
+    // Report events are best-effort local placeholders.
+  }
+}
+
+function rowMatchesFilters(row: StockHealthRow, filters: InventoryReportFilters = {}): boolean {
+  const search = normalizeText(filters.search || filters.sku);
+  const matchesSearch = !search || [
+    row.sku,
+    row.productName,
+    row.brand,
+    row.category,
+    row.supplier,
+    row.branchName,
+    row.warehouseName,
+    row.shelfLocation
+  ].some((value) => normalizeText(String(value)).includes(search));
+  const branchFilter = filters.branchId || filters.branch;
+  const warehouseFilter = filters.warehouseId || filters.warehouse;
+  return matchesSearch &&
+    (!branchFilter || branchFilter === 'ALL' || row.branchId === branchFilter || row.branchName === branchFilter || row.branch === branchFilter) &&
+    (!warehouseFilter || warehouseFilter === 'ALL' || row.warehouseId === warehouseFilter || row.warehouseName === warehouseFilter || row.warehouse === warehouseFilter) &&
+    (!filters.locationType || filters.locationType === 'ALL' || row.locationType === filters.locationType) &&
+    (!filters.category || filters.category === 'ALL' || row.category === filters.category) &&
+    (!filters.supplier || filters.supplier === 'ALL' || row.supplier === filters.supplier) &&
+    (!filters.stockHealthStatus || filters.stockHealthStatus === 'ALL' || row.stockHealthStatus === filters.stockHealthStatus) &&
+    (!filters.severity || filters.severity === 'ALL' || row.severity === filters.severity);
+}
+
+function stockHealthRows(filters: InventoryReportFilters = {}): StockHealthRow[] {
+  return mockStockHealthRows.map((row) => {
+    const stockHealthStatus = row.stockHealthStatus || calculateStockHealthStatus(row);
+    const severity = row.severity || calculateStockHealthSeverity({ ...row, stockHealthStatus });
+    return {
+      ...row,
+      stockHealthStatus,
+      severity,
+      salesVelocity: row.salesVelocity ?? 0,
+      recommendedAction: row.recommendedAction || 'No Action',
+      notes: row.notes || calculateReorderRecommendation(row)
+    };
+  }).filter((row) => rowMatchesFilters(row, filters));
+}
+
+export async function getInventoryReportSummary(filters: InventoryReportFilters = {}): Promise<InventoryReportSummary> {
+  const rows = stockHealthRows(filters);
+  return {
+    totalStockValue: rows.reduce((sum, row) => sum + (row.estimatedStockValue || 0), 0),
+    lowStockItems: rows.filter((row) => row.stockHealthStatus === 'Low Stock' || row.stockHealthStatus === 'Reorder Required').length,
+    outOfStockItems: rows.filter((row) => row.stockHealthStatus === 'Out Of Stock').length,
+    deadStockItems: rows.filter((row) => row.stockHealthStatus === 'Dead Stock').length,
+    slowMovingItems: rows.filter((row) => row.stockHealthStatus === 'Slow Moving').length,
+    fastMovingItems: rows.filter((row) => row.stockHealthStatus === 'Fast Moving').length,
+    overstockedItems: rows.filter((row) => row.stockHealthStatus === 'Overstocked').length,
+    varianceRiskItems: rows.filter((row) => row.stockHealthStatus === 'Variance Risk').length,
+    damagedHoldingQty: rows.reduce((sum, row) => sum + (row.qtyDamaged || 0), 0),
+    returnHoldingQty: rows.reduce((sum, row) => sum + (row.qtyReturnHolding || 0), 0),
+    inTransitQty: rows.reduce((sum, row) => sum + (row.qtyInTransit || 0), 0),
+    reorderRecommendations: rows.filter((row) => row.stockHealthStatus === 'Reorder Required' || row.stockHealthStatus === 'Out Of Stock').length
+  };
+}
+
+export async function getStockHealthRowsForReports(filters: InventoryReportFilters = {}): Promise<StockHealthRow[]> {
+  return stockHealthRows(filters);
+}
+
+export async function getStockHealthRows(filters: InventoryReportFilters = {}): Promise<StockHealthRow[]> {
+  return stockHealthRows(filters);
+}
+
+export async function getLowStockReport(filters: InventoryReportFilters = {}): Promise<StockHealthRow[]> {
+  return stockHealthRows(filters).filter((row) => row.stockHealthStatus === 'Reorder Required' || row.stockHealthStatus === 'Low Stock');
+}
+
+export async function getOutOfStockReport(filters: InventoryReportFilters = {}): Promise<StockHealthRow[]> {
+  return stockHealthRows(filters).filter((row) => row.stockHealthStatus === 'Out Of Stock');
+}
+
+export async function getDeadStockReport(filters: InventoryReportFilters = {}): Promise<StockHealthRow[]> {
+  return stockHealthRows(filters).filter((row) => row.stockHealthStatus === 'Dead Stock');
+}
+
+export async function getSlowMovingReport(filters: InventoryReportFilters = {}): Promise<StockHealthRow[]> {
+  return stockHealthRows(filters).filter((row) => row.stockHealthStatus === 'Slow Moving');
+}
+
+export async function getFastMovingReport(filters: InventoryReportFilters = {}): Promise<StockHealthRow[]> {
+  return stockHealthRows(filters).filter((row) => row.stockHealthStatus === 'Fast Moving');
+}
+
+export async function getOverstockReport(filters: InventoryReportFilters = {}): Promise<StockHealthRow[]> {
+  return stockHealthRows(filters).filter((row) => row.stockHealthStatus === 'Overstocked');
+}
+
+export async function getStockValueReport(filters: InventoryReportFilters = {}): Promise<InventoryValueReportRow[]> {
+  const allowed = new Set(stockHealthRows(filters).map((row) => `${row.sku}-${row.branchName}-${row.warehouseName}`));
+  return mockInventoryValueReportRows.filter((row) => allowed.has(`${row.sku}-${row.branch}-${row.warehouse}`) || allowed.size === 0);
+}
+
+export async function getVarianceRiskReport(filters: InventoryReportFilters = {}): Promise<StockHealthRow[]> {
+  return stockHealthRows(filters).filter((row) => row.stockHealthStatus === 'Variance Risk' || row.severity === 'Critical');
+}
+
+export async function getReorderRecommendations(filters: InventoryReportFilters = {}): Promise<ReorderRecommendationRow[]> {
+  return stockHealthRows(filters)
+    .filter((row) => row.stockHealthStatus === 'Reorder Required' || row.stockHealthStatus === 'Out Of Stock')
+    .map((row) => ({
+      sku: row.sku,
+      productName: row.productName,
+      branch: row.branchName || row.branch,
+      warehouse: row.warehouseName || row.warehouse,
+      availableQty: row.qtyAvailable || 0,
+      reorderLevel: row.reorderLevel,
+      reorderQty: row.reorderQty || row.reorderLevel,
+      preferredSupplier: row.supplier,
+      salesVelocity: row.salesVelocity || 0,
+      daysCover: (row.salesVelocity || 0) > 0 ? Math.floor((row.qtyAvailable || 0) / (row.salesVelocity || 1)) : 0,
+      recommendation: calculateReorderRecommendation(row),
+      priority: row.severity || 'Medium'
+    }));
+}
+
+export async function getSupplierPerformanceReport(filters: InventoryReportFilters = {}): Promise<SupplierPerformanceRow[]> {
+  return mockSupplierPerformanceRows.filter((row) => !filters.supplier || filters.supplier === 'ALL' || row.supplier === filters.supplier);
+}
+
+export async function getGRNDelayReport(filters: InventoryReportFilters = {}): Promise<import('../types/posTypes').GRNDelayRow[]> {
+  return mockGRNDelayRows.filter((row) => !filters.supplier || filters.supplier === 'ALL' || row.supplier === filters.supplier);
+}
+
+export async function getTransferDelayReport(): Promise<import('../types/posTypes').TransferDelayRow[]> {
+  return mockTransferDelayRows;
+}
+
+export async function getDamagedHoldingReport(filters: InventoryReportFilters = {}): Promise<StockHealthRow[]> {
+  return stockHealthRows(filters).filter((row) => (row.qtyDamaged || 0) > 0 || row.stockHealthStatus === 'Damaged');
+}
+
+export async function getReturnHoldingReport(filters: InventoryReportFilters = {}): Promise<StockHealthRow[]> {
+  return stockHealthRows(filters).filter((row) => (row.qtyReturnHolding || 0) > 0 || row.stockHealthStatus === 'Return Holding');
+}
+
+export async function getStockMovementAuditReport(filters: InventoryReportFilters = {}): Promise<StockMovementAuditRow[]> {
+  return mockStockMovementAuditRows.filter((row) => {
+    const search = normalizeText(filters.search || filters.sku);
+    return (!search || [row.sku, row.productName, row.reference, row.notes].some((value) => normalizeText(value).includes(search))) &&
+      (!filters.movementType || filters.movementType === 'ALL' || row.movementType === filters.movementType);
+  });
+}
+
+export async function getInventoryRecommendations(filters: InventoryReportFilters = {}): Promise<StockHealthRecommendation[]> {
+  const stored = getStoredRecommendations();
+  const rows = [...stored, ...mockStockHealthRecommendations];
+  return rows.filter((row) => {
+    const search = normalizeText(filters.search || filters.sku);
+    return !search || [row.sku, row.productName, row.title, row.description].some((value) => normalizeText(value).includes(search));
+  });
+}
+
+function createRecommendationPlaceholder(payload: Partial<StockHealthRecommendation>, type: StockHealthRecommendation['recommendationType']): StockHealthRecommendation {
+  const recommendation: StockHealthRecommendation = {
+    recommendationId: `REC-${Date.now()}-${Math.floor(Math.random() * 9000 + 1000)}`,
+    recommendationType: type,
+    severity: payload.severity || 'Medium',
+    productId: payload.productId,
+    sku: payload.sku,
+    productName: payload.productName,
+    branchId: payload.branchId,
+    warehouseId: payload.warehouseId,
+    title: payload.title || type,
+    description: payload.description || 'Inventory report recommendation placeholder created.',
+    recommendedAction: payload.recommendedAction || type,
+    relatedReportType: payload.relatedReportType || 'Inventory Summary',
+    status: 'Open',
+    createdAt: new Date().toISOString()
+  };
+  saveStoredRecommendations([recommendation, ...getStoredRecommendations()].slice(0, 100));
+  recordReportEvent(`${type.toUpperCase().replaceAll(' ', '_')}_CREATED`, `${type} created.`, recommendation.relatedReportType);
+  return recommendation;
+}
+
+export async function createPORecommendationPlaceholder(payload: Partial<StockHealthRecommendation>): Promise<StockHealthRecommendation> {
+  return createRecommendationPlaceholder(payload, 'Create PO Recommendation');
+}
+
+export async function createStocktakeRecommendationPlaceholder(payload: Partial<StockHealthRecommendation>): Promise<StockHealthRecommendation> {
+  return createRecommendationPlaceholder(payload, 'Stocktake Recommendation');
+}
+
+export async function createTransferRecommendationPlaceholder(payload: Partial<StockHealthRecommendation>): Promise<StockHealthRecommendation> {
+  return createRecommendationPlaceholder(payload, 'Transfer Stock Recommendation');
+}
+
+export async function markRecommendationReviewed(recommendationId: string, staffId: string, notes: string): Promise<StockHealthRecommendation | null> {
+  let reviewed: StockHealthRecommendation | null = null;
+  const next = getStoredRecommendations().map((recommendation) => {
+    if (recommendation.recommendationId !== recommendationId) return recommendation;
+    reviewed = { ...recommendation, status: 'Reviewed' };
+    return reviewed;
+  });
+  saveStoredRecommendations(next);
+  recordReportEvent('INVENTORY_RECOMMENDATION_REVIEWED', `Recommendation ${recommendationId} reviewed.`, undefined, staffId, notes);
+  return reviewed;
+}
+
+export async function getInventoryReportActivityEvents(): Promise<InventoryReportActivityEvent[]> {
+  try {
+    const cached = localStorage.getItem(REPORT_EVENT_KEY);
+    const events = cached ? JSON.parse(cached) as InventoryReportActivityEvent[] : [];
+    return [...events, ...mockInventoryReportActivityEvents].slice(0, 100);
+  } catch {
+    return mockInventoryReportActivityEvents;
+  }
+}
+
+export async function exportInventoryReportPlaceholder(reportType: InventoryReportType, filters: InventoryReportFilters = {}): Promise<{ message: string; filters?: InventoryReportFilters }> {
   try {
     const cached = localStorage.getItem(REPORT_EVENT_KEY);
     const events = cached ? JSON.parse(cached) as Array<Record<string, unknown>> : [];
@@ -249,5 +524,5 @@ export async function exportInventoryReportPlaceholder(reportType: InventoryRepo
   } catch {
     // Export placeholder event is best-effort locally.
   }
-  return { message: `${reportType} export prepared.` };
+  return { message: `${reportType} export prepared.`, filters };
 }

@@ -30,9 +30,16 @@ import {
   AccountType,
   AccountingActivityEvent,
   AccountingReadinessCheck,
+  AccountingMappingRule,
   CashbookEntry,
+  ChartOfAccountsPlaceholder,
   COAAccount,
   COGSReserveSummary,
+  InventoryAccountingFilterState,
+  InventoryAccountingActivityEvent,
+  InventoryAccountingReadinessLine,
+  InventoryAccountingReadinessRecord,
+  InventoryAccountingSummary,
   InventoryAssetPostingRow,
   PaymentAccountingSummary,
   SalesAccountingSummary,
@@ -69,6 +76,22 @@ import {
   markAccountingPostingReviewed,
   reverseAccountingPostingPlaceholder
 } from '../services/accountingService';
+import InventoryAccountingReadinessForm from '../components/InventoryAccountingReadinessForm';
+import {
+  approveInventoryAccountingRecord,
+  exportInventoryAccountingPlaceholder,
+  getAccountingMappingRules,
+  getChartOfAccountsPlaceholders,
+  getInventoryAccountingActivityEvents,
+  getInventoryAccountingReadinessLines,
+  getInventoryAccountingReadinessRecords,
+  getInventoryAccountingSummary,
+  holdInventoryAccountingRecord,
+  markPostedPlaceholder,
+  rejectInventoryAccountingRecord,
+  reviewInventoryAccountingRecord
+} from '../services/inventoryAccountingService';
+import { canPerformAction } from '../utils/posPermissions';
 import { getOwnerSummary } from '../services/ownerService';
 import { OwnerSummary } from '../types/posTypes';
 
@@ -97,6 +120,7 @@ type AccountingTab =
   | 'VAT Summary'
   | 'COGS Reserve'
   | 'Inventory Asset Posting'
+  | 'Inventory Accounting Readiness'
   | 'Accounting Readiness';
 
 const tabs: OwnerTab[] = [
@@ -120,6 +144,7 @@ const accountingTabs: AccountingTab[] = [
   'VAT Summary',
   'COGS Reserve',
   'Inventory Asset Posting',
+  'Inventory Accounting Readiness',
   'Accounting Readiness'
 ];
 
@@ -195,6 +220,33 @@ export default function PosOwnerDesk({ session }: PosOwnerDeskProps) {
   const [inventoryAssetRows, setInventoryAssetRows] = useState<InventoryAssetPostingRow[]>([]);
   const [accountingReadiness, setAccountingReadiness] = useState<AccountingReadinessCheck[]>([]);
   const [accountingActivity, setAccountingActivity] = useState<AccountingActivityEvent[]>([]);
+  const [inventoryAccountingRows, setInventoryAccountingRows] = useState<InventoryAccountingReadinessRecord[]>([]);
+  const [inventoryAccountingLines, setInventoryAccountingLines] = useState<InventoryAccountingReadinessLine[]>([]);
+  const [inventoryAccountingActivity, setInventoryAccountingActivity] = useState<InventoryAccountingActivityEvent[]>([]);
+  const [inventoryAccountingSummary, setInventoryAccountingSummary] = useState<InventoryAccountingSummary>({
+    pendingReview: 0,
+    reviewed: 0,
+    approvedForPosting: 0,
+    onHold: 0,
+    highRisk: 0,
+    critical: 0,
+    inventoryIncreaseValue: 0,
+    inventoryDecreaseValue: 0,
+    writeOffValue: 0,
+    stocktakeLossValue: 0,
+    supplierCreditExpected: 0,
+    transferNeutral: 0
+  });
+  const [inventoryAccountingFilters, setInventoryAccountingFilters] = useState<InventoryAccountingFilterState>({
+    sourceType: 'ALL',
+    movementType: 'ALL',
+    impactType: 'ALL',
+    status: 'ALL',
+    riskLevel: 'ALL'
+  });
+  const [chartAccounts, setChartAccounts] = useState<ChartOfAccountsPlaceholder[]>([]);
+  const [mappingRules, setMappingRules] = useState<AccountingMappingRule[]>([]);
+  const [selectedInventoryAccounting, setSelectedInventoryAccounting] = useState<InventoryAccountingReadinessRecord | null>(null);
   const [branch, setBranch] = useState('All Branches');
   const [terminal, setTerminal] = useState('All Terminals');
   const [cashier, setCashier] = useState('All Staff');
@@ -208,6 +260,7 @@ export default function PosOwnerDesk({ session }: PosOwnerDeskProps) {
   const [feedback, setFeedback] = useState<{ type: FeedbackType; message: string } | null>(null);
 
   const staffName = session?.staffName || 'Admin User';
+  const currentRole = session?.role || 'Owner';
   const vendorId = 'SCI-LOG-ZW';
   const vendorName = 'Demo Vendor';
   const businessDate = '2026-06-09';
@@ -232,17 +285,25 @@ export default function PosOwnerDesk({ session }: PosOwnerDeskProps) {
       shifts.some((row) => row.status === 'Open') ? 'Open shift exists' : '',
       checklist.some((item) => item.domain === 'Sync' && item.status === 'Failed') ? 'Sync queue has critical conflicts' : '',
       biRows.some((row) => row.severity === 'Critical' && row.status !== 'Reviewed') ? 'Critical BI alerts not reviewed' : '',
+      deliveryRows.some((row) => row.status === 'Pending') ? 'Delivery pending assignment, in transit, cash review, or iDeliver provider selection exists' : '',
+      deliveryRows.some((row) => row.status === 'Failed') ? 'Failed or returned delivery requires follow-up' : '',
+      deliveryRows.some((row) => row.secretCodeStatus === 'Pending' || row.secretCodeStatus === 'Mismatch') ? 'Delivery confirmation code review pending' : '',
       inventoryRows.some((row) => row.status === 'Pending Approval') ? 'Pending approval inventory movements exist' : '',
       accountingReadiness.some((row) => row.check.includes('Product Sales Account') && row.status !== 'Passed') ? 'Missing Sales Account COA' : '',
       accountingReadiness.some((row) => row.check.includes('Product Asset Account') && row.status !== 'Passed') ? 'Missing Asset Account COA' : '',
-      salesAccountingRows.some((row) => row.postingStatus === 'Pending Review') ? 'Unreviewed accounting postings' : ''
+      salesAccountingRows.some((row) => row.postingStatus === 'Pending Review') ? 'Unreviewed accounting postings' : '',
+      inventoryAccountingRows.some((row) => row.status === 'Pending Review') ? 'Inventory accounting readiness pending review' : '',
+      inventoryAccountingRows.some((row) => row.riskLevel === 'High' || row.riskLevel === 'Critical') ? 'High-risk inventory accounting readiness pending' : '',
+      inventoryAccountingRows.some((row) => row.impactType === 'Inventory Write Off' && row.status === 'Pending Review') ? 'Write-off pending accounting review' : '',
+      inventoryAccountingRows.some((row) => row.impactType === 'Stocktake Loss' && row.status === 'Pending Review') ? 'Stocktake loss pending accounting review' : '',
+      inventoryAccountingRows.some((row) => row.impactType === 'Supplier Return Credit Expected' && row.status === 'Pending Review') ? 'Supplier credit expected pending review' : ''
     ];
     return reasons.filter(Boolean);
-  }, [accountingReadiness, biRows, cashRows, checklist, inventoryRows, salesAccountingRows, shifts]);
+  }, [accountingReadiness, biRows, cashRows, checklist, deliveryRows, inventoryAccountingRows, inventoryRows, salesAccountingRows, shifts]);
 
   useEffect(() => {
     void loadEOD();
-  }, [filters, accountingFilters]);
+  }, [filters, accountingFilters, inventoryAccountingFilters]);
 
   const loadEOD = async () => {
     const [summary, nextSession, nextChecklist, nextPayments, nextShifts, nextCash, nextInventory, nextDelivery, nextBI, nextActivity] =
@@ -273,7 +334,7 @@ export default function PosOwnerDesk({ session }: PosOwnerDeskProps) {
   };
 
   const loadAccounting = async () => {
-    const [nextCOA, nextSales, nextPayments, nextCashbook, nextVAT, nextCOGS, nextInventoryAsset, nextReadiness, nextActivity] =
+    const [nextCOA, nextSales, nextPayments, nextCashbook, nextVAT, nextCOGS, nextInventoryAsset, nextReadiness, nextActivity, nextInventoryAccounting, nextInventorySummary, nextChartAccounts, nextMappingRules, nextInventoryAccountingActivity] =
       await Promise.all([
         getCOAAccounts(),
         getSalesAccountingSummary(accountingFilters),
@@ -283,7 +344,12 @@ export default function PosOwnerDesk({ session }: PosOwnerDeskProps) {
         getCOGSReserveSummary(accountingFilters),
         getInventoryAssetPosting(accountingFilters),
         getAccountingReadinessChecks(vendorId),
-        getAccountingActivityEvents()
+        getAccountingActivityEvents(),
+        getInventoryAccountingReadinessRecords(inventoryAccountingFilters),
+        getInventoryAccountingSummary(inventoryAccountingFilters),
+        getChartOfAccountsPlaceholders(),
+        getAccountingMappingRules(),
+        getInventoryAccountingActivityEvents()
       ]);
 
     setCOAAccounts(nextCOA);
@@ -295,6 +361,11 @@ export default function PosOwnerDesk({ session }: PosOwnerDeskProps) {
     setInventoryAssetRows(nextInventoryAsset);
     setAccountingReadiness(nextReadiness);
     setAccountingActivity(nextActivity);
+    setInventoryAccountingRows(nextInventoryAccounting);
+    setInventoryAccountingSummary(nextInventorySummary);
+    setChartAccounts(nextChartAccounts);
+    setMappingRules(nextMappingRules);
+    setInventoryAccountingActivity(nextInventoryAccountingActivity);
   };
 
   const showFeedback = (type: FeedbackType, message: string) => {
@@ -378,6 +449,101 @@ export default function PosOwnerDesk({ session }: PosOwnerDeskProps) {
     });
     setAccountingActivity(await getAccountingActivityEvents());
     showFeedback('success', 'New COA account form placeholder recorded locally.');
+  };
+
+  const refreshInventoryAccounting = async (readinessId?: string) => {
+    const [nextRows, nextSummary, nextActivity] = await Promise.all([
+      getInventoryAccountingReadinessRecords(inventoryAccountingFilters),
+      getInventoryAccountingSummary(inventoryAccountingFilters),
+      getInventoryAccountingActivityEvents()
+    ]);
+    setInventoryAccountingRows(nextRows);
+    setInventoryAccountingSummary(nextSummary);
+    setInventoryAccountingActivity(nextActivity);
+
+    const activeId = readinessId || selectedInventoryAccounting?.readinessId;
+    if (activeId) {
+      const nextSelected = nextRows.find((row) => row.readinessId === activeId) || selectedInventoryAccounting;
+      setSelectedInventoryAccounting(nextSelected);
+      setInventoryAccountingLines(await getInventoryAccountingReadinessLines(activeId));
+    }
+  };
+
+  const ensureInventoryAccountingPermission = (permission: Parameters<typeof canPerformAction>[1]) => {
+    if (!canPerformAction(currentRole, permission)) {
+      showFeedback('error', 'You do not have permission to perform this action.');
+      return false;
+    }
+    return true;
+  };
+
+  const openInventoryAccountingRecord = async (record: InventoryAccountingReadinessRecord) => {
+    if (!ensureInventoryAccountingPermission('inventoryAccounting.view')) {
+      return;
+    }
+    setSelectedInventoryAccounting(record);
+    setInventoryAccountingLines(await getInventoryAccountingReadinessLines(record.readinessId));
+  };
+
+  const handleInventoryAccountingReview = async (notes: string) => {
+    if (!selectedInventoryAccounting || !ensureInventoryAccountingPermission('inventoryAccounting.review')) {
+      return;
+    }
+    await reviewInventoryAccountingRecord(selectedInventoryAccounting.readinessId, staffName, notes);
+    await refreshInventoryAccounting(selectedInventoryAccounting.readinessId);
+    showFeedback('success', `${selectedInventoryAccounting.readinessNumber} marked reviewed locally.`);
+  };
+
+  const handleInventoryAccountingApprove = async (notes: string) => {
+    if (!selectedInventoryAccounting || !ensureInventoryAccountingPermission('inventoryAccounting.approve')) {
+      return;
+    }
+    await approveInventoryAccountingRecord(selectedInventoryAccounting.readinessId, staffName, notes);
+    await refreshInventoryAccounting(selectedInventoryAccounting.readinessId);
+    showFeedback('success', `${selectedInventoryAccounting.readinessNumber} approved for posting review.`);
+  };
+
+  const handleInventoryAccountingHold = async (notes: string) => {
+    if (!selectedInventoryAccounting || !ensureInventoryAccountingPermission('inventoryAccounting.hold')) {
+      return;
+    }
+    const result = await holdInventoryAccountingRecord(selectedInventoryAccounting.readinessId, staffName, notes);
+    if (!result) {
+      showFeedback('error', 'Action notes are required before placing inventory accounting on hold.');
+      return;
+    }
+    await refreshInventoryAccounting(selectedInventoryAccounting.readinessId);
+    showFeedback('warning', `${selectedInventoryAccounting.readinessNumber} placed on hold.`);
+  };
+
+  const handleInventoryAccountingReject = async (notes: string) => {
+    if (!selectedInventoryAccounting || !ensureInventoryAccountingPermission('inventoryAccounting.reject')) {
+      return;
+    }
+    const result = await rejectInventoryAccountingRecord(selectedInventoryAccounting.readinessId, staffName, notes);
+    if (!result) {
+      showFeedback('error', 'Action notes are required before rejecting inventory accounting readiness.');
+      return;
+    }
+    await refreshInventoryAccounting(selectedInventoryAccounting.readinessId);
+    showFeedback('warning', `${selectedInventoryAccounting.readinessNumber} rejected locally.`);
+  };
+
+  const handleInventoryAccountingMarkPosted = async (notes: string) => {
+    if (!selectedInventoryAccounting || !ensureInventoryAccountingPermission('accounting.postPlaceholder')) {
+      return;
+    }
+    await markPostedPlaceholder(selectedInventoryAccounting.readinessId, staffName, notes);
+    await refreshInventoryAccounting(selectedInventoryAccounting.readinessId);
+    showFeedback('success', `${selectedInventoryAccounting.readinessNumber} marked posted placeholder.`);
+  };
+
+  const handleInventoryAccountingExport = async () => {
+    if (!ensureInventoryAccountingPermission('inventoryAccounting.export')) {
+      return;
+    }
+    const result = await exportInventoryAccountingPlaceholder(inventoryAccountingFilters);
+    showFeedback('success', result.message);
   };
 
   const eodMetrics: Array<[string, string]> = eodSession
@@ -801,6 +967,94 @@ export default function PosOwnerDesk({ session }: PosOwnerDeskProps) {
             </Panel>
           )}
 
+          {activeAccountingTab === 'Inventory Accounting Readiness' && (
+            <div className="space-y-5">
+              <div className="bg-orange-50 border border-orange-200 text-orange-900 p-3 text-[10px] font-bold uppercase">
+                Review-only inventory value readiness. This tab prepares accounting review records only; it does not post journals, update cashbook, update supplier/customer balances, or change stock quantities.
+              </div>
+              <MetricGrid metrics={[
+                ['Pending Review', inventoryAccountingSummary.pendingReview.toString()],
+                ['Reviewed', inventoryAccountingSummary.reviewed.toString()],
+                ['Approved For Posting', inventoryAccountingSummary.approvedForPosting.toString()],
+                ['On Hold', inventoryAccountingSummary.onHold.toString()],
+                ['High Risk', inventoryAccountingSummary.highRisk.toString()],
+                ['Critical', inventoryAccountingSummary.critical.toString()],
+                ['Inventory Increase', money(inventoryAccountingSummary.inventoryIncreaseValue)],
+                ['Inventory Decrease', money(inventoryAccountingSummary.inventoryDecreaseValue)],
+                ['Write Off Value', money(inventoryAccountingSummary.writeOffValue)],
+                ['Stocktake Loss', money(inventoryAccountingSummary.stocktakeLossValue)],
+                ['Supplier Credit Expected', money(inventoryAccountingSummary.supplierCreditExpected)],
+                ['Transfer Neutral', inventoryAccountingSummary.transferNeutral.toString()]
+              ]} />
+              <Panel title="Inventory Accounting Filters" icon={<RefreshCw className="w-4 h-4 text-orange-500" />}>
+                <div className="grid grid-cols-1 md:grid-cols-4 xl:grid-cols-6 gap-2">
+                  <Input label="Readiness Number" value={inventoryAccountingFilters.readinessNumber || ''} onChange={(value) => setInventoryAccountingFilters((current) => ({ ...current, readinessNumber: value }))} />
+                  <Select label="Source Type" value={inventoryAccountingFilters.sourceType || 'ALL'} onChange={(value) => setInventoryAccountingFilters((current) => ({ ...current, sourceType: value as InventoryAccountingFilterState['sourceType'] }))} options={['ALL', 'GRN', 'Supplier Return', 'Stock Adjustment', 'Stocktake', 'Stock Transfer', 'Inventory Movement', 'Product Ledger']} />
+                  <Input label="Source Number" value={inventoryAccountingFilters.sourceNumber || ''} onChange={(value) => setInventoryAccountingFilters((current) => ({ ...current, sourceNumber: value }))} />
+                  <Select label="Impact Type" value={inventoryAccountingFilters.impactType || 'ALL'} onChange={(value) => setInventoryAccountingFilters((current) => ({ ...current, impactType: value as InventoryAccountingFilterState['impactType'] }))} options={['ALL', 'Inventory Asset Increase', 'Inventory Asset Decrease', 'Inventory Write Off', 'Stocktake Gain', 'Stocktake Loss', 'Supplier Return Credit Expected', 'GRN Supplier Invoice Pending', 'Transfer Neutral', 'Cost Variance Review', 'Unknown Impact Review']} />
+                  <Select label="Status" value={inventoryAccountingFilters.status || 'ALL'} onChange={(value) => setInventoryAccountingFilters((current) => ({ ...current, status: value as InventoryAccountingFilterState['status'] }))} options={['ALL', 'Pending Review', 'Reviewed', 'Approved For Posting', 'Posted Placeholder', 'Rejected', 'On Hold', 'Reversal Requested', 'Closed']} />
+                  <Select label="Risk Level" value={inventoryAccountingFilters.riskLevel || 'ALL'} onChange={(value) => setInventoryAccountingFilters((current) => ({ ...current, riskLevel: value as InventoryAccountingFilterState['riskLevel'] }))} options={['ALL', 'Low', 'Medium', 'High', 'Critical']} />
+                  <Input label="Branch ID" value={inventoryAccountingFilters.branchId || ''} onChange={(value) => setInventoryAccountingFilters((current) => ({ ...current, branchId: value }))} />
+                  <Input label="Warehouse ID" value={inventoryAccountingFilters.warehouseId || ''} onChange={(value) => setInventoryAccountingFilters((current) => ({ ...current, warehouseId: value }))} />
+                  <Input label="Date From" value={inventoryAccountingFilters.dateFrom || ''} onChange={(value) => setInventoryAccountingFilters((current) => ({ ...current, dateFrom: value }))} />
+                  <Input label="Date To" value={inventoryAccountingFilters.dateTo || ''} onChange={(value) => setInventoryAccountingFilters((current) => ({ ...current, dateTo: value }))} />
+                  <ActionButton icon={<Download className="w-4 h-4" />} onClick={handleInventoryAccountingExport}>Prepare Export</ActionButton>
+                </div>
+              </Panel>
+              <Panel title="Inventory Accounting Readiness Records" icon={<PackageCheck className="w-4 h-4 text-orange-500" />}>
+                <Table>
+                  <thead><tr><Th>Readiness No.</Th><Th>Source</Th><Th>Movement Type</Th><Th>Impact Type</Th><Th>Branch</Th><Th>Warehouse</Th><Th>Value Impact</Th><Th>Status</Th><Th>Risk</Th><Th>Reviewed By</Th><Th>Approved By</Th><Th>Action</Th></tr></thead>
+                  <tbody>
+                    {inventoryAccountingRows.map((row) => (
+                      <tr key={row.readinessId} className="border-t border-slate-100 hover:bg-slate-50" onDoubleClick={() => void openInventoryAccountingRecord(row)}>
+                        <Td strong>{row.readinessNumber}</Td>
+                        <Td>{row.sourceType}: {row.sourceNumber}</Td>
+                        <Td>{row.movementType}</Td>
+                        <Td>{row.impactType}</Td>
+                        <Td>{row.branchName}</Td>
+                        <Td>{row.warehouseName}</Td>
+                        <Td>{money(row.totalValueImpact)}</Td>
+                        <Td><Badge value={row.status} /></Td>
+                        <Td><Badge value={row.riskLevel} risk /></Td>
+                        <Td>{row.reviewedByStaffName || 'Pending'}</Td>
+                        <Td>{row.approvedByStaffName || 'Pending'}</Td>
+                        <Td>
+                          <div className="flex flex-wrap gap-1">
+                            <SmallAction onClick={() => void openInventoryAccountingRecord(row)}>Open Review</SmallAction>
+                            <SmallAction onClick={() => {
+                              if (!ensureInventoryAccountingPermission('inventoryAccounting.review')) {
+                                return;
+                              }
+                              void reviewInventoryAccountingRecord(row.readinessId, staffName, 'Quick review from Owner Desk.').then(() => refreshInventoryAccounting(row.readinessId));
+                            }}>Quick Review</SmallAction>
+                          </div>
+                        </Td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </Table>
+              </Panel>
+              <Panel title="Inventory Accounting Activity" icon={<CheckCircle2 className="w-4 h-4 text-orange-500" />}>
+                <Table>
+                  <thead><tr><Th>Date / Time</Th><Th>Event</Th><Th>Readiness</Th><Th>Source</Th><Th>Message</Th><Th>Staff</Th><Th>Notes</Th></tr></thead>
+                  <tbody>
+                    {inventoryAccountingActivity.map((event) => (
+                      <tr key={event.id} className="border-t border-slate-100 hover:bg-slate-50">
+                        <Td>{timeOnly(event.createdAt)}</Td>
+                        <Td strong>{humanizeEventName(event.eventType)}</Td>
+                        <Td>{event.readinessId || '-'}</Td>
+                        <Td>{event.sourceNumber || '-'}</Td>
+                        <Td>{event.message}</Td>
+                        <Td>{event.staffId || '-'}</Td>
+                        <Td>{event.notes || '-'}</Td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </Table>
+              </Panel>
+            </div>
+          )}
+
           {activeAccountingTab === 'Accounting Readiness' && (
             <Panel title="Accounting Readiness" icon={<ClipboardCheck className="w-4 h-4 text-orange-500" />}>
               <Table>
@@ -858,6 +1112,22 @@ export default function PosOwnerDesk({ session }: PosOwnerDeskProps) {
       )}
 
       {activeTab !== 'Day Lock' && activeTab !== 'Accounting Desk' && <ActivityFeed activity={activity} />}
+
+      {selectedInventoryAccounting && (
+        <InventoryAccountingReadinessForm
+          record={selectedInventoryAccounting}
+          lines={inventoryAccountingLines}
+          accounts={chartAccounts}
+          mappingRules={mappingRules}
+          onClose={() => setSelectedInventoryAccounting(null)}
+          onReview={(notes) => void handleInventoryAccountingReview(notes)}
+          onApprove={(notes) => void handleInventoryAccountingApprove(notes)}
+          onHold={(notes) => void handleInventoryAccountingHold(notes)}
+          onReject={(notes) => void handleInventoryAccountingReject(notes)}
+          onMarkPosted={(notes) => void handleInventoryAccountingMarkPosted(notes)}
+          onExport={() => void handleInventoryAccountingExport()}
+        />
+      )}
     </div>
   );
 }

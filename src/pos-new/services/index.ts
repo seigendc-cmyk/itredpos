@@ -11,11 +11,13 @@ export * from './settingsService';
 export * from './ownerService';
 export * from './posEntitlementService';
 export * from './paymentReportService';
+export * from './deliveryService';
 export * from './productLedgerService';
 export * from './productMasterService';
 export * from './stockBalanceService';
 export * from './stockHealthService';
 export * from './inventoryReportService';
+export * from './inventoryAccountingService';
 export * from './stockTransferService';
 export {
   calculateRunningBalance,

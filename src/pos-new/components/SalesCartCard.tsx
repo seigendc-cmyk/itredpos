@@ -26,7 +26,10 @@ export type DeliveryMode =
   | 'No Delivery'
   | 'Customer Collection'
   | 'Vendor Delivery'
-  | 'iDeliver Service Placeholder';
+  | 'iDeliver Service';
+
+export type SalesDeliveryPriority = 'Normal' | 'High' | 'Urgent';
+export type SalesDeliveryPaymentMode = 'Already Paid' | 'Cash On Delivery' | 'Delivery Fee Cash' | 'No Payment Due';
 
 export type SalesCustomerMode =
   | 'Walk-in Customer'
@@ -74,6 +77,8 @@ interface SalesCartCardProps {
   deliveryWhatsApp: string;
   deliveryNotes: string;
   deliveryFee: string;
+  deliveryPriority: SalesDeliveryPriority;
+  deliveryPaymentMode: SalesDeliveryPaymentMode;
   vatMode: VATMode;
   vatRate: string;
   totals: SalesCartTotals;
@@ -101,6 +106,8 @@ interface SalesCartCardProps {
   onDeliveryWhatsAppChange: (value: string) => void;
   onDeliveryNotesChange: (value: string) => void;
   onDeliveryFeeChange: (value: string) => void;
+  onDeliveryPriorityChange: (value: SalesDeliveryPriority) => void;
+  onDeliveryPaymentModeChange: (value: SalesDeliveryPaymentMode) => void;
   onVatModeChange: (value: VATMode) => void;
   onVatRateChange: (value: string) => void;
   onCompleteSale: () => void;
@@ -122,8 +129,11 @@ const deliveryModes: DeliveryMode[] = [
   'No Delivery',
   'Customer Collection',
   'Vendor Delivery',
-  'iDeliver Service Placeholder'
+  'iDeliver Service'
 ];
+
+const deliveryPriorities: SalesDeliveryPriority[] = ['Normal', 'High', 'Urgent'];
+const deliveryPaymentModes: SalesDeliveryPaymentMode[] = ['Already Paid', 'Cash On Delivery', 'Delivery Fee Cash', 'No Payment Due'];
 
 const paymentLabels: Record<SalesPaymentMethod, string> = {
   Cash: 'Cash',
@@ -174,6 +184,8 @@ export default function SalesCartCard({
   deliveryWhatsApp,
   deliveryNotes,
   deliveryFee,
+  deliveryPriority,
+  deliveryPaymentMode,
   vatMode,
   vatRate,
   totals,
@@ -201,6 +213,8 @@ export default function SalesCartCard({
   onDeliveryWhatsAppChange,
   onDeliveryNotesChange,
   onDeliveryFeeChange,
+  onDeliveryPriorityChange,
+  onDeliveryPaymentModeChange,
   onVatModeChange,
   onVatRateChange,
   onCompleteSale,
@@ -401,6 +415,18 @@ export default function SalesCartCard({
             <input type="number" min="0" value={deliveryFee} onChange={(event) => onDeliveryFeeChange(event.target.value)} />
           </label>
           <label>
+            Priority
+            <select value={deliveryPriority} onChange={(event) => onDeliveryPriorityChange(event.target.value as SalesDeliveryPriority)}>
+              {deliveryPriorities.map((priority) => <option key={priority} value={priority}>{priority}</option>)}
+            </select>
+          </label>
+          <label>
+            Payment Mode
+            <select value={deliveryPaymentMode} onChange={(event) => onDeliveryPaymentModeChange(event.target.value as SalesDeliveryPaymentMode)}>
+              {deliveryPaymentModes.map((mode) => <option key={mode} value={mode}>{mode}</option>)}
+            </select>
+          </label>
+          <label>
             Address
             <input value={deliveryAddress} onChange={(event) => onDeliveryAddressChange(event.target.value)} placeholder="Delivery address" />
           </label>
@@ -413,7 +439,7 @@ export default function SalesCartCard({
             <input value={deliveryNotes} onChange={(event) => onDeliveryNotesChange(event.target.value)} placeholder="Delivery notes" />
           </label>
         </div>
-        {deliveryMode === 'iDeliver Service Placeholder' && (
+        {deliveryMode === 'iDeliver Service' && (
           <div className="pos-placeholder-card">iDeliver integration will broadcast the delivery request after sale completion.</div>
         )}
       </div>

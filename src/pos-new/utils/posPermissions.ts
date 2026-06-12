@@ -38,6 +38,14 @@ export type PermissionKey =
   | 'stockBalances.view'
   | 'stockBalances.adjust'
   | 'stockBalances.transfer'
+  | 'inventoryReports.view'
+  | 'inventoryReports.export'
+  | 'stockHealth.view'
+  | 'stockHealth.review'
+  | 'reorderRecommendations.create'
+  | 'stocktakeRecommendations.create'
+  | 'transferRecommendations.create'
+  | 'supplierPerformance.view'
   | 'stockAdjustments.view'
   | 'stockAdjustments.create'
   | 'stockAdjustments.edit'
@@ -92,6 +100,16 @@ export type PermissionKey =
   | 'ideliver.createProvider'
   | 'delivery.broadcast'
   | 'delivery.review'
+  | 'delivery.view'
+  | 'delivery.create'
+  | 'delivery.assign'
+  | 'delivery.track'
+  | 'delivery.verifyCode'
+  | 'delivery.complete'
+  | 'delivery.cancel'
+  | 'delivery.cashReview'
+  | 'delivery.providerManage'
+  | 'delivery.export'
   | 'tasks.view'
   | 'tasks.assign'
   | 'tasks.close'
@@ -104,6 +122,15 @@ export type PermissionKey =
   | 'accounting.view'
   | 'accounting.post'
   | 'accounting.review'
+  | 'accounting.approve'
+  | 'accounting.postPlaceholder'
+  | 'accounting.export'
+  | 'inventoryAccounting.view'
+  | 'inventoryAccounting.review'
+  | 'inventoryAccounting.approve'
+  | 'inventoryAccounting.hold'
+  | 'inventoryAccounting.reject'
+  | 'inventoryAccounting.export'
   | 'settings.view'
   | 'settings.manage'
   | 'bi.view'
@@ -156,6 +183,14 @@ const ALL_PERMISSIONS: PermissionKey[] = [
   'stockBalances.view',
   'stockBalances.adjust',
   'stockBalances.transfer',
+  'inventoryReports.view',
+  'inventoryReports.export',
+  'stockHealth.view',
+  'stockHealth.review',
+  'reorderRecommendations.create',
+  'stocktakeRecommendations.create',
+  'transferRecommendations.create',
+  'supplierPerformance.view',
   'stockAdjustments.view',
   'stockAdjustments.create',
   'stockAdjustments.edit',
@@ -210,6 +245,16 @@ const ALL_PERMISSIONS: PermissionKey[] = [
   'ideliver.createProvider',
   'delivery.broadcast',
   'delivery.review',
+  'delivery.view',
+  'delivery.create',
+  'delivery.assign',
+  'delivery.track',
+  'delivery.verifyCode',
+  'delivery.complete',
+  'delivery.cancel',
+  'delivery.cashReview',
+  'delivery.providerManage',
+  'delivery.export',
   'tasks.view',
   'tasks.assign',
   'tasks.close',
@@ -222,6 +267,15 @@ const ALL_PERMISSIONS: PermissionKey[] = [
   'accounting.view',
   'accounting.post',
   'accounting.review',
+  'accounting.approve',
+  'accounting.postPlaceholder',
+  'accounting.export',
+  'inventoryAccounting.view',
+  'inventoryAccounting.review',
+  'inventoryAccounting.approve',
+  'inventoryAccounting.hold',
+  'inventoryAccounting.reject',
+  'inventoryAccounting.export',
   'settings.view',
   'settings.manage',
   'bi.view',
@@ -236,7 +290,8 @@ const ROLE_MENUS: Record<Role, PosPageId[]> = {
   Manager: ['DASHBOARD', 'OWNER_DESK', 'SALES', 'SALES_HISTORY', 'CUSTOMER_CENTRE', 'DELIVERY', 'STOCK', 'TASK_DESK', 'APPROVALS', 'SHIFT', 'CASH', 'BI_DESK', 'SYNC_DESK', 'SETTINGS'],
   Supervisor: ['DASHBOARD', 'SALES', 'SALES_HISTORY', 'CUSTOMER_CENTRE', 'DELIVERY', 'STOCK', 'TASK_DESK', 'APPROVALS', 'SHIFT', 'CASH', 'BI_DESK', 'SYNC_DESK'],
   Cashier: ['DASHBOARD', 'SALES', 'SALES_HISTORY', 'CUSTOMER_CENTRE', 'DELIVERY', 'SHIFT', 'TASK_DESK', 'SYNC_DESK'],
-  'Stock Controller': ['DASHBOARD', 'STOCK', 'TASK_DESK', 'APPROVALS', 'BI_DESK', 'SYNC_DESK']
+  'Stock Controller': ['DASHBOARD', 'STOCK', 'TASK_DESK', 'APPROVALS', 'BI_DESK', 'SYNC_DESK'],
+  'Delivery Staff': ['DASHBOARD', 'DELIVERY', 'TASK_DESK', 'SYNC_DESK']
 };
 
 const ROLE_PERMISSIONS: Record<Role, PermissionKey[]> = {
@@ -249,6 +304,7 @@ const ROLE_PERMISSIONS: Record<Role, PermissionKey[]> = {
     'customers.createRequest', 'customers.approve',
     'inventory.view', 'inventory.import', 'inventory.approveImport', 'inventory.adjust', 'inventory.approveAdjustment',
     'productMaster.view', 'productMaster.create', 'productMaster.edit', 'productMaster.block', 'productMaster.export', 'stockBalances.view', 'stockBalances.adjust', 'stockBalances.transfer',
+    'inventoryReports.view', 'inventoryReports.export', 'stockHealth.view', 'stockHealth.review', 'reorderRecommendations.create', 'stocktakeRecommendations.create', 'transferRecommendations.create', 'supplierPerformance.view',
     'stockAdjustments.view', 'stockAdjustments.create', 'stockAdjustments.edit', 'stockAdjustments.approve', 'stockAdjustments.post', 'stockAdjustments.cancel', 'stockAdjustments.reverse',
     'inventoryMovements.view', 'inventoryMovements.export', 'productLedger.view',
     'purchaseOrders.view', 'purchaseOrders.create', 'purchaseOrders.edit', 'purchaseOrders.approve', 'purchaseOrders.cancel', 'purchaseOrders.receive', 'purchaseOrders.export',
@@ -257,10 +313,12 @@ const ROLE_PERMISSIONS: Record<Role, PermissionKey[]> = {
     'stocktake.view', 'stocktake.create', 'stocktake.count', 'stocktake.submit', 'stocktake.approve', 'stocktake.post', 'stocktake.cancel', 'stocktake.export', 'stocktake.approveAdjustment',
     'stockTransfers.view', 'stockTransfers.create', 'stockTransfers.edit', 'stockTransfers.approve', 'stockTransfers.dispatch', 'stockTransfers.receive', 'stockTransfers.postReceipt', 'stockTransfers.cancel', 'stockTransfers.closeOutstanding', 'stockTransfers.export',
     'ideliver.createProvider', 'delivery.broadcast', 'delivery.review',
+    'delivery.view', 'delivery.create', 'delivery.assign', 'delivery.track', 'delivery.verifyCode', 'delivery.complete', 'delivery.cancel', 'delivery.cashReview', 'delivery.providerManage', 'delivery.export',
     'tasks.view', 'tasks.assign', 'tasks.close',
     'approvals.view', 'approvals.approve', 'approvals.reject',
     'reports.view', 'reports.export',
-    'accounting.view', 'accounting.review',
+    'accounting.view', 'accounting.review', 'accounting.approve', 'accounting.postPlaceholder', 'accounting.export',
+    'inventoryAccounting.view', 'inventoryAccounting.review', 'inventoryAccounting.approve', 'inventoryAccounting.hold', 'inventoryAccounting.reject', 'inventoryAccounting.export',
     'settings.view',
     'bi.view', 'bi.review',
     'sync.view', 'sync.run'
@@ -272,6 +330,7 @@ const ROLE_PERMISSIONS: Record<Role, PermissionKey[]> = {
     'customers.createRequest',
     'inventory.view',
     'productMaster.view', 'stockBalances.view',
+    'inventoryReports.view', 'stockHealth.view', 'stockHealth.review', 'reorderRecommendations.create', 'stocktakeRecommendations.create', 'transferRecommendations.create', 'supplierPerformance.view',
     'stockAdjustments.view', 'stockAdjustments.create', 'stockAdjustments.edit', 'stockAdjustments.post',
     'inventoryMovements.view', 'productLedger.view',
     'purchaseOrders.view', 'purchaseOrders.create', 'purchaseOrders.edit', 'purchaseOrders.receive',
@@ -280,9 +339,12 @@ const ROLE_PERMISSIONS: Record<Role, PermissionKey[]> = {
     'stocktake.view', 'stocktake.create', 'stocktake.count', 'stocktake.submit', 'stocktake.post',
     'stockTransfers.view', 'stockTransfers.create', 'stockTransfers.edit', 'stockTransfers.dispatch', 'stockTransfers.receive', 'stockTransfers.postReceipt', 'stockTransfers.export',
     'delivery.broadcast', 'delivery.review',
+    'delivery.view', 'delivery.assign', 'delivery.track', 'delivery.verifyCode', 'delivery.complete', 'delivery.cashReview',
     'tasks.view', 'tasks.assign', 'tasks.close',
     'approvals.view', 'approvals.approve', 'approvals.reject',
     'reports.view',
+    'accounting.view', 'accounting.review',
+    'inventoryAccounting.view', 'inventoryAccounting.review',
     'bi.view', 'bi.review',
     'sync.view', 'sync.run'
   ],
@@ -291,7 +353,7 @@ const ROLE_PERMISSIONS: Record<Role, PermissionKey[]> = {
     'returns.request', 'creditNotes.request',
     'shift.open', 'shift.close',
     'customers.createRequest',
-    'delivery.broadcast',
+    'delivery.view', 'delivery.create',
     'tasks.view',
     'sync.view'
   ],
@@ -299,6 +361,7 @@ const ROLE_PERMISSIONS: Record<Role, PermissionKey[]> = {
     'sales.viewHistory',
     'inventory.view', 'inventory.import', 'inventory.adjust',
     'productMaster.view', 'productMaster.create', 'productMaster.edit', 'productMaster.export', 'stockBalances.view', 'stockBalances.adjust', 'stockBalances.transfer',
+    'inventoryReports.view', 'inventoryReports.export', 'stockHealth.view', 'stockHealth.review', 'reorderRecommendations.create', 'stocktakeRecommendations.create', 'transferRecommendations.create', 'supplierPerformance.view',
     'stockAdjustments.view', 'stockAdjustments.create', 'stockAdjustments.edit',
     'inventoryMovements.view', 'productLedger.view',
     'purchaseOrders.view', 'purchaseOrders.create', 'purchaseOrders.edit', 'purchaseOrders.receive',
@@ -309,7 +372,14 @@ const ROLE_PERMISSIONS: Record<Role, PermissionKey[]> = {
     'tasks.view',
     'approvals.view',
     'reports.view',
+    'accounting.view',
+    'inventoryAccounting.view',
     'bi.view',
+    'sync.view', 'sync.run'
+  ],
+  'Delivery Staff': [
+    'delivery.view', 'delivery.track', 'delivery.verifyCode', 'delivery.complete', 'delivery.cashReview',
+    'tasks.view',
     'sync.view', 'sync.run'
   ]
 };

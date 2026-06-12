@@ -3,6 +3,8 @@ import { ArrowRight, Clock, FileText, History, Printer, RotateCcw, ShieldCheck }
 import ProductSearchCard from '../components/ProductSearchCard';
 import SalesCartCard, {
   DeliveryMode,
+  SalesDeliveryPaymentMode,
+  SalesDeliveryPriority,
   SalesCustomerMode,
   SalesPaymentLine,
   SalesPaymentMethod
@@ -13,6 +15,7 @@ import { createAccountingPostingPlaceholder } from '../services/accountingServic
 import { biEventService } from '../services/biEventService';
 import { createReceiptFromSale, getReceiptPreview } from '../services/receiptService';
 import { postSaleMovement } from '../services/inventoryMovementService';
+import { createDeliveryRequestFromReceipt } from '../services/deliveryService';
 import { recordPaymentReportEvent } from '../services/paymentReportService';
 import { logTerminalControlEvent, runTerminalControlCheck } from '../services/terminalControlService';
 import { createCustomerRequest, getCustomers, recordCustomerSelectedForSale } from '../services/customerService';
@@ -139,6 +142,8 @@ export default function PosSales({
   const [deliveryWhatsApp, setDeliveryWhatsApp] = useState('');
   const [deliveryNotes, setDeliveryNotes] = useState('');
   const [deliveryFee, setDeliveryFee] = useState('0');
+  const [deliveryPriority, setDeliveryPriority] = useState<SalesDeliveryPriority>('Normal');
+  const [deliveryPaymentMode, setDeliveryPaymentMode] = useState<SalesDeliveryPaymentMode>('Already Paid');
   const [vatMode, setVatMode] = useState<VATMode>('Inclusive');
   const [vatRate, setVatRate] = useState('15');
   const [heldSales, setHeldSales] = useState<HeldSale[]>([]);
@@ -232,6 +237,8 @@ export default function PosSales({
     setDeliveryWhatsApp('');
     setDeliveryNotes('');
     setDeliveryFee('0');
+    setDeliveryPriority('Normal');
+    setDeliveryPaymentMode('Already Paid');
     setCustomerName('Walk-in Customer');
     setCustomerMode('Walk-in Customer');
     setSelectedCustomerId('');
@@ -529,7 +536,12 @@ export default function PosSales({
       cart.forEach((item) => onProductStockChange(item.product.id, item.quantity));
       setLocalProducts((current) => current.map((product) => {
         const soldLine = cart.find((item) => item.product.id === product.id);
-        return soldLine ? { ...product, stock: Math.max(0, product.stock - soldLine.quantity), qtyOnHand: Math.max(0, productStock(product) - soldLine.quantity) } : product;
+        return soldLine ? {
+          ...product,
+          stock: Math.max(0, product.stock - soldLine.quantity),
+          qtyOnHand: Math.max(0, (product.qtyOnHand ?? product.stock) - soldLine.quantity),
+          availableStock: Math.max(0, productStock(product) - soldLine.quantity)
+        } : product;
       }));
 
       const selectedCustomer = activeCustomers.find((customer) => customer.customerId === selectedCustomerId);
@@ -579,10 +591,54 @@ export default function PosSales({
         logEvent('SALE_COMPLETION_SERVICE_PLACEHOLDER', 'Optional accounting, payment, or BI placeholder service was skipped safely.');
       }
       const preview = await getReceiptPreview(receipt.receiptNumber, '80mm');
+      if (deliveryMode !== 'No Delivery') {
+        const deliveryRequest = await createDeliveryRequestFromReceipt({
+          vendorId: VENDOR_ID,
+          receiptId: receipt.id,
+          receiptNumber: receipt.receiptNumber,
+          branchId: branchIdFromName(branchName),
+          branchName,
+          terminalId: terminalName,
+          cashierStaffId: staffName,
+          cashierStaffName: staffName,
+          customerId: selectedCustomer?.customerId,
+          customerName,
+          customerPhone,
+          customerWhatsapp: deliveryWhatsApp || customerWhatsApp || customerPhone,
+          deliveryMethod: deliveryMode,
+          priority: deliveryPriority,
+          deliveryAddress: deliveryAddress || selectedCustomer?.deliveryAddress || customerAddress,
+          deliveryNotes,
+          deliveryFee: parsedDeliveryFee,
+          paymentMode: deliveryPaymentMode,
+          totalReceiptAmount: grandTotal,
+          cashToCollect: deliveryPaymentMode === 'Cash On Delivery' ? grandTotal : deliveryPaymentMode === 'Delivery Fee Cash' ? parsedDeliveryFee : 0,
+          lines: cart.map((item) => ({
+            productId: item.product.id,
+            sku: productSku(item.product),
+            productName: productName(item.product),
+            qty: item.quantity
+          }))
+        });
+        if (deliveryRequest) {
+          logEvent('DELIVERY_REQUEST_CREATED', `${deliveryRequest.deliveryNumber} prepared for ${receipt.receiptNumber}.`);
+          try {
+            await biEventService.recordBIEvent({
+              eventType: deliveryMode === 'iDeliver Service' ? 'IDELIVER_BROADCAST_PREPARED' : 'DELIVERY_REQUEST_CREATED',
+              operator: staffName,
+              terminal: terminalName,
+              severity: 'INFO',
+              payload: { deliveryId: deliveryRequest.deliveryId, deliveryNumber: deliveryRequest.deliveryNumber, receiptNumber: receipt.receiptNumber, deliveryMethod }
+            });
+          } catch {
+            logEvent('DELIVERY_BI_SKIPPED', 'Delivery BI placeholder was skipped safely.');
+          }
+        }
+      }
       setPreparedReceiptPreview(preview || null);
       setRecentSales((current) => [sale, ...current].slice(0, 6));
       clearCartState();
-      setStatusMessage('Sale completed successfully.');
+      setStatusMessage(deliveryMode === 'No Delivery' ? 'Sale completed successfully.' : 'Sale completed and delivery request prepared.');
       logEvent('SALE_COMPLETED', `Sale ${invoiceNo} completed for ${money(grandTotal)}.`);
       logEvent('RECEIPT_CREATED', `Receipt ${receipt.receiptNumber} prepared for preview.`);
     } catch (error) {
@@ -691,6 +747,8 @@ export default function PosSales({
           deliveryWhatsApp={deliveryWhatsApp}
           deliveryNotes={deliveryNotes}
           deliveryFee={deliveryFee}
+          deliveryPriority={deliveryPriority}
+          deliveryPaymentMode={deliveryPaymentMode}
           vatMode={vatMode}
           vatRate={vatRate}
           totals={{
@@ -727,6 +785,8 @@ export default function PosSales({
           onDeliveryWhatsAppChange={setDeliveryWhatsApp}
           onDeliveryNotesChange={setDeliveryNotes}
           onDeliveryFeeChange={setDeliveryFee}
+          onDeliveryPriorityChange={setDeliveryPriority}
+          onDeliveryPaymentModeChange={setDeliveryPaymentMode}
           onVatModeChange={setVatMode}
           onVatRateChange={setVatRate}
           onCompleteSale={handleCompleteSale}

@@ -11,6 +11,14 @@ import {
   ProductReorderRule,
   ProductStockBalance,
   ProductSupplierLink,
+  StockHealthRow,
+  StockHealthRecommendation,
+  InventoryValueReportRow,
+  SupplierPerformanceRow,
+  TransferDelayRow,
+  GRNDelayRow,
+  StockMovementAuditRow,
+  InventoryReportActivityEvent,
   Sale, 
   HeldTransaction, 
   Shift, 
@@ -22,6 +30,15 @@ import {
   DeliveryPerson,
   WalkInCollection,
   DeliveryEvent,
+  DeliveryActivityEvent,
+  DeliveryAssignment,
+  DeliveryCashCollection,
+  DeliveryConfirmationCode,
+  DeliveryProvider,
+  DeliveryRequest,
+  DeliveryRequestLine,
+  DeliveryTrackingEvent,
+  DeliveryWhatsAppMessageDraft,
   SyncQueueItem,
   SyncConflict,
   SyncActivityEvent,
@@ -59,6 +76,11 @@ import {
   InventoryAssetPostingRow,
   AccountingReadinessCheck,
   AccountingActivityEvent,
+  AccountingMappingRule,
+  ChartOfAccountsPlaceholder,
+  InventoryAccountingActivityEvent,
+  InventoryAccountingReadinessLine,
+  InventoryAccountingReadinessRecord,
   ReceiptRecord,
   ReceiptLine,
   ReceiptPaymentLine,
@@ -372,17 +394,41 @@ const productMasterBase = (product: Product, index: number, overrides: Partial<P
     sku: product.sku || product.code,
     barcode: product.barcode || `263000${String(index + 1).padStart(6, '0')}`,
     alu: product.alu || `ALU-${String(index + 1).padStart(4, '0')}`,
+    vendorSku: `VEND-${product.code}`,
     productNumericNumber: product.productNumericNumber || `PN-${String(index + 1).padStart(5, '0')}`,
     productName: product.productName || product.name,
+    description: `${product.name} product master identity and commercial placeholder.`,
     shortDescription: `${product.name} master record placeholder.`,
+    brand: product.brand || (product.category === 'Lubricants' ? 'DuraLube' : 'Genuine Select'),
+    manufacturer: product.manufacturer || 'Approved Motor Parts',
+    supplierName: product.supplierName || 'Motor Spares Wholesalers',
+    supplierItemCode: `MSW-${product.code}`,
+    industrialSector: product.category === 'Lubricants' ? 'Automotive Lubricants' : 'Motor Spares',
+    productCategory: product.category,
+    productSubCategory: product.productSubCategory || product.category,
     productType: 'Stock Item',
     status: product.stock <= 0 ? 'Active' : 'Active',
-    riskStatus: product.healthStatus === 'Dead Stock' ? 'Dead Stock' : product.healthStatus === 'Variance Risk' ? 'Variance Risk' : 'None',
+    productStatus: product.stock <= 0 ? 'Active' : 'Active',
+    riskStatus: product.stock <= 0 ? 'Out Of Stock' : product.healthStatus === 'Low Stock' ? 'Low Stock' : product.healthStatus === 'Variance Risk' ? 'Variance Risk' : 'Normal',
     category: product.category,
     unitOfMeasure: product.unit,
+    condition: 'New',
+    colour: product.name.toLowerCase().includes('chrome') ? 'Chrome' : undefined,
+    make: product.name.includes('Honda') ? 'Honda' : product.name.includes('Toyota') ? 'Toyota' : product.name.includes('Nissan') ? 'Nissan' : product.name.includes('Isuzu') ? 'Isuzu' : undefined,
+    model: product.name.includes('GD6') ? 'Hilux GD6' : product.name.includes('GD1') ? 'Fit GD1' : product.name.includes('N16') ? 'N16' : product.name.includes('FJ200') ? 'FJ200' : undefined,
+    yearFrom: product.name.includes('2013') ? '2013' : product.name.includes('2016') ? '2016' : undefined,
+    yearTo: product.name.includes('2013') ? '2016' : undefined,
+    side: product.name.toLowerCase().includes('left') ? 'Left' : product.name.toLowerCase().includes('right') ? 'Right' : undefined,
+    partNumber: `PART-${product.code}`,
+    oemNumber: `OEM-${product.code}`,
+    tags: [product.category, product.code, product.name],
     taxCode: 'VAT15',
+    taxMode: 'VAT Registered',
+    vatRate: 15,
     defaultSellingPrice: product.sellingPrice ?? product.price,
     defaultCostPrice: product.costPrice ?? product.cost,
+    reorderLevel: product.minStock,
+    reorderQty: Math.max(5, product.minStock * 2),
     marginPercent,
     preferredSupplierId: product.supplierId || 'SUP-MOTOR-SPARES',
     preferredSupplierName: product.supplierName || 'Motor Spares Wholesalers',
@@ -395,6 +441,17 @@ const productMasterBase = (product: Product, index: number, overrides: Partial<P
       productSubCategory: product.productSubCategory || product.category,
       brand: product.brand || 'SCI Industrial',
       manufacturer: product.manufacturer || 'Approved Supplier',
+      make: product.name.includes('Honda') ? 'Honda' : product.name.includes('Toyota') ? 'Toyota' : product.name.includes('Nissan') ? 'Nissan' : product.name.includes('Isuzu') ? 'Isuzu' : undefined,
+      model: product.name.includes('GD6') ? 'Hilux GD6' : product.name.includes('GD1') ? 'Fit GD1' : product.name.includes('N16') ? 'N16' : product.name.includes('FJ200') ? 'FJ200' : undefined,
+      yearFrom: product.name.includes('2013') ? '2013' : product.name.includes('2016') ? '2016' : undefined,
+      yearTo: product.name.includes('2013') ? '2016' : undefined,
+      side: product.name.toLowerCase().includes('left') ? 'Left' : product.name.toLowerCase().includes('right') ? 'Right' : undefined,
+      partNumber: `PART-${product.code}`,
+      oemNumber: `OEM-${product.code}`,
+      engineCode: 'Placeholder',
+      chassisCode: 'Placeholder',
+      productType: 'Stock Item',
+      productGrade: 'Standard',
       serialTrackingRequired: Boolean(product.isSerialized),
       batchTrackingRequired: product.category === 'Lubricants' || product.category === 'CHEMICALS',
       expiryRequired: product.category === 'Lubricants' || product.category === 'CHEMICALS',
@@ -409,34 +466,37 @@ const productMasterBase = (product: Product, index: number, overrides: Partial<P
 };
 
 export const mockProductMasterRecords: ProductMasterRecord[] = [
-  productMasterBase(mockProducts[0], 0, { preferredSupplierId: 'SUP-GENERAL-HARDWARE', preferredSupplierName: 'General Hardware Supply' }),
-  productMasterBase(mockProducts[1], 1, { preferredSupplierId: 'SUP-PNEUMATICS', preferredSupplierName: 'Pneumatic Control Imports' }),
-  productMasterBase(mockProducts[2], 2, { riskStatus: 'Supplier Risk', preferredSupplierId: 'SUP-CHEMICALS', preferredSupplierName: 'Industrial Chemicals Direct' }),
-  productMasterBase(mockProducts[3], 3, { preferredSupplierId: 'SUP-SAFETY', preferredSupplierName: 'Safety Gear Zimbabwe' }),
-  productMasterBase(mockProducts[5], 5, { riskStatus: 'Low Margin', preferredSupplierId: 'SUP-ELECTRICAL', preferredSupplierName: 'Electrical Components Hub' }),
-  productMasterBase(mockProducts[6], 6, { riskStatus: 'Variance Risk' }),
-  productMasterBase(mockProducts[9], 9, { preferredSupplierId: 'SUP-RADIATOR', preferredSupplierName: 'Radiator Imports' }),
-  productMasterBase(mockProducts[10], 10),
+  productMasterBase(mockProducts[10], 10, { preferredSupplierId: 'SUP-MOTOR-SPARES', preferredSupplierName: 'Motor Spares Wholesalers' }),
+  productMasterBase(mockProducts[11], 11, { preferredSupplierId: 'SUP-BRAKE-PARTS', preferredSupplierName: 'Brake Parts Direct', riskStatus: 'Low Stock' }),
   productMasterBase(mockProducts[12], 12, { preferredSupplierId: 'SUP-LUBRICANTS', preferredSupplierName: 'Lubricants Direct' }),
-  productMasterBase(mockProducts[14], 14, { status: 'Pending Review', riskStatus: 'Supplier Risk' })
+  productMasterBase({ id: 'STOCK-P-RAD-COROLLA', code: 'RAD-COROLLA', name: 'Radiator Toyota Corolla', category: 'Motor Spares', price: 110, cost: 72, stock: 6, minStock: 2, unit: 'pcs' }, 17, { preferredSupplierId: 'SUP-RADIATOR', preferredSupplierName: 'Radiator Imports' }),
+  productMasterBase(mockProducts[13], 13, { riskStatus: 'Out Of Stock' }),
+  productMasterBase(mockProducts[9], 9, { preferredSupplierId: 'SUP-LAMPS', preferredSupplierName: 'Vehicle Lighting Imports' }),
+  productMasterBase({ id: 'STOCK-P-AIRCON-ISUZU', code: 'ACR-ISUZU-1316', name: 'Air Con Radiator Isuzu 2013-16', category: 'Motor Spares', price: 95, cost: 58, stock: 5, minStock: 2, unit: 'pcs' }, 18, { preferredSupplierId: 'SUP-RADIATOR', preferredSupplierName: 'Radiator Imports' }),
+  productMasterBase({ id: 'STOCK-P-SHOCK-NP300-F', code: 'SHK-NP300-F', name: 'Shock Absorber Nissan NP300 Front', category: 'Motor Spares', price: 38, cost: 21, stock: 8, minStock: 3, unit: 'pcs' }, 19, { preferredSupplierId: 'SUP-SUSPENSION', preferredSupplierName: 'Suspension Parts Africa' }),
+  productMasterBase({ id: 'STOCK-P-HILUX-MIR-RC', code: 'MIR-GD6-RC', name: 'Toyota Hilux GD6 Mirror Right Chrome', category: 'Motor Spares', price: 62, cost: 34, stock: 3, minStock: 2, unit: 'pcs' }, 20, { preferredSupplierId: 'SUP-BODY-PARTS', preferredSupplierName: 'Body Parts Warehouse' }),
+  productMasterBase({ id: 'STOCK-P-NGK-BKR6E', code: 'NGK-BKR6E', name: 'Spark Plug NGK BKR6E', category: 'Motor Spares', price: 6.5, cost: 2.8, stock: 55, minStock: 12, unit: 'pcs' }, 21, { brand: 'NGK', manufacturer: 'NGK', preferredSupplierId: 'SUP-IGNITION', preferredSupplierName: 'Ignition Components Hub', riskStatus: 'Fast Moving' })
 ];
 
 const balanceRowsForProduct = (record: ProductMasterRecord, seedQty: number): ProductStockBalance[] => {
-  const rows: Array<{ branchId: string; branchName: string; warehouseId: string; warehouseName: string; locationId: string; locationName: string; locationType: ProductStockBalance['locationType']; qty: number; reserved?: number; damaged?: number; transit?: number }> = [
+  const rows: Array<{ branchId: string; branchName: string; warehouseId: string; warehouseName: string; locationId: string; locationName: string; locationType: ProductStockBalance['locationType']; qty: number; reserved?: number; damaged?: number; returnHolding?: number; transit?: number; blocked?: number }> = [
     { branchId: 'BR-HARARE', branchName: 'Harare Main', warehouseId: 'WH-HARARE-01', warehouseName: 'Harare Main Warehouse', locationId: 'LOC-HRE-WH', locationName: 'Harare Main Warehouse', locationType: 'Main Warehouse', qty: seedQty },
-    { branchId: 'BR-HARARE', branchName: 'Harare Main', warehouseId: 'WH-HARARE-FLOOR', warehouseName: 'Harare Sales Floor', locationId: 'LOC-HRE-FLOOR', locationName: 'Harare Sales Floor', locationType: 'Branch Sales Floor', qty: Math.max(0, Math.floor(seedQty * 0.35)), reserved: seedQty > 5 ? 1 : 0 },
+    { branchId: 'BR-HARARE', branchName: 'Harare Main', warehouseId: 'WH-HARARE-FLOOR', warehouseName: 'Harare Sales Floor', locationId: 'LOC-HRE-FLOOR', locationName: 'Harare Sales Floor', locationType: 'Sales Floor', qty: Math.max(0, Math.floor(seedQty * 0.35)), reserved: seedQty > 5 ? 1 : 0 },
     { branchId: 'BR-BYO', branchName: 'Bulawayo Branch', warehouseId: 'WH-BYO-01', warehouseName: 'Bulawayo Branch Warehouse', locationId: 'LOC-BYO-WH', locationName: 'Bulawayo Branch Warehouse', locationType: 'Branch Warehouse', qty: Math.max(0, Math.floor(seedQty * 0.25)) },
-    { branchId: 'BR-HARARE', branchName: 'Harare Main', warehouseId: 'WH-DMG-01', warehouseName: 'Damaged Holding', locationId: 'LOC-DMG', locationName: 'Damaged Holding', locationType: 'Damaged Stock', qty: 0, damaged: seedQty > 10 ? 1 : 0 },
+    { branchId: 'BR-HARARE', branchName: 'Harare Main', warehouseId: 'WH-DMG-01', warehouseName: 'Damaged Holding', locationId: 'LOC-DMG', locationName: 'Damaged Holding', locationType: 'Damaged Holding', qty: 0, damaged: seedQty > 10 ? 1 : 0 },
+    { branchId: 'BR-HARARE', branchName: 'Harare Main', warehouseId: 'WH-RET-01', warehouseName: 'Return Holding', locationId: 'LOC-RETURN', locationName: 'Return Holding', locationType: 'Return Holding', qty: 0, returnHolding: seedQty > 8 ? 1 : 0 },
     { branchId: 'BR-HARARE', branchName: 'Harare Main', warehouseId: 'WH-TRANSIT', warehouseName: 'In Transit', locationId: 'LOC-TRANSIT', locationName: 'In Transit', locationType: 'In Transit', qty: 0, transit: seedQty <= 3 ? 4 : 0 }
   ];
 
   return rows.map((row, index) => {
     const qtyReserved = row.reserved || 0;
     const qtyDamaged = row.damaged || 0;
+    const qtyReturnHolding = row.returnHolding || 0;
     const qtyInTransit = row.transit || 0;
-    const qtyOnHand = row.qty + qtyDamaged;
-    const qtyAvailable = Math.max(0, row.qty - qtyReserved);
-    const status = qtyInTransit > 0 ? 'In Transit' : qtyDamaged > 0 ? 'Damaged' : qtyAvailable <= 0 ? 'Out of Stock' : qtyAvailable <= Math.max(2, Math.floor(seedQty * 0.15)) ? 'Low Stock' : 'Available';
+    const qtyBlocked = row.blocked || 0;
+    const qtyOnHand = row.qty + qtyDamaged + qtyReturnHolding + qtyBlocked;
+    const qtyAvailable = Math.max(0, row.qty - qtyReserved - qtyDamaged - qtyReturnHolding - qtyBlocked);
+    const status = qtyInTransit > 0 ? 'In Transit' : qtyReturnHolding > 0 ? 'Return Holding' : qtyDamaged > 0 ? 'Damaged' : qtyAvailable <= 0 ? 'Out Of Stock' : qtyAvailable <= Math.max(2, Math.floor(seedQty * 0.15)) ? 'Reorder Required' : 'Available';
     return {
       balanceId: `BAL-${record.productId}-${index + 1}`,
       vendorId: record.vendorId,
@@ -456,11 +516,15 @@ const balanceRowsForProduct = (record: ProductMasterRecord, seedQty: number): Pr
       qtyReserved,
       qtyAvailable,
       qtyDamaged,
+      qtyReturnHolding,
       qtyInTransit,
+      qtyBlocked,
       reorderLevel: Math.max(2, Math.floor(seedQty * 0.2)),
       reorderQty: Math.max(5, Math.floor(seedQty * 0.6)),
       status,
       lastMovementDate: '2026-06-11T08:00:00Z',
+      lastMovementAt: '2026-06-11T08:00:00Z',
+      lastStocktakeAt: '2026-06-10T16:00:00Z',
       updatedAt: '2026-06-11T08:00:00Z'
     };
   });
@@ -481,6 +545,7 @@ export const mockProductSupplierLinks: ProductSupplierLink[] = mockProductMaster
   supplierId: record.preferredSupplierId || 'SUP-GENERAL',
   supplierName: record.preferredSupplierName || 'General Supplier',
   supplierSku: `SUP-${record.sku}`,
+  supplierItemCode: record.supplierItemCode || `SUP-${record.sku}`,
   supplierBarcode: record.barcode,
   lastCost: record.defaultCostPrice,
   leadTimeDays: record.category === 'Lubricants' ? 3 : 7,
@@ -496,6 +561,11 @@ export const mockProductPriceRecords: ProductPriceRecord[] = mockProductMasterRe
   sellingPrice: record.defaultSellingPrice,
   costPrice: record.defaultCostPrice,
   marginPercent: record.marginPercent,
+  markupPercent: Math.round(((record.defaultSellingPrice - record.defaultCostPrice) / Math.max(1, record.defaultCostPrice)) * 100),
+  taxMode: record.taxMode || 'VAT Registered',
+  vatRate: record.vatRate || 15,
+  lastCostPrice: record.defaultCostPrice,
+  currentSellingPrice: record.defaultSellingPrice,
   currency: 'USD',
   effectiveFrom: '2026-06-01',
   status: 'Active'
@@ -508,14 +578,152 @@ export const mockProductReorderRules: ProductReorderRule[] = mockProductStockBal
     productId: balance.productId,
     branchId: balance.branchId,
     warehouseId: balance.warehouseId,
+    locationType: balance.locationType,
     minQty: balance.reorderLevel,
     maxQty: Math.max(balance.reorderLevel + balance.reorderQty, balance.qtyOnHand + balance.reorderQty),
     reorderQty: balance.reorderQty,
     preferredSupplierId: mockProductMasterRecords.find((record) => record.productId === balance.productId)?.preferredSupplierId,
+    preferredSupplierName: mockProductMasterRecords.find((record) => record.productId === balance.productId)?.preferredSupplierName,
     leadTimeDays: 7,
     isActive: true,
+    status: 'Active',
     notes: 'Local reorder placeholder for Product Master.'
   }));
+
+const healthStatusFromBalance = (balance: ProductStockBalance): StockHealthRow['stockHealthStatus'] => {
+  if (balance.qtyAvailable <= 0) return 'Out Of Stock';
+  if (balance.qtyAvailable <= balance.reorderLevel) return 'Reorder Required';
+  if (balance.qtyDamaged > 0) return 'Damaged';
+  if ((balance.qtyReturnHolding || 0) > 0) return 'Return Holding';
+  if (balance.qtyAvailable > balance.reorderQty * 2) return 'Overstocked';
+  return 'Healthy';
+};
+
+const healthSeverityFromStatus = (status: StockHealthRow['stockHealthStatus']): StockHealthRow['severity'] => {
+  if (status === 'Out Of Stock' || status === 'Variance Risk') return 'Critical';
+  if (status === 'Damaged' || status === 'Return Holding' || status === 'Reorder Required') return 'High';
+  if (status === 'Dead Stock' || status === 'Slow Moving' || status === 'Overstocked') return 'Medium';
+  return 'Info';
+};
+
+export const mockStockHealthRows: StockHealthRow[] = mockProductStockBalances
+  .filter((balance) => ['BJ-CBHO49', 'BP-GD6-F', 'OIL-5W30', 'RAD-COROLLA', 'CLT-N16', 'RAD-FJ200-L', 'ACR-ISUZU-1316', 'MIR-GD6-RC'].includes(balance.sku))
+  .map((balance, index) => {
+    const product = mockProductMasterRecords.find((record) => record.productId === balance.productId);
+    const stockHealthStatus = index === 6 ? 'Slow Moving' : index === 8 ? 'Dead Stock' : index === 10 ? 'Fast Moving' : healthStatusFromBalance(balance);
+    const movementCount = stockHealthStatus === 'Fast Moving' ? 26 : stockHealthStatus === 'Slow Moving' ? 1 : stockHealthStatus === 'Dead Stock' ? 0 : 6 + index;
+    const unitCost = product?.defaultCostPrice || 0;
+    return {
+      productId: balance.productId,
+      numericNo: product?.productNumericNumber || '',
+      sku: balance.sku,
+      alu: product?.alu || '',
+      productName: balance.productName,
+      branchId: balance.branchId,
+      branchName: balance.branchName,
+      warehouseId: balance.warehouseId,
+      warehouseName: balance.warehouseName,
+      locationType: balance.locationType,
+      sector: product?.industrialSector || 'Motor Spares',
+      category: product?.productCategory || product?.category || 'Motor Spares',
+      brand: product?.brand || 'Genuine Select',
+      supplier: product?.supplierName || product?.preferredSupplierName || 'Motor Spares Wholesalers',
+      branch: balance.branchName,
+      warehouse: balance.warehouseName,
+      shelfLocation: balance.shelfLocation || balance.locationName,
+      qtyOnHand: balance.qtyOnHand,
+      qtyAvailable: balance.qtyAvailable,
+      qtyReserved: balance.qtyReserved,
+      qtyDamaged: balance.qtyDamaged,
+      qtyReturnHolding: balance.qtyReturnHolding || 0,
+      qtyInTransit: balance.qtyInTransit,
+      reorderLevel: balance.reorderLevel,
+      reorderQty: balance.reorderQty,
+      lastSaleDate: index % 3 === 0 ? '2026-06-08T10:00:00Z' : '2026-03-01T09:00:00Z',
+      lastMovementDate: balance.lastMovementAt || balance.lastMovementDate || '2026-06-01T08:00:00Z',
+      lastReceivedDate: '2026-06-04T09:00:00Z',
+      daysSinceLastSale: index % 3 === 0 ? 4 : 103,
+      movementCount,
+      salesVelocity: Number((movementCount / 30).toFixed(2)),
+      stockHealthStatus,
+      severity: healthSeverityFromStatus(stockHealthStatus),
+      estimatedStockValue: balance.qtyOnHand * unitCost,
+      notes: stockHealthStatus === 'Variance Risk' ? 'Stocktake variance review required.' : `${stockHealthStatus} generated from local stock balance.`,
+      stockStatus: stockHealthStatus || 'Healthy',
+      movementClass: stockHealthStatus === 'Fast Moving' ? 'Fast Moving' : stockHealthStatus === 'Slow Moving' ? 'Slow Moving' : stockHealthStatus === 'Dead Stock' ? 'Dead Stock' : 'Normal Moving',
+      riskLevel: healthSeverityFromStatus(stockHealthStatus) === 'Critical' ? 'Critical' : healthSeverityFromStatus(stockHealthStatus) === 'High' ? 'High' : healthSeverityFromStatus(stockHealthStatus) === 'Medium' ? 'Medium' : 'Low',
+      recommendedAction: balance.qtyAvailable <= balance.reorderLevel ? 'Reorder' : stockHealthStatus === 'Dead Stock' ? 'Discount / Clearance' : stockHealthStatus === 'Variance Risk' ? 'Stocktake Required' : 'No Action'
+    };
+  });
+
+export const mockStockHealthRecommendations: StockHealthRecommendation[] = mockStockHealthRows
+  .filter((row) => row.stockHealthStatus !== 'Healthy')
+  .slice(0, 8)
+  .map((row, index) => ({
+    recommendationId: `IHR-${index + 1}`,
+    recommendationType: row.stockHealthStatus === 'Variance Risk' ? 'Stocktake Recommendation' : row.stockHealthStatus === 'Overstocked' ? 'Overstock Review Recommendation' : row.stockHealthStatus === 'Damaged' ? 'Damage Review Recommendation' : 'Create PO Recommendation',
+    severity: row.severity || 'Medium',
+    productId: row.productId,
+    sku: row.sku,
+    productName: row.productName,
+    branchId: row.branchId,
+    warehouseId: row.warehouseId,
+    title: `${row.stockHealthStatus} - ${row.productName}`,
+    description: row.notes || `${row.productName} requires review.`,
+    recommendedAction: row.recommendedAction,
+    relatedReportType: row.stockHealthStatus === 'Variance Risk' ? 'Variance Risk' : row.stockHealthStatus === 'Damaged' ? 'Damaged Holding' : 'Reorder Recommendation',
+    status: 'Open',
+    createdAt: '2026-06-12T08:00:00Z'
+  }));
+
+export const mockInventoryValueReportRows: InventoryValueReportRow[] = mockStockHealthRows.map((row) => {
+  const product = mockProductMasterRecords.find((record) => record.productId === row.productId);
+  const unitCost = product?.defaultCostPrice || 0;
+  return {
+    sku: row.sku,
+    productName: row.productName,
+    branch: row.branchName || row.branch,
+    warehouse: row.warehouseName || row.warehouse,
+    location: String(row.locationType || row.shelfLocation),
+    qtyOnHand: row.qtyOnHand,
+    availableQty: row.qtyAvailable || 0,
+    unitCost,
+    estimatedStockValue: row.qtyOnHand * unitCost,
+    damagedValue: (row.qtyDamaged || 0) * unitCost,
+    returnHoldingValue: (row.qtyReturnHolding || 0) * unitCost,
+    inTransitValue: (row.qtyInTransit || 0) * unitCost,
+    lastCost: unitCost,
+    status: row.stockHealthStatus || 'Healthy'
+  };
+});
+
+export const mockSupplierPerformanceRows: SupplierPerformanceRow[] = [
+  { supplier: 'Motor Spares Wholesalers', productsSupplied: 4, purchaseOrders: 5, grns: 4, supplierReturns: 1, averageDeliveryDays: 4, lateDeliveries: 1, damagedWrongItems: 1, creditNotesPending: 0, performanceScore: 82, risk: 'Low' },
+  { supplier: 'Radiator Imports', productsSupplied: 2, purchaseOrders: 3, grns: 2, supplierReturns: 1, averageDeliveryDays: 8, lateDeliveries: 2, damagedWrongItems: 1, creditNotesPending: 1, performanceScore: 61, risk: 'Medium' },
+  { supplier: 'Body Parts Warehouse', productsSupplied: 1, purchaseOrders: 2, grns: 1, supplierReturns: 0, averageDeliveryDays: 9, lateDeliveries: 1, damagedWrongItems: 0, creditNotesPending: 0, performanceScore: 70, risk: 'Medium' }
+];
+
+export const mockTransferDelayRows: TransferDelayRow[] = [
+  { transferNo: 'TRF-2026-001', source: 'Harare Main Warehouse', destination: 'Bulawayo Branch Warehouse', dispatchedDate: '2026-06-05', expectedArrival: '2026-06-07', daysInTransit: 5, status: 'In Transit', variance: 'Pending receipt' },
+  { transferNo: 'TRF-2026-002', source: 'Bulawayo Branch Warehouse', destination: 'Harare Sales Floor', dispatchedDate: '2026-06-02', expectedArrival: '2026-06-04', receivedDate: '2026-06-08', daysInTransit: 6, status: 'Partially Received', variance: 'Short 2 units' }
+];
+
+export const mockGRNDelayRows: GRNDelayRow[] = [
+  { grnNo: 'GRN-0001', poNo: 'PO-0003', supplier: 'Radiator Imports', expectedDelivery: '2026-06-10', receivedDate: '2026-06-10', daysLate: 0, status: 'Posted', variance: 'Partial receipt', invoiceStatus: 'Invoice Captured' },
+  { grnNo: 'GRN-DRAFT-002', poNo: 'PO-0002', supplier: 'Lubricants Direct', expectedDelivery: '2026-06-12', daysLate: 2, status: 'Draft', variance: 'Invoice missing', invoiceStatus: 'Missing' }
+];
+
+export const mockStockMovementAuditRows: StockMovementAuditRow[] = [
+  { movementId: 'AUD-MOV-001', dateTime: '2026-06-11T08:30:00Z', sku: 'BJ-CBHO49', productName: 'Ball Joint Honda Fit GD1', movementType: 'GOODS_RECEIVED', reference: 'GRN-0001', branch: 'BR-HARARE', warehouse: 'WH-HARARE-01', qtyIn: 12, qtyOut: 0, balanceBefore: 10, balanceAfter: 22, staff: 'Blessing Stock', risk: 'None', notes: 'Posted GRN receipt.' },
+  { movementId: 'AUD-MOV-002', dateTime: '2026-06-11T10:10:00Z', sku: 'BP-GD6-F', productName: 'Brake Pads Toyota GD6 Front', movementType: 'STOCKTAKE_LOSS', reference: 'STK-2026-001', branch: 'BR-HARARE', warehouse: 'WH-HARARE-01', qtyIn: 0, qtyOut: 3, balanceBefore: 11, balanceAfter: 8, staff: 'Admin User', risk: 'High', notes: 'Variance loss requires review.' },
+  { movementId: 'AUD-MOV-003', dateTime: '2026-06-10T13:25:00Z', sku: 'RAD-COROLLA', productName: 'Radiator Toyota Corolla', movementType: 'SUPPLIER_RETURN', reference: 'SR-0001', branch: 'BR-HARARE', warehouse: 'WH-RET-01', qtyIn: 0, qtyOut: 1, balanceBefore: 2, balanceAfter: 1, staff: 'Blessing Stock', risk: 'Medium', notes: 'Supplier return placeholder dispatched.' },
+  { movementId: 'AUD-MOV-004', dateTime: '2026-06-09T15:05:00Z', sku: 'MIR-GD6-RC', productName: 'Toyota Hilux GD6 Mirror Right Chrome', movementType: 'BRANCH_TRANSFER_OUT', reference: 'TRF-2026-001', branch: 'BR-HARARE', warehouse: 'WH-HARARE-01', qtyIn: 0, qtyOut: 2, balanceBefore: 5, balanceAfter: 3, staff: 'Tawanda Supervisor', risk: 'Low', notes: 'Transfer to Bulawayo in transit.' }
+];
+
+export const mockInventoryReportActivityEvents: InventoryReportActivityEvent[] = [
+  { id: 'IRE-ACT-001', eventType: 'LOW_STOCK_REMINDER', reportType: 'Low Stock', message: 'Low stock report reviewed locally.', staffId: 'ST-BLESSING', createdAt: '2026-06-12T08:15:00Z' },
+  { id: 'IRE-ACT-002', eventType: 'VARIANCE_RISK_DETECTED', reportType: 'Variance Risk', message: 'Variance risk recommendation generated.', staffId: 'ST-ADMIN', createdAt: '2026-06-12T08:30:00Z' }
+];
 
 export const mockShelfLocations = ['A1-MOTOR-LAMPS', 'A2-BRAKE-SERVICE', 'B1-LUBRICANTS', 'C1-FASTENERS', 'D1-HARDWARE', 'PH-COUNTER-01'];
 
@@ -1629,6 +1837,70 @@ export const mockDeliveryEvents: DeliveryEvent[] = [
   }
 ];
 
+export const mockDeliveryProviders: DeliveryProvider[] = [
+  { providerId: 'DPROV-001', providerName: 'Vendor Bike 01', providerType: 'Vendor Staff', phone: '+263776000001', vehiclePlaceholder: 'Bike ACD-1234', active: true, ratingPlaceholder: 4.6, completedDeliveries: 28, failedDeliveries: 1, cashVarianceCount: 0 },
+  { providerId: 'DPROV-002', providerName: 'Vendor Van 01', providerType: 'Vendor Staff', phone: '+263776000002', vehiclePlaceholder: 'Van AEQ-4455', active: true, ratingPlaceholder: 4.3, completedDeliveries: 14, failedDeliveries: 2, cashVarianceCount: 1 },
+  { providerId: 'DPROV-003', providerName: 'iDeliver Partner Placeholder 01', providerType: 'iDeliver Partner', phone: '+263780000101', vehiclePlaceholder: 'Partner Bike Placeholder', active: true, ratingPlaceholder: 4.8, completedDeliveries: 42, failedDeliveries: 1, cashVarianceCount: 0 },
+  { providerId: 'DPROV-004', providerName: 'iDeliver Partner Placeholder 02', providerType: 'iDeliver Partner', phone: '+263780000102', vehiclePlaceholder: 'Partner Van Placeholder', active: true, ratingPlaceholder: 4.4, completedDeliveries: 19, failedDeliveries: 2, cashVarianceCount: 1 },
+  { providerId: 'DPROV-005', providerName: 'External Courier Placeholder', providerType: 'External Courier', phone: '+263780000103', vehiclePlaceholder: 'Courier Fleet Placeholder', active: false, ratingPlaceholder: 3.9, completedDeliveries: 7, failedDeliveries: 1, cashVarianceCount: 1 }
+];
+
+export const mockDeliveryRequests: DeliveryRequest[] = [
+  { deliveryId: 'DEL-ID-0001', deliveryNumber: 'DEL-0001', vendorId: 'SCI-LOG-ZW', receiptId: 'RCT-ID-0001', receiptNumber: 'RCT-0001', branchId: 'BR-HARARE', branchName: 'Harare Main', terminalId: 'POS-01', cashierStaffId: 'ST-MARY', cashierStaffName: 'Mary Cashier', customerId: 'CUST-TAPIWA', customerName: 'Tapiwa Moyo', customerPhone: '+263771000001', customerWhatsapp: '+263771000001', deliveryMethod: 'Vendor Delivery', deliveryStatus: 'Assigned', priority: 'Normal', deliveryAddress: '22 Rezende Street, 2nd Floor', deliverySuburb: 'CBD', deliveryCityTown: 'Harare', deliveryNotes: 'Fragile. Deliver to 2nd floor office.', deliveryFee: 5, paymentMode: 'Already Paid', cashStatus: 'Not Required', totalReceiptAmount: 127.5, cashToCollect: 0, providerId: 'DPROV-001', providerName: 'Vendor Bike 01', driverStaffId: 'ST-TAWANDA', driverName: 'Tawanda', driverPhone: '+263776000001', confirmationCode: '483921', confirmationStatus: 'Code Sent', trackingStatus: 'Not Started', requestedAt: '2026-06-12T08:10:00Z', assignedAt: '2026-06-12T08:25:00Z', createdAt: '2026-06-12T08:10:00Z', updatedAt: '2026-06-12T08:25:00Z' },
+  { deliveryId: 'DEL-ID-0002', deliveryNumber: 'DEL-0002', vendorId: 'SCI-LOG-ZW', receiptId: 'RCT-ID-0002', receiptNumber: 'RCT-0002', branchId: 'BR-HARARE', branchName: 'Harare Main', terminalId: 'POS-01', cashierStaffId: 'ST-MARY', cashierStaffName: 'Mary Cashier', customerName: 'Rudo Ncube', customerPhone: '+263772000002', customerWhatsapp: '+263772000002', deliveryMethod: 'iDeliver Service', deliveryStatus: 'Broadcast To iDeliver', priority: 'High', deliveryAddress: '15 Lobengula Road', deliverySuburb: 'Belmont', deliveryCityTown: 'Bulawayo', deliveryNotes: 'Pending iDeliver provider selection.', deliveryFee: 12, paymentMode: 'Already Paid', cashStatus: 'Not Required', totalReceiptAmount: 244, cashToCollect: 0, confirmationCode: '582941', confirmationStatus: 'Code Sent', trackingStatus: 'Tracking Unavailable', requestedAt: '2026-06-12T09:00:00Z', createdAt: '2026-06-12T09:00:00Z', updatedAt: '2026-06-12T09:05:00Z' },
+  { deliveryId: 'DEL-ID-0003', deliveryNumber: 'DEL-0003', vendorId: 'SCI-LOG-ZW', receiptId: 'RCT-ID-0003', receiptNumber: 'RCT-0003', branchId: 'BR-HARARE', branchName: 'Harare Main', terminalId: 'POS-02', cashierStaffId: 'ST-MARY', cashierStaffName: 'Mary Cashier', customerName: 'Farai Sithole', customerPhone: '+263773000003', customerWhatsapp: '+263773000003', deliveryMethod: 'Vendor Delivery', deliveryStatus: 'In Transit', priority: 'Urgent', deliveryAddress: 'Sakubva Market', deliverySuburb: 'Sakubva', deliveryCityTown: 'Mutare', deliveryNotes: 'Cash on delivery pending.', deliveryFee: 8, paymentMode: 'Cash On Delivery', cashStatus: 'Pending Collection', totalReceiptAmount: 86, cashToCollect: 86, providerId: 'DPROV-002', providerName: 'Vendor Van 01', driverStaffId: 'ST-TAWANDA', driverName: 'Tawanda', driverPhone: '+263776000002', confirmationCode: '194725', confirmationStatus: 'Code Sent', trackingStatus: 'En Route', requestedAt: '2026-06-12T09:40:00Z', assignedAt: '2026-06-12T10:00:00Z', pickedUpAt: '2026-06-12T10:20:00Z', createdAt: '2026-06-12T09:40:00Z', updatedAt: '2026-06-12T10:20:00Z' },
+  { deliveryId: 'DEL-ID-0004', deliveryNumber: 'DEL-0004', vendorId: 'SCI-LOG-ZW', receiptId: 'RCT-ID-0004', receiptNumber: 'RCT-0004', branchId: 'BR-HARARE', branchName: 'Harare Main', terminalId: 'POS-01', cashierStaffId: 'ST-MARY', cashierStaffName: 'Mary Cashier', customerName: 'Memory Chikore', customerPhone: '+263774000004', customerWhatsapp: '+263774000004', deliveryMethod: 'Vendor Delivery', deliveryStatus: 'Delivered', priority: 'Normal', deliveryAddress: 'Unit L, Seke', deliverySuburb: 'Seke', deliveryCityTown: 'Chitungwiza', deliveryNotes: 'Code verified and cash confirmed.', deliveryFee: 10, paymentMode: 'Delivery Fee Cash', cashStatus: 'Confirmed By Vendor', totalReceiptAmount: 139, cashToCollect: 10, providerId: 'DPROV-001', providerName: 'Vendor Bike 01', driverStaffId: 'ST-TAWANDA', driverName: 'Tawanda', driverPhone: '+263776000001', confirmationCode: '739115', confirmationStatus: 'Code Verified', trackingStatus: 'Completed', requestedAt: '2026-06-12T07:50:00Z', assignedAt: '2026-06-12T08:00:00Z', pickedUpAt: '2026-06-12T08:25:00Z', deliveredAt: '2026-06-12T09:15:00Z', verifiedAt: '2026-06-12T09:15:00Z', verifiedByStaffId: 'ST-TAWANDA', createdAt: '2026-06-12T07:50:00Z', updatedAt: '2026-06-12T09:20:00Z' },
+  { deliveryId: 'DEL-ID-0005', deliveryNumber: 'DEL-0005', vendorId: 'SCI-LOG-ZW', receiptId: 'RCT-ID-0005', receiptNumber: 'RCT-0005', branchId: 'BR-HARARE', branchName: 'Harare Main', terminalId: 'POS-02', cashierStaffId: 'ST-MARY', cashierStaffName: 'Mary Cashier', customerName: 'Brian Dube', customerPhone: '+263775000005', customerWhatsapp: '+263775000005', deliveryMethod: 'Vendor Delivery', deliveryStatus: 'Delivery Failed', priority: 'High', deliveryAddress: 'Harare South', deliverySuburb: 'Mbare', deliveryCityTown: 'Harare', deliveryNotes: 'Customer unavailable. Follow-up required.', deliveryFee: 7, paymentMode: 'Already Paid', cashStatus: 'Not Required', totalReceiptAmount: 65, cashToCollect: 0, providerId: 'DPROV-002', providerName: 'Vendor Van 01', driverStaffId: 'ST-TAWANDA', driverName: 'Tawanda', driverPhone: '+263776000002', confirmationCode: '650482', confirmationStatus: 'Code Sent', trackingStatus: 'Delayed', requestedAt: '2026-06-12T08:45:00Z', assignedAt: '2026-06-12T09:10:00Z', pickedUpAt: '2026-06-12T09:35:00Z', failureReason: 'Customer unavailable', createdAt: '2026-06-12T08:45:00Z', updatedAt: '2026-06-12T11:10:00Z' }
+];
+
+export const mockDeliveryRequestLines: DeliveryRequestLine[] = [
+  { lineId: 'DLL-0001', deliveryId: 'DEL-ID-0001', productId: 'STOCK-P-02', sku: 'BJ-CBHO49', productName: 'Ball Joint Honda Fit GD1', qty: 2, receiptLineId: 'RCT-LINE-0001', lineStatus: 'Ready For Delivery', notes: 'Packed.' },
+  { lineId: 'DLL-0002', deliveryId: 'DEL-ID-0002', productId: 'STOCK-P-03', sku: 'BP-GD6-F', productName: 'Brake Pads Toyota GD6 Front', qty: 1, receiptLineId: 'RCT-LINE-0002', lineStatus: 'Ready For iDeliver', notes: 'Broadcast payload item.' },
+  { lineId: 'DLL-0003', deliveryId: 'DEL-ID-0003', productId: 'STOCK-P-12', sku: 'OIL-5W30', productName: 'Engine Oil 5W30 5L', qty: 3, receiptLineId: 'RCT-LINE-0003', lineStatus: 'In Transit', notes: 'Cash to collect on arrival.' },
+  { lineId: 'DLL-0004', deliveryId: 'DEL-ID-0004', productId: 'STOCK-P-RAD-COROLLA', sku: 'RAD-COROLLA', productName: 'Radiator Toyota Corolla', qty: 1, receiptLineId: 'RCT-LINE-0004', lineStatus: 'Delivered', notes: 'Confirmed.' },
+  { lineId: 'DLL-0005', deliveryId: 'DEL-ID-0005', productId: 'STOCK-P-HILUX-MIR-RC', sku: 'MIR-GD6-RC', productName: 'Toyota Hilux GD6 Mirror Right Chrome', qty: 1, receiptLineId: 'RCT-LINE-0005', lineStatus: 'Failed Delivery', notes: 'Returned to branch pending review.' }
+];
+
+export const mockDeliveryAssignments: DeliveryAssignment[] = [
+  { assignmentId: 'DASS-0001', deliveryId: 'DEL-ID-0001', providerId: 'DPROV-001', providerName: 'Vendor Bike 01', driverStaffId: 'ST-TAWANDA', driverName: 'Tawanda', driverPhone: '+263776000001', vehiclePlaceholder: 'Bike ACD-1234', assignedAt: '2026-06-12T08:25:00Z', assignedByStaffId: 'ST-MANAGER' },
+  { assignmentId: 'DASS-0003', deliveryId: 'DEL-ID-0003', providerId: 'DPROV-002', providerName: 'Vendor Van 01', driverStaffId: 'ST-TAWANDA', driverName: 'Tawanda', driverPhone: '+263776000002', vehiclePlaceholder: 'Van AEQ-4455', assignedAt: '2026-06-12T10:00:00Z', acceptedAt: '2026-06-12T10:05:00Z', assignedByStaffId: 'ST-MANAGER' }
+];
+
+export const mockDeliveryTrackingEvents: DeliveryTrackingEvent[] = [
+  { trackingEventId: 'DTRK-0001', deliveryId: 'DEL-ID-0003', dateTime: '2026-06-12T10:20:00Z', status: 'En Route', locationText: 'Leaving Harare Main', latitudePlaceholder: '-17.8249', longitudePlaceholder: '31.0530', notes: 'Google Maps live tracking integration will be connected later.', updatedByStaffId: 'ST-TAWANDA' },
+  { trackingEventId: 'DTRK-0002', deliveryId: 'DEL-ID-0004', dateTime: '2026-06-12T09:15:00Z', status: 'Completed', locationText: 'Customer address confirmed', latitudePlaceholder: '-18.0127', longitudePlaceholder: '31.0756', notes: 'Delivered and verified.', updatedByStaffId: 'ST-TAWANDA' }
+];
+
+export const mockDeliveryConfirmationCodes: DeliveryConfirmationCode[] = mockDeliveryRequests.map((delivery) => ({
+  codeId: `DCODE-${delivery.deliveryNumber}`,
+  deliveryId: delivery.deliveryId,
+  code: delivery.confirmationCode,
+  status: delivery.confirmationStatus,
+  sentToCustomer: delivery.confirmationStatus !== 'Code Pending',
+  attempts: delivery.confirmationStatus === 'Code Failed' ? 1 : 0,
+  verifiedAt: delivery.verifiedAt,
+  verifiedByStaffId: delivery.verifiedByStaffId,
+  createdAt: delivery.createdAt
+}));
+
+export const mockDeliveryCashCollections: DeliveryCashCollection[] = [
+  { cashCollectionId: 'DCASH-0003', deliveryId: 'DEL-ID-0003', paymentMode: 'Cash On Delivery', cashToCollect: 86, deliveryFeeCash: 0, amountCollectedByDriver: 0, driverCollectionNotes: 'Pending arrival.', vendorCashConfirmed: false, vendorConfirmedAmount: 0, cashVariance: 0, cashStatus: 'Pending Collection', updatedAt: '2026-06-12T10:20:00Z' },
+  { cashCollectionId: 'DCASH-0004', deliveryId: 'DEL-ID-0004', paymentMode: 'Delivery Fee Cash', cashToCollect: 10, deliveryFeeCash: 10, amountCollectedByDriver: 10, driverCollectionNotes: 'Delivery fee cash collected.', vendorCashConfirmed: true, vendorConfirmedAmount: 10, cashVariance: 0, cashStatus: 'Confirmed By Vendor', updatedAt: '2026-06-12T09:20:00Z' }
+];
+
+export const mockDeliveryActivityEvents: DeliveryActivityEvent[] = [
+  { id: 'DACT-0001', deliveryId: 'DEL-ID-0001', deliveryNumber: 'DEL-0001', receiptNumber: 'RCT-0001', eventType: 'DELIVERY_DRIVER_ASSIGNED', message: 'Vendor driver assigned.', staffId: 'ST-MANAGER', createdAt: '2026-06-12T08:25:00Z' },
+  { id: 'DACT-0002', deliveryId: 'DEL-ID-0002', deliveryNumber: 'DEL-0002', receiptNumber: 'RCT-0002', eventType: 'DELIVERY_BROADCAST_TO_IDELIVER', message: 'iDeliver broadcast placeholder prepared.', staffId: 'ST-MARY', createdAt: '2026-06-12T09:05:00Z' },
+  { id: 'DACT-0003', deliveryId: 'DEL-ID-0003', deliveryNumber: 'DEL-0003', receiptNumber: 'RCT-0003', eventType: 'DELIVERY_IN_TRANSIT', message: 'Delivery is in transit with cash pending collection.', staffId: 'ST-TAWANDA', createdAt: '2026-06-12T10:20:00Z' },
+  { id: 'DACT-0004', deliveryId: 'DEL-ID-0004', deliveryNumber: 'DEL-0004', receiptNumber: 'RCT-0004', eventType: 'DELIVERY_COMPLETED', message: 'Delivery completed, code verified, cash confirmed.', staffId: 'ST-TAWANDA', createdAt: '2026-06-12T09:20:00Z' },
+  { id: 'DACT-0005', deliveryId: 'DEL-ID-0005', deliveryNumber: 'DEL-0005', receiptNumber: 'RCT-0005', eventType: 'DELIVERY_FAILED', message: 'Delivery failed because customer was unavailable.', staffId: 'ST-TAWANDA', createdAt: '2026-06-12T11:10:00Z' }
+];
+
+export const mockDeliveryWhatsAppMessageDrafts: DeliveryWhatsAppMessageDraft[] = [
+  { draftId: 'DWA-0001', deliveryId: 'DEL-ID-0001', messageType: 'Customer Code', recipient: '+263771000001', messageText: 'Hello Tapiwa Moyo, your order RCT-0001 is ready for delivery. Your delivery confirmation code is 483921. Please give this code to the delivery person only after receiving your goods.', createdAt: '2026-06-12T08:11:00Z', status: 'Prepared' },
+  { draftId: 'DWA-0002', deliveryId: 'DEL-ID-0003', messageType: 'Driver Assignment', recipient: '+263776000002', messageText: 'Delivery assigned: DEL-0003. Customer: Farai Sithole. Address: Sakubva Market. Receipt: RCT-0003. Cash to collect: 86.', createdAt: '2026-06-12T10:00:00Z', status: 'Prepared' }
+];
+
 export const mockSyncQueueItems: SyncQueueItem[] = [
   {
     id: 'Q-001',
@@ -2348,6 +2620,52 @@ export const mockAccountingReadinessChecks: AccountingReadinessCheck[] = [
   { id: 'ACC-READY-010', check: 'EOD reconciliation active', domain: 'EOD', status: 'Passed', requiredAction: 'None' },
   { id: 'ACC-READY-011', check: 'COGS reserve placeholder active', domain: 'COGS', status: 'Passed', requiredAction: 'None' },
   { id: 'ACC-READY-012', check: 'Fiscalization not connected yet', domain: 'Tax', status: 'Pending', requiredAction: 'Connect fiscalization later' }
+];
+
+export const mockInventoryAccountingReadinessRecords: InventoryAccountingReadinessRecord[] = [
+  { readinessId: 'IAR-ID-0001', readinessNumber: 'IAR-0001', vendorId: 'SCI-LOG-ZW', sourceType: 'GRN', sourceId: 'GRN-ID-0003', sourceNumber: 'GRN-0003', movementId: 'MOV-GRN-0003', movementType: 'GOODS_RECEIVED', impactType: 'Inventory Asset Increase', branchId: 'BR-HARARE', branchName: 'Harare Main', warehouseId: 'WH-HARARE-01', warehouseName: 'Harare Main Warehouse', status: 'Pending Review', riskLevel: 'Low', totalValueImpact: 248, currency: 'USD', notes: 'Posted GRN can create inventory asset increase pending review. No supplier payment posted.', createdAt: '2026-06-12T08:10:00Z', updatedAt: '2026-06-12T08:10:00Z' },
+  { readinessId: 'IAR-ID-0002', readinessNumber: 'IAR-0002', vendorId: 'SCI-LOG-ZW', sourceType: 'Supplier Return', sourceId: 'SRT-ID-0003', sourceNumber: 'SRT-0003', movementId: 'MOV-SRT-0003', movementType: 'SUPPLIER_RETURN', impactType: 'Inventory Asset Decrease', branchId: 'BR-HARARE', branchName: 'Harare Main', warehouseId: 'WH-RET-01', warehouseName: 'Return Holding', status: 'Pending Review', riskLevel: 'Medium', totalValueImpact: -72, currency: 'USD', notes: 'Supplier credit expected placeholder only.', createdAt: '2026-06-12T08:20:00Z', updatedAt: '2026-06-12T08:20:00Z' },
+  { readinessId: 'IAR-ID-0003', readinessNumber: 'IAR-0003', vendorId: 'SCI-LOG-ZW', sourceType: 'Stock Adjustment', sourceId: 'STA-ID-0002', sourceNumber: 'STA-0002', movementId: 'MOV-STA-0002', movementType: 'WRITE_OFF', impactType: 'Inventory Write Off', branchId: 'BR-HARARE', branchName: 'Harare Main', warehouseId: 'WH-DMG-01', warehouseName: 'Damaged Holding', status: 'On Hold', riskLevel: 'High', totalValueImpact: -180, currency: 'USD', notes: 'Write-off review on hold pending manager notes.', createdAt: '2026-06-12T08:30:00Z', updatedAt: '2026-06-12T08:30:00Z' },
+  { readinessId: 'IAR-ID-0004', readinessNumber: 'IAR-0004', vendorId: 'SCI-LOG-ZW', sourceType: 'Stocktake', sourceId: 'STK-ID-0004', sourceNumber: 'STK-0004', movementId: 'MOV-STK-0004', movementType: 'STOCKTAKE_LOSS', impactType: 'Stocktake Loss', branchId: 'BR-BYO', branchName: 'Bulawayo Branch', warehouseId: 'WH-BYO-01', warehouseName: 'Bulawayo Branch Warehouse', status: 'Pending Review', riskLevel: 'Critical', totalValueImpact: -360, currency: 'USD', notes: 'Critical stocktake loss requires accounting approval placeholder.', createdAt: '2026-06-12T08:40:00Z', updatedAt: '2026-06-12T08:40:00Z' },
+  { readinessId: 'IAR-ID-0005', readinessNumber: 'IAR-0005', vendorId: 'SCI-LOG-ZW', sourceType: 'Stock Transfer', sourceId: 'TRF-ID-0002', sourceNumber: 'TRF-0002', movementId: 'MOV-TRF-0002', movementType: 'BRANCH_TRANSFER_OUT', impactType: 'Transfer Neutral', branchId: 'BR-HARARE', branchName: 'Harare Main', warehouseId: 'WH-HARARE-01', warehouseName: 'Harare Main Warehouse', status: 'Reviewed', riskLevel: 'Low', totalValueImpact: 0, currency: 'USD', reviewedByStaffId: 'ST-ADMIN', reviewedByStaffName: 'Admin User', notes: 'Transfer neutral under current policy.', createdAt: '2026-06-12T08:50:00Z', updatedAt: '2026-06-12T09:10:00Z' }
+];
+
+export const mockInventoryAccountingReadinessLines: InventoryAccountingReadinessLine[] = [
+  { lineId: 'IAR-LINE-0001', readinessId: 'IAR-ID-0001', productId: 'STOCK-P-02', sku: 'BJ-CBHO49', productName: 'Ball Joint Honda Fit GD1', movementType: 'GOODS_RECEIVED', qtyIn: 24, qtyOut: 0, unitCost: 7, valueImpact: 168, debitAccountCode: '1200', debitAccountName: 'Inventory Asset', creditAccountCode: '2100', creditAccountName: 'Supplier Liability Placeholder', mappingStatus: 'Mapped', notes: 'GRN inventory increase pending review.' },
+  { lineId: 'IAR-LINE-0002', readinessId: 'IAR-ID-0001', productId: 'STOCK-P-03', sku: 'BP-GD6-F', productName: 'Brake Pads Toyota GD6 Front', movementType: 'GOODS_RECEIVED', qtyIn: 5, qtyOut: 0, unitCost: 16, valueImpact: 80, debitAccountCode: '1200', debitAccountName: 'Inventory Asset', creditAccountCode: '2100', creditAccountName: 'Supplier Liability Placeholder', mappingStatus: 'Mapped', notes: 'Supplier invoice pending.' },
+  { lineId: 'IAR-LINE-0003', readinessId: 'IAR-ID-0002', productId: 'STOCK-P-RAD-COROLLA', sku: 'RAD-COROLLA', productName: 'Radiator Toyota Corolla', movementType: 'SUPPLIER_RETURN', qtyIn: 0, qtyOut: 1, unitCost: 72, valueImpact: -72, debitAccountCode: '2150', debitAccountName: 'Supplier Credit Note Expected', creditAccountCode: '1200', creditAccountName: 'Inventory Asset', mappingStatus: 'Mapped', notes: 'Credit note expected from supplier.' },
+  { lineId: 'IAR-LINE-0004', readinessId: 'IAR-ID-0003', productId: 'STOCK-P-05', sku: 'CLT-N16', productName: 'Clutch Plate Nissan N16', movementType: 'WRITE_OFF', qtyIn: 0, qtyOut: 4, unitCost: 45, valueImpact: -180, debitAccountCode: '5100', debitAccountName: 'Stock Write Off', creditAccountCode: '1200', creditAccountName: 'Inventory Asset', mappingStatus: 'Review Required', notes: 'High-risk write-off mapping review.' },
+  { lineId: 'IAR-LINE-0005', readinessId: 'IAR-ID-0004', productId: 'STOCK-P-03', sku: 'BP-GD6-F', productName: 'Brake Pads Toyota GD6 Front', movementType: 'STOCKTAKE_LOSS', qtyIn: 0, qtyOut: 12, unitCost: 30, valueImpact: -360, debitAccountCode: '5200', debitAccountName: 'Stocktake Loss', creditAccountCode: '1200', creditAccountName: 'Inventory Asset', mappingStatus: 'Review Required', notes: 'Critical stocktake loss threshold exceeded.' },
+  { lineId: 'IAR-LINE-0006', readinessId: 'IAR-ID-0005', productId: 'STOCK-P-HILUX-MIR-RC', sku: 'MIR-GD6-RC', productName: 'Toyota Hilux GD6 Mirror Right Chrome', movementType: 'BRANCH_TRANSFER_OUT', qtyIn: 0, qtyOut: 2, unitCost: 34, valueImpact: 0, mappingStatus: 'Mapped', notes: 'Transfer neutral under current policy.' }
+];
+
+export const mockChartOfAccountsPlaceholders: ChartOfAccountsPlaceholder[] = [
+  { accountCode: '1200', accountName: 'Inventory Asset', accountType: 'Asset', normalBalance: 'Debit', linkedDomain: 'Inventory', status: 'Active' },
+  { accountCode: '5000', accountName: 'Cost of Goods Sold Placeholder', accountType: 'Cost of Sales', normalBalance: 'Debit', linkedDomain: 'COGS', status: 'Review' },
+  { accountCode: '5100', accountName: 'Stock Write Off', accountType: 'Expense', normalBalance: 'Debit', linkedDomain: 'Inventory Write Off', status: 'Active' },
+  { accountCode: '5200', accountName: 'Stocktake Loss', accountType: 'Expense', normalBalance: 'Debit', linkedDomain: 'Stocktake', status: 'Active' },
+  { accountCode: '4200', accountName: 'Stocktake Gain Placeholder', accountType: 'Income', normalBalance: 'Credit', linkedDomain: 'Stocktake', status: 'Review' },
+  { accountCode: '2100', accountName: 'Supplier Liability Placeholder', accountType: 'Liability', normalBalance: 'Credit', linkedDomain: 'GRN', status: 'Review' },
+  { accountCode: '2150', accountName: 'Supplier Credit Note Expected', accountType: 'Liability', normalBalance: 'Debit', linkedDomain: 'Supplier Return', status: 'Review' },
+  { accountCode: '9999', accountName: 'Suspense / Review Account', accountType: 'Review', normalBalance: 'Debit', linkedDomain: 'Unresolved Mapping', status: 'Review' }
+];
+
+export const mockAccountingMappingRules: AccountingMappingRule[] = [
+  { ruleId: 'MAP-GRN', movementType: 'GOODS_RECEIVED', impactType: 'Inventory Asset Increase', debitAccountCode: '1200', creditAccountCode: '2100', mappingStatus: 'Mapped', notes: 'GOODS_RECEIVED maps to inventory asset increase.' },
+  { ruleId: 'MAP-SRT', movementType: 'SUPPLIER_RETURN', impactType: 'Supplier Return Credit Expected', debitAccountCode: '2150', creditAccountCode: '1200', mappingStatus: 'Mapped', notes: 'Supplier return decreases inventory and expects supplier credit.' },
+  { ruleId: 'MAP-ADJ-IN', movementType: 'STOCK_ADJUSTMENT_IN', impactType: 'Inventory Asset Increase', debitAccountCode: '1200', creditAccountCode: '9999', mappingStatus: 'Review Required', notes: 'Positive adjustment requires review credit account.' },
+  { ruleId: 'MAP-ADJ-OUT', movementType: 'STOCK_ADJUSTMENT_OUT', impactType: 'Inventory Asset Decrease', debitAccountCode: '9999', creditAccountCode: '1200', mappingStatus: 'Review Required', notes: 'Negative adjustment requires review.' },
+  { ruleId: 'MAP-WRITE-OFF', movementType: 'WRITE_OFF', impactType: 'Inventory Write Off', debitAccountCode: '5100', creditAccountCode: '1200', mappingStatus: 'Mapped', notes: 'Write-off review placeholder.' },
+  { ruleId: 'MAP-STK-GAIN', movementType: 'STOCKTAKE_GAIN', impactType: 'Stocktake Gain', debitAccountCode: '1200', creditAccountCode: '4200', mappingStatus: 'Mapped', notes: 'Stocktake gain placeholder.' },
+  { ruleId: 'MAP-STK-LOSS', movementType: 'STOCKTAKE_LOSS', impactType: 'Stocktake Loss', debitAccountCode: '5200', creditAccountCode: '1200', mappingStatus: 'Mapped', notes: 'Stocktake loss placeholder.' },
+  { ruleId: 'MAP-BR-OUT', movementType: 'BRANCH_TRANSFER_OUT', impactType: 'Transfer Neutral', mappingStatus: 'Mapped', notes: 'Transfer neutral unless valuation policy is added.' },
+  { ruleId: 'MAP-WH-IN', movementType: 'WAREHOUSE_TRANSFER_IN', impactType: 'Transfer Neutral', mappingStatus: 'Mapped', notes: 'Transfer neutral unless valuation policy is added.' }
+];
+
+export const mockInventoryAccountingActivityEvents: InventoryAccountingActivityEvent[] = [
+  { id: 'IAR-ACT-001', eventType: 'INVENTORY_ACCOUNTING_REVIEW_PREPARED', readinessId: 'IAR-ID-0001', sourceNumber: 'GRN-0003', message: 'Inventory accounting review prepared for posted GRN.', staffId: 'ST-BLESSING', createdAt: '2026-06-12T08:10:00Z' },
+  { id: 'IAR-ACT-002', eventType: 'INVENTORY_WRITE_OFF_REVIEW', readinessId: 'IAR-ID-0003', sourceNumber: 'STA-0002', message: 'Write-off accounting readiness placed on hold.', staffId: 'ST-ADMIN', createdAt: '2026-06-12T08:30:00Z' },
+  { id: 'IAR-ACT-003', eventType: 'STOCKTAKE_LOSS_ACCOUNTING_REVIEW', readinessId: 'IAR-ID-0004', sourceNumber: 'STK-0004', message: 'Critical stocktake loss accounting review prepared.', staffId: 'ST-ADMIN', createdAt: '2026-06-12T08:40:00Z' }
 ];
 
 export const mockAccountingActivityEvents: AccountingActivityEvent[] = [

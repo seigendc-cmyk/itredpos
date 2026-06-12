@@ -281,6 +281,7 @@ export default function StockPanels({
   const blockedPermissionMessage = 'You do not have permission to perform this action.';
 
   const [productMasterRows, setProductMasterRows] = useState<ProductMasterRecord[]>([]);
+  const [allProductBalances, setAllProductBalances] = useState<ProductStockBalance[]>([]);
   const [productMasterSummary, setProductMasterSummary] = useState<ProductMasterSummary>({
     totalProducts: 0,
     activeProducts: 0,
@@ -320,14 +321,16 @@ export default function StockPanels({
   const [productMasterNotice, setProductMasterNotice] = useState<string | null>(null);
 
   const refreshProductMaster = async (filters = productMasterFilters) => {
-    const [rows, summary, balanceSummary] = await Promise.all([
+    const [rows, summary, balanceSummary, balances] = await Promise.all([
       getProductMasterRecords(filters),
       getProductMasterSummary(filters),
-      getProductStockBalanceSummary()
+      getProductStockBalanceSummary(),
+      getProductStockBalances()
     ]);
     setProductMasterRows(rows);
     setProductMasterSummary(summary);
     setStockBalanceSummary(balanceSummary);
+    setAllProductBalances(balances);
   };
 
   const openProductMaster = async (product: ProductMasterRecord) => {
@@ -2443,7 +2446,10 @@ export default function StockPanels({
                 Product Master
               </span>
               <p className="text-[9.5px] text-slate-700 mt-1 uppercase font-semibold">
-                Product identity, supplier links, multi-location stock balances, reorder rules, and ledger alignment.
+                Product identity, sector attributes, pricing, supplier links, and multi-location stock balances.
+              </p>
+              <p className="text-[9.5px] text-orange-700 mt-1 uppercase font-black">
+                Product Master does not directly change stock. Stock quantities change through approved inventory movements.
               </p>
             </div>
             <div className="flex flex-wrap gap-2">
@@ -2480,35 +2486,36 @@ export default function StockPanels({
             </div>
           )}
 
-          <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-8 gap-2">
+          <div className="grid grid-cols-2 md:grid-cols-5 xl:grid-cols-10 gap-2">
             <POMetric label="Total Products" value={productMasterSummary.totalProducts} />
-            <POMetric label="Active" value={productMasterSummary.activeProducts} />
-            <POMetric label="Blocked" value={productMasterSummary.blockedProducts} />
-            <POMetric label="Low Stock" value={productMasterSummary.lowStockProducts} />
+            <POMetric label="Active Products" value={productMasterSummary.activeProducts} />
+            <POMetric label="Draft Products" value={productMasterSummary.draftProducts || 0} />
+            <POMetric label="Low Stock Products" value={productMasterSummary.lowStockProducts} />
             <POMetric label="Out Of Stock" value={productMasterSummary.outOfStockProducts} />
             <POMetric label="Multi-Location" value={productMasterSummary.multiLocationProducts} />
-            <POMetric label="Supplier Linked" value={productMasterSummary.supplierLinkedProducts} />
-            <POMetric label="Risk Products" value={productMasterSummary.riskProducts} />
-          </div>
-
-          <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-9 gap-2">
-            <POMetric label="Locations" value={stockBalanceSummary.totalLocations} />
-            <POMetric label="Qty On Hand" value={stockBalanceSummary.totalQtyOnHand} />
-            <POMetric label="Available" value={stockBalanceSummary.totalQtyAvailable} />
-            <POMetric label="Reserved" value={stockBalanceSummary.totalQtyReserved} />
-            <POMetric label="Damaged" value={stockBalanceSummary.totalQtyDamaged} />
+            <POMetric label="Damaged Holding" value={stockBalanceSummary.totalQtyDamaged} />
+            <POMetric label="Return Holding" value={stockBalanceSummary.totalQtyReturnHolding || 0} />
             <POMetric label="In Transit" value={stockBalanceSummary.totalQtyInTransit} />
-            <POMetric label="Low Locations" value={stockBalanceSummary.lowStockLocations} />
-            <POMetric label="Out Locations" value={stockBalanceSummary.outOfStockLocations} />
-            <POMetric label="Review Locations" value={stockBalanceSummary.stocktakeReviewLocations} />
+            <POMetric label="Reorder Required" value={stockBalanceSummary.reorderRequiredLocations || 0} />
           </div>
 
-          <div className="bg-[#f8fafc] border border-[#d7dce5] p-3 grid grid-cols-1 md:grid-cols-3 xl:grid-cols-6 gap-3">
+          <div className="bg-[#f8fafc] border border-[#d7dce5] p-3 grid grid-cols-1 md:grid-cols-3 xl:grid-cols-8 gap-3">
             <POFilterInput label="Search" value={productMasterFilters.search || ''} onChange={(value) => setProductMasterFilters((current) => ({ ...current, search: value }))} />
+            <POFilterInput label="SKU" value={productMasterFilters.sku || ''} onChange={(value) => setProductMasterFilters((current) => ({ ...current, sku: value }))} />
+            <POFilterInput label="Barcode" value={productMasterFilters.barcode || ''} onChange={(value) => setProductMasterFilters((current) => ({ ...current, barcode: value }))} />
+            <POFilterInput label="ALU" value={productMasterFilters.alu || ''} onChange={(value) => setProductMasterFilters((current) => ({ ...current, alu: value }))} />
+            <POFilterInput label="Product Name" value={productMasterFilters.productName || ''} onChange={(value) => setProductMasterFilters((current) => ({ ...current, productName: value }))} />
+            <POFilterInput label="Brand" value={productMasterFilters.brand || ''} onChange={(value) => setProductMasterFilters((current) => ({ ...current, brand: value }))} />
+            <POFilterInput label="Manufacturer" value={productMasterFilters.manufacturer || ''} onChange={(value) => setProductMasterFilters((current) => ({ ...current, manufacturer: value }))} />
+            <POFilterInput label="Supplier" value={productMasterFilters.supplier || ''} onChange={(value) => setProductMasterFilters((current) => ({ ...current, supplier: value }))} />
+            <POFilterInput label="Industrial Sector" value={productMasterFilters.industrialSector || ''} onChange={(value) => setProductMasterFilters((current) => ({ ...current, industrialSector: value }))} />
+            <POFilterInput label="Category" value={productMasterFilters.category || ''} onChange={(value) => setProductMasterFilters((current) => ({ ...current, category: value }))} />
+            <POFilterInput label="Subcategory" value={productMasterFilters.subCategory || ''} onChange={(value) => setProductMasterFilters((current) => ({ ...current, subCategory: value }))} />
             <POFilterSelect label="Status" value={productMasterFilters.status || 'ALL'} onChange={(value) => setProductMasterFilters((current) => ({ ...current, status: value as ProductMasterFilterState['status'] }))} options={['ALL', 'Draft', 'Active', 'Blocked', 'Inactive', 'Discontinued', 'Pending Review']} />
-            <POFilterSelect label="Risk" value={productMasterFilters.riskStatus || 'ALL'} onChange={(value) => setProductMasterFilters((current) => ({ ...current, riskStatus: value as ProductMasterFilterState['riskStatus'] }))} options={['ALL', 'None', 'Low Margin', 'Supplier Risk', 'Dead Stock', 'Variance Risk', 'Blocked Sale', 'Credit Review']} />
-            <POFilterSelect label="Location Type" value={productMasterFilters.locationType || 'ALL'} onChange={(value) => setProductMasterFilters((current) => ({ ...current, locationType: value as ProductMasterFilterState['locationType'] }))} options={['ALL', 'Branch Sales Floor', 'Branch Warehouse', 'Main Warehouse', 'Holding Area', 'Damaged Stock', 'In Transit', 'Supplier Return Bay', 'Virtual']} />
-            <POFilterSelect label="Stock Status" value={productMasterFilters.stockStatus || 'ALL'} onChange={(value) => setProductMasterFilters((current) => ({ ...current, stockStatus: value as ProductMasterFilterState['stockStatus'] }))} options={['ALL', 'Available', 'Low Stock', 'Out of Stock', 'Reserved', 'Damaged', 'In Transit', 'Blocked', 'Stocktake Review']} />
+            <POFilterSelect label="Risk Status" value={productMasterFilters.riskStatus || 'ALL'} onChange={(value) => setProductMasterFilters((current) => ({ ...current, riskStatus: value as ProductMasterFilterState['riskStatus'] }))} options={['ALL', 'Normal', 'Low Stock', 'Out Of Stock', 'Overstocked', 'No Movement', 'Slow Moving', 'Fast Moving', 'Variance Risk', 'Blocked']} />
+            <POFilterInput label="Branch" value={productMasterFilters.branchId || ''} onChange={(value) => setProductMasterFilters((current) => ({ ...current, branchId: value }))} />
+            <POFilterInput label="Warehouse" value={productMasterFilters.warehouseId || ''} onChange={(value) => setProductMasterFilters((current) => ({ ...current, warehouseId: value }))} />
+            <POFilterSelect label="Location Type" value={productMasterFilters.locationType || 'ALL'} onChange={(value) => setProductMasterFilters((current) => ({ ...current, locationType: value as ProductMasterFilterState['locationType'] }))} options={['ALL', 'Main Warehouse', 'Branch Warehouse', 'Sales Floor', 'Back Store', 'Shelf', 'Damaged Holding', 'Return Holding', 'Supplier Return Preparation', 'In Transit', 'Quarantine', 'Other']} />
             <button type="button" onClick={() => refreshProductMaster(productMasterFilters)} className="px-3 py-2 bg-orange-600 text-white border border-orange-700 font-black uppercase text-[9px] rounded-none self-end">Apply Filters</button>
           </div>
 
@@ -2516,37 +2523,56 @@ export default function StockPanels({
             <table className="w-full text-xs">
               <thead className="bg-[#252a31] text-white">
                 <tr>
-                  {['Product Code', 'SKU', 'Product Name', 'Sector', 'Category', 'Supplier', 'Status', 'Risk', 'Available', 'Locations', 'Action'].map((header) => (
+                  {['SKU', 'Product Name', 'Brand', 'Sector', 'Category', 'Supplier', 'Total Available', 'Total On Hand', 'Damaged', 'In Transit', 'Reorder Level', 'Risk', 'Status', 'Action'].map((header) => (
                     <th key={header} className="p-2 text-left text-[9px] uppercase font-black">{header}</th>
                   ))}
                 </tr>
               </thead>
               <tbody>
                 {productMasterRows.map((product) => {
-                  const balancesForProduct = selectedProductMaster?.productId === product.productId ? selectedProductBalances : [];
-                  const rowBalances = balancesForProduct.length > 0 ? balancesForProduct : [];
+                  const rowBalances = allProductBalances.filter((balance) => balance.productId === product.productId);
                   const available = rowBalances.reduce((sum, balance) => sum + balance.qtyAvailable, 0);
-                  const locations = rowBalances.length || 'Open';
+                  const onHand = rowBalances.reduce((sum, balance) => sum + balance.qtyOnHand, 0);
+                  const damaged = rowBalances.reduce((sum, balance) => sum + balance.qtyDamaged, 0);
+                  const inTransit = rowBalances.reduce((sum, balance) => sum + balance.qtyInTransit, 0);
+                  const reorderLevel = rowBalances.reduce((sum, balance) => sum + balance.reorderLevel, 0);
                   return (
                     <tr key={product.productId} onDoubleClick={() => openProductMaster(product)} className="border-t border-[#e5e7eb] hover:bg-orange-50">
-                      <td className="p-2 font-black text-[#111827]">{product.productCode}</td>
-                      <td className="p-2">{product.sku}</td>
+                      <td className="p-2 font-black text-[#111827]">{product.sku}</td>
                       <td className="p-2 font-semibold">{product.productName}</td>
-                      <td className="p-2">{product.sectorAttributes.sector}</td>
-                      <td className="p-2">{product.category}</td>
-                      <td className="p-2">{product.preferredSupplierName || '-'}</td>
-                      <td className="p-2"><span className={`px-2 py-1 border text-[8px] font-black uppercase ${productMasterStatusClass(product.status)}`}>{product.status}</span></td>
-                      <td className="p-2"><span className={`px-2 py-1 border text-[8px] font-black uppercase ${product.riskStatus === 'None' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-orange-50 text-orange-800 border-orange-200'}`}>{product.riskStatus}</span></td>
-                      <td className="p-2">{available || 'Open'}</td>
-                      <td className="p-2">{locations}</td>
+                      <td className="p-2">{product.brand || product.sectorAttributes.brand || '-'}</td>
+                      <td className="p-2">{product.industrialSector || product.sectorAttributes.sector}</td>
+                      <td className="p-2">{product.productCategory || product.category}</td>
+                      <td className="p-2">{product.supplierName || product.preferredSupplierName || '-'}</td>
+                      <td className="p-2">{available}</td>
+                      <td className="p-2">{onHand}</td>
+                      <td className="p-2">{damaged}</td>
+                      <td className="p-2">{inTransit}</td>
+                      <td className="p-2">{reorderLevel || product.reorderLevel || 0}</td>
+                      <td className="p-2"><span className={`px-2 py-1 border text-[8px] font-black uppercase ${product.riskStatus === 'Normal' || product.riskStatus === 'None' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-orange-50 text-orange-800 border-orange-200'}`}>{product.riskStatus}</span></td>
+                      <td className="p-2"><span className={`px-2 py-1 border text-[8px] font-black uppercase ${productMasterStatusClass(product.productStatus || product.status)}`}>{product.productStatus || product.status}</span></td>
                       <td className="p-2">
                         <div className="flex flex-wrap gap-1">
-                          <POAction label="Open" primary onClick={() => openProductMaster(product)} />
-                          <POAction label="Balances" onClick={async () => {
-                            const result = await exportStockBalancesPlaceholder(product.productId);
-                            setProductMasterNotice(result.message);
+                          <POAction label="View Product" primary onClick={() => openProductMaster(product)} />
+                          <POAction label="Edit Product" onClick={() => openProductMaster(product)} />
+                          <POAction label="View Balances" onClick={() => openProductMaster(product)} />
+                          <POAction label="View Ledger" onClick={() => setProductMasterNotice(`Product Ledger can be opened filtered by ${product.sku}.`)} />
+                          <POAction label="View Movements" onClick={() => setProductMasterNotice(`Inventory Movements can be opened filtered by ${product.sku}.`)} />
+                          <POAction label="Create Stock Adjustment" onClick={() => setProductMasterNotice('Stock correction must be made from Stock Adjustments. Product Master does not edit quantities.')} />
+                          <POAction label="Mark Inactive" onClick={() => {
+                            if (!canPerformAction(simulatedRole, 'productMaster.edit')) {
+                              setProductMasterNotice(blockedPermissionMessage);
+                              return;
+                            }
+                            void markProductInactive(product.productId, staffName, 'Marked inactive from Product Master table.').then(() => refreshProductMaster(productMasterFilters));
                           }} />
-                          <POAction label="Ledger" onClick={() => setProductMasterNotice(`Product Ledger can be opened for ${product.sku} from the Product Master popup.`)} />
+                          <POAction label="Block Product" onClick={() => {
+                            if (!canPerformAction(simulatedRole, 'productMaster.block')) {
+                              setProductMasterNotice(blockedPermissionMessage);
+                              return;
+                            }
+                            void blockProduct(product.productId, staffName, 'Blocked from Product Master table.').then(() => refreshProductMaster(productMasterFilters));
+                          }} />
                         </div>
                       </td>
                     </tr>
@@ -2554,7 +2580,7 @@ export default function StockPanels({
                 })}
                 {productMasterRows.length === 0 && (
                   <tr>
-                    <td className="p-4 text-slate-600 font-semibold" colSpan={11}>No product master rows match the current filters.</td>
+                    <td className="p-4 text-slate-600 font-semibold" colSpan={14}>No product master rows match the current filters.</td>
                   </tr>
                 )}
               </tbody>

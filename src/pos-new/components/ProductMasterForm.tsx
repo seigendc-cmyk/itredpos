@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Download, FileText, Save, ShieldAlert, X } from 'lucide-react';
+import { Download, FileText, Maximize2, Minimize2, Save, ShieldAlert, Square, X } from 'lucide-react';
 import {
   InventoryMovement,
   ProductBarcodeRecord,
@@ -83,6 +83,8 @@ export default function ProductMasterForm({
   onExport
 }: ProductMasterFormProps) {
   const [activeTab, setActiveTab] = useState<ProductMasterTab>('Product Details');
+  const [isMinimized, setIsMinimized] = useState(false);
+  const [isMaximized, setIsMaximized] = useState(false);
   const [draftName, setDraftName] = useState(product.productName);
   const [draftSellingPrice, setDraftSellingPrice] = useState(String(product.defaultSellingPrice));
   const [draftCostPrice, setDraftCostPrice] = useState(String(product.defaultCostPrice));
@@ -101,17 +103,28 @@ export default function ProductMasterForm({
 
   return (
     <div className="fixed inset-0 bg-black/40 z-50 flex items-start justify-center p-4 overflow-auto">
-      <div className="bg-[#f4f6f8] border border-[#111827] w-full max-w-6xl shadow-xl rounded-none">
+      <div className={`bg-[#f4f6f8] border border-[#111827] w-full shadow-xl rounded-none ${isMaximized ? 'max-w-none min-h-[calc(100vh-2rem)]' : 'max-w-6xl'}`}>
         <div className="bg-[#252a31] text-white px-4 py-3 flex items-center justify-between">
           <div>
             <div className="text-[10px] uppercase text-orange-300 font-black">Product Master</div>
             <h2 className="text-lg font-black">{product.productName}</h2>
+            <div className="text-[10px] text-slate-200 font-semibold mt-0.5">Product identity, sector attributes, supplier links, pricing, and stock balance view.</div>
           </div>
-          <button type="button" onClick={onClose} className="p-2 border border-white/30 hover:bg-white/10 rounded-none" title="Close">
-            <X className="w-4 h-4" />
-          </button>
+          <div className="flex items-center gap-2">
+            <button type="button" onClick={() => setIsMinimized(true)} className="p-2 border border-white/30 hover:bg-white/10 rounded-none" title="Minimize"><Minimize2 className="w-4 h-4" /></button>
+            <button type="button" onClick={() => setIsMinimized(false)} className="p-2 border border-white/30 hover:bg-white/10 rounded-none" title="Restore"><Square className="w-4 h-4" /></button>
+            <button type="button" onClick={() => setIsMaximized((current) => !current)} className="p-2 border border-white/30 hover:bg-white/10 rounded-none" title="Maximize"><Maximize2 className="w-4 h-4" /></button>
+            <button type="button" onClick={onClose} className="p-2 border border-white/30 hover:bg-white/10 rounded-none" title="Close"><X className="w-4 h-4" /></button>
+          </div>
         </div>
 
+        {isMinimized ? (
+          <div className="p-4 bg-white border-t border-[#d7dce5] flex items-center justify-between">
+            <span className="text-xs font-black uppercase text-[#252a31]">{product.sku} minimized</span>
+            <button type="button" onClick={() => setIsMinimized(false)} className="px-3 py-2 bg-orange-600 border border-orange-700 text-white text-[10px] font-black uppercase rounded-none">Restore</button>
+          </div>
+        ) : (
+        <>
         <div className="px-4 py-3 bg-white border-b border-[#d7dce5] flex flex-wrap gap-2">
           {tabs.map((tab) => (
             <button
@@ -136,10 +149,17 @@ export default function ProductMasterForm({
               <Field label="Product Code" value={product.productCode} />
               <Field label="Barcode" value={product.barcode} />
               <Field label="ALU" value={product.alu} />
+              <Field label="Vendor SKU" value={product.vendorSku} />
               <Field label="Numeric No." value={product.productNumericNumber} />
-              <Field label="Status" value={<Badge value={product.status} />} />
+              <Field label="Description" value={product.description || product.shortDescription} />
+              <Field label="Brand" value={product.brand || product.sectorAttributes.brand} />
+              <Field label="Manufacturer" value={product.manufacturer || product.sectorAttributes.manufacturer} />
+              <Field label="Condition" value={product.condition} />
+              <Field label="Colour" value={product.colour || product.sectorAttributes.colour} />
+              <Field label="Status" value={<Badge value={product.productStatus || product.status} />} />
               <Field label="Risk" value={<Badge value={product.riskStatus} />} />
               <Field label="Unit" value={product.unitOfMeasure} />
+              <Field label="Tags" value={(product.tags || []).join(', ')} />
               <Field label="Tax Code" value={product.taxCode} />
               <Field label="Sales COA" value={product.salesAccountCOA} />
               <Field label="Asset COA" value={product.assetAccountCOA} />
@@ -168,27 +188,27 @@ export default function ProductMasterForm({
               <Field label="Margin" value={`${product.marginPercent}%`} />
               <div className="lg:col-span-3 overflow-auto border border-[#d7dce5] bg-white">
                 <table className="w-full text-xs">
-                  <thead className="bg-[#252a31] text-white"><tr><th className="p-2 text-left">Price List</th><th className="p-2 text-left">Sell</th><th className="p-2 text-left">Cost</th><th className="p-2 text-left">Margin</th><th className="p-2 text-left">Status</th></tr></thead>
-                  <tbody>{prices.map((price) => <tr key={price.priceId} className="border-t"><td className="p-2">{price.priceListName}</td><td className="p-2">{money(price.sellingPrice)}</td><td className="p-2">{money(price.costPrice)}</td><td className="p-2">{price.marginPercent}%</td><td className="p-2"><Badge value={price.status} /></td></tr>)}</tbody>
+                  <thead className="bg-[#252a31] text-white"><tr><th className="p-2 text-left">Price List</th><th className="p-2 text-left">Sell</th><th className="p-2 text-left">Cost</th><th className="p-2 text-left">Tax</th><th className="p-2 text-left">VAT</th><th className="p-2 text-left">Margin</th><th className="p-2 text-left">Markup</th><th className="p-2 text-left">Status</th></tr></thead>
+                  <tbody>{prices.map((price) => <tr key={price.priceId} className="border-t"><td className="p-2">{price.priceListName}</td><td className="p-2">{money(price.sellingPrice)}</td><td className="p-2">{money(price.costPrice)}</td><td className="p-2">{price.taxMode || product.taxMode || 'VAT Registered'}</td><td className="p-2">{price.vatRate ?? product.vatRate ?? 15}%</td><td className="p-2">{price.marginPercent}%</td><td className="p-2">{price.markupPercent ?? Math.round(((price.sellingPrice - price.costPrice) / Math.max(1, price.costPrice)) * 100)}%</td><td className="p-2"><Badge value={price.status} /></td></tr>)}</tbody>
                 </table>
               </div>
             </div>
           )}
 
           {activeTab === 'Supplier Links' && (
-            <Table headers={['Supplier', 'Supplier SKU', 'Last Cost', 'Lead Time', 'MOQ', 'Status']} rows={supplierLinks.map((link) => [link.supplierName, link.supplierSku || '-', money(link.lastCost), `${link.leadTimeDays} days`, link.minimumOrderQty, link.status])} />
+            <Table headers={['Supplier', 'Supplier Item Code', 'Last Cost', 'Lead Time Days', 'Minimum Order Qty', 'Preferred Supplier', 'Status', 'Action']} rows={supplierLinks.map((link) => [link.supplierName, link.supplierItemCode || link.supplierSku || '-', money(link.lastCost), link.leadTimeDays, link.minimumOrderQty, link.isPreferred ? 'Yes' : 'No', link.status, 'Edit Link Placeholder'])} />
           )}
 
           {activeTab === 'Stock Balances' && (
-            <Table headers={['Branch', 'Warehouse', 'Location', 'Type', 'On Hand', 'Reserved', 'Available', 'Damaged', 'Transit', 'Status']} rows={balances.map((balance) => [balance.branchName, balance.warehouseName, balance.locationName, balance.locationType, balance.qtyOnHand, balance.qtyReserved, balance.qtyAvailable, balance.qtyDamaged, balance.qtyInTransit, balance.status])} />
+            <Table headers={['Branch', 'Warehouse', 'Location Type', 'Shelf', 'On Hand', 'Reserved', 'Available', 'Damaged', 'Return Holding', 'In Transit', 'Blocked', 'Reorder Level', 'Status', 'Last Movement', 'Action']} rows={balances.map((balance) => [balance.branchName, balance.warehouseName, balance.locationType, balance.shelfLocation || '-', balance.qtyOnHand, balance.qtyReserved, balance.qtyAvailable, balance.qtyDamaged, balance.qtyReturnHolding || 0, balance.qtyInTransit, balance.qtyBlocked || 0, balance.reorderLevel, balance.status, balance.lastMovementAt || balance.lastMovementDate || '-', 'Create Adjustment Placeholder'])} />
           )}
 
           {activeTab === 'Reorder Rules' && (
-            <Table headers={['Branch', 'Warehouse', 'Min', 'Max', 'Reorder Qty', 'Lead Time', 'Status']} rows={reorderRules.map((rule) => [rule.branchId, rule.warehouseId, rule.minQty, rule.maxQty, rule.reorderQty, `${rule.leadTimeDays} days`, rule.isActive ? 'Active' : 'Inactive'])} />
+            <Table headers={['Branch', 'Warehouse', 'Location Type', 'Reorder Level', 'Reorder Qty', 'Preferred Supplier', 'Auto PO Recommendation', 'Status', 'Action']} rows={reorderRules.map((rule) => [rule.branchId, rule.warehouseId, rule.locationType || 'Main Warehouse', rule.minQty, rule.reorderQty, rule.preferredSupplierName || rule.preferredSupplierId || '-', 'Placeholder', rule.status || (rule.isActive ? 'Active' : 'Inactive'), 'Create PO Recommendation Placeholder'])} />
           )}
 
           {activeTab === 'Product Ledger' && (
-            <Table headers={['Date', 'Movement', 'Reference', 'Warehouse', 'In', 'Out', 'Balance', 'Staff']} rows={ledgerEntries.slice(0, 20).map((entry) => [entry.movementDate, entry.movementType, entry.referenceNumber, entry.warehouseId, entry.qtyIn, entry.qtyOut, entry.balanceAfter, entry.staffName])} emptyMessage="No ledger rows found for this product yet." />
+            <Table headers={['Date / Time', 'Movement Type', 'Reference', 'Branch', 'Warehouse', 'Qty In', 'Qty Out', 'Balance Before', 'Balance After', 'Unit Cost', 'Value Impact', 'Staff', 'Notes']} rows={ledgerEntries.slice(0, 20).map((entry) => [entry.movementDate, entry.movementType, entry.referenceNumber, entry.branchId, entry.warehouseId, entry.qtyIn, entry.qtyOut, entry.balanceBefore, entry.balanceAfter, money(entry.unitCost), money(entry.totalCostImpact), entry.staffName, entry.notes])} emptyMessage="No ledger rows found for this product yet." />
           )}
 
           {activeTab === 'Audit' && (
@@ -201,7 +221,10 @@ export default function ProductMasterForm({
           <button type="button" onClick={onMarkInactive} className="px-3 py-2 border border-orange-300 bg-orange-50 text-orange-800 text-[10px] font-black uppercase rounded-none flex items-center gap-2"><FileText className="w-4 h-4" /> Mark Inactive</button>
           <button type="button" onClick={onBlock} className="px-3 py-2 border border-red-300 bg-red-50 text-red-700 text-[10px] font-black uppercase rounded-none flex items-center gap-2"><ShieldAlert className="w-4 h-4" /> Block Product</button>
           <button type="button" onClick={handleSave} className="px-3 py-2 bg-orange-600 border border-orange-700 text-white text-[10px] font-black uppercase rounded-none flex items-center gap-2"><Save className="w-4 h-4" /> Save Draft Placeholder</button>
+          <button type="button" onClick={handleSave} className="px-3 py-2 bg-[#252a31] border border-[#111827] text-white text-[10px] font-black uppercase rounded-none flex items-center gap-2"><Save className="w-4 h-4" /> Save Product</button>
         </div>
+        </>
+        )}
       </div>
     </div>
   );

@@ -27,6 +27,7 @@ import {
   getAccountingReadinessChecks,
   getSalesAccountingSummary
 } from './accountingService';
+import { getDeliveryRequests } from './deliveryService';
 
 export interface EODFilters {
   vendorId?: string;
@@ -150,7 +151,34 @@ export async function getEODInventoryClosing(filters: EODFilters): Promise<EODIn
 }
 
 export async function getEODDeliveryClosing(filters: EODFilters): Promise<EODDeliveryClosingRow[]> {
-  return readList<EODDeliveryClosingRow>(DELIVERY_KEY, mockEODDeliveryClosingRows).filter((row) =>
+  const baseRows = readList<EODDeliveryClosingRow>(DELIVERY_KEY, mockEODDeliveryClosingRows);
+  const requestRows = (await getDeliveryRequests({})).map((delivery): EODDeliveryClosingRow => {
+    const failed = ['Delivery Failed', 'Returned To Vendor', 'Cancelled'].includes(delivery.deliveryStatus);
+    const pending = ['Pending Assignment', 'Broadcast To iDeliver', 'Provider Selected', 'Assigned', 'Picked Up', 'In Transit', 'Arrived', 'Cash Pending Review'].includes(delivery.deliveryStatus);
+    const cashRisk = delivery.cashStatus === 'Collected By Driver' || delivery.cashStatus === 'Variance Review' || delivery.cashStatus === 'Missing Cash';
+    return {
+      id: `EOD-${delivery.deliveryId}`,
+      deliveryId: delivery.deliveryNumber,
+      branch: delivery.branchName,
+      receipt: delivery.receiptNumber,
+      customer: delivery.customerName,
+      deliveryMethod: delivery.deliveryMethod,
+      driver: delivery.driverName || delivery.providerName || 'Pending',
+      status: failed ? 'Failed' : pending ? 'Pending' : 'Completed',
+      secretCodeStatus: delivery.confirmationStatus === 'Code Verified' ? 'Confirmed' : delivery.confirmationStatus === 'Code Failed' ? 'Mismatch' : delivery.deliveryMethod === 'No Delivery' ? 'Not Required' : 'Pending',
+      completedAt: delivery.deliveredAt || delivery.updatedAt,
+      risk: failed || cashRisk ? 'High' : pending ? 'Medium' : 'Low',
+      requiredAction: failed
+        ? 'Failed / returned delivery requires follow-up.'
+        : cashRisk
+          ? 'Delivery cash pending EOD review. No cashbook posting created.'
+          : pending
+            ? 'Delivery unresolved at day end.'
+            : 'Review completed delivery handoff.'
+    };
+  });
+  const byId = new Map([...baseRows, ...requestRows].map((row) => [row.deliveryId, row]));
+  return Array.from(byId.values()).filter((row) =>
     isBranchMatch(row.branch || 'Harare Main', filters.branch)
   );
 }

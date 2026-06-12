@@ -55,6 +55,14 @@ import {
   ShelfLocationReportRow,
   COAInventoryReportRow,
   SupplierStockReportRow
+  , InventoryReportSummary
+  , InventoryValueReportRow
+  , StockHealthRecommendation
+  , SupplierPerformanceRow
+  , GRNDelayRow
+  , TransferDelayRow
+  , StockMovementAuditRow
+  , ReorderRecommendationRow
 } from '../types';
 import { mockProducts } from '../mock/mockPosData';
 import { canPerformAction } from '../utils/posPermissions';
@@ -81,14 +89,31 @@ import {
   reverseInventoryMovement,
   exportInventoryMovementsPlaceholder
 } from '../services/inventoryMovementService';
+import { generateReadinessFromInventoryMovement } from '../services/inventoryAccountingService';
 import { evaluateStockHealth, getStockHealthRows, getStockHealthSummary } from '../services/stockHealthService';
 import {
   exportInventoryReportPlaceholder,
   getCOAInventoryReport,
+  getDamagedHoldingReport,
+  getDeadStockReport,
+  getFastMovingReport,
+  getGRNDelayReport,
+  getInventoryRecommendations,
+  getInventoryReportSummary,
+  getLowStockReport,
   getMovementSummaryReport,
   getMovementSummaryReportTotals,
+  getOutOfStockReport,
+  getOverstockReport,
+  getReorderRecommendations,
+  getReturnHoldingReport,
   getShelfLocationReport,
+  getSlowMovingReport,
   getStockValuationReport,
+  getStockValueReport,
+  getStockMovementAuditReport,
+  getStockHealthRows as getInventoryReportStockHealthRows,
+  getSupplierPerformanceReport,
   getSupplierStockReport
 } from '../services/inventoryReportService';
 
@@ -302,6 +327,7 @@ export default function PosStock({
   const [productLedgerEntries, setProductLedgerEntries] = useState<InventoryMovement[]>([]);
   const [allInventoryMovements, setAllInventoryMovements] = useState<InventoryMovement[]>([]);
   const [productLedgerNotice, setProductLedgerNotice] = useState<string | null>(null);
+  const [inventoryAccountingNotice, setInventoryAccountingNotice] = useState<string | null>(null);
   const [productLedgerFilters, setProductLedgerFilters] = useState<ProductLedgerFilters>({
     branch: 'ALL',
     warehouse: 'ALL',
@@ -391,6 +417,28 @@ export default function PosStock({
   const [shelfReportRows, setShelfReportRows] = useState<ShelfLocationReportRow[]>([]);
   const [coaReportRows, setCOAReportRows] = useState<COAInventoryReportRow[]>([]);
   const [supplierReportRows, setSupplierReportRows] = useState<SupplierStockReportRow[]>([]);
+  const [inventoryReportSummary, setInventoryReportSummary] = useState<InventoryReportSummary>({
+    totalStockValue: 0,
+    lowStockItems: 0,
+    outOfStockItems: 0,
+    deadStockItems: 0,
+    slowMovingItems: 0,
+    fastMovingItems: 0,
+    overstockedItems: 0,
+    varianceRiskItems: 0,
+    damagedHoldingQty: 0,
+    returnHoldingQty: 0,
+    inTransitQty: 0,
+    reorderRecommendations: 0
+  });
+  const [inventoryReportHealthRows, setInventoryReportHealthRows] = useState<StockHealthRow[]>([]);
+  const [inventoryValueRows, setInventoryValueRows] = useState<InventoryValueReportRow[]>([]);
+  const [supplierPerformanceRows, setSupplierPerformanceRows] = useState<SupplierPerformanceRow[]>([]);
+  const [grnDelayRows, setGrnDelayRows] = useState<GRNDelayRow[]>([]);
+  const [transferDelayRows, setTransferDelayRows] = useState<TransferDelayRow[]>([]);
+  const [movementAuditRows, setMovementAuditRows] = useState<StockMovementAuditRow[]>([]);
+  const [reorderRecommendationRows, setReorderRecommendationRows] = useState<ReorderRecommendationRow[]>([]);
+  const [inventoryRecommendations, setInventoryRecommendations] = useState<StockHealthRecommendation[]>([]);
   const [reportNotice, setReportNotice] = useState<string | null>(null);
   const [reviewedHealthProducts, setReviewedHealthProducts] = useState<Set<string>>(new Set());
   const [reviewedShelves, setReviewedShelves] = useState<Set<string>>(new Set());
@@ -686,6 +734,11 @@ export default function PosStock({
     setReportNotice(result.message);
   };
 
+  const handlePrepareInventoryAccountingReview = async (movementId: string) => {
+    const result = await generateReadinessFromInventoryMovement(movementId);
+    setInventoryAccountingNotice(result.message);
+  };
+
   const handleReverseMovement = async (movementId: string) => {
     const currentRole = session?.role || 'Owner';
     if (currentRole !== 'Owner' && currentRole !== 'Manager') {
@@ -778,6 +831,25 @@ export default function PosStock({
       setShelfReportRows(await getShelfLocationReport(localStock, allInventoryMovements, reportFilters));
       setCOAReportRows(await getCOAInventoryReport(localStock, allInventoryMovements, reportFilters));
       setSupplierReportRows(await getSupplierStockReport(localStock, allInventoryMovements, reportFilters));
+      const reportType = reportFilters.reportType;
+      setInventoryReportSummary(await getInventoryReportSummary(reportFilters));
+      setInventoryValueRows(await getStockValueReport(reportFilters));
+      setSupplierPerformanceRows(await getSupplierPerformanceReport(reportFilters));
+      setGRNDelayRows(await getGRNDelayReport(reportFilters));
+      setTransferDelayRows(await getTransferDelayReport());
+      setMovementAuditRows(await getStockMovementAuditReport(reportFilters));
+      setReorderRecommendationRows(await getReorderRecommendations(reportFilters));
+      setInventoryRecommendations(await getInventoryRecommendations(reportFilters));
+      if (reportType === 'Low Stock') setInventoryReportHealthRows(await getLowStockReport(reportFilters));
+      else if (reportType === 'Out Of Stock') setInventoryReportHealthRows(await getOutOfStockReport(reportFilters));
+      else if (reportType === 'Dead Stock') setInventoryReportHealthRows(await getDeadStockReport(reportFilters));
+      else if (reportType === 'Slow Moving') setInventoryReportHealthRows(await getSlowMovingReport(reportFilters));
+      else if (reportType === 'Fast Moving') setInventoryReportHealthRows(await getFastMovingReport(reportFilters));
+      else if (reportType === 'Overstock') setInventoryReportHealthRows(await getOverstockReport(reportFilters));
+      else if (reportType === 'Variance Risk') setInventoryReportHealthRows(await getDamagedHoldingReport({ ...reportFilters, stockHealthStatus: 'Variance Risk' }));
+      else if (reportType === 'Damaged Holding') setInventoryReportHealthRows(await getDamagedHoldingReport(reportFilters));
+      else if (reportType === 'Return Holding') setInventoryReportHealthRows(await getReturnHoldingReport(reportFilters));
+      else setInventoryReportHealthRows(await getInventoryReportStockHealthRows(reportFilters));
     };
     void loadReports();
   }, [allInventoryMovements, localStock, reportFilters]);
@@ -1263,6 +1335,9 @@ export default function PosStock({
             </div>
             <span className="text-[10px] bg-orange-600 px-2 py-1 font-black uppercase">{allInventoryMovements.length} Movements</span>
           </div>
+          {inventoryAccountingNotice && (
+            <div className="border border-orange-200 bg-orange-50 text-orange-900 p-2 text-[10px] font-bold uppercase">{inventoryAccountingNotice}</div>
+          )}
           <div className="grid grid-cols-2 md:grid-cols-5 xl:grid-cols-10 gap-3">
             <LedgerMetric label="Sale Qty Out" value={inventorySummary.totalSaleQtyOut} />
             <LedgerMetric label="Return Qty In" value={inventorySummary.totalReturnQtyIn} />
@@ -1336,6 +1411,7 @@ export default function PosStock({
                           const product = localStock.find((item) => item.id === movement.productId);
                           if (product) void openProductLedger(product);
                         }} className="px-2 py-1 border border-orange-300 bg-orange-50 text-orange-800 text-[8px] font-black uppercase">View Product Ledger</button>
+                        <button type="button" onClick={() => void handlePrepareInventoryAccountingReview(movement.movementId)} className="px-2 py-1 border border-orange-300 bg-orange-600 text-white text-[8px] font-black uppercase">Prepare Accounting Review</button>
                         <button type="button" onClick={handleInventoryMovementExport} className="px-2 py-1 border border-[#b1b5c2] text-[8px] font-black uppercase">Export</button>
                       </div>
                     </td>
@@ -1458,91 +1534,83 @@ export default function PosStock({
           <div className="bg-[#1e222b] text-white p-4 flex flex-col md:flex-row justify-between gap-3">
             <div>
               <div className="text-[9px] text-orange-400 uppercase font-black">Inventory Reports</div>
-              <h2 className="text-sm font-black uppercase">{reportFilters.reportType || 'Stock Valuation'}</h2>
-              <p className="text-[10px] text-slate-300 uppercase mt-1">POS-side inventory classification only. Full accounting posting will be connected later.</p>
+              <h2 className="text-sm font-black uppercase">Stock health, movement intelligence, supplier performance, and reorder recommendations.</h2>
+              <p className="text-[10px] text-slate-300 uppercase mt-1">Inventory reports are read-only. Recommendations do not change stock until approved actions are created and posted.</p>
             </div>
-            <button type="button" onClick={() => void handleInventoryReportExport(reportFilters.reportType || 'Stock Valuation')} className="self-start px-3 py-2 bg-orange-600 text-white font-black uppercase text-[10px]">Export Current Report Placeholder</button>
+            <button type="button" onClick={() => void handleInventoryReportExport(reportFilters.reportType || 'Inventory Summary')} className="self-start px-3 py-2 bg-orange-600 text-white font-black uppercase text-[10px]">Export Current Report Placeholder</button>
           </div>
           {reportNotice && <div className="border border-orange-200 bg-orange-50 text-orange-900 p-2 text-[10px] font-bold uppercase">{reportNotice}</div>}
+
+          <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-12 gap-2">
+            <LedgerMetric label="Total Stock Value" value={`USD ${inventoryReportSummary.totalStockValue.toFixed(2)}`} />
+            <LedgerMetric label="Low Stock Items" value={inventoryReportSummary.lowStockItems} />
+            <LedgerMetric label="Out Of Stock Items" value={inventoryReportSummary.outOfStockItems} />
+            <LedgerMetric label="Dead Stock Items" value={inventoryReportSummary.deadStockItems} />
+            <LedgerMetric label="Slow Moving Items" value={inventoryReportSummary.slowMovingItems} />
+            <LedgerMetric label="Fast Moving Items" value={inventoryReportSummary.fastMovingItems} />
+            <LedgerMetric label="Overstocked Items" value={inventoryReportSummary.overstockedItems} />
+            <LedgerMetric label="Variance Risk Items" value={inventoryReportSummary.varianceRiskItems} />
+            <LedgerMetric label="Damaged Holding Qty" value={inventoryReportSummary.damagedHoldingQty} />
+            <LedgerMetric label="Return Holding Qty" value={inventoryReportSummary.returnHoldingQty} />
+            <LedgerMetric label="In Transit Qty" value={inventoryReportSummary.inTransitQty} />
+            <LedgerMetric label="Reorder Recommendations" value={inventoryReportSummary.reorderRecommendations} />
+          </div>
+
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-3 bg-slate-50 border border-[#b1b5c2] p-3">
             <LedgerSelect label="Business / Vendor" value={reportFilters.vendorId || 'SCI-LOG-ZW'} onChange={(value) => setReportFilters((current) => ({ ...current, vendorId: value }))} options={vendorOptions} />
-            <LedgerSelect label="Report Type" value={reportFilters.reportType || 'Stock Valuation'} onChange={(value) => setReportFilters((current) => ({ ...current, reportType: value as InventoryReportType }))} options={['Stock Valuation', 'Movement Summary', 'Low Stock Report', 'Out of Stock Report', 'Dead Stock Report', 'Slow Moving Stock Report', 'Fast Moving Stock Report', 'Variance Risk Report', 'Supplier Stock Report', 'Shelf / Location Report', 'COA Inventory Report']} />
+            <LedgerSelect label="Report Type" value={reportFilters.reportType || 'Inventory Summary'} onChange={(value) => setReportFilters((current) => ({ ...current, reportType: value as InventoryReportType }))} options={['Inventory Summary', 'Low Stock', 'Out Of Stock', 'Dead Stock', 'Slow Moving', 'Fast Moving', 'Overstock', 'Stock Value', 'Variance Risk', 'Reorder Recommendation', 'Supplier Performance', 'GRN Delay', 'Transfer Delay', 'Damaged Holding', 'Return Holding', 'Movement Audit']} />
+            <LedgerInput label="Search Product / SKU" value={reportFilters.search || ''} onChange={(value) => setReportFilters((current) => ({ ...current, search: value }))} />
             <LedgerSelect label="Branch" value={reportFilters.branch || 'ALL'} onChange={(value) => setReportFilters((current) => ({ ...current, branch: value }))} options={healthBranchOptions as string[]} />
             <LedgerSelect label="Warehouse" value={reportFilters.warehouse || 'ALL'} onChange={(value) => setReportFilters((current) => ({ ...current, warehouse: value }))} options={healthWarehouseOptions as string[]} />
-            <LedgerSelect label="Sector" value={reportFilters.industrialSector || 'ALL'} onChange={(value) => setReportFilters((current) => ({ ...current, industrialSector: value }))} options={healthSectorOptions as string[]} />
+            <LedgerSelect label="Location Type" value={reportFilters.locationType || 'ALL'} onChange={(value) => setReportFilters((current) => ({ ...current, locationType: value as InventoryReportFilters['locationType'] }))} options={['ALL', 'Main Warehouse', 'Branch Warehouse', 'Sales Floor', 'Damaged Holding', 'Return Holding', 'In Transit']} />
             <LedgerSelect label="Category" value={reportFilters.category || 'ALL'} onChange={(value) => setReportFilters((current) => ({ ...current, category: value }))} options={categories as string[]} />
-            <LedgerSelect label="Brand" value={reportFilters.brand || 'ALL'} onChange={(value) => setReportFilters((current) => ({ ...current, brand: value }))} options={healthBrandOptions as string[]} />
             <LedgerSelect label="Supplier" value={reportFilters.supplier || 'ALL'} onChange={(value) => setReportFilters((current) => ({ ...current, supplier: value }))} options={healthSupplierOptions as string[]} />
-            <LedgerSelect label="Shelf" value={reportFilters.shelfLocation || 'ALL'} onChange={(value) => setReportFilters((current) => ({ ...current, shelfLocation: value }))} options={healthShelfOptions as string[]} />
+            <LedgerSelect label="Stock Health Status" value={reportFilters.stockHealthStatus || 'ALL'} onChange={(value) => setReportFilters((current) => ({ ...current, stockHealthStatus: value as InventoryReportFilters['stockHealthStatus'] }))} options={['ALL', 'Healthy', 'Low Stock', 'Out Of Stock', 'Dead Stock', 'Slow Moving', 'Fast Moving', 'Overstocked', 'Variance Risk', 'Damaged', 'Return Holding', 'Reorder Required', 'Review Required']} />
+            <LedgerSelect label="Severity" value={reportFilters.severity || 'ALL'} onChange={(value) => setReportFilters((current) => ({ ...current, severity: value as InventoryReportFilters['severity'] }))} options={['ALL', 'Info', 'Low', 'Medium', 'High', 'Critical']} />
             <LedgerInput label="Date From" value={reportFilters.dateFrom || ''} onChange={(value) => setReportFilters((current) => ({ ...current, dateFrom: value }))} />
             <LedgerInput label="Date To" value={reportFilters.dateTo || ''} onChange={(value) => setReportFilters((current) => ({ ...current, dateTo: value }))} />
+            <LedgerSelect label="Movement Type" value={reportFilters.movementType || 'ALL'} onChange={(value) => setReportFilters((current) => ({ ...current, movementType: value as InventoryReportFilters['movementType'] }))} options={['ALL', 'GOODS_RECEIVED', 'SUPPLIER_RETURN', 'SALE', 'STOCK_ADJUSTMENT_IN', 'STOCK_ADJUSTMENT_OUT', 'STOCKTAKE_GAIN', 'STOCKTAKE_LOSS', 'BRANCH_TRANSFER_IN', 'BRANCH_TRANSFER_OUT', 'WAREHOUSE_TRANSFER_IN', 'WAREHOUSE_TRANSFER_OUT']} />
           </div>
-          {(reportFilters.reportType === 'Movement Summary') ? (
-            <>
-              <div className="grid grid-cols-2 md:grid-cols-6 gap-3">
-                <LedgerMetric label="Total Qty In" value={movementReportTotals.totalQtyIn} />
-                <LedgerMetric label="Total Qty Out" value={movementReportTotals.totalQtyOut} />
-                <LedgerMetric label="Net Movement" value={movementReportTotals.netMovement} />
-                <LedgerMetric label="High Risk Movements" value={movementReportTotals.highRiskMovements} />
-                <LedgerMetric label="Reversal Count" value={movementReportTotals.reversalCount} />
-                <LedgerMetric label="Pending Approval" value={movementReportTotals.pendingApprovalMovements} />
-              </div>
-              <ReportTable headers={['Product', 'Opening', 'Qty In', 'Qty Out', 'Transfer In', 'Transfer Out', 'Returns In', 'Supplier Returns Out', 'Adjust In', 'Adjust Out', 'Closing', 'Net', 'Risk']} rows={movementReportRows.map((row) => [row.product, row.openingBalance, row.qtyIn, row.qtyOut, row.transferIn, row.transferOut, row.returnsIn, row.supplierReturnsOut, row.adjustmentsIn, row.adjustmentsOut, row.closingBalance, row.netMovement, row.risk])} />
-            </>
-          ) : reportFilters.reportType === 'Shelf / Location Report' ? (
-            <div className="overflow-x-auto pos-custom-scroll">
-              <table className="w-full min-w-[1200px] text-[10.5px] text-left border-collapse">
-                <thead>
-                  <tr className="bg-[#1e222b] text-white uppercase text-[8.5px] font-black h-9">
-                    {['Shelf / Location', 'Products', 'Units', 'Cost Value', 'Low Stock', 'Out Of Stock', 'Variance Risk', 'Last Stocktake', 'Recommended Action', 'Action'].map((label) => <th key={label} className="py-2 px-3">{label}</th>)}
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-200">
-                  {shelfReportRows.map((row) => {
-                    const isReviewed = reviewedShelves.has(row.shelfLocation);
-                    return (
-                      <tr key={row.shelfLocation} className={`hover:bg-slate-50 ${isReviewed ? 'bg-green-50/40' : ''}`}>
-                        <td className="py-2 px-3 font-black uppercase">{row.shelfLocation}</td>
-                        <td className="py-2 px-3">{row.productsCount}</td>
-                        <td className="py-2 px-3">{row.totalUnits}</td>
-                        <td className="py-2 px-3">USD {row.totalCostValue.toFixed(2)}</td>
-                        <td className="py-2 px-3">{row.lowStockItems}</td>
-                        <td className="py-2 px-3">{row.outOfStockItems}</td>
-                        <td className="py-2 px-3">{row.varianceRiskItems}</td>
-                        <td className="py-2 px-3">{row.lastStocktakeDate === 'N/A' ? 'N/A' : row.lastStocktakeDate.slice(0, 10)}</td>
-                        <td className="py-2 px-3 uppercase font-black text-orange-700">{row.recommendedAction}</td>
-                        <td className="py-2 px-3">
-                          <div className="flex gap-1 flex-wrap">
-                            <button type="button" onClick={() => handleShelfReportAction('Start Shelf Stocktake', row.shelfLocation)} className="px-2 py-1 border border-[#b1b5c2] text-[9px] font-black uppercase">Start Shelf Stocktake</button>
-                            <button type="button" onClick={() => handleShelfReportAction('Export Shelf List Placeholder', row.shelfLocation)} className="px-2 py-1 border border-[#b1b5c2] text-[9px] font-black uppercase">Export Shelf List</button>
-                            <button type="button" onClick={() => handleShelfReportAction('Mark Shelf Reviewed', row.shelfLocation)} disabled={isReviewed} className="px-2 py-1 border border-[#b1b5c2] disabled:opacity-50 text-[9px] font-black uppercase">{isReviewed ? 'Reviewed' : 'Mark Shelf Reviewed'}</button>
-                          </div>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          ) : reportFilters.reportType === 'COA Inventory Report' ? (
-            <ReportTable headers={['COA Account', 'Account Type', 'Products', 'Units', 'Cost Value', 'Selling Value', 'Movement Count', 'Last Movement']} rows={coaReportRows.map((row) => [row.coaAccount, row.accountType, row.productsCount, row.totalUnits, `USD ${row.totalCostValue.toFixed(2)}`, `USD ${row.totalSellingValue.toFixed(2)}`, row.movementCount, row.lastMovementDate.slice(0, 10)])} />
-          ) : reportFilters.reportType === 'Supplier Stock Report' ? (
-            <ReportTable headers={['Supplier', 'Products', 'Units', 'Cost Value', 'Low Stock', 'Dead Stock', 'Last Received', 'Supplier Returns', 'Recommended Action']} rows={supplierReportRows.map((row) => [row.supplier, row.productsCount, row.totalUnits, `USD ${row.stockValueAtCost.toFixed(2)}`, row.lowStockItems, row.deadStockItems, row.lastReceivedDate.slice(0, 10), row.supplierReturnCount, row.recommendedAction])} />
-          ) : (
-            <>
-              <div className="grid grid-cols-2 md:grid-cols-6 gap-3">
-                <LedgerMetric label="Total Cost Value" value={`USD ${displayedValuationRows.reduce((sum, row) => sum + row.totalCostValue, 0).toFixed(2)}`} />
-                <LedgerMetric label="Total Selling Value" value={`USD ${displayedValuationRows.reduce((sum, row) => sum + row.totalSellingValue, 0).toFixed(2)}`} />
-                <LedgerMetric label="Estimated Margin Value" value={`USD ${displayedValuationRows.reduce((sum, row) => sum + row.marginValue, 0).toFixed(2)}`} />
-                <LedgerMetric label="Estimated Margin %" value={`${(displayedValuationRows.reduce((sum, row) => sum + row.marginValue, 0) / Math.max(1, displayedValuationRows.reduce((sum, row) => sum + row.totalSellingValue, 0)) * 100).toFixed(1)}%`} />
-                <LedgerMetric label="Products Count" value={displayedValuationRows.length} />
-                <LedgerMetric label="Units Count" value={displayedValuationRows.reduce((sum, row) => sum + row.qtyOnHand, 0)} />
-              </div>
-              <ReportTable headers={['Numeric No.', 'SKU', 'Product Name', 'Sector', 'Brand', 'Supplier', 'Branch', 'Warehouse', 'Qty', 'Unit Cost', 'Selling Price', 'Cost Value', 'Selling Value', 'Margin', 'Margin %', 'Asset COA', 'Sales COA']} rows={displayedValuationRows.map((row) => [row.numericNo, row.sku, row.productName, row.sector, row.brand, row.supplier, row.branch, row.warehouse, row.qtyOnHand, `USD ${row.unitCost.toFixed(2)}`, `USD ${row.sellingPrice.toFixed(2)}`, `USD ${row.totalCostValue.toFixed(2)}`, `USD ${row.totalSellingValue.toFixed(2)}`, `USD ${row.marginValue.toFixed(2)}`, `${row.marginPct.toFixed(1)}%`, row.assetAccountCOA, row.salesAccountCOA])} />
-            </>
-          )}
+
           <div className="flex flex-wrap gap-2">
-            {(['Stock Valuation', 'Movement Summary', 'Shelf / Location Report', 'COA Inventory Report', 'Supplier Stock Report'] as InventoryReportType[]).map((type) => (
+            {(['Inventory Summary', 'Low Stock', 'Out Of Stock', 'Dead Stock', 'Slow Moving', 'Fast Moving', 'Overstock', 'Stock Value', 'Variance Risk', 'Reorder Recommendation', 'Supplier Performance', 'GRN Delay', 'Transfer Delay', 'Damaged Holding', 'Return Holding', 'Movement Audit'] as InventoryReportType[]).map((type) => (
+              <button key={type} type="button" onClick={() => setReportFilters((current) => ({ ...current, reportType: type }))} className={`px-3 py-2 border text-[9px] font-black uppercase ${reportFilters.reportType === type ? 'bg-orange-600 text-white border-orange-700' : 'bg-slate-50 text-[#1e222b] border-[#b1b5c2]'}`}>{type}</button>
+            ))}
+          </div>
+
+          {reportFilters.reportType === 'Stock Value' ? (
+            <ReportTable headers={['SKU', 'Product', 'Branch', 'Warehouse', 'Location', 'Qty On Hand', 'Available Qty', 'Unit Cost', 'Estimated Stock Value', 'Damaged Value', 'Return Holding Value', 'In Transit Value', 'Last Cost', 'Status', 'Action']} rows={inventoryValueRows.map((row) => [row.sku, row.productName, row.branch, row.warehouse, row.location, row.qtyOnHand, row.availableQty, `USD ${row.unitCost.toFixed(2)}`, `USD ${row.estimatedStockValue.toFixed(2)}`, `USD ${row.damagedValue.toFixed(2)}`, `USD ${row.returnHoldingValue.toFixed(2)}`, `USD ${row.inTransitValue.toFixed(2)}`, `USD ${row.lastCost.toFixed(2)}`, row.status, 'Export Placeholder'])} />
+          ) : reportFilters.reportType === 'Supplier Performance' ? (
+            <ReportTable headers={['Supplier', 'Products Supplied', 'POs', 'GRNs', 'Supplier Returns', 'Average Delivery Days', 'Late Deliveries', 'Damaged / Wrong Items', 'Credit Notes Pending', 'Performance Score', 'Risk', 'Action']} rows={supplierPerformanceRows.map((row) => [row.supplier, row.productsSupplied, row.purchaseOrders, row.grns, row.supplierReturns, row.averageDeliveryDays, row.lateDeliveries, row.damagedWrongItems, row.creditNotesPending, row.performanceScore, row.risk, 'Supplier Review Recommendation'])} />
+          ) : reportFilters.reportType === 'GRN Delay' ? (
+            <ReportTable headers={['GRN No.', 'PO No.', 'Supplier', 'Expected Delivery', 'Received Date', 'Days Late', 'Status', 'Variance', 'Invoice Status', 'Action']} rows={grnDelayRows.map((row) => [row.grnNo, row.poNo, row.supplier, row.expectedDelivery, row.receivedDate || '-', row.daysLate, row.status, row.variance, row.invoiceStatus, 'Mark Reviewed'])} />
+          ) : reportFilters.reportType === 'Transfer Delay' ? (
+            <ReportTable headers={['Transfer No.', 'Source', 'Destination', 'Dispatched Date', 'Expected Arrival', 'Received Date', 'Days In Transit', 'Status', 'Variance', 'Action']} rows={transferDelayRows.map((row) => [row.transferNo, row.source, row.destination, row.dispatchedDate, row.expectedArrival, row.receivedDate || '-', row.daysInTransit, row.status, row.variance, 'Mark Reviewed'])} />
+          ) : reportFilters.reportType === 'Movement Audit' ? (
+            <ReportTable headers={['Date / Time', 'SKU', 'Product', 'Movement Type', 'Reference', 'Branch', 'Warehouse', 'Qty In', 'Qty Out', 'Balance Before', 'Balance After', 'Staff', 'Risk', 'Notes', 'Action']} rows={movementAuditRows.map((row) => [row.dateTime, row.sku, row.productName, row.movementType, row.reference, row.branch, row.warehouse, row.qtyIn, row.qtyOut, row.balanceBefore, row.balanceAfter, row.staff, row.risk, row.notes, 'View Product Ledger'])} />
+          ) : reportFilters.reportType === 'Reorder Recommendation' ? (
+            <ReportTable headers={['SKU', 'Product', 'Branch', 'Warehouse', 'Available Qty', 'Reorder Level', 'Reorder Qty', 'Preferred Supplier', 'Sales Velocity', 'Days Cover', 'Recommendation', 'Priority', 'Action']} rows={reorderRecommendationRows.map((row) => [row.sku, row.productName, row.branch, row.warehouse, row.availableQty, row.reorderLevel, row.reorderQty, row.preferredSupplier, row.salesVelocity, row.daysCover, row.recommendation, row.priority, 'Create PO Recommendation Placeholder'])} />
+          ) : (
+            <ReportTable headers={['SKU', 'Product', 'Brand', 'Category', 'Branch', 'Warehouse', 'Location', 'Available', 'On Hand', 'Reserved', 'Damaged', 'Return Holding', 'In Transit', 'Reorder Level', 'Last Movement', 'Status', 'Severity', 'Recommended Action', 'Action']} rows={inventoryReportHealthRows.map((row) => [row.sku, row.productName, row.brand, row.category, row.branchName || row.branch, row.warehouseName || row.warehouse, row.locationType || row.shelfLocation, row.qtyAvailable || 0, row.qtyOnHand, row.qtyReserved || 0, row.qtyDamaged || 0, row.qtyReturnHolding || 0, row.qtyInTransit || 0, row.reorderLevel, row.lastMovementDate || '-', row.stockHealthStatus || row.stockStatus, row.severity || row.riskLevel, row.recommendedAction, 'Create Recommendation Placeholder'])} />
+          )}
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+            {inventoryRecommendations.slice(0, 6).map((rec) => (
+              <div key={rec.recommendationId} className="border border-[#b1b5c2] bg-white p-3">
+                <div className="text-[8px] uppercase font-black text-orange-700">{rec.recommendationType}</div>
+                <div className="text-sm font-black text-[#1e222b] mt-1">{rec.title}</div>
+                <div className="text-[10px] text-slate-600 mt-1">{rec.description}</div>
+                <div className="mt-2 flex flex-wrap gap-2 text-[9px] uppercase font-black">
+                  <span className="border border-[#b1b5c2] px-2 py-1">{rec.severity}</span>
+                  <span className="border border-[#b1b5c2] px-2 py-1">{rec.status}</span>
+                </div>
+                <button type="button" onClick={() => setReportNotice(`${rec.recommendationType} action placeholder recorded for ${rec.sku || 'inventory'}.`)} className="mt-3 px-3 py-2 bg-orange-600 text-white font-black uppercase text-[9px]">Action Placeholder</button>
+              </div>
+            ))}
+          </div>
+
+          <div className="flex flex-wrap gap-2">
+            {(['Inventory Summary', 'Low Stock', 'Out Of Stock', 'Stock Value', 'Variance Risk', 'Reorder Recommendation', 'Supplier Performance', 'Movement Audit'] as InventoryReportType[]).map((type) => (
               <button key={type} type="button" onClick={() => void handleInventoryReportExport(type)} className="px-3 py-2 border border-[#b1b5c2] hover:border-orange-500 text-[10px] font-black uppercase">{`Export ${type} Placeholder`}</button>
             ))}
           </div>

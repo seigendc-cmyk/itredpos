@@ -16,6 +16,10 @@ import {
   mockProductStockBalances,
   mockProductSupplierLinks
 } from '../mock/mockPosData';
+import {
+  getProductStockBalances as getStockBalanceRows,
+  getProductTotalAvailableStock as getTotalAvailableStock
+} from './stockBalanceService';
 
 const PRODUCT_MASTER_KEY = 'sci_pos_product_master_records';
 const PRODUCT_AUDIT_KEY = 'sci_pos_product_master_audit';
@@ -72,8 +76,22 @@ function matchesProductSearch(product: ProductMasterRecord, query = ''): boolean
     product.sku,
     product.barcode,
     product.alu,
+    product.vendorSku,
     product.productNumericNumber,
     product.productName,
+    product.description,
+    product.brand,
+    product.manufacturer,
+    product.supplierName,
+    product.supplierItemCode,
+    product.partNumber,
+    product.oemNumber,
+    product.make,
+    product.model,
+    product.yearFrom,
+    product.yearTo,
+    product.side,
+    ...(product.tags || []),
     product.category,
     product.preferredSupplierName,
     product.sectorAttributes.sector,
@@ -89,16 +107,26 @@ function applyFilters(products: ProductMasterRecord[], filters: ProductMasterFil
   return products.filter((product) => {
     const balances = productBalanceMeta(product.productId);
     const matchesSearch = matchesProductSearch(product, filters.search);
-    const matchesStatus = !filters.status || filters.status === 'ALL' || product.status === filters.status;
+    const matchesSku = !filters.sku || product.sku.toLowerCase().includes(filters.sku.toLowerCase());
+    const matchesBarcode = !filters.barcode || (product.barcode || '').toLowerCase().includes(filters.barcode.toLowerCase());
+    const matchesAlu = !filters.alu || (product.alu || '').toLowerCase().includes(filters.alu.toLowerCase());
+    const matchesProductName = !filters.productName || product.productName.toLowerCase().includes(filters.productName.toLowerCase());
+    const matchesBrand = !filters.brand || (product.brand || product.sectorAttributes.brand || '').toLowerCase().includes(filters.brand.toLowerCase());
+    const matchesManufacturer = !filters.manufacturer || (product.manufacturer || product.sectorAttributes.manufacturer || '').toLowerCase().includes(filters.manufacturer.toLowerCase());
+    const statusFilter = filters.productStatus || filters.status;
+    const matchesStatus = !statusFilter || statusFilter === 'ALL' || (product.productStatus || product.status) === statusFilter;
     const matchesRisk = !filters.riskStatus || filters.riskStatus === 'ALL' || product.riskStatus === filters.riskStatus;
-    const matchesSector = !filters.sector || filters.sector === 'ALL' || product.sectorAttributes.sector === filters.sector;
-    const matchesCategory = !filters.category || filters.category === 'ALL' || product.category === filters.category || product.sectorAttributes.productCategory === filters.category;
-    const matchesSupplier = !filters.supplier || filters.supplier === 'ALL' || product.preferredSupplierName === filters.supplier || product.preferredSupplierId === filters.supplier;
+    const sectorFilter = filters.industrialSector || filters.sector;
+    const matchesSector = !sectorFilter || sectorFilter === 'ALL' || product.industrialSector === sectorFilter || product.sectorAttributes.sector === sectorFilter;
+    const matchesCategory = !filters.category || filters.category === 'ALL' || product.category === filters.category || product.productCategory === filters.category || product.sectorAttributes.productCategory === filters.category;
+    const matchesSubCategory = !filters.subCategory || filters.subCategory === 'ALL' || product.productSubCategory === filters.subCategory || product.sectorAttributes.productSubCategory === filters.subCategory;
+    const matchesSupplier = !filters.supplier || filters.supplier === 'ALL' || product.supplierName === filters.supplier || product.preferredSupplierName === filters.supplier || product.preferredSupplierId === filters.supplier;
     const matchesBranch = !filters.branchId || filters.branchId === 'ALL' || balances.some((balance) => balance.branchId === filters.branchId);
     const matchesWarehouse = !filters.warehouseId || filters.warehouseId === 'ALL' || balances.some((balance) => balance.warehouseId === filters.warehouseId);
     const matchesLocationType = !filters.locationType || filters.locationType === 'ALL' || balances.some((balance) => balance.locationType === filters.locationType);
     const matchesStockStatus = !filters.stockStatus || filters.stockStatus === 'ALL' || balances.some((balance) => balance.status === filters.stockStatus);
-    return matchesSearch && matchesStatus && matchesRisk && matchesSector && matchesCategory && matchesSupplier &&
+    return matchesSearch && matchesSku && matchesBarcode && matchesAlu && matchesProductName && matchesBrand && matchesManufacturer &&
+      matchesStatus && matchesRisk && matchesSector && matchesCategory && matchesSubCategory && matchesSupplier &&
       matchesBranch && matchesWarehouse && matchesLocationType && matchesStockStatus;
   });
 }
@@ -111,8 +139,16 @@ export async function searchProductMasterRecords(query: string, filters: Product
   return getProductMasterRecords({ ...filters, search: query });
 }
 
+export async function searchProductMaster(query: string, filters: ProductMasterFilterState = {}): Promise<ProductMasterRecord[]> {
+  return searchProductMasterRecords(query, filters);
+}
+
 export async function getProductMasterById(productId: string): Promise<ProductMasterRecord | null> {
   return readProducts().find((product) => product.productId === productId) || null;
+}
+
+export async function getProductById(productId: string): Promise<ProductMasterRecord | null> {
+  return getProductMasterById(productId);
 }
 
 export async function getProductMasterSummary(filters: ProductMasterFilterState = {}): Promise<ProductMasterSummary> {
@@ -122,14 +158,19 @@ export async function getProductMasterSummary(filters: ProductMasterFilterState 
   const linkedProducts = new Set(mockProductSupplierLinks.map((link) => link.productId));
   return {
     totalProducts: products.length,
-    activeProducts: products.filter((product) => product.status === 'Active').length,
-    blockedProducts: products.filter((product) => product.status === 'Blocked').length,
-    inactiveProducts: products.filter((product) => product.status === 'Inactive' || product.status === 'Discontinued').length,
-    lowStockProducts: new Set(balances.filter((balance) => balance.status === 'Low Stock').map((balance) => balance.productId)).size,
-    outOfStockProducts: new Set(balances.filter((balance) => balance.status === 'Out of Stock').map((balance) => balance.productId)).size,
+    activeProducts: products.filter((product) => (product.productStatus || product.status) === 'Active').length,
+    draftProducts: products.filter((product) => (product.productStatus || product.status) === 'Draft').length,
+    blockedProducts: products.filter((product) => (product.productStatus || product.status) === 'Blocked').length,
+    inactiveProducts: products.filter((product) => (product.productStatus || product.status) === 'Inactive' || (product.productStatus || product.status) === 'Discontinued').length,
+    lowStockProducts: new Set(balances.filter((balance) => balance.status === 'Reorder Required').map((balance) => balance.productId)).size,
+    outOfStockProducts: new Set(balances.filter((balance) => balance.status === 'Out Of Stock' || balance.status === 'Out of Stock').map((balance) => balance.productId)).size,
     multiLocationProducts: products.filter((product) => new Set(balances.filter((balance) => balance.productId === product.productId).map((balance) => balance.locationId)).size > 1).length,
+    damagedHoldingProducts: new Set(balances.filter((balance) => balance.qtyDamaged > 0).map((balance) => balance.productId)).size,
+    returnHoldingProducts: new Set(balances.filter((balance) => (balance.qtyReturnHolding || 0) > 0).map((balance) => balance.productId)).size,
+    inTransitProducts: new Set(balances.filter((balance) => balance.qtyInTransit > 0).map((balance) => balance.productId)).size,
+    reorderRequiredProducts: new Set(balances.filter((balance) => balance.status === 'Reorder Required').map((balance) => balance.productId)).size,
     supplierLinkedProducts: products.filter((product) => linkedProducts.has(product.productId)).length,
-    riskProducts: products.filter((product) => product.riskStatus !== 'None').length
+    riskProducts: products.filter((product) => product.riskStatus !== 'None' && product.riskStatus !== 'Normal').length
   };
 }
 
@@ -146,6 +187,10 @@ export async function createProductMasterDraft(payload: Omit<ProductMasterRecord
   return product;
 }
 
+export async function createProductDraft(payload: Omit<ProductMasterRecord, 'productId' | 'createdAt' | 'updatedAt'>): Promise<ProductMasterRecord> {
+  return createProductMasterDraft(payload);
+}
+
 export async function updateProductMasterPlaceholder(productId: string, patch: Partial<ProductMasterRecord>, staffId = 'SYSTEM'): Promise<ProductMasterRecord | null> {
   let updated: ProductMasterRecord | null = null;
   const next = readProducts().map((product) => {
@@ -156,6 +201,10 @@ export async function updateProductMasterPlaceholder(productId: string, patch: P
   writeProducts(next);
   if (updated) recordProductAudit(productId, 'PRODUCT_MASTER_UPDATED', `${updated.productName} updated.`, staffId);
   return updated;
+}
+
+export async function updateProductMaster(productId: string, patch: Partial<ProductMasterRecord>, staffId = 'SYSTEM'): Promise<ProductMasterRecord | null> {
+  return updateProductMasterPlaceholder(productId, patch, staffId);
 }
 
 export async function blockProduct(productId: string, staffId: string, notes: string): Promise<ProductMasterRecord | null> {
@@ -172,6 +221,29 @@ export async function markProductInactive(productId: string, staffId: string, no
 
 export async function getProductBarcodes(productId: string): Promise<ProductBarcodeRecord[]> {
   return mockProductBarcodeRecords.filter((barcode) => barcode.productId === productId);
+}
+
+export async function getProductStockBalances(productId: string): Promise<ProductStockBalance[]> {
+  return getStockBalanceRows(productId);
+}
+
+export async function getProductAvailableStock(productId: string, branchId?: string, warehouseId?: string): Promise<number> {
+  const balances = await getStockBalanceRows(productId);
+  return balances
+    .filter((balance) => (!branchId || balance.branchId === branchId) && (!warehouseId || balance.warehouseId === warehouseId))
+    .reduce((sum, balance) => sum + Math.max(0, balance.qtyAvailable), 0);
+}
+
+export async function getProductTotalAvailableStock(productId: string): Promise<number> {
+  return getTotalAvailableStock(productId);
+}
+
+export async function getProductLocationBalances(productId: string): Promise<Array<ProductStockBalance & { locationDisplay: string }>> {
+  const balances = await getStockBalanceRows(productId);
+  return balances.map((balance) => ({
+    ...balance,
+    locationDisplay: `${balance.branchName} / ${balance.warehouseName} / ${balance.locationType}${balance.shelfLocation ? ` / ${balance.shelfLocation}` : ''}`
+  }));
 }
 
 export async function getProductSupplierLinks(productId: string): Promise<ProductSupplierLink[]> {
