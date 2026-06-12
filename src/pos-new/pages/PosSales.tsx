@@ -16,6 +16,7 @@ import { postSaleMovement } from '../services/inventoryMovementService';
 import { recordPaymentReportEvent } from '../services/paymentReportService';
 import { logTerminalControlEvent, runTerminalControlCheck } from '../services/terminalControlService';
 import { createCustomerRequest, getCustomers, recordCustomerSelectedForSale } from '../services/customerService';
+import { getProductTotalAvailableStock } from '../services/stockBalanceService';
 import {
   CartItem,
   CustomerRecord,
@@ -76,7 +77,7 @@ function productPrice(product: Product): number {
 }
 
 function productStock(product: Product): number {
-  return product.qtyOnHand ?? product.stock;
+  return product.availableStock ?? product.qtyOnHand ?? product.stock;
 }
 
 function branchIdFromName(branchName: string): string {
@@ -148,7 +149,22 @@ export default function PosSales({
   const [preparedReceiptPreview, setPreparedReceiptPreview] = useState<ReceiptPrintPreview | null>(null);
 
   useEffect(() => {
-    setLocalProducts(products.length > 0 ? products : DEFAULT_PRODUCTS);
+    const baseProducts = products.length > 0 ? products : DEFAULT_PRODUCTS;
+    setLocalProducts(baseProducts);
+    let cancelled = false;
+    Promise.all(baseProducts.map(async (product) => {
+      try {
+        const availableStock = await getProductTotalAvailableStock(product.id);
+        return availableStock > 0 || product.stock === 0 ? { ...product, availableStock } : product;
+      } catch {
+        return product;
+      }
+    })).then((nextProducts) => {
+      if (!cancelled) setLocalProducts(nextProducts);
+    }).catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
   }, [products]);
 
   useEffect(() => {

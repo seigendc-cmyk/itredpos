@@ -5,6 +5,12 @@ import {
   Terminal, 
   StaffMember, 
   Product, 
+  ProductBarcodeRecord,
+  ProductMasterRecord,
+  ProductPriceRecord,
+  ProductReorderRule,
+  ProductStockBalance,
+  ProductSupplierLink,
   Sale, 
   HeldTransaction, 
   Shift, 
@@ -356,6 +362,160 @@ export const mockProducts: Product[] = [
   { id: 'SP-PLT-G', code: 'SP-PLT-G', name: 'Spark Plug Platinum G-Power', category: 'Motor Spares', price: 27.00, cost: 12.00, stock: 42, minStock: 10, unit: 'pcs', branch: 'Harare Main', warehouse: 'Harare Spares Depot', lastMovementDate: '2026-06-09', healthStatus: 'In Stock' },
   { id: 'FB-VR-HM', code: 'FB-VR-HM', name: 'Heavy Duty Fan Belt v-Ribbed', category: 'Motor Spares', price: 60.00, cost: 31.00, stock: 7, minStock: 2, unit: 'pcs', branch: 'Harare Main', warehouse: 'Harare Spares Depot', lastMovementDate: '2026-06-09', healthStatus: 'In Stock' }
 ];
+
+const productMasterBase = (product: Product, index: number, overrides: Partial<ProductMasterRecord> = {}): ProductMasterRecord => {
+  const marginPercent = product.price > 0 ? Math.round(((product.price - product.cost) / product.price) * 100) : 0;
+  return {
+    productId: product.id,
+    vendorId: 'SCI-LOG-ZW',
+    productCode: product.code,
+    sku: product.sku || product.code,
+    barcode: product.barcode || `263000${String(index + 1).padStart(6, '0')}`,
+    alu: product.alu || `ALU-${String(index + 1).padStart(4, '0')}`,
+    productNumericNumber: product.productNumericNumber || `PN-${String(index + 1).padStart(5, '0')}`,
+    productName: product.productName || product.name,
+    shortDescription: `${product.name} master record placeholder.`,
+    productType: 'Stock Item',
+    status: product.stock <= 0 ? 'Active' : 'Active',
+    riskStatus: product.healthStatus === 'Dead Stock' ? 'Dead Stock' : product.healthStatus === 'Variance Risk' ? 'Variance Risk' : 'None',
+    category: product.category,
+    unitOfMeasure: product.unit,
+    taxCode: 'VAT15',
+    defaultSellingPrice: product.sellingPrice ?? product.price,
+    defaultCostPrice: product.costPrice ?? product.cost,
+    marginPercent,
+    preferredSupplierId: product.supplierId || 'SUP-MOTOR-SPARES',
+    preferredSupplierName: product.supplierName || 'Motor Spares Wholesalers',
+    salesAccountCOA: product.salesAccountCOA || '4100-SALES',
+    assetAccountCOA: product.assetAccountCOA || '1200-INVENTORY',
+    cogsAccountCOA: '5100-COGS',
+    sectorAttributes: {
+      sector: product.industrialSector || (product.category === 'Motor Spares' || product.category === 'Lubricants' ? 'Automotive' : 'Industrial Supplies'),
+      productCategory: product.productCategory || product.category,
+      productSubCategory: product.productSubCategory || product.category,
+      brand: product.brand || 'SCI Industrial',
+      manufacturer: product.manufacturer || 'Approved Supplier',
+      serialTrackingRequired: Boolean(product.isSerialized),
+      batchTrackingRequired: product.category === 'Lubricants' || product.category === 'CHEMICALS',
+      expiryRequired: product.category === 'Lubricants' || product.category === 'CHEMICALS',
+      notes: 'Sector attributes are local placeholders for later product governance.'
+    },
+    createdByStaffId: 'ST-BLESSING',
+    approvedByStaffId: 'ST-ADMIN',
+    createdAt: '2026-06-01T08:00:00Z',
+    updatedAt: '2026-06-11T08:00:00Z',
+    ...overrides
+  };
+};
+
+export const mockProductMasterRecords: ProductMasterRecord[] = [
+  productMasterBase(mockProducts[0], 0, { preferredSupplierId: 'SUP-GENERAL-HARDWARE', preferredSupplierName: 'General Hardware Supply' }),
+  productMasterBase(mockProducts[1], 1, { preferredSupplierId: 'SUP-PNEUMATICS', preferredSupplierName: 'Pneumatic Control Imports' }),
+  productMasterBase(mockProducts[2], 2, { riskStatus: 'Supplier Risk', preferredSupplierId: 'SUP-CHEMICALS', preferredSupplierName: 'Industrial Chemicals Direct' }),
+  productMasterBase(mockProducts[3], 3, { preferredSupplierId: 'SUP-SAFETY', preferredSupplierName: 'Safety Gear Zimbabwe' }),
+  productMasterBase(mockProducts[5], 5, { riskStatus: 'Low Margin', preferredSupplierId: 'SUP-ELECTRICAL', preferredSupplierName: 'Electrical Components Hub' }),
+  productMasterBase(mockProducts[6], 6, { riskStatus: 'Variance Risk' }),
+  productMasterBase(mockProducts[9], 9, { preferredSupplierId: 'SUP-RADIATOR', preferredSupplierName: 'Radiator Imports' }),
+  productMasterBase(mockProducts[10], 10),
+  productMasterBase(mockProducts[12], 12, { preferredSupplierId: 'SUP-LUBRICANTS', preferredSupplierName: 'Lubricants Direct' }),
+  productMasterBase(mockProducts[14], 14, { status: 'Pending Review', riskStatus: 'Supplier Risk' })
+];
+
+const balanceRowsForProduct = (record: ProductMasterRecord, seedQty: number): ProductStockBalance[] => {
+  const rows: Array<{ branchId: string; branchName: string; warehouseId: string; warehouseName: string; locationId: string; locationName: string; locationType: ProductStockBalance['locationType']; qty: number; reserved?: number; damaged?: number; transit?: number }> = [
+    { branchId: 'BR-HARARE', branchName: 'Harare Main', warehouseId: 'WH-HARARE-01', warehouseName: 'Harare Main Warehouse', locationId: 'LOC-HRE-WH', locationName: 'Harare Main Warehouse', locationType: 'Main Warehouse', qty: seedQty },
+    { branchId: 'BR-HARARE', branchName: 'Harare Main', warehouseId: 'WH-HARARE-FLOOR', warehouseName: 'Harare Sales Floor', locationId: 'LOC-HRE-FLOOR', locationName: 'Harare Sales Floor', locationType: 'Branch Sales Floor', qty: Math.max(0, Math.floor(seedQty * 0.35)), reserved: seedQty > 5 ? 1 : 0 },
+    { branchId: 'BR-BYO', branchName: 'Bulawayo Branch', warehouseId: 'WH-BYO-01', warehouseName: 'Bulawayo Branch Warehouse', locationId: 'LOC-BYO-WH', locationName: 'Bulawayo Branch Warehouse', locationType: 'Branch Warehouse', qty: Math.max(0, Math.floor(seedQty * 0.25)) },
+    { branchId: 'BR-HARARE', branchName: 'Harare Main', warehouseId: 'WH-DMG-01', warehouseName: 'Damaged Holding', locationId: 'LOC-DMG', locationName: 'Damaged Holding', locationType: 'Damaged Stock', qty: 0, damaged: seedQty > 10 ? 1 : 0 },
+    { branchId: 'BR-HARARE', branchName: 'Harare Main', warehouseId: 'WH-TRANSIT', warehouseName: 'In Transit', locationId: 'LOC-TRANSIT', locationName: 'In Transit', locationType: 'In Transit', qty: 0, transit: seedQty <= 3 ? 4 : 0 }
+  ];
+
+  return rows.map((row, index) => {
+    const qtyReserved = row.reserved || 0;
+    const qtyDamaged = row.damaged || 0;
+    const qtyInTransit = row.transit || 0;
+    const qtyOnHand = row.qty + qtyDamaged;
+    const qtyAvailable = Math.max(0, row.qty - qtyReserved);
+    const status = qtyInTransit > 0 ? 'In Transit' : qtyDamaged > 0 ? 'Damaged' : qtyAvailable <= 0 ? 'Out of Stock' : qtyAvailable <= Math.max(2, Math.floor(seedQty * 0.15)) ? 'Low Stock' : 'Available';
+    return {
+      balanceId: `BAL-${record.productId}-${index + 1}`,
+      vendorId: record.vendorId,
+      productId: record.productId,
+      sku: record.sku,
+      productName: record.productName,
+      branchId: row.branchId,
+      branchName: row.branchName,
+      warehouseId: row.warehouseId,
+      warehouseName: row.warehouseName,
+      locationId: row.locationId,
+      locationName: row.locationName,
+      locationType: row.locationType,
+      shelfLocation: index === 1 ? 'PH-COUNTER-01' : index === 0 ? 'A1-MASTER' : undefined,
+      binLocation: index === 0 ? 'BIN-01' : undefined,
+      qtyOnHand,
+      qtyReserved,
+      qtyAvailable,
+      qtyDamaged,
+      qtyInTransit,
+      reorderLevel: Math.max(2, Math.floor(seedQty * 0.2)),
+      reorderQty: Math.max(5, Math.floor(seedQty * 0.6)),
+      status,
+      lastMovementDate: '2026-06-11T08:00:00Z',
+      updatedAt: '2026-06-11T08:00:00Z'
+    };
+  });
+};
+
+export const mockProductStockBalances: ProductStockBalance[] = mockProductMasterRecords.flatMap((record, index) => (
+  balanceRowsForProduct(record, mockProducts.find((product) => product.id === record.productId)?.stock ?? (index + 1) * 3)
+));
+
+export const mockProductBarcodeRecords: ProductBarcodeRecord[] = mockProductMasterRecords.flatMap((record) => ([
+  { barcodeId: `BAR-${record.productId}-PRIMARY`, productId: record.productId, barcode: record.barcode || record.sku, barcodeType: 'Primary', packSize: 1, isActive: true },
+  { barcodeId: `BAR-${record.productId}-CASE`, productId: record.productId, barcode: `${record.sku}-CASE`, barcodeType: 'Case Pack', packSize: 12, isActive: true, notes: 'Case barcode placeholder.' }
+]));
+
+export const mockProductSupplierLinks: ProductSupplierLink[] = mockProductMasterRecords.map((record) => ({
+  supplierLinkId: `PSL-${record.productId}`,
+  productId: record.productId,
+  supplierId: record.preferredSupplierId || 'SUP-GENERAL',
+  supplierName: record.preferredSupplierName || 'General Supplier',
+  supplierSku: `SUP-${record.sku}`,
+  supplierBarcode: record.barcode,
+  lastCost: record.defaultCostPrice,
+  leadTimeDays: record.category === 'Lubricants' ? 3 : 7,
+  minimumOrderQty: record.unitOfMeasure.toLowerCase().includes('meter') ? 10 : 1,
+  isPreferred: true,
+  status: record.status === 'Inactive' ? 'Inactive' : 'Active'
+}));
+
+export const mockProductPriceRecords: ProductPriceRecord[] = mockProductMasterRecords.map((record) => ({
+  priceId: `PRICE-${record.productId}-STD`,
+  productId: record.productId,
+  priceListName: 'Standard Retail',
+  sellingPrice: record.defaultSellingPrice,
+  costPrice: record.defaultCostPrice,
+  marginPercent: record.marginPercent,
+  currency: 'USD',
+  effectiveFrom: '2026-06-01',
+  status: 'Active'
+}));
+
+export const mockProductReorderRules: ProductReorderRule[] = mockProductStockBalances
+  .filter((balance) => balance.locationType === 'Main Warehouse' || balance.locationType === 'Branch Warehouse')
+  .map((balance) => ({
+    ruleId: `ROR-${balance.balanceId}`,
+    productId: balance.productId,
+    branchId: balance.branchId,
+    warehouseId: balance.warehouseId,
+    minQty: balance.reorderLevel,
+    maxQty: Math.max(balance.reorderLevel + balance.reorderQty, balance.qtyOnHand + balance.reorderQty),
+    reorderQty: balance.reorderQty,
+    preferredSupplierId: mockProductMasterRecords.find((record) => record.productId === balance.productId)?.preferredSupplierId,
+    leadTimeDays: 7,
+    isActive: true,
+    notes: 'Local reorder placeholder for Product Master.'
+  }));
 
 export const mockShelfLocations = ['A1-MOTOR-LAMPS', 'A2-BRAKE-SERVICE', 'B1-LUBRICANTS', 'C1-FASTENERS', 'D1-HARDWARE', 'PH-COUNTER-01'];
 

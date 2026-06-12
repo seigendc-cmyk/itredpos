@@ -72,6 +72,16 @@ import {
   StockTransferSummary,
   StockTransferType,
   StockTransferVarianceType,
+  InventoryMovement,
+  ProductBarcodeRecord,
+  ProductMasterFilterState,
+  ProductMasterRecord,
+  ProductMasterSummary,
+  ProductPriceRecord,
+  ProductReorderRule,
+  ProductStockBalance,
+  ProductStockBalanceSummary,
+  ProductSupplierLink,
   ApprovalRequest, 
   ApprovalRequestType 
 } from '../types';
@@ -81,6 +91,7 @@ import SupplierReturnForm from '../components/SupplierReturnForm';
 import StockAdjustmentForm from '../components/StockAdjustmentForm';
 import StocktakeForm from '../components/StocktakeForm';
 import StockTransferForm from '../components/StockTransferForm';
+import ProductMasterForm from '../components/ProductMasterForm';
 import {
   postGoodsReceivedMovement,
   postStockAdjustmentMovement,
@@ -188,6 +199,25 @@ import {
   updateStockTransferDraft,
   updateStockTransferLine
 } from '../services/stockTransferService';
+import {
+  blockProduct,
+  exportProductMasterPlaceholder,
+  getProductBarcodes,
+  getProductMasterAudit,
+  getProductMasterRecords,
+  getProductMasterSummary,
+  getProductPrices,
+  getProductReorderRules,
+  getProductSupplierLinks,
+  markProductInactive,
+  updateProductMasterPlaceholder
+} from '../services/productMasterService';
+import {
+  exportStockBalancesPlaceholder,
+  getProductStockBalances,
+  getProductStockBalanceSummary
+} from '../services/stockBalanceService';
+import { getInventoryMovementsByProduct } from '../services/inventoryMovementService';
 import { canPerformAction } from '../utils/posPermissions';
 
 interface StockProduct extends Product {
@@ -222,8 +252,8 @@ interface StockPanelsProps {
   setStockApprovals: React.Dispatch<React.SetStateAction<ApprovalRequest[]>>;
   canApprove: (reqType: ApprovalRequestType, role: Role) => boolean;
   onUpdateStock: (productId: string, newStock: number) => void;
-  activeTab: 'Stock List' | 'Goods Receiving' | 'Purchase Orders' | 'Supplier Returns' | 'Stock Adjustments' | 'Stocktake' | 'Stock Transfers';
-  setActiveTab: (tab: 'Stock List' | 'Goods Receiving' | 'Purchase Orders' | 'Supplier Returns' | 'Stock Adjustments' | 'Stocktake' | 'Stock Transfers') => void;
+  activeTab: 'Stock List' | 'Product Master' | 'Goods Receiving' | 'Purchase Orders' | 'Supplier Returns' | 'Stock Adjustments' | 'Stocktake' | 'Stock Transfers';
+  setActiveTab: (tab: 'Stock List' | 'Product Master' | 'Goods Receiving' | 'Purchase Orders' | 'Supplier Returns' | 'Stock Adjustments' | 'Stocktake' | 'Stock Transfers') => void;
   stocktakePreselect?: { shelfLocation?: string; productIds?: string[] } | null;
   stocktakePreselectToken?: number;
 }
@@ -248,6 +278,81 @@ export default function StockPanels({
 }: StockPanelsProps) {
 
   // --- LOCAL PERSISTENCE STORAGE FOR SUB-PAGES ---
+  const blockedPermissionMessage = 'You do not have permission to perform this action.';
+
+  const [productMasterRows, setProductMasterRows] = useState<ProductMasterRecord[]>([]);
+  const [productMasterSummary, setProductMasterSummary] = useState<ProductMasterSummary>({
+    totalProducts: 0,
+    activeProducts: 0,
+    blockedProducts: 0,
+    inactiveProducts: 0,
+    lowStockProducts: 0,
+    outOfStockProducts: 0,
+    multiLocationProducts: 0,
+    supplierLinkedProducts: 0,
+    riskProducts: 0
+  });
+  const [stockBalanceSummary, setStockBalanceSummary] = useState<ProductStockBalanceSummary>({
+    totalLocations: 0,
+    totalQtyOnHand: 0,
+    totalQtyAvailable: 0,
+    totalQtyReserved: 0,
+    totalQtyDamaged: 0,
+    totalQtyInTransit: 0,
+    lowStockLocations: 0,
+    outOfStockLocations: 0,
+    stocktakeReviewLocations: 0
+  });
+  const [productMasterFilters, setProductMasterFilters] = useState<ProductMasterFilterState>({
+    status: 'ALL',
+    riskStatus: 'ALL',
+    locationType: 'ALL',
+    stockStatus: 'ALL'
+  });
+  const [selectedProductMaster, setSelectedProductMaster] = useState<ProductMasterRecord | null>(null);
+  const [selectedProductBalances, setSelectedProductBalances] = useState<ProductStockBalance[]>([]);
+  const [selectedProductBarcodes, setSelectedProductBarcodes] = useState<ProductBarcodeRecord[]>([]);
+  const [selectedProductPrices, setSelectedProductPrices] = useState<ProductPriceRecord[]>([]);
+  const [selectedProductSupplierLinks, setSelectedProductSupplierLinks] = useState<ProductSupplierLink[]>([]);
+  const [selectedProductReorderRules, setSelectedProductReorderRules] = useState<ProductReorderRule[]>([]);
+  const [selectedProductLedger, setSelectedProductLedger] = useState<InventoryMovement[]>([]);
+  const [selectedProductAudit, setSelectedProductAudit] = useState<Array<{ id: string; productId: string; eventType: string; message: string; staffId: string; createdAt: string }>>([]);
+  const [productMasterNotice, setProductMasterNotice] = useState<string | null>(null);
+
+  const refreshProductMaster = async (filters = productMasterFilters) => {
+    const [rows, summary, balanceSummary] = await Promise.all([
+      getProductMasterRecords(filters),
+      getProductMasterSummary(filters),
+      getProductStockBalanceSummary()
+    ]);
+    setProductMasterRows(rows);
+    setProductMasterSummary(summary);
+    setStockBalanceSummary(balanceSummary);
+  };
+
+  const openProductMaster = async (product: ProductMasterRecord) => {
+    const [balances, barcodes, prices, suppliers, reorderRules, ledger, audit] = await Promise.all([
+      getProductStockBalances(product.productId),
+      getProductBarcodes(product.productId),
+      getProductPrices(product.productId),
+      getProductSupplierLinks(product.productId),
+      getProductReorderRules(product.productId),
+      getInventoryMovementsByProduct(product.productId),
+      getProductMasterAudit(product.productId)
+    ]);
+    setSelectedProductMaster(product);
+    setSelectedProductBalances(balances);
+    setSelectedProductBarcodes(barcodes);
+    setSelectedProductPrices(prices);
+    setSelectedProductSupplierLinks(suppliers);
+    setSelectedProductReorderRules(reorderRules);
+    setSelectedProductLedger(ledger);
+    setSelectedProductAudit(audit);
+  };
+
+  useEffect(() => {
+    refreshProductMaster();
+  }, []);
   
   // 1. Purchase Orders State. PO records are procurement memos only: no stock,
   // accounting, cashbook, COGS or inventory asset value is posted from this flow.
@@ -2329,6 +2434,189 @@ export default function StockPanels({
 
 
       {/* TAB SUB-PAGES SWAP ROUTERS */}
+      {activeTab === 'Product Master' && (
+        <div className="bg-white border border-[#b1b5c2] p-5 space-y-5">
+          <div className="flex flex-col lg:flex-row justify-between gap-4 border-b border-gray-150 pb-3">
+            <div>
+              <span className="font-extrabold text-[#111827] text-[13px] uppercase flex items-center gap-2">
+                <ClipboardList className="w-4 h-4 text-orange-500" />
+                Product Master
+              </span>
+              <p className="text-[9.5px] text-slate-700 mt-1 uppercase font-semibold">
+                Product identity, supplier links, multi-location stock balances, reorder rules, and ledger alignment.
+              </p>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={async () => {
+                  if (!canPerformAction(simulatedRole, 'productMaster.export')) {
+                    setProductMasterNotice(blockedPermissionMessage);
+                    return;
+                  }
+                  const result = await exportProductMasterPlaceholder(productMasterFilters);
+                  setProductMasterNotice(result.message);
+                }}
+                className="px-4 py-2 bg-white hover:bg-slate-50 border border-[#b1b5c2] text-[#1e222b] font-black uppercase text-[9.5px] rounded-none cursor-pointer flex items-center gap-2"
+              >
+                <Download className="w-4 h-4" />
+                Export Products
+              </button>
+              <button
+                type="button"
+                onClick={() => setProductMasterNotice('New Product Master draft placeholder is ready for create flow wiring.')}
+                className="px-4 py-2 bg-orange-600 hover:bg-orange-700 border border-orange-700 text-white font-black uppercase text-[9.5px] rounded-none cursor-pointer flex items-center gap-2"
+              >
+                <PlusCircle className="w-4 h-4" />
+                New Product Placeholder
+              </button>
+            </div>
+          </div>
+
+          {productMasterNotice && (
+            <div className="border border-orange-300 bg-orange-50 p-3 text-[9.5px] uppercase font-black text-slate-800 flex items-center justify-between gap-3">
+              <span>{productMasterNotice}</span>
+              <button type="button" onClick={() => setProductMasterNotice(null)} className="text-orange-800 font-black">CLEAR</button>
+            </div>
+          )}
+
+          <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-8 gap-2">
+            <POMetric label="Total Products" value={productMasterSummary.totalProducts} />
+            <POMetric label="Active" value={productMasterSummary.activeProducts} />
+            <POMetric label="Blocked" value={productMasterSummary.blockedProducts} />
+            <POMetric label="Low Stock" value={productMasterSummary.lowStockProducts} />
+            <POMetric label="Out Of Stock" value={productMasterSummary.outOfStockProducts} />
+            <POMetric label="Multi-Location" value={productMasterSummary.multiLocationProducts} />
+            <POMetric label="Supplier Linked" value={productMasterSummary.supplierLinkedProducts} />
+            <POMetric label="Risk Products" value={productMasterSummary.riskProducts} />
+          </div>
+
+          <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-9 gap-2">
+            <POMetric label="Locations" value={stockBalanceSummary.totalLocations} />
+            <POMetric label="Qty On Hand" value={stockBalanceSummary.totalQtyOnHand} />
+            <POMetric label="Available" value={stockBalanceSummary.totalQtyAvailable} />
+            <POMetric label="Reserved" value={stockBalanceSummary.totalQtyReserved} />
+            <POMetric label="Damaged" value={stockBalanceSummary.totalQtyDamaged} />
+            <POMetric label="In Transit" value={stockBalanceSummary.totalQtyInTransit} />
+            <POMetric label="Low Locations" value={stockBalanceSummary.lowStockLocations} />
+            <POMetric label="Out Locations" value={stockBalanceSummary.outOfStockLocations} />
+            <POMetric label="Review Locations" value={stockBalanceSummary.stocktakeReviewLocations} />
+          </div>
+
+          <div className="bg-[#f8fafc] border border-[#d7dce5] p-3 grid grid-cols-1 md:grid-cols-3 xl:grid-cols-6 gap-3">
+            <POFilterInput label="Search" value={productMasterFilters.search || ''} onChange={(value) => setProductMasterFilters((current) => ({ ...current, search: value }))} />
+            <POFilterSelect label="Status" value={productMasterFilters.status || 'ALL'} onChange={(value) => setProductMasterFilters((current) => ({ ...current, status: value as ProductMasterFilterState['status'] }))} options={['ALL', 'Draft', 'Active', 'Blocked', 'Inactive', 'Discontinued', 'Pending Review']} />
+            <POFilterSelect label="Risk" value={productMasterFilters.riskStatus || 'ALL'} onChange={(value) => setProductMasterFilters((current) => ({ ...current, riskStatus: value as ProductMasterFilterState['riskStatus'] }))} options={['ALL', 'None', 'Low Margin', 'Supplier Risk', 'Dead Stock', 'Variance Risk', 'Blocked Sale', 'Credit Review']} />
+            <POFilterSelect label="Location Type" value={productMasterFilters.locationType || 'ALL'} onChange={(value) => setProductMasterFilters((current) => ({ ...current, locationType: value as ProductMasterFilterState['locationType'] }))} options={['ALL', 'Branch Sales Floor', 'Branch Warehouse', 'Main Warehouse', 'Holding Area', 'Damaged Stock', 'In Transit', 'Supplier Return Bay', 'Virtual']} />
+            <POFilterSelect label="Stock Status" value={productMasterFilters.stockStatus || 'ALL'} onChange={(value) => setProductMasterFilters((current) => ({ ...current, stockStatus: value as ProductMasterFilterState['stockStatus'] }))} options={['ALL', 'Available', 'Low Stock', 'Out of Stock', 'Reserved', 'Damaged', 'In Transit', 'Blocked', 'Stocktake Review']} />
+            <button type="button" onClick={() => refreshProductMaster(productMasterFilters)} className="px-3 py-2 bg-orange-600 text-white border border-orange-700 font-black uppercase text-[9px] rounded-none self-end">Apply Filters</button>
+          </div>
+
+          <div className="overflow-x-auto border border-[#b1b5c2]">
+            <table className="w-full text-xs">
+              <thead className="bg-[#252a31] text-white">
+                <tr>
+                  {['Product Code', 'SKU', 'Product Name', 'Sector', 'Category', 'Supplier', 'Status', 'Risk', 'Available', 'Locations', 'Action'].map((header) => (
+                    <th key={header} className="p-2 text-left text-[9px] uppercase font-black">{header}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {productMasterRows.map((product) => {
+                  const balancesForProduct = selectedProductMaster?.productId === product.productId ? selectedProductBalances : [];
+                  const rowBalances = balancesForProduct.length > 0 ? balancesForProduct : [];
+                  const available = rowBalances.reduce((sum, balance) => sum + balance.qtyAvailable, 0);
+                  const locations = rowBalances.length || 'Open';
+                  return (
+                    <tr key={product.productId} onDoubleClick={() => openProductMaster(product)} className="border-t border-[#e5e7eb] hover:bg-orange-50">
+                      <td className="p-2 font-black text-[#111827]">{product.productCode}</td>
+                      <td className="p-2">{product.sku}</td>
+                      <td className="p-2 font-semibold">{product.productName}</td>
+                      <td className="p-2">{product.sectorAttributes.sector}</td>
+                      <td className="p-2">{product.category}</td>
+                      <td className="p-2">{product.preferredSupplierName || '-'}</td>
+                      <td className="p-2"><span className={`px-2 py-1 border text-[8px] font-black uppercase ${productMasterStatusClass(product.status)}`}>{product.status}</span></td>
+                      <td className="p-2"><span className={`px-2 py-1 border text-[8px] font-black uppercase ${product.riskStatus === 'None' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-orange-50 text-orange-800 border-orange-200'}`}>{product.riskStatus}</span></td>
+                      <td className="p-2">{available || 'Open'}</td>
+                      <td className="p-2">{locations}</td>
+                      <td className="p-2">
+                        <div className="flex flex-wrap gap-1">
+                          <POAction label="Open" primary onClick={() => openProductMaster(product)} />
+                          <POAction label="Balances" onClick={async () => {
+                            const result = await exportStockBalancesPlaceholder(product.productId);
+                            setProductMasterNotice(result.message);
+                          }} />
+                          <POAction label="Ledger" onClick={() => setProductMasterNotice(`Product Ledger can be opened for ${product.sku} from the Product Master popup.`)} />
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+                {productMasterRows.length === 0 && (
+                  <tr>
+                    <td className="p-4 text-slate-600 font-semibold" colSpan={11}>No product master rows match the current filters.</td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+
+          {selectedProductMaster && (
+            <ProductMasterForm
+              product={selectedProductMaster}
+              balances={selectedProductBalances}
+              barcodes={selectedProductBarcodes}
+              prices={selectedProductPrices}
+              supplierLinks={selectedProductSupplierLinks}
+              reorderRules={selectedProductReorderRules}
+              ledgerEntries={selectedProductLedger}
+              auditRows={selectedProductAudit}
+              onClose={() => setSelectedProductMaster(null)}
+              onSave={async (patch) => {
+                if (!canPerformAction(simulatedRole, 'productMaster.edit')) {
+                  setProductMasterNotice(blockedPermissionMessage);
+                  return;
+                }
+                const updated = await updateProductMasterPlaceholder(selectedProductMaster.productId, patch, staffName);
+                if (updated) {
+                  setProductMasterNotice('Product Master draft placeholder saved locally.');
+                  await refreshProductMaster(productMasterFilters);
+                  await openProductMaster(updated);
+                }
+              }}
+              onBlock={async () => {
+                if (!canPerformAction(simulatedRole, 'productMaster.block')) {
+                  setProductMasterNotice(blockedPermissionMessage);
+                  return;
+                }
+                const updated = await blockProduct(selectedProductMaster.productId, staffName, 'Product blocked from Product Master placeholder.');
+                if (updated) {
+                  setProductMasterNotice('Product blocked locally.');
+                  await refreshProductMaster(productMasterFilters);
+                  await openProductMaster(updated);
+                }
+              }}
+              onMarkInactive={async () => {
+                if (!canPerformAction(simulatedRole, 'productMaster.edit')) {
+                  setProductMasterNotice(blockedPermissionMessage);
+                  return;
+                }
+                const updated = await markProductInactive(selectedProductMaster.productId, staffName, 'Product marked inactive from Product Master placeholder.');
+                if (updated) {
+                  setProductMasterNotice('Product marked inactive locally.');
+                  await refreshProductMaster(productMasterFilters);
+                  await openProductMaster(updated);
+                }
+              }}
+              onExport={async () => {
+                const result = await exportProductMasterPlaceholder({ ...productMasterFilters, search: selectedProductMaster.sku });
+                setProductMasterNotice(result.message);
+              }}
+            />
+          )}
+        </div>
+      )}
+
       {activeTab === 'Goods Receiving' && (
         <div className="bg-white border border-[#b1b5c2] p-5 space-y-5">
           <div className="flex flex-col lg:flex-row justify-between gap-4 border-b border-gray-150 pb-3">
@@ -4312,6 +4600,13 @@ function stockAdjustmentStatusClass(status: StockAdjustmentStatus): string {
   if (status === 'Pending Approval') return 'bg-amber-50 text-amber-800 border border-amber-300 font-black';
   if (status === 'Rejected' || status === 'Cancelled' || status === 'Reversed') return 'bg-rose-50 text-rose-800 border border-rose-300 font-bold';
   return 'bg-slate-100 text-slate-700 border border-slate-300';
+}
+
+function productMasterStatusClass(status: ProductMasterRecord['status']): string {
+  if (status === 'Active') return 'bg-emerald-50 text-emerald-800 border-emerald-300';
+  if (status === 'Pending Review' || status === 'Draft') return 'bg-orange-50 text-orange-800 border-orange-300';
+  if (status === 'Blocked') return 'bg-red-50 text-red-800 border-red-300';
+  return 'bg-slate-100 text-slate-700 border-slate-300';
 }
 
 function POMetric({ label, value }: { label: string; value: string | number }) {

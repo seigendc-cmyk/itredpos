@@ -30,6 +30,14 @@ export type PermissionKey =
   | 'inventory.approveImport'
   | 'inventory.adjust'
   | 'inventory.approveAdjustment'
+  | 'productMaster.view'
+  | 'productMaster.create'
+  | 'productMaster.edit'
+  | 'productMaster.block'
+  | 'productMaster.export'
+  | 'stockBalances.view'
+  | 'stockBalances.adjust'
+  | 'stockBalances.transfer'
   | 'stockAdjustments.view'
   | 'stockAdjustments.create'
   | 'stockAdjustments.edit'
@@ -140,6 +148,14 @@ const ALL_PERMISSIONS: PermissionKey[] = [
   'inventory.approveImport',
   'inventory.adjust',
   'inventory.approveAdjustment',
+  'productMaster.view',
+  'productMaster.create',
+  'productMaster.edit',
+  'productMaster.block',
+  'productMaster.export',
+  'stockBalances.view',
+  'stockBalances.adjust',
+  'stockBalances.transfer',
   'stockAdjustments.view',
   'stockAdjustments.create',
   'stockAdjustments.edit',
@@ -232,6 +248,7 @@ const ROLE_PERMISSIONS: Record<Role, PermissionKey[]> = {
     'terminal.activate', 'terminal.deactivate', 'shift.open', 'shift.close', 'shift.forceClose',
     'customers.createRequest', 'customers.approve',
     'inventory.view', 'inventory.import', 'inventory.approveImport', 'inventory.adjust', 'inventory.approveAdjustment',
+    'productMaster.view', 'productMaster.create', 'productMaster.edit', 'productMaster.block', 'productMaster.export', 'stockBalances.view', 'stockBalances.adjust', 'stockBalances.transfer',
     'stockAdjustments.view', 'stockAdjustments.create', 'stockAdjustments.edit', 'stockAdjustments.approve', 'stockAdjustments.post', 'stockAdjustments.cancel', 'stockAdjustments.reverse',
     'inventoryMovements.view', 'inventoryMovements.export', 'productLedger.view',
     'purchaseOrders.view', 'purchaseOrders.create', 'purchaseOrders.edit', 'purchaseOrders.approve', 'purchaseOrders.cancel', 'purchaseOrders.receive', 'purchaseOrders.export',
@@ -254,6 +271,7 @@ const ROLE_PERMISSIONS: Record<Role, PermissionKey[]> = {
     'shift.open', 'shift.close',
     'customers.createRequest',
     'inventory.view',
+    'productMaster.view', 'stockBalances.view',
     'stockAdjustments.view', 'stockAdjustments.create', 'stockAdjustments.edit', 'stockAdjustments.post',
     'inventoryMovements.view', 'productLedger.view',
     'purchaseOrders.view', 'purchaseOrders.create', 'purchaseOrders.edit', 'purchaseOrders.receive',
@@ -280,6 +298,7 @@ const ROLE_PERMISSIONS: Record<Role, PermissionKey[]> = {
   'Stock Controller': [
     'sales.viewHistory',
     'inventory.view', 'inventory.import', 'inventory.adjust',
+    'productMaster.view', 'productMaster.create', 'productMaster.edit', 'productMaster.export', 'stockBalances.view', 'stockBalances.adjust', 'stockBalances.transfer',
     'stockAdjustments.view', 'stockAdjustments.create', 'stockAdjustments.edit',
     'inventoryMovements.view', 'productLedger.view',
     'purchaseOrders.view', 'purchaseOrders.create', 'purchaseOrders.edit', 'purchaseOrders.receive',

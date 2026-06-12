@@ -114,7 +114,7 @@ interface StockActivityEvent {
   message: string;
 }
 
-type StockTab = 'Stock List' | 'Product List' | 'Product Ledger' | 'Inventory Movements' | 'Stock Health' | 'Inventory Reports' | 'Goods Receiving' | 'Purchase Orders' | 'Supplier Returns' | 'Stock Adjustments' | 'Stocktake' | 'Stock Transfers';
+type StockTab = 'Stock List' | 'Product List' | 'Product Master' | 'Product Ledger' | 'Inventory Movements' | 'Stock Health' | 'Inventory Reports' | 'Goods Receiving' | 'Purchase Orders' | 'Supplier Returns' | 'Stock Adjustments' | 'Stocktake' | 'Stock Transfers';
 
 // Interactive default mock products specified by user request dynamically generated from mockPosData
 const INDUSTRIAL_SECTORS = ['Motor Spares', 'Mining Supplies', 'Retail FMCG', 'Agriculture', 'Hardware'] as const;
@@ -1234,7 +1234,7 @@ export default function PosStock({
 
       {/* 1B. SOLID TAB NAVIGATION SELECTORS */}
       <div className="industrial-toolbar">
-        {(['Stock List', 'Product List', 'Product Ledger', 'Inventory Movements', 'Stock Health', 'Inventory Reports', 'Goods Receiving', 'Purchase Orders', 'Supplier Returns', 'Stock Adjustments', 'Stock Transfers', 'Stocktake'] as const).map((tab) => {
+        {(['Stock List', 'Product List', 'Product Master', 'Product Ledger', 'Inventory Movements', 'Stock Health', 'Inventory Reports', 'Goods Receiving', 'Purchase Orders', 'Supplier Returns', 'Stock Adjustments', 'Stock Transfers', 'Stocktake'] as const).map((tab) => {
           const isActive = activeTab === tab;
           return (
             <button
@@ -1834,7 +1834,7 @@ export default function PosStock({
           setStockApprovals={setStockApprovals}
           canApprove={canApprove}
           onUpdateStock={onUpdateStock}
-          activeTab={activeTab as 'Goods Receiving' | 'Purchase Orders' | 'Supplier Returns' | 'Stock Adjustments' | 'Stocktake' | 'Stock Transfers'}
+          activeTab={activeTab as 'Product Master' | 'Goods Receiving' | 'Purchase Orders' | 'Supplier Returns' | 'Stock Adjustments' | 'Stocktake' | 'Stock Transfers'}
           setActiveTab={(tab) => setActiveTab(tab)}
           stocktakePreselect={stocktakePreselect}
           stocktakePreselectToken={stocktakePreselectToken}

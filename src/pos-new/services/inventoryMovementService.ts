@@ -12,6 +12,7 @@ import {
   saveInventoryMovements,
   updateInventoryMovement
 } from '../utils/localInventoryStore';
+import { updateStockBalanceFromMovement } from './stockBalanceService';
 
 const EVENT_KEY = 'sci_pos_inventory_movement_events';
 
@@ -125,6 +126,7 @@ export async function postInventoryMovement(payload: InventoryMovementPayload): 
   };
 
   addInventoryMovement(movement);
+  void updateStockBalanceFromMovement(movement);
   recordInventoryEvent('INVENTORY_MOVEMENT_POSTED', `${movement.movementType} posted for ${movement.sku}.`, movement.movementId);
   return movement;
 }

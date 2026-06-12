@@ -173,6 +173,7 @@ export interface Product {
   price: number;
   cost: number;
   stock: number;
+  availableStock?: number;
   minStock: number;
   unit: string;
   vendorId?: string;
@@ -212,6 +213,199 @@ export interface Product {
   warehouse?: string;
   lastMovementDate?: string;
   healthStatus?: StockStatus;
+}
+
+export type ProductStatus = 'Draft' | 'Active' | 'Blocked' | 'Inactive' | 'Discontinued' | 'Pending Review';
+
+export type StockLocationType =
+  | 'Branch Sales Floor'
+  | 'Branch Warehouse'
+  | 'Main Warehouse'
+  | 'Holding Area'
+  | 'Damaged Stock'
+  | 'In Transit'
+  | 'Supplier Return Bay'
+  | 'Virtual';
+
+export type StockBalanceStatus =
+  | 'Available'
+  | 'Low Stock'
+  | 'Out of Stock'
+  | 'Reserved'
+  | 'Damaged'
+  | 'In Transit'
+  | 'Blocked'
+  | 'Stocktake Review';
+
+export type ProductRiskStatus = 'None' | 'Low Margin' | 'Supplier Risk' | 'Dead Stock' | 'Variance Risk' | 'Blocked Sale' | 'Credit Review';
+
+export interface ProductSectorAttributes {
+  sector: string;
+  productCategory: string;
+  productSubCategory?: string;
+  brand?: string;
+  manufacturer?: string;
+  model?: string;
+  size?: string;
+  colour?: string;
+  material?: string;
+  weight?: string;
+  warrantyPeriod?: string;
+  expiryRequired?: boolean;
+  serialTrackingRequired?: boolean;
+  batchTrackingRequired?: boolean;
+  notes?: string;
+}
+
+export interface ProductMasterRecord {
+  productId: string;
+  vendorId: string;
+  productCode: string;
+  sku: string;
+  barcode?: string;
+  alu?: string;
+  productNumericNumber?: string;
+  productName: string;
+  shortDescription?: string;
+  productType: 'Stock Item' | 'Service' | 'Bundle' | 'Consumable' | 'Non-Stock';
+  status: ProductStatus;
+  riskStatus: ProductRiskStatus;
+  category: string;
+  unitOfMeasure: string;
+  taxCode: string;
+  defaultSellingPrice: number;
+  defaultCostPrice: number;
+  marginPercent: number;
+  preferredSupplierId?: string;
+  preferredSupplierName?: string;
+  salesAccountCOA?: string;
+  assetAccountCOA?: string;
+  cogsAccountCOA?: string;
+  sectorAttributes: ProductSectorAttributes;
+  imageUrl?: string;
+  createdByStaffId: string;
+  approvedByStaffId?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ProductBarcodeRecord {
+  barcodeId: string;
+  productId: string;
+  barcode: string;
+  barcodeType: 'Primary' | 'Alternate' | 'Supplier' | 'Case Pack';
+  packSize: number;
+  isActive: boolean;
+  notes?: string;
+}
+
+export interface ProductStockBalance {
+  balanceId: string;
+  vendorId: string;
+  productId: string;
+  sku: string;
+  productName: string;
+  branchId: string;
+  branchName: string;
+  warehouseId: string;
+  warehouseName: string;
+  locationId: string;
+  locationName: string;
+  locationType: StockLocationType;
+  shelfLocation?: string;
+  binLocation?: string;
+  qtyOnHand: number;
+  qtyReserved: number;
+  qtyAvailable: number;
+  qtyDamaged: number;
+  qtyInTransit: number;
+  reorderLevel: number;
+  reorderQty: number;
+  status: StockBalanceStatus;
+  lastMovementDate?: string;
+  updatedAt: string;
+}
+
+export interface ProductLocationBalance extends ProductStockBalance {
+  locationDisplay: string;
+}
+
+export interface ProductReorderRule {
+  ruleId: string;
+  productId: string;
+  branchId: string;
+  warehouseId: string;
+  minQty: number;
+  maxQty: number;
+  reorderQty: number;
+  preferredSupplierId?: string;
+  leadTimeDays: number;
+  isActive: boolean;
+  notes?: string;
+}
+
+export interface ProductSupplierLink {
+  supplierLinkId: string;
+  productId: string;
+  supplierId: string;
+  supplierName: string;
+  supplierSku?: string;
+  supplierBarcode?: string;
+  lastCost: number;
+  leadTimeDays: number;
+  minimumOrderQty: number;
+  isPreferred: boolean;
+  status: 'Active' | 'Inactive' | 'Review';
+}
+
+export interface ProductPriceRecord {
+  priceId: string;
+  productId: string;
+  priceListName: string;
+  sellingPrice: number;
+  costPrice: number;
+  marginPercent: number;
+  currency: string;
+  effectiveFrom: string;
+  effectiveTo?: string;
+  status: 'Active' | 'Scheduled' | 'Expired';
+}
+
+export interface ProductMasterFilterState {
+  search?: string;
+  status?: 'ALL' | ProductStatus;
+  riskStatus?: 'ALL' | ProductRiskStatus;
+  sector?: string;
+  category?: string;
+  supplier?: string;
+  branchId?: string;
+  warehouseId?: string;
+  locationType?: 'ALL' | StockLocationType;
+  stockStatus?: 'ALL' | StockBalanceStatus;
+}
+
+export interface ProductMasterSummary {
+  totalProducts: number;
+  activeProducts: number;
+  blockedProducts: number;
+  inactiveProducts: number;
+  lowStockProducts: number;
+  outOfStockProducts: number;
+  multiLocationProducts: number;
+  supplierLinkedProducts: number;
+  riskProducts: number;
+}
+
+export interface ProductStockBalanceSummary {
+  totalLocations: number;
+  totalQtyOnHand: number;
+  totalQtyAvailable: number;
+  totalQtyReserved: number;
+  totalQtyDamaged: number;
+  totalQtyInTransit: number;
+  lowStockLocations: number;
+  outOfStockLocations: number;
+  stocktakeReviewLocations: number;
 }
 
 export interface CartItem {
