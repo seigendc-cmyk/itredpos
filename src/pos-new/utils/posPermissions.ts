@@ -62,9 +62,25 @@ export type PermissionKey =
   | 'supplierReturns.cancel'
   | 'supplierReturns.dispatch'
   | 'supplierReturns.close'
+  | 'stocktake.view'
   | 'stocktake.create'
   | 'stocktake.count'
+  | 'stocktake.submit'
+  | 'stocktake.approve'
+  | 'stocktake.post'
+  | 'stocktake.cancel'
+  | 'stocktake.export'
   | 'stocktake.approveAdjustment'
+  | 'stockTransfers.view'
+  | 'stockTransfers.create'
+  | 'stockTransfers.edit'
+  | 'stockTransfers.approve'
+  | 'stockTransfers.dispatch'
+  | 'stockTransfers.receive'
+  | 'stockTransfers.postReceipt'
+  | 'stockTransfers.cancel'
+  | 'stockTransfers.closeOutstanding'
+  | 'stockTransfers.export'
   | 'ideliver.createProvider'
   | 'delivery.broadcast'
   | 'delivery.review'
@@ -156,9 +172,25 @@ const ALL_PERMISSIONS: PermissionKey[] = [
   'supplierReturns.cancel',
   'supplierReturns.dispatch',
   'supplierReturns.close',
+  'stocktake.view',
   'stocktake.create',
   'stocktake.count',
+  'stocktake.submit',
+  'stocktake.approve',
+  'stocktake.post',
+  'stocktake.cancel',
+  'stocktake.export',
   'stocktake.approveAdjustment',
+  'stockTransfers.view',
+  'stockTransfers.create',
+  'stockTransfers.edit',
+  'stockTransfers.approve',
+  'stockTransfers.dispatch',
+  'stockTransfers.receive',
+  'stockTransfers.postReceipt',
+  'stockTransfers.cancel',
+  'stockTransfers.closeOutstanding',
+  'stockTransfers.export',
   'ideliver.createProvider',
   'delivery.broadcast',
   'delivery.review',
@@ -205,7 +237,8 @@ const ROLE_PERMISSIONS: Record<Role, PermissionKey[]> = {
     'purchaseOrders.view', 'purchaseOrders.create', 'purchaseOrders.edit', 'purchaseOrders.approve', 'purchaseOrders.cancel', 'purchaseOrders.receive', 'purchaseOrders.export',
     'goodsReceiving.view', 'goodsReceiving.create', 'goodsReceiving.edit', 'goodsReceiving.approve', 'goodsReceiving.post', 'goodsReceiving.cancel',
     'supplierReturns.view', 'supplierReturns.create', 'supplierReturns.edit', 'supplierReturns.approve', 'supplierReturns.post', 'supplierReturns.cancel', 'supplierReturns.dispatch', 'supplierReturns.close',
-    'stocktake.create', 'stocktake.count', 'stocktake.approveAdjustment',
+    'stocktake.view', 'stocktake.create', 'stocktake.count', 'stocktake.submit', 'stocktake.approve', 'stocktake.post', 'stocktake.cancel', 'stocktake.export', 'stocktake.approveAdjustment',
+    'stockTransfers.view', 'stockTransfers.create', 'stockTransfers.edit', 'stockTransfers.approve', 'stockTransfers.dispatch', 'stockTransfers.receive', 'stockTransfers.postReceipt', 'stockTransfers.cancel', 'stockTransfers.closeOutstanding', 'stockTransfers.export',
     'ideliver.createProvider', 'delivery.broadcast', 'delivery.review',
     'tasks.view', 'tasks.assign', 'tasks.close',
     'approvals.view', 'approvals.approve', 'approvals.reject',
@@ -226,7 +259,8 @@ const ROLE_PERMISSIONS: Record<Role, PermissionKey[]> = {
     'purchaseOrders.view', 'purchaseOrders.create', 'purchaseOrders.edit', 'purchaseOrders.receive',
     'goodsReceiving.view', 'goodsReceiving.create', 'goodsReceiving.edit', 'goodsReceiving.post',
     'supplierReturns.view', 'supplierReturns.create', 'supplierReturns.edit', 'supplierReturns.post', 'supplierReturns.dispatch',
-    'stocktake.create', 'stocktake.count',
+    'stocktake.view', 'stocktake.create', 'stocktake.count', 'stocktake.submit', 'stocktake.post',
+    'stockTransfers.view', 'stockTransfers.create', 'stockTransfers.edit', 'stockTransfers.dispatch', 'stockTransfers.receive', 'stockTransfers.postReceipt', 'stockTransfers.export',
     'delivery.broadcast', 'delivery.review',
     'tasks.view', 'tasks.assign', 'tasks.close',
     'approvals.view', 'approvals.approve', 'approvals.reject',
@@ -251,7 +285,8 @@ const ROLE_PERMISSIONS: Record<Role, PermissionKey[]> = {
     'purchaseOrders.view', 'purchaseOrders.create', 'purchaseOrders.edit', 'purchaseOrders.receive',
     'goodsReceiving.view', 'goodsReceiving.create', 'goodsReceiving.edit',
     'supplierReturns.view', 'supplierReturns.create', 'supplierReturns.edit',
-    'stocktake.create', 'stocktake.count',
+    'stocktake.view', 'stocktake.create', 'stocktake.count', 'stocktake.submit', 'stocktake.export',
+    'stockTransfers.view', 'stockTransfers.create', 'stockTransfers.edit', 'stockTransfers.dispatch', 'stockTransfers.receive', 'stockTransfers.export',
     'tasks.view',
     'approvals.view',
     'reports.view',

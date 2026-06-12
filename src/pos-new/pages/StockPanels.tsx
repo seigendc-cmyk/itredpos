@@ -51,11 +51,27 @@ import {
   StockAdjustmentRiskLevel,
   StockAdjustmentStatus,
   StockAdjustmentSummary,
+  StocktakeActivityEvent,
+  StocktakeCountMode,
+  StocktakeFilterState,
   GRNLine, 
   GoodsReceivedNote, 
   SupplierReturn, 
   StockAdjustmentRequest, 
   StocktakeLine, 
+  StocktakePostingResult,
+  StocktakeScope,
+  StocktakeSession,
+  StocktakeSessionSummary,
+  StocktakeVarianceSummary,
+  StockTransfer,
+  StockTransferActivityEvent,
+  StockTransferFilterState,
+  StockTransferLine,
+  StockTransferStatus,
+  StockTransferSummary,
+  StockTransferType,
+  StockTransferVarianceType,
   ApprovalRequest, 
   ApprovalRequestType 
 } from '../types';
@@ -63,6 +79,8 @@ import PurchaseOrderForm from '../components/PurchaseOrderForm';
 import GoodsReceivingForm from '../components/GoodsReceivingForm';
 import SupplierReturnForm from '../components/SupplierReturnForm';
 import StockAdjustmentForm from '../components/StockAdjustmentForm';
+import StocktakeForm from '../components/StocktakeForm';
+import StockTransferForm from '../components/StockTransferForm';
 import {
   postGoodsReceivedMovement,
   postStockAdjustmentMovement,
@@ -127,6 +145,49 @@ import {
   StockAdjustmentPostingResult,
   submitStockAdjustmentForApproval
 } from '../services/stockAdjustmentService';
+import {
+  approveStocktake,
+  bulkUpdateStocktakeCounts,
+  cancelStocktake,
+  completeStocktakeRecount,
+  createStocktakeSession,
+  excludeStocktakeLine,
+  exportStocktakePlaceholder,
+  getStocktakeActivityEvents,
+  getStocktakeLines,
+  getStocktakeSessionById,
+  getStocktakeSessions,
+  getStocktakeSessionSummary,
+  postStocktakeVariance,
+  requestRecount,
+  restoreStocktakeLine,
+  submitStocktake,
+  updateStocktakeLineCount,
+  updateStocktakeSessionDraft,
+  calculateStocktakeVarianceSummary,
+  generateStocktakeLinesFromScope
+} from '../services/stocktakeService';
+import {
+  addStockTransferLine,
+  approveStockTransfer,
+  cancelStockTransfer,
+  closeTransferWithOutstanding,
+  createStockTransferDraft,
+  dispatchStockTransfer,
+  exportStockTransferPlaceholder,
+  getStockTransferActivityEvents,
+  getStockTransferById,
+  getStockTransferLines,
+  getStockTransferSummary,
+  getStockTransfers,
+  postTransferReceipt,
+  receiveStockTransfer,
+  rejectStockTransfer,
+  removeStockTransferLine,
+  submitStockTransferForApproval,
+  updateStockTransferDraft,
+  updateStockTransferLine
+} from '../services/stockTransferService';
 import { canPerformAction } from '../utils/posPermissions';
 
 interface StockProduct extends Product {
@@ -161,8 +222,8 @@ interface StockPanelsProps {
   setStockApprovals: React.Dispatch<React.SetStateAction<ApprovalRequest[]>>;
   canApprove: (reqType: ApprovalRequestType, role: Role) => boolean;
   onUpdateStock: (productId: string, newStock: number) => void;
-  activeTab: 'Stock List' | 'Goods Receiving' | 'Purchase Orders' | 'Supplier Returns' | 'Stock Adjustments' | 'Stocktake';
-  setActiveTab: (tab: 'Stock List' | 'Goods Receiving' | 'Purchase Orders' | 'Supplier Returns' | 'Stock Adjustments' | 'Stocktake') => void;
+  activeTab: 'Stock List' | 'Goods Receiving' | 'Purchase Orders' | 'Supplier Returns' | 'Stock Adjustments' | 'Stocktake' | 'Stock Transfers';
+  setActiveTab: (tab: 'Stock List' | 'Goods Receiving' | 'Purchase Orders' | 'Supplier Returns' | 'Stock Adjustments' | 'Stocktake' | 'Stock Transfers') => void;
   stocktakePreselect?: { shelfLocation?: string; productIds?: string[] } | null;
   stocktakePreselectToken?: number;
 }
@@ -313,7 +374,7 @@ export default function StockPanels({
 
   const goodsReceivingSummary = useMemo(() => {
     const today = new Date().toISOString().slice(0, 10);
-    const allLines = Object.values(goodsReceivingLineMap).flat();
+    const allLines = Object.values(goodsReceivingLineMap).flat() as GoodsReceivingLine[];
     return {
       draftGRNs: goodsReceivingNotes.filter((note) => note.receivingStatus === 'Draft').length,
       pendingApproval: goodsReceivingNotes.filter((note) => note.receivingStatus === 'Pending Approval').length,
@@ -503,6 +564,587 @@ export default function StockPanels({
   const stocktakeWarehouseOptions = useMemo(() => ['ALL', ...Array.from(new Set(localStock.map((item) => item.warehouse).filter(Boolean)))], [localStock]);
   const stocktakeCategoryOptions = useMemo(() => ['ALL', ...Array.from(new Set(localStock.map((item) => item.productCategory || item.category).filter(Boolean)))], [localStock]);
   const stocktakeShelfOptions = useMemo(() => ['ALL', ...Array.from(new Set(localStock.map((item) => item.shelfLocation).filter(Boolean)))], [localStock]);
+  const stocktakeBranchDeskOptions = useMemo(() => Array.from(new Set(localStock.map((item) => item.branch || item.branchId || activeBranch).filter(Boolean))) as string[], [activeBranch, localStock]);
+  const stocktakeWarehouseDeskOptions = useMemo(() => Array.from(new Set(localStock.map((item) => item.warehouse || item.warehouseId || 'Harare Spares Depot').filter(Boolean))) as string[], [localStock]);
+
+  const [stocktakeDeskSessions, setStocktakeDeskSessions] = useState<StocktakeSession[]>([]);
+  const [stocktakeDeskLineMap, setStocktakeDeskLineMap] = useState<Record<string, StocktakeLine[]>>({});
+  const [stocktakeDeskSummary, setStocktakeDeskSummary] = useState<StocktakeSessionSummary>({
+    openSessions: 0,
+    counting: 0,
+    submitted: 0,
+    pendingApproval: 0,
+    recountRequired: 0,
+    postedToday: 0,
+    positiveVariance: 0,
+    negativeVariance: 0,
+    highRiskVariance: 0,
+    estimatedValueImpact: 0
+  });
+  const [stocktakeDeskFilters, setStocktakeDeskFilters] = useState<StocktakeFilterState>({
+    scope: 'ALL',
+    countMode: 'ALL',
+    status: 'ALL',
+    varianceRisk: 'ALL'
+  });
+  const [stocktakeDeskEvents, setStocktakeDeskEvents] = useState<StocktakeActivityEvent[]>([]);
+  const [stocktakeDeskNotice, setStocktakeDeskNotice] = useState<string | null>(null);
+  const [selectedStocktake, setSelectedStocktake] = useState<StocktakeSession | null>(null);
+  const [selectedStocktakeLines, setSelectedStocktakeLines] = useState<StocktakeLine[]>([]);
+  const [selectedStocktakeSummary, setSelectedStocktakeSummary] = useState<StocktakeVarianceSummary | null>(null);
+  const [stocktakeFormOpen, setStocktakeFormOpen] = useState(false);
+  const [stockTransferRecords, setStockTransferRecords] = useState<StockTransfer[]>([]);
+  const [stockTransferLineMap, setStockTransferLineMap] = useState<Record<string, StockTransferLine[]>>({});
+  const [stockTransferSummary, setStockTransferSummary] = useState<StockTransferSummary>({
+    draftTransfers: 0,
+    pendingApproval: 0,
+    approved: 0,
+    inTransit: 0,
+    partiallyReceived: 0,
+    varianceReview: 0,
+    fullyReceived: 0,
+    closedOutstanding: 0,
+    transferQty: 0,
+    transferValue: 0
+  });
+  const [stockTransferFilters, setStockTransferFilters] = useState<StockTransferFilterState>({ transferType: 'ALL', status: 'ALL', varianceType: 'ALL' });
+  const [stockTransferEvents, setStockTransferEvents] = useState<StockTransferActivityEvent[]>([]);
+  const [stockTransferNotice, setStockTransferNotice] = useState<string | null>(null);
+  const [selectedStockTransfer, setSelectedStockTransfer] = useState<StockTransfer | null>(null);
+  const [selectedStockTransferLines, setSelectedStockTransferLines] = useState<StockTransferLine[]>([]);
+  const [stockTransferFormOpen, setStockTransferFormOpen] = useState(false);
+
+  const refreshStocktakeDesk = async (filters = stocktakeDeskFilters) => {
+    const [sessions, summary, events] = await Promise.all([
+      getStocktakeSessions(filters),
+      getStocktakeSessionSummary(filters),
+      getStocktakeActivityEvents(filters)
+    ]);
+    const linePairs = await Promise.all(sessions.map(async (session) => [session.stocktakeId, await getStocktakeLines(session.stocktakeId)] as const));
+    setStocktakeDeskSessions(sessions);
+    setStocktakeDeskSummary(summary);
+    setStocktakeDeskEvents(events);
+    setStocktakeDeskLineMap(Object.fromEntries(linePairs));
+  };
+
+  useEffect(() => {
+    refreshStocktakeDesk();
+  }, []);
+
+  const refreshStockTransfers = async (filters = stockTransferFilters) => {
+    const [records, summary, events] = await Promise.all([
+      getStockTransfers(filters),
+      getStockTransferSummary(filters),
+      getStockTransferActivityEvents(filters)
+    ]);
+    const linePairs = await Promise.all(records.map(async (record) => [record.transferId, await getStockTransferLines(record.transferId)] as const));
+    setStockTransferRecords(records);
+    setStockTransferSummary(summary);
+    setStockTransferEvents(events);
+    setStockTransferLineMap(Object.fromEntries(linePairs));
+  };
+
+  useEffect(() => {
+    refreshStockTransfers();
+  }, []);
+
+  const loadStockTransferForm = async (transferId: string) => {
+    const [record, transferLines] = await Promise.all([
+      getStockTransferById(transferId),
+      getStockTransferLines(transferId)
+    ]);
+    setSelectedStockTransfer(record);
+    setSelectedStockTransferLines(transferLines);
+    setStockTransferFormOpen(true);
+  };
+
+  const reloadSelectedStockTransfer = async (transferId = selectedStockTransfer?.transferId) => {
+    if (!transferId) return;
+    await loadStockTransferForm(transferId);
+    await refreshStockTransfers();
+  };
+
+  const enforceStockTransferPermission = (permission: Parameters<typeof canPerformAction>[1]) => {
+    if (canPerformAction(simulatedRole, permission)) return true;
+    setStockTransferNotice('You do not have permission to perform this action.');
+    return false;
+  };
+
+  const openNewStockTransferForm = () => {
+    if (!enforceStockTransferPermission('stockTransfers.create')) return;
+    setSelectedStockTransfer(null);
+    setSelectedStockTransferLines([]);
+    setStockTransferFormOpen(true);
+  };
+
+  const applyTransferMovementsToLocalStock = (movements: { productId: string; qtyIn: number; qtyOut: number }[]) => {
+    if (movements.length === 0) return;
+    const nextStock = localStock.map((product) => {
+      const delta = movements
+        .filter((movement) => movement.productId === product.id)
+        .reduce((sum, movement) => sum + movement.qtyIn - movement.qtyOut, 0);
+      if (delta === 0) return product;
+      const currentQty = product.qtyOnHand ?? product.stock;
+      const nextQty = Math.max(currentQty + delta, 0);
+      onUpdateStock(product.id, Math.max(product.stock + delta, 0));
+      return {
+        ...product,
+        stock: Math.max(product.stock + delta, 0),
+        qtyOnHand: nextQty,
+        lastMovementDate: new Date().toISOString().slice(0, 10)
+      };
+    });
+    setLocalStock(nextStock);
+    saveLocalStockState(nextStock);
+  };
+
+  const handleCreateStockTransferDraft = async (payload: Parameters<typeof createStockTransferDraft>[0]) => {
+    if (!enforceStockTransferPermission('stockTransfers.create')) return;
+    const record = await createStockTransferDraft(payload);
+    setStockTransferNotice(`${record.transferNumber} draft saved. Draft transfer does not update stock.`);
+    await reloadSelectedStockTransfer(record.transferId);
+  };
+
+  const handleUpdateStockTransferDraft = async (patch: Partial<StockTransfer>) => {
+    if (!selectedStockTransfer || !enforceStockTransferPermission('stockTransfers.edit')) return;
+    await updateStockTransferDraft(selectedStockTransfer.transferId, patch);
+    setStockTransferNotice(`${selectedStockTransfer.transferNumber} draft updated. Stock not changed.`);
+    await reloadSelectedStockTransfer(selectedStockTransfer.transferId);
+  };
+
+  const handleAddStockTransferLine = async (productId: string, qtyRequested: number) => {
+    if (!selectedStockTransfer || !enforceStockTransferPermission('stockTransfers.edit')) return;
+    const product = localStock.find((item) => item.id === productId);
+    if (!product) return;
+    const line = await addStockTransferLine(selectedStockTransfer.transferId, {
+      productId,
+      sku: product.sku || product.code,
+      productName: product.productName || product.name,
+      brand: product.brand || 'N/A',
+      category: product.productCategory || product.category,
+      sourceShelfLocation: product.shelfLocation || 'N/A',
+      destinationShelfLocation: 'Destination Shelf',
+      qtyRequested,
+      qtyApproved: qtyRequested,
+      qtyDispatched: 0,
+      qtyReceived: 0,
+      qtyAccepted: 0,
+      qtyRejected: 0,
+      unitCost: product.cost || 0,
+      notes: 'Transfer line added.'
+    });
+    setStockTransferNotice(line ? `${line.sku} added to transfer. Stock not changed.` : 'Line could not be added.');
+    await reloadSelectedStockTransfer(selectedStockTransfer.transferId);
+  };
+
+  const handleUpdateStockTransferLine = async (lineId: string, patch: Partial<StockTransferLine>) => {
+    if (!selectedStockTransfer || !enforceStockTransferPermission('stockTransfers.edit')) return;
+    await updateStockTransferLine(selectedStockTransfer.transferId, lineId, patch);
+    await reloadSelectedStockTransfer(selectedStockTransfer.transferId);
+  };
+
+  const handleRemoveStockTransferLine = async (lineId: string) => {
+    if (!selectedStockTransfer || !enforceStockTransferPermission('stockTransfers.edit')) return;
+    await removeStockTransferLine(selectedStockTransfer.transferId, lineId);
+    setStockTransferNotice('Line removed from draft transfer. Stock not changed.');
+    await reloadSelectedStockTransfer(selectedStockTransfer.transferId);
+  };
+
+  const handleSubmitStockTransfer = async () => {
+    if (!selectedStockTransfer || !enforceStockTransferPermission('stockTransfers.edit')) return;
+    const updated = await submitStockTransferForApproval(selectedStockTransfer.transferId);
+    setStockTransferNotice(updated ? `${updated.transferNumber} submitted. Stock not changed.` : 'Transfer could not be submitted.');
+    await reloadSelectedStockTransfer(selectedStockTransfer.transferId);
+  };
+
+  const handleApproveStockTransfer = async () => {
+    if (!selectedStockTransfer || !enforceStockTransferPermission('stockTransfers.approve')) return;
+    const updated = await approveStockTransfer(selectedStockTransfer.transferId, staffName, 'Approved from Stock Transfers tab.');
+    setStockTransferNotice(updated ? `${updated.transferNumber} approved. Approval does not move stock.` : 'Transfer could not be approved.');
+    await reloadSelectedStockTransfer(selectedStockTransfer.transferId);
+  };
+
+  const handleRejectStockTransfer = async () => {
+    if (!selectedStockTransfer || !enforceStockTransferPermission('stockTransfers.approve')) return;
+    const notes = window.prompt('Reject transfer reason') || '';
+    if (!notes.trim()) return;
+    const updated = await rejectStockTransfer(selectedStockTransfer.transferId, staffName, notes);
+    setStockTransferNotice(updated ? `${updated.transferNumber} rejected. Stock not changed.` : 'Transfer could not be rejected.');
+    await reloadSelectedStockTransfer(selectedStockTransfer.transferId);
+  };
+
+  const handleDispatchStockTransfer = async () => {
+    if (!selectedStockTransfer || !enforceStockTransferPermission('stockTransfers.dispatch')) return;
+    const result = await dispatchStockTransfer(selectedStockTransfer.transferId, staffName, { notes: 'Dispatched from Stock Transfers tab.' });
+    applyTransferMovementsToLocalStock(result.movements);
+    setStockTransferNotice(result.message);
+    triggerNewActivityEvent('STOCK_TRANSFERRED', `${selectedStockTransfer.transferNumber} dispatched. Source movement posted only.`, 'Medium');
+    await reloadSelectedStockTransfer(selectedStockTransfer.transferId);
+  };
+
+  const handleReceiveStockTransfer = async () => {
+    if (!selectedStockTransfer || !enforceStockTransferPermission('stockTransfers.receive')) return;
+    const updated = await receiveStockTransfer(selectedStockTransfer.transferId, staffName, { notes: 'Receive draft captured from Stock Transfers tab.' });
+    setStockTransferNotice(updated ? `${updated.transferNumber} receive draft captured. Destination stock not increased until Post Receipt.` : 'Transfer could not be received.');
+    await reloadSelectedStockTransfer(selectedStockTransfer.transferId);
+  };
+
+  const handlePostTransferReceipt = async () => {
+    if (!selectedStockTransfer || !enforceStockTransferPermission('stockTransfers.postReceipt')) return;
+    const result = await postTransferReceipt(selectedStockTransfer.transferId, staffName);
+    applyTransferMovementsToLocalStock(result.movements);
+    setStockTransferNotice(result.message);
+    await reloadSelectedStockTransfer(selectedStockTransfer.transferId);
+  };
+
+  const handleCloseTransferOutstanding = async () => {
+    if (!selectedStockTransfer || !enforceStockTransferPermission('stockTransfers.closeOutstanding')) return;
+    const reason = window.prompt('Reason for closing transfer with outstanding quantity') || '';
+    if (!reason.trim()) return;
+    const updated = await closeTransferWithOutstanding(selectedStockTransfer.transferId, staffName, reason);
+    setStockTransferNotice(updated ? `${updated.transferNumber} closed with outstanding. Stock not changed by close action.` : 'Transfer could not be closed.');
+    await reloadSelectedStockTransfer(selectedStockTransfer.transferId);
+  };
+
+  const handleCancelStockTransfer = async () => {
+    if (!selectedStockTransfer || !enforceStockTransferPermission('stockTransfers.cancel')) return;
+    const reason = window.prompt('Cancel transfer reason') || '';
+    if (!reason.trim()) return;
+    const updated = await cancelStockTransfer(selectedStockTransfer.transferId, staffName, reason);
+    setStockTransferNotice(updated ? `${updated.transferNumber} cancelled. Stock not changed by cancellation.` : 'Transfer could not be cancelled.');
+    await reloadSelectedStockTransfer(selectedStockTransfer.transferId);
+  };
+
+  const handleExportStockTransfer = async () => {
+    if (!selectedStockTransfer || !enforceStockTransferPermission('stockTransfers.export')) return;
+    const result = await exportStockTransferPlaceholder(selectedStockTransfer.transferId);
+    setStockTransferNotice(result.message);
+  };
+
+  const handleStockTransferTableAction = async (action: 'view' | 'submit' | 'approve' | 'reject' | 'dispatch' | 'receive' | 'postReceipt' | 'close' | 'cancel' | 'export', transfer: StockTransfer) => {
+    await loadStockTransferForm(transfer.transferId);
+    setSelectedStockTransfer(transfer);
+    if (action === 'view') return;
+    const permissionMap: Record<Exclude<typeof action, 'view'>, Parameters<typeof canPerformAction>[1]> = {
+      submit: 'stockTransfers.edit',
+      approve: 'stockTransfers.approve',
+      reject: 'stockTransfers.approve',
+      dispatch: 'stockTransfers.dispatch',
+      receive: 'stockTransfers.receive',
+      postReceipt: 'stockTransfers.postReceipt',
+      close: 'stockTransfers.closeOutstanding',
+      cancel: 'stockTransfers.cancel',
+      export: 'stockTransfers.export'
+    };
+    if (!enforceStockTransferPermission(permissionMap[action])) return;
+    if (action === 'submit') await submitStockTransferForApproval(transfer.transferId);
+    if (action === 'approve') await approveStockTransfer(transfer.transferId, staffName, 'Approved from table action.');
+    if (action === 'reject') await rejectStockTransfer(transfer.transferId, staffName, 'Rejected from table action.');
+    if (action === 'dispatch') {
+      const result = await dispatchStockTransfer(transfer.transferId, staffName, { notes: 'Dispatched from table action.' });
+      applyTransferMovementsToLocalStock(result.movements);
+      setStockTransferNotice(result.message);
+    }
+    if (action === 'receive') await receiveStockTransfer(transfer.transferId, staffName, { notes: 'Receive draft captured from table action.' });
+    if (action === 'postReceipt') {
+      const result = await postTransferReceipt(transfer.transferId, staffName);
+      applyTransferMovementsToLocalStock(result.movements);
+      setStockTransferNotice(result.message);
+    }
+    if (action === 'close') {
+      const reason = window.prompt('Reason for closing with outstanding') || '';
+      if (reason.trim()) await closeTransferWithOutstanding(transfer.transferId, staffName, reason);
+    }
+    if (action === 'cancel') {
+      const reason = window.prompt('Cancel transfer reason') || '';
+      if (reason.trim()) await cancelStockTransfer(transfer.transferId, staffName, reason);
+    }
+    if (action === 'export') {
+      const result = await exportStockTransferPlaceholder(transfer.transferId);
+      setStockTransferNotice(result.message);
+    }
+    await reloadSelectedStockTransfer(transfer.transferId);
+  };
+
+  const loadStocktakeForm = async (stocktakeId: string) => {
+    const [record, lines, varianceSummary] = await Promise.all([
+      getStocktakeSessionById(stocktakeId),
+      getStocktakeLines(stocktakeId),
+      calculateStocktakeVarianceSummary(stocktakeId)
+    ]);
+    setSelectedStocktake(record);
+    setSelectedStocktakeLines(lines);
+    setSelectedStocktakeSummary(varianceSummary);
+    setStocktakeFormOpen(true);
+  };
+
+  const reloadSelectedStocktake = async (stocktakeId = selectedStocktake?.stocktakeId) => {
+    if (!stocktakeId) return;
+    await loadStocktakeForm(stocktakeId);
+    await refreshStocktakeDesk();
+  };
+
+  const enforceStocktakePermission = (permission: Parameters<typeof canPerformAction>[1]) => {
+    if (canPerformAction(simulatedRole, permission)) return true;
+    setStocktakeDeskNotice('You do not have permission to perform this action.');
+    return false;
+  };
+
+  const openNewStocktakeForm = () => {
+    if (!enforceStocktakePermission('stocktake.create')) return;
+    setSelectedStocktake(null);
+    setSelectedStocktakeLines([]);
+    setSelectedStocktakeSummary(null);
+    setStocktakeFormOpen(true);
+  };
+
+  const handleCreateStocktakeDraft = async (payload: {
+    branchId: string;
+    warehouseId: string;
+    scope: StocktakeScope;
+    countMode: StocktakeCountMode;
+    notes: string;
+    categoryFilter?: string;
+    supplierFilter?: string;
+    shelfLocationFilter?: string;
+    selectedProductIds?: string[];
+  }) => {
+    if (!enforceStocktakePermission('stocktake.create')) return;
+    const record = await createStocktakeSession({
+      vendorId: 'SCI-LOG-ZW',
+      requestedByStaffId: staffName,
+      requestedByStaffName: staffName,
+      ...payload
+    });
+    setStocktakeDeskNotice(`${record.stocktakeNumber} draft saved. Draft stocktake does not update stock.`);
+    await reloadSelectedStocktake(record.stocktakeId);
+  };
+
+  const handleUpdateStocktakeDraft = async (patch: Partial<StocktakeSession>) => {
+    if (!selectedStocktake || !enforceStocktakePermission('stocktake.create')) return;
+    await updateStocktakeSessionDraft(selectedStocktake.stocktakeId, patch);
+    await generateStocktakeLinesFromScope(selectedStocktake.stocktakeId, patch.scope || selectedStocktake.scope);
+    setStocktakeDeskNotice(`${selectedStocktake.stocktakeNumber} saved. Stock remains unchanged.`);
+    await reloadSelectedStocktake(selectedStocktake.stocktakeId);
+  };
+
+  const handleStartCountingStocktake = async () => {
+    if (!selectedStocktake || !enforceStocktakePermission('stocktake.count')) return;
+    await updateStocktakeSessionDraft(selectedStocktake.stocktakeId, {
+      status: 'Counting',
+      countedByStaffId: staffName,
+      countedByStaffName: staffName
+    });
+    setStocktakeDeskNotice(`${selectedStocktake.stocktakeNumber} counting started. Counting does not update stock.`);
+    triggerNewActivityEvent('STOCKTAKE_STARTED', `${selectedStocktake.stocktakeNumber} counting started.`, 'Low');
+    await reloadSelectedStocktake(selectedStocktake.stocktakeId);
+  };
+
+  const handleStocktakeLineCount = async (lineId: string, countedQty: number | null, notes: string) => {
+    if (!selectedStocktake || !enforceStocktakePermission('stocktake.count')) return;
+    await updateStocktakeLineCount(selectedStocktake.stocktakeId, lineId, countedQty, notes);
+    await reloadSelectedStocktake(selectedStocktake.stocktakeId);
+  };
+
+  const handleExcludeStocktakeLine = async (lineId: string, reason: string) => {
+    if (!selectedStocktake || !enforceStocktakePermission('stocktake.count')) return;
+    await excludeStocktakeLine(selectedStocktake.stocktakeId, lineId, staffName, reason);
+    setStocktakeDeskNotice('Line excluded locally. Excluded lines are not posted.');
+    await reloadSelectedStocktake(selectedStocktake.stocktakeId);
+  };
+
+  const handleRestoreStocktakeLine = async (lineId: string) => {
+    if (!selectedStocktake || !enforceStocktakePermission('stocktake.count')) return;
+    await restoreStocktakeLine(selectedStocktake.stocktakeId, lineId, staffName);
+    setStocktakeDeskNotice('Line restored. Variance recalculated without stock posting.');
+    await reloadSelectedStocktake(selectedStocktake.stocktakeId);
+  };
+
+  const handleCompleteStocktakeRecount = async (lineIds: string[], notes: string) => {
+    if (!selectedStocktake || !enforceStocktakePermission('stocktake.count')) return;
+    await completeStocktakeRecount(selectedStocktake.stocktakeId, lineIds, staffName, notes);
+    setStocktakeDeskNotice('Recount completed. Stock remains unchanged.');
+    await reloadSelectedStocktake(selectedStocktake.stocktakeId);
+  };
+
+  const handleBulkStocktakeCounts = async (mode: 'same-as-system' | 'clear') => {
+    if (!selectedStocktake || !enforceStocktakePermission('stocktake.count')) return;
+    const eligible = selectedStocktakeLines.filter((line) => line.lineStatus !== 'Excluded');
+    const updates = mode === 'same-as-system'
+      ? eligible.filter((line) => line.countedQty === null).map((line) => ({ lineId: line.lineId, countedQty: line.systemQty, notes: 'Bulk marked same as system.' }))
+      : eligible.map((line) => ({ lineId: line.lineId, countedQty: null, notes: 'Bulk count cleared.' }));
+    await bulkUpdateStocktakeCounts(selectedStocktake.stocktakeId, updates);
+    setStocktakeDeskNotice(mode === 'same-as-system' ? 'Uncounted lines marked same as system. Stock not changed.' : 'All counts cleared. Stock not changed.');
+    await reloadSelectedStocktake(selectedStocktake.stocktakeId);
+  };
+
+  const handleSubmitStocktake = async () => {
+    if (!selectedStocktake || !enforceStocktakePermission('stocktake.submit')) return;
+    if (selectedStocktakeLines.length === 0) {
+      setStocktakeDeskNotice('Submit blocked: no stocktake lines exist.');
+      return;
+    }
+    if (selectedStocktakeLines.every((line) => line.countedQty === null || line.lineStatus === 'Excluded')) {
+      setStocktakeDeskNotice('Submit blocked: no lines have been counted.');
+      return;
+    }
+    if (selectedStocktakeLines.some((line) => line.lineStatus === 'Recount Required')) {
+      setStocktakeDeskNotice('Submit blocked: recount required lines must be completed before submit.');
+      return;
+    }
+    const notCounted = selectedStocktakeLines.filter((line) => line.countedQty === null && line.lineStatus !== 'Excluded').length;
+    if (notCounted > 0 && !window.confirm(`${notCounted} line(s) are not counted. Submit anyway?`)) {
+      setStocktakeDeskNotice('Submit cancelled because not counted lines remain.');
+      return;
+    }
+    const updated = await submitStocktake(selectedStocktake.stocktakeId, staffName);
+    setStocktakeDeskNotice(updated ? `${updated.stocktakeNumber} submitted. Submitted stocktake does not update stock.` : 'Stocktake submit blocked by validation.');
+    await reloadSelectedStocktake(selectedStocktake.stocktakeId);
+  };
+
+  const handleRequestStocktakeRecount = async (lineIds: string[], notes: string) => {
+    if (!selectedStocktake || !enforceStocktakePermission('stocktake.count')) return;
+    await requestRecount(selectedStocktake.stocktakeId, lineIds, staffName, notes);
+    setStocktakeDeskNotice(`${selectedStocktake.stocktakeNumber} recount requested. Stock remains unchanged.`);
+    await reloadSelectedStocktake(selectedStocktake.stocktakeId);
+  };
+
+  const handleApproveStocktake = async () => {
+    if (!selectedStocktake || !enforceStocktakePermission('stocktake.approve')) return;
+    const updated = await approveStocktake(selectedStocktake.stocktakeId, staffName, 'Approved from Stocktake Desk during build-development.');
+    setStocktakeDeskNotice(updated ? `${updated.stocktakeNumber} approved. Approval does not update stock until posting.` : 'Stocktake could not be approved.');
+    await reloadSelectedStocktake(selectedStocktake.stocktakeId);
+  };
+
+  const applyPostedStocktakeResult = (result: StocktakePostingResult) => {
+    if (result.movements.length === 0) return;
+    const nextStock = localStock.map((product) => {
+      const productMovements = result.movements.filter((movement) => movement.productId === product.id);
+      if (productMovements.length === 0) return product;
+      const latest = productMovements.at(-1);
+      const nextQty = latest?.balanceAfter ?? product.stock;
+      return {
+        ...product,
+        stock: nextQty,
+        qtyOnHand: nextQty,
+        lastMovementDate: new Date().toISOString().slice(0, 10)
+      };
+    });
+    setLocalStock(nextStock);
+    saveLocalStockState(nextStock);
+  };
+
+  const handlePostStocktake = async () => {
+    if (!selectedStocktake || !enforceStocktakePermission('stocktake.post')) return;
+    const result = await postStocktakeVariance(selectedStocktake.stocktakeId, staffName, {
+      allowOwnerOverride: simulatedRole === 'Owner' || simulatedRole === 'SysAdmin',
+      hasPostPermission: canPerformAction(simulatedRole, 'stocktake.post')
+    });
+    if (!result) {
+      setStocktakeDeskNotice('Stocktake could not be posted.');
+      return;
+    }
+    if (result.stockPosted) {
+      applyPostedStocktakeResult(result);
+      setStocktakeDeskNotice(result.message);
+      triggerNewActivityEvent('STOCKTAKE_SUBMITTED', `${result.stocktakeNumber} variance posted.`, 'High');
+    } else {
+      setStocktakeDeskNotice(result.message);
+    }
+    await reloadSelectedStocktake(selectedStocktake.stocktakeId);
+  };
+
+  const handleCancelStocktake = async (reason: string) => {
+    if (!selectedStocktake || !enforceStocktakePermission('stocktake.cancel')) return;
+    if (!reason.trim()) {
+      setStocktakeDeskNotice('Cancel requires reason.');
+      return;
+    }
+    await cancelStocktake(selectedStocktake.stocktakeId, staffName, reason);
+    setStocktakeDeskNotice(`${selectedStocktake.stocktakeNumber} cancelled. Stock not changed.`);
+    await reloadSelectedStocktake(selectedStocktake.stocktakeId);
+  };
+
+  const handleExportStocktake = async () => {
+    if (!selectedStocktake || !enforceStocktakePermission('stocktake.export')) return;
+    const result = await exportStocktakePlaceholder(selectedStocktake.stocktakeId);
+    setStocktakeDeskNotice(result.message);
+  };
+
+  const handleStocktakeTableAction = async (action: 'view' | 'start' | 'submit' | 'recount' | 'approve' | 'post' | 'cancel' | 'export', session: StocktakeSession) => {
+    await loadStocktakeForm(session.stocktakeId);
+    if (action === 'view') return;
+    const actionPermission: Record<typeof action, Parameters<typeof canPerformAction>[1]> = {
+      start: 'stocktake.count',
+      submit: 'stocktake.submit',
+      recount: 'stocktake.count',
+      approve: 'stocktake.approve',
+      post: 'stocktake.post',
+      cancel: 'stocktake.cancel',
+      export: 'stocktake.export'
+    };
+    if (!enforceStocktakePermission(actionPermission[action])) return;
+    setSelectedStocktake(session);
+    if (action === 'start') await updateStocktakeSessionDraft(session.stocktakeId, { status: 'Counting', countedByStaffId: staffName, countedByStaffName: staffName });
+    if (action === 'submit') await submitStocktake(session.stocktakeId, staffName);
+    if (action === 'recount') await requestRecount(session.stocktakeId, (stocktakeDeskLineMap[session.stocktakeId] || []).filter((line) => line.varianceQty !== 0).map((line) => line.lineId), staffName, 'Recount requested from table action.');
+    if (action === 'approve') await approveStocktake(session.stocktakeId, staffName, 'Approved from table action.');
+    if (action === 'post') {
+      const result = await postStocktakeVariance(session.stocktakeId, staffName, {
+        allowOwnerOverride: simulatedRole === 'Owner' || simulatedRole === 'SysAdmin',
+        hasPostPermission: canPerformAction(simulatedRole, 'stocktake.post')
+      });
+      if (result?.stockPosted) applyPostedStocktakeResult(result);
+      setStocktakeDeskNotice(result?.message || 'Stocktake could not be posted.');
+    }
+    if (action === 'cancel') {
+      const reason = window.prompt('Cancel reason') || '';
+      if (reason.trim()) await cancelStocktake(session.stocktakeId, staffName, reason);
+    }
+    if (action === 'export') {
+      const result = await exportStocktakePlaceholder(session.stocktakeId);
+      setStocktakeDeskNotice(result.message);
+    }
+    await reloadSelectedStocktake(session.stocktakeId);
+  };
+
+  const stocktakeOperationalWarnings = useMemo(() => {
+    const today = new Date().toISOString().slice(0, 10);
+    const warnings: string[] = [];
+    const counting = stocktakeDeskSessions.filter((session) => session.status === 'Counting' || session.status === 'Draft').length;
+    const submittedNotApproved = stocktakeDeskSessions.filter((session) => session.status === 'Submitted' || session.status === 'Pending Approval').length;
+    const approvedNotPosted = stocktakeDeskSessions.filter((session) => session.status === 'Approved').length;
+    const postedToday = stocktakeDeskSessions.filter((session) => session.status === 'Posted' && session.postedAt?.slice(0, 10) === today).length;
+    const recountRequired = stocktakeDeskSessions.filter((session) => (stocktakeDeskLineMap[session.stocktakeId] || []).some((line) => line.lineStatus === 'Recount Required')).length;
+    const highRiskPending = stocktakeDeskSessions.filter((session) => session.status !== 'Posted' && (stocktakeDeskLineMap[session.stocktakeId] || []).some((line) => line.varianceRisk === 'High' || line.varianceRisk === 'Critical')).length;
+    const lossAboveThreshold = stocktakeDeskSessions.filter((session) => (stocktakeDeskLineMap[session.stocktakeId] || []).some((line) => line.valueImpact <= -300 && line.lineStatus !== 'Posted')).length;
+    if (counting) warnings.push(`${counting} stocktake session(s) still counting or draft.`);
+    if (submittedNotApproved) warnings.push(`${submittedNotApproved} stocktake session(s) submitted but not approved.`);
+    if (approvedNotPosted) warnings.push(`${approvedNotPosted} stocktake session(s) approved but not posted.`);
+    if (highRiskPending) warnings.push(`${highRiskPending} high-risk stocktake variance(s) pending approval or posting.`);
+    if (recountRequired) warnings.push(`${recountRequired} stocktake session(s) have recount required lines.`);
+    if (postedToday) warnings.push(`${postedToday} stocktake session(s) posted today and pending management review.`);
+    if (lossAboveThreshold) warnings.push(`${lossAboveThreshold} stocktake loss warning(s) above USD 300 threshold.`);
+    return warnings;
+  }, [stocktakeDeskLineMap, stocktakeDeskSessions]);
+
+  const stockTransferOperationalWarnings = useMemo(() => {
+    const today = new Date().toISOString().slice(0, 10);
+    const warnings: string[] = [];
+    const pendingApproval = stockTransferRecords.filter((transfer) => transfer.status === 'Pending Approval').length;
+    const dispatchedNotReceived = stockTransferRecords.filter((transfer) => transfer.status === 'Dispatched' || transfer.status === 'In Transit' || transfer.status === 'Partially Dispatched').length;
+    const overdueTransit = stockTransferRecords.filter((transfer) => ['Dispatched', 'In Transit', 'Partially Dispatched'].includes(transfer.status) && transfer.expectedArrivalDate < today).length;
+    const varianceUnresolved = stockTransferRecords.filter((transfer) => transfer.status === 'Variance Review' || (stockTransferLineMap[transfer.transferId] || []).some((line) => line.varianceType !== 'None' && line.qtyOutstanding > 0)).length;
+    const closedOutstandingToday = stockTransferRecords.filter((transfer) => transfer.status === 'Closed With Outstanding' && transfer.updatedAt.slice(0, 10) === today).length;
+    const postedReceiptReview = stockTransferRecords.filter((transfer) => (stockTransferLineMap[transfer.transferId] || []).some((line) => line.receiptPosted && line.varianceType !== 'None')).length;
+    if (pendingApproval) warnings.push(`${pendingApproval} transfer(s) pending approval.`);
+    if (dispatchedNotReceived) warnings.push(`${dispatchedNotReceived} transfer(s) dispatched but not fully received.`);
+    if (overdueTransit) warnings.push(`${overdueTransit} transfer(s) in transit overdue.`);
+    if (varianceUnresolved) warnings.push(`${varianceUnresolved} transfer variance warning(s) unresolved.`);
+    if (closedOutstandingToday) warnings.push(`${closedOutstandingToday} transfer(s) closed with outstanding today.`);
+    if (postedReceiptReview) warnings.push(`${postedReceiptReview} transfer receipt(s) posted with variance review placeholder.`);
+    return warnings;
+  }, [stockTransferLineMap, stockTransferRecords]);
 
   const filteredStocktakeLines = useMemo(() => {
     return stocktakeLines.filter((line) => {
@@ -2992,8 +3634,325 @@ export default function StockPanels({
         </div>
       )}
 
+      {activeTab === 'Stock Transfers' && (
+        <div className="industrial-section p-5 space-y-5">
+          <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 border-b border-gray-150 pb-3">
+            <div>
+              <span className="font-extrabold text-[#111827] text-[11px] uppercase flex items-center gap-2">
+                <ArrowRightLeft className="w-4 h-4 text-orange-500" />
+                Stock Transfers
+              </span>
+              <p className="text-[9.5px] text-slate-700 mt-0.5 uppercase font-semibold">Controlled movement of stock between branches, warehouses, sales floor, and holding areas.</p>
+            </div>
+            <div className="flex gap-2">
+              <button type="button" onClick={openNewStockTransferForm} className="px-3 py-1.5 bg-orange-600 hover:bg-orange-700 text-white border border-orange-700 font-black uppercase text-[9.5px] rounded-none">New Stock Transfer</button>
+              <button type="button" onClick={() => refreshStockTransfers()} className="px-3 py-1.5 bg-white hover:bg-slate-50 border border-[#b1b5c2] font-semibold uppercase text-[9.5px] rounded-none">Refresh</button>
+            </div>
+          </div>
+
+          <div className="p-3 bg-white border-l-4 border-l-orange-600 border border-[#b1b5c2] uppercase font-bold text-[10px] text-slate-800">
+            Transfer requests do not change stock. Stock moves only on dispatch and receiving post. Receive draft does not increase destination available stock.
+          </div>
+
+          {stockTransferOperationalWarnings.length > 0 && (
+            <div className="border border-[#b1b5c2] bg-white">
+              <div className="bg-[#1e222b] text-white px-3 py-2 text-[10px] uppercase font-black">EOD / Owner Desk Transfer Warnings</div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-2 p-3">
+                {stockTransferOperationalWarnings.map((warning) => (
+                  <div key={warning} className="border-l-4 border-l-orange-600 border border-[#b1b5c2] bg-orange-50 px-3 py-2 text-[9.5px] uppercase font-bold text-slate-800">{warning}</div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {stockTransferNotice && (
+            <div className="p-3 bg-amber-500/10 border-l-4 border-l-orange-500 border border-[#b1b5c2] uppercase font-black text-[9.5px] text-slate-800">{stockTransferNotice}</div>
+          )}
+
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+            <POMetric label="Draft Transfers" value={stockTransferSummary.draftTransfers} />
+            <POMetric label="Pending Approval" value={stockTransferSummary.pendingApproval} />
+            <POMetric label="Approved" value={stockTransferSummary.approved} />
+            <POMetric label="In Transit" value={stockTransferSummary.inTransit} />
+            <POMetric label="Partially Received" value={stockTransferSummary.partiallyReceived} />
+            <POMetric label="Variance Review" value={stockTransferSummary.varianceReview} />
+            <POMetric label="Fully Received" value={stockTransferSummary.fullyReceived} />
+            <POMetric label="Closed Outstanding" value={stockTransferSummary.closedOutstanding} />
+            <POMetric label="Transfer Qty" value={stockTransferSummary.transferQty} />
+            <POMetric label="Transfer Value" value={`USD ${stockTransferSummary.transferValue.toFixed(2)}`} />
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-3 bg-slate-50 border border-[#b1b5c2] p-3">
+            <POFilterInput label="Transfer Number" value={stockTransferFilters.transferNumber || ''} onChange={(value) => setStockTransferFilters((prev) => ({ ...prev, transferNumber: value }))} />
+            <POFilterSelect label="Transfer Type" value={stockTransferFilters.transferType || 'ALL'} options={['ALL', 'Branch To Branch', 'Warehouse To Warehouse', 'Warehouse To Branch', 'Branch To Warehouse', 'Store To Sales Floor', 'Sales Floor To Store', 'Good Stock To Damaged Holding', 'Good Stock To Return Holding', 'Return Holding To Supplier Return Preparation', 'Other']} onChange={(value) => setStockTransferFilters((prev) => ({ ...prev, transferType: value as StockTransferType | 'ALL' }))} />
+            <POFilterInput label="Source Branch" value={stockTransferFilters.sourceBranch || ''} onChange={(value) => setStockTransferFilters((prev) => ({ ...prev, sourceBranch: value }))} />
+            <POFilterInput label="Source Warehouse" value={stockTransferFilters.sourceWarehouse || ''} onChange={(value) => setStockTransferFilters((prev) => ({ ...prev, sourceWarehouse: value }))} />
+            <POFilterInput label="Destination Branch" value={stockTransferFilters.destinationBranch || ''} onChange={(value) => setStockTransferFilters((prev) => ({ ...prev, destinationBranch: value }))} />
+            <POFilterInput label="Destination Warehouse" value={stockTransferFilters.destinationWarehouse || ''} onChange={(value) => setStockTransferFilters((prev) => ({ ...prev, destinationWarehouse: value }))} />
+            <POFilterSelect label="Status" value={stockTransferFilters.status || 'ALL'} options={['ALL', 'Draft', 'Pending Approval', 'Approved', 'Dispatched', 'Partially Dispatched', 'In Transit', 'Partially Received', 'Fully Received', 'Variance Review', 'Closed With Outstanding', 'Cancelled', 'Rejected', 'Reversed']} onChange={(value) => setStockTransferFilters((prev) => ({ ...prev, status: value as StockTransferStatus | 'ALL' }))} />
+            <POFilterInput label="Product / SKU" value={stockTransferFilters.productOrSku || ''} onChange={(value) => setStockTransferFilters((prev) => ({ ...prev, productOrSku: value }))} />
+            <POFilterInput label="Requested By" value={stockTransferFilters.requestedBy || ''} onChange={(value) => setStockTransferFilters((prev) => ({ ...prev, requestedBy: value }))} />
+            <POFilterInput label="Date From" type="date" value={stockTransferFilters.dateFrom || ''} onChange={(value) => setStockTransferFilters((prev) => ({ ...prev, dateFrom: value }))} />
+            <POFilterInput label="Date To" type="date" value={stockTransferFilters.dateTo || ''} onChange={(value) => setStockTransferFilters((prev) => ({ ...prev, dateTo: value }))} />
+            <POFilterSelect label="Variance Type" value={stockTransferFilters.varianceType || 'ALL'} options={['ALL', 'None', 'Short Received', 'Over Received', 'Damaged In Transit', 'Wrong Product', 'Missing Line', 'Unapproved Product', 'Source Stock Short', 'Destination Rejected']} onChange={(value) => setStockTransferFilters((prev) => ({ ...prev, varianceType: value as StockTransferVarianceType | 'ALL' }))} />
+            <button type="button" onClick={() => refreshStockTransfers(stockTransferFilters)} className="px-3 py-2 bg-[#1e222b] text-white border border-[#1e222b] font-black uppercase text-[9px] rounded-none self-end">Apply Filters</button>
+            <button type="button" onClick={() => { const reset = { transferType: 'ALL' as const, status: 'ALL' as const, varianceType: 'ALL' as const }; setStockTransferFilters(reset); refreshStockTransfers(reset); }} className="px-3 py-2 bg-white text-[#1e222b] border border-[#b1b5c2] font-black uppercase text-[9px] rounded-none self-end">Clear Filters</button>
+          </div>
+
+          <div className="overflow-x-auto pos-custom-scroll">
+            <table className="industrial-table min-w-[1380px]">
+              <thead>
+                <tr>{['Transfer No.', 'Date', 'Type', 'Source', 'Destination', 'Lines', 'Requested Qty', 'Dispatched Qty', 'Received Qty', 'Variance', 'Status', 'Requested By', 'Action'].map((label) => <th key={label} className="py-2 px-3">{label}</th>)}</tr>
+              </thead>
+              <tbody className="divide-y divide-gray-200">
+                {stockTransferRecords.map((transfer) => {
+                  const transferLines = stockTransferLineMap[transfer.transferId] || [];
+                  const requestedQty = transferLines.reduce((sum, line) => sum + line.qtyRequested, 0);
+                  const dispatchedQty = transferLines.reduce((sum, line) => sum + line.qtyDispatched, 0);
+                  const receivedQty = transferLines.reduce((sum, line) => sum + line.qtyReceived, 0);
+                  const variance = transferLines.filter((line) => line.varianceType !== 'None').length;
+                  const locked = ['Fully Received', 'Closed With Outstanding', 'Cancelled', 'Rejected', 'Reversed'].includes(transfer.status);
+                  return (
+                    <tr key={transfer.transferId} className="hover:bg-slate-50">
+                      <td className="py-2 px-3 font-black text-orange-700">{transfer.transferNumber}</td>
+                      <td className="py-2 px-3">{transfer.transferDate}</td>
+                      <td className="py-2 px-3 uppercase">{transfer.transferType}</td>
+                      <td className="py-2 px-3 uppercase">{transfer.sourceBranchName} / {transfer.sourceWarehouseName}</td>
+                      <td className="py-2 px-3 uppercase">{transfer.destinationBranchName} / {transfer.destinationWarehouseName}</td>
+                      <td className="py-2 px-3 text-right font-black">{transferLines.length}</td>
+                      <td className="py-2 px-3 text-right font-black">{requestedQty}</td>
+                      <td className="py-2 px-3 text-right font-black">{dispatchedQty}</td>
+                      <td className="py-2 px-3 text-right font-black">{receivedQty}</td>
+                      <td className="py-2 px-3 text-right font-black">{variance}</td>
+                      <td className="py-2 px-3"><span className="sci-status-pill rounded-none">{transfer.status}</span></td>
+                      <td className="py-2 px-3 uppercase">{transfer.requestedByStaffName}</td>
+                      <td className="py-2 px-3">
+                        <div className="flex flex-wrap gap-1">
+                          <button type="button" onClick={() => handleStockTransferTableAction('view', transfer)} className="px-2 py-1 border border-[#b1b5c2] text-[8px] font-black uppercase rounded-none">View / Edit</button>
+                          <button type="button" onClick={() => handleStockTransferTableAction('submit', transfer)} disabled={locked} className="px-2 py-1 border border-[#b1b5c2] text-[8px] font-black uppercase rounded-none disabled:bg-slate-100">Submit</button>
+                          <button type="button" onClick={() => handleStockTransferTableAction('approve', transfer)} disabled={locked} className="px-2 py-1 border border-[#b1b5c2] text-[8px] font-black uppercase rounded-none disabled:bg-slate-100">Approve</button>
+                          <button type="button" onClick={() => handleStockTransferTableAction('reject', transfer)} disabled={locked} className="px-2 py-1 border border-[#b1b5c2] text-[8px] font-black uppercase rounded-none disabled:bg-slate-100">Reject</button>
+                          <button type="button" onClick={() => handleStockTransferTableAction('dispatch', transfer)} disabled={locked} className="px-2 py-1 border border-[#b1b5c2] text-[8px] font-black uppercase rounded-none disabled:bg-slate-100">Dispatch</button>
+                          <button type="button" onClick={() => handleStockTransferTableAction('receive', transfer)} disabled={locked} className="px-2 py-1 border border-[#b1b5c2] text-[8px] font-black uppercase rounded-none disabled:bg-slate-100">Receive</button>
+                          <button type="button" onClick={() => handleStockTransferTableAction('postReceipt', transfer)} disabled={locked} className="px-2 py-1 bg-orange-600 text-white border border-orange-700 text-[8px] font-black uppercase rounded-none disabled:bg-slate-100 disabled:text-slate-400">Post Receipt</button>
+                          <button type="button" onClick={() => handleStockTransferTableAction('close', transfer)} disabled={locked} className="px-2 py-1 border border-[#b1b5c2] text-[8px] font-black uppercase rounded-none disabled:bg-slate-100">Close Outstanding</button>
+                          <button type="button" onClick={() => handleStockTransferTableAction('cancel', transfer)} disabled={locked} className="px-2 py-1 border border-[#b1b5c2] text-[8px] font-black uppercase rounded-none disabled:bg-slate-100">Cancel</button>
+                          <button type="button" onClick={() => handleStockTransferTableAction('export', transfer)} className="px-2 py-1 border border-[#b1b5c2] text-[8px] font-black uppercase rounded-none">Prepare Export</button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+                {stockTransferRecords.length === 0 && <tr><td colSpan={13} className="py-8 text-center uppercase font-bold text-slate-500">No stock transfers match the selected filters.</td></tr>}
+              </tbody>
+            </table>
+          </div>
+
+          <div className="border border-[#b1b5c2] bg-white p-3">
+            <h4 className="text-[10px] uppercase font-black text-[#1e222b] mb-2">Recent Transfer Activity</h4>
+            <div className="space-y-2 max-h-32 overflow-y-auto">
+              {stockTransferEvents.slice(0, 6).map((event) => (
+                <div key={event.id} className="border-l-2 border-l-orange-500 pl-2 text-[9px] uppercase">
+                  <strong className="block text-slate-900">{event.eventType.replaceAll('_', ' ')}</strong>
+                  <span className="text-slate-600">{event.message}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <StockTransferForm
+            open={stockTransferFormOpen}
+            transfer={selectedStockTransfer}
+            lines={selectedStockTransferLines}
+            products={localStock}
+            operatorName={staffName}
+            branchOptions={stocktakeBranchDeskOptions.length ? stocktakeBranchDeskOptions : [activeBranch]}
+            warehouseOptions={stocktakeWarehouseDeskOptions.length ? stocktakeWarehouseDeskOptions : ['Harare Spares Depot', 'Harare Sales Floor', 'Damaged Holding Area', 'Return Holding Area']}
+            onClose={() => setStockTransferFormOpen(false)}
+            onCreateDraft={handleCreateStockTransferDraft}
+            onUpdateDraft={handleUpdateStockTransferDraft}
+            onAddLine={handleAddStockTransferLine}
+            onUpdateLine={handleUpdateStockTransferLine}
+            onRemoveLine={handleRemoveStockTransferLine}
+            onSubmit={handleSubmitStockTransfer}
+            onApprove={handleApproveStockTransfer}
+            onReject={handleRejectStockTransfer}
+            onDispatch={handleDispatchStockTransfer}
+            onReceive={handleReceiveStockTransfer}
+            onPostReceipt={handlePostTransferReceipt}
+            onCloseOutstanding={handleCloseTransferOutstanding}
+            onCancel={handleCancelStockTransfer}
+            onExport={handleExportStockTransfer}
+            onViewLedger={(productId) => setStockTransferNotice(`Product Ledger can be opened from Inventory Product Ledger tab for product ${productId}. Posted transfer movements appear only after dispatch or destination receipt posting.`)}
+          />
+        </div>
+      )}
 
       {activeTab === 'Stocktake' && (
+        <div className="industrial-section p-5 space-y-5">
+          <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 border-b border-gray-150 pb-3">
+            <div>
+              <span className="font-extrabold text-[#111827] text-[11px] uppercase flex items-center gap-2">
+                <ClipboardList className="w-4 h-4 text-orange-500" />
+                Stocktake Desk
+              </span>
+              <p className="text-[9.5px] text-slate-700 mt-0.5 uppercase font-semibold">Physical stock counting, variance review, approval, and posting control.</p>
+            </div>
+            <div className="flex gap-2">
+              <button type="button" onClick={openNewStocktakeForm} className="px-3 py-1.5 bg-orange-600 hover:bg-orange-700 text-white border border-orange-700 font-black uppercase text-[9.5px] rounded-none">New Stocktake Session</button>
+              <button type="button" onClick={() => refreshStocktakeDesk()} className="px-3 py-1.5 bg-white hover:bg-slate-50 border border-[#b1b5c2] font-semibold uppercase text-[9.5px] rounded-none">Refresh</button>
+            </div>
+          </div>
+
+          <div className="p-3 bg-white border-l-4 border-l-orange-600 border border-[#b1b5c2] uppercase font-bold text-[10px] text-slate-800">
+            Stocktake counts do not change inventory until variances are posted. Draft, counted, submitted, and approved stocktakes remain non-posting states.
+          </div>
+
+          {stocktakeOperationalWarnings.length > 0 && (
+            <div className="border border-[#b1b5c2] bg-white">
+              <div className="bg-[#1e222b] text-white px-3 py-2 text-[10px] uppercase font-black">EOD / Owner Desk Stocktake Warnings</div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-2 p-3">
+                {stocktakeOperationalWarnings.map((warning) => (
+                  <div key={warning} className="border-l-4 border-l-orange-600 border border-[#b1b5c2] bg-orange-50 px-3 py-2 text-[9.5px] uppercase font-bold text-slate-800">
+                    {warning}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {stocktakeDeskNotice && (
+            <div className="p-3 bg-amber-500/10 border-l-4 border-l-orange-500 border border-[#b1b5c2] uppercase font-black text-[9.5px] text-slate-800">{stocktakeDeskNotice}</div>
+          )}
+
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+            <POMetric label="Open Sessions" value={stocktakeDeskSummary.openSessions} />
+            <POMetric label="Counting" value={stocktakeDeskSummary.counting} />
+            <POMetric label="Submitted" value={stocktakeDeskSummary.submitted} />
+            <POMetric label="Pending Approval" value={stocktakeDeskSummary.pendingApproval} />
+            <POMetric label="Recount Required" value={stocktakeDeskSummary.recountRequired} />
+            <POMetric label="Posted Today" value={stocktakeDeskSummary.postedToday} />
+            <POMetric label="Positive Variance" value={stocktakeDeskSummary.positiveVariance} />
+            <POMetric label="Negative Variance" value={stocktakeDeskSummary.negativeVariance} />
+            <POMetric label="High Risk Variance" value={stocktakeDeskSummary.highRiskVariance} />
+            <POMetric label="Estimated Value Impact" value={`USD ${stocktakeDeskSummary.estimatedValueImpact.toFixed(2)}`} />
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-5 gap-3 bg-slate-50 border border-[#b1b5c2] p-3">
+            <input placeholder="Stocktake Number" value={stocktakeDeskFilters.stocktakeNumber || ''} onChange={(event) => setStocktakeDeskFilters((current) => ({ ...current, stocktakeNumber: event.target.value }))} className="border border-[#8d8780] px-2 py-1.5 rounded-none text-[10px]" />
+            <StocktakeSelect label="Branch" value={stocktakeDeskFilters.branch || 'ALL'} onChange={(value) => setStocktakeDeskFilters((current) => ({ ...current, branch: value }))} options={['ALL', ...stocktakeBranchDeskOptions]} />
+            <StocktakeSelect label="Warehouse" value={stocktakeDeskFilters.warehouse || 'ALL'} onChange={(value) => setStocktakeDeskFilters((current) => ({ ...current, warehouse: value }))} options={['ALL', ...stocktakeWarehouseDeskOptions]} />
+            <StocktakeSelect label="Scope" value={stocktakeDeskFilters.scope || 'ALL'} onChange={(value) => setStocktakeDeskFilters((current) => ({ ...current, scope: value as StocktakeFilterState['scope'] }))} options={['ALL', 'Full Inventory', 'Branch', 'Warehouse', 'Category', 'Supplier', 'Shelf Location', 'Selected Products', 'High Risk Products', 'Low Stock Products', 'No Movement Products']} />
+            <StocktakeSelect label="Count Mode" value={stocktakeDeskFilters.countMode || 'ALL'} onChange={(value) => setStocktakeDeskFilters((current) => ({ ...current, countMode: value as StocktakeFilterState['countMode'] }))} options={['ALL', 'Visible System Qty', 'Blind Count', 'Supervisor Count', 'Recount']} />
+            <StocktakeSelect label="Status" value={stocktakeDeskFilters.status || 'ALL'} onChange={(value) => setStocktakeDeskFilters((current) => ({ ...current, status: value as StocktakeFilterState['status'] }))} options={['ALL', 'Draft', 'Counting', 'Count Completed', 'Submitted', 'Pending Approval', 'Approved', 'Posted', 'Recount Requested', 'Cancelled', 'Closed']} />
+            <input placeholder="Requested By" value={stocktakeDeskFilters.requestedBy || ''} onChange={(event) => setStocktakeDeskFilters((current) => ({ ...current, requestedBy: event.target.value }))} className="border border-[#8d8780] px-2 py-1.5 rounded-none text-[10px]" />
+            <input placeholder="Counted By" value={stocktakeDeskFilters.countedBy || ''} onChange={(event) => setStocktakeDeskFilters((current) => ({ ...current, countedBy: event.target.value }))} className="border border-[#8d8780] px-2 py-1.5 rounded-none text-[10px]" />
+            <input type="date" value={stocktakeDeskFilters.dateFrom || ''} onChange={(event) => setStocktakeDeskFilters((current) => ({ ...current, dateFrom: event.target.value }))} className="border border-[#8d8780] px-2 py-1.5 rounded-none text-[10px]" />
+            <input type="date" value={stocktakeDeskFilters.dateTo || ''} onChange={(event) => setStocktakeDeskFilters((current) => ({ ...current, dateTo: event.target.value }))} className="border border-[#8d8780] px-2 py-1.5 rounded-none text-[10px]" />
+            <StocktakeSelect label="Variance Risk" value={stocktakeDeskFilters.varianceRisk || 'ALL'} onChange={(value) => setStocktakeDeskFilters((current) => ({ ...current, varianceRisk: value as StocktakeFilterState['varianceRisk'] }))} options={['ALL', 'None', 'Low', 'Medium', 'High', 'Critical']} />
+            <button type="button" onClick={() => refreshStocktakeDesk(stocktakeDeskFilters)} className="bg-[#1e222b] text-white border border-slate-900 px-3 py-1.5 font-black uppercase text-[9px] rounded-none">Apply Filters</button>
+            <button type="button" onClick={() => { const reset = { scope: 'ALL' as const, countMode: 'ALL' as const, status: 'ALL' as const, varianceRisk: 'ALL' as const }; setStocktakeDeskFilters(reset); refreshStocktakeDesk(reset); }} className="bg-white border border-[#b1b5c2] px-3 py-1.5 font-black uppercase text-[9px] rounded-none">Clear</button>
+          </div>
+
+          <div className="overflow-x-auto pos-custom-scroll">
+            <table className="industrial-table min-w-[1320px]">
+              <thead>
+                <tr>{['Stocktake No.', 'Date', 'Branch', 'Warehouse', 'Scope', 'Count Mode', 'Lines', 'Counted', 'Variance Lines', 'Value Impact', 'Status', 'Requested By', 'Counted By', 'Action'].map((label) => <th key={label} className="py-2 px-3">{label}</th>)}</tr>
+              </thead>
+              <tbody className="divide-y divide-gray-200">
+                {stocktakeDeskSessions.map((session) => {
+                  const lines = stocktakeDeskLineMap[session.stocktakeId] || [];
+                  const counted = lines.filter((line) => line.countedQty !== null && line.lineStatus !== 'Excluded').length;
+                  const varianceLines = lines.filter((line) => line.varianceQty !== 0 && line.lineStatus !== 'Excluded').length;
+                  const valueImpact = lines.reduce((sum, line) => sum + line.valueImpact, 0);
+                  return (
+                    <tr key={session.stocktakeId} className="hover:bg-slate-50">
+                      <td className="py-2 px-3 font-black text-orange-700">{session.stocktakeNumber}</td>
+                      <td className="py-2 px-3">{session.startedAt.slice(0, 10)}</td>
+                      <td className="py-2 px-3">{session.branchId}</td>
+                      <td className="py-2 px-3">{session.warehouseId || 'N/A'}</td>
+                      <td className="py-2 px-3">{session.scope}</td>
+                      <td className="py-2 px-3">{session.countMode}</td>
+                      <td className="py-2 px-3 text-right font-black">{lines.length}</td>
+                      <td className="py-2 px-3 text-right font-black">{counted}</td>
+                      <td className="py-2 px-3 text-right font-black">{varianceLines}</td>
+                      <td className={`py-2 px-3 text-right font-black ${valueImpact < 0 ? 'text-red-800' : valueImpact > 0 ? 'text-emerald-800' : 'text-slate-800'}`}>USD {valueImpact.toFixed(2)}</td>
+                      <td className="py-2 px-3"><span className="sci-status-pill rounded-none">{session.status}</span></td>
+                      <td className="py-2 px-3">{session.requestedByStaffName}</td>
+                      <td className="py-2 px-3">{session.countedByStaffName || 'N/A'}</td>
+                      <td className="py-2 px-3">
+                        <div className="flex flex-wrap gap-1">
+                          <button type="button" onClick={() => handleStocktakeTableAction('view', session)} className="px-2 py-1 border border-[#b1b5c2] text-[8px] font-black uppercase rounded-none">View / Edit</button>
+                          <button type="button" onClick={() => handleStocktakeTableAction('start', session)} disabled={session.status === 'Posted'} className="px-2 py-1 border border-[#b1b5c2] text-[8px] font-black uppercase rounded-none disabled:bg-slate-100">Start Counting</button>
+                          <button type="button" onClick={() => handleStocktakeTableAction('submit', session)} disabled={session.status === 'Posted'} className="px-2 py-1 border border-[#b1b5c2] text-[8px] font-black uppercase rounded-none disabled:bg-slate-100">Submit</button>
+                          <button type="button" onClick={() => handleStocktakeTableAction('recount', session)} disabled={session.status === 'Posted'} className="px-2 py-1 border border-[#b1b5c2] text-[8px] font-black uppercase rounded-none disabled:bg-slate-100">Request Recount</button>
+                          <button type="button" onClick={() => handleStocktakeTableAction('approve', session)} disabled={session.status === 'Posted'} className="px-2 py-1 border border-[#b1b5c2] text-[8px] font-black uppercase rounded-none disabled:bg-slate-100">Approve</button>
+                          <button type="button" onClick={() => handleStocktakeTableAction('post', session)} disabled={session.status === 'Posted'} className="px-2 py-1 bg-orange-600 text-white border border-orange-700 text-[8px] font-black uppercase rounded-none disabled:bg-slate-100 disabled:text-slate-400">Post Variance</button>
+                          <button type="button" onClick={() => handleStocktakeTableAction('cancel', session)} disabled={session.status === 'Posted'} className="px-2 py-1 border border-[#b1b5c2] text-[8px] font-black uppercase rounded-none disabled:bg-slate-100">Cancel</button>
+                          <button type="button" onClick={() => handleStocktakeTableAction('export', session)} className="px-2 py-1 border border-[#b1b5c2] text-[8px] font-black uppercase rounded-none">Prepare Export</button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+                {stocktakeDeskSessions.length === 0 && <tr><td colSpan={14} className="py-8 text-center uppercase font-bold text-slate-500">No stocktake sessions match the selected filters.</td></tr>}
+              </tbody>
+            </table>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <div className="border border-[#b1b5c2] bg-white p-3">
+              <h4 className="text-[10px] uppercase font-black text-[#1e222b] mb-2">EOD / Owner Desk Warnings</h4>
+              <ul className="space-y-1 text-[9px] uppercase font-semibold text-slate-700">
+                <li>Warn if session is still counting.</li>
+                <li>Warn if submitted but not approved, or approved but not posted.</li>
+                <li>Warn if high-risk variance or recount is pending.</li>
+                <li>Warn if posted today but not reviewed.</li>
+              </ul>
+            </div>
+            <div className="border border-[#b1b5c2] bg-white p-3">
+              <h4 className="text-[10px] uppercase font-black text-[#1e222b] mb-2">Recent Stocktake Activity</h4>
+              <div className="space-y-2 max-h-28 overflow-y-auto">
+                {stocktakeDeskEvents.slice(0, 5).map((event) => (
+                  <div key={event.id} className="border-l-2 border-l-orange-500 pl-2 text-[9px] uppercase">
+                    <strong className="block text-slate-900">{event.eventType.replaceAll('_', ' ')}</strong>
+                    <span className="text-slate-600">{event.message}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          <StocktakeForm
+            open={stocktakeFormOpen}
+            session={selectedStocktake}
+            lines={selectedStocktakeLines}
+            summary={selectedStocktakeSummary}
+            products={localStock}
+            operatorName={staffName}
+            branchOptions={stocktakeBranchDeskOptions.length ? stocktakeBranchDeskOptions : [activeBranch]}
+            warehouseOptions={stocktakeWarehouseDeskOptions.length ? stocktakeWarehouseDeskOptions : ['Harare Spares Depot']}
+            onClose={() => setStocktakeFormOpen(false)}
+            onCreateDraft={handleCreateStocktakeDraft}
+            onUpdateDraft={handleUpdateStocktakeDraft}
+            onStartCounting={handleStartCountingStocktake}
+            onSubmit={handleSubmitStocktake}
+            onRequestRecount={handleRequestStocktakeRecount}
+            onApprove={handleApproveStocktake}
+            onPost={handlePostStocktake}
+            onCancel={handleCancelStocktake}
+            onExport={handleExportStocktake}
+            onLineCountChange={handleStocktakeLineCount}
+            onExcludeLine={handleExcludeStocktakeLine}
+            onRestoreLine={handleRestoreStocktakeLine}
+            onCompleteRecount={handleCompleteStocktakeRecount}
+            onBulkCountAction={handleBulkStocktakeCounts}
+            onViewLedger={(sku) => setStocktakeDeskNotice(`Product Ledger can be opened from Inventory Product Ledger tab. Posted stocktake gain/loss for ${sku} appears only after Post Variance.`)}
+          />
+        </div>
+      )}
+
+      {false && activeTab === 'Stocktake' && (
         <div className="industrial-section p-5 space-y-5">
           
           <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 border-b border-gray-150 pb-3">

@@ -10,6 +10,7 @@ import {
   Truck,
   XCircle
 } from 'lucide-react';
+import { useMemo, useState } from 'react';
 import { CartItem, CustomerRecord, VATMode } from '../types';
 
 export type SalesPaymentMethod =
@@ -206,6 +207,26 @@ export default function SalesCartCard({
   onHoldSale,
   onCancelSale
 }: SalesCartCardProps) {
+  const [customerSearch, setCustomerSearch] = useState('');
+  const filteredExistingCustomers = useMemo(() => {
+    const query = customerSearch.trim().toLowerCase();
+    return existingCustomers.filter((customer) => {
+      if (customer.status !== 'Active') return false;
+      if (!query) return true;
+      return [
+        customer.customerName,
+        customer.customerCode,
+        customer.phone,
+        customer.whatsapp,
+        customer.email,
+        customer.taxNumber,
+        customer.cityTown,
+        customer.suburb
+      ].join(' ').toLowerCase().includes(query);
+    });
+  }, [customerSearch, existingCustomers]);
+  const selectedCustomer = existingCustomers.find((customer) => customer.customerId === selectedCustomerId);
+
   return (
     <section className="sci-pos-card pos-cart-card" aria-labelledby="cart-title">
       <div className="sci-pos-card__bar">
@@ -239,14 +260,28 @@ export default function SalesCartCard({
           </select>
         </label>
         {customerMode === 'Existing Customer' ? (
-          <label>
-            Existing Customer
-            <select value={selectedCustomerId} onChange={(event) => onExistingCustomerSelect?.(event.target.value)}>
-              <option value="">Select active customer</option>
-              {existingCustomers.map((customer) => <option key={customer.customerId} value={customer.customerId}>{customer.customerName} - {customer.customerCode}</option>)}
-            </select>
-            {customerName && <span className="pos-form-hint">{customerName}</span>}
-          </label>
+          <>
+            <label>
+              Existing Customer Search
+              <input value={customerSearch} onChange={(event) => setCustomerSearch(event.target.value)} placeholder="Search name, phone, WhatsApp, tax no." />
+            </label>
+            <label>
+              Existing Customer
+              <select value={selectedCustomerId} onChange={(event) => onExistingCustomerSelect?.(event.target.value)}>
+                <option value="">Select active customer</option>
+                {filteredExistingCustomers.map((customer) => <option key={customer.customerId} value={customer.customerId}>{customer.customerName} - {customer.customerCode}</option>)}
+              </select>
+              {customerName && <span className="pos-form-hint">{customerName}</span>}
+            </label>
+            {selectedCustomer && (
+              <div className="pos-placeholder-card pos-form-grid__wide">
+                <strong>{selectedCustomer.customerName}</strong>
+                <span>Tax: {selectedCustomer.taxNumber || 'No tax number'} | Credit: {selectedCustomer.creditStatus}</span>
+                <span>Billing: {selectedCustomer.billingAddress || 'No billing address'}</span>
+                <span>Delivery: {selectedCustomer.deliveryAddress || 'No delivery address'}</span>
+              </div>
+            )}
+          </>
         ) : (
           <label>
             Customer Name

@@ -49,7 +49,14 @@ export interface ReceiptSalePayload {
   terminal: string;
   cashierId: string;
   cashier: string;
+  customerId?: string;
   customerName?: string;
+  customerPhone?: string;
+  customerWhatsApp?: string;
+  customerTaxNumber?: string;
+  customerBillingAddress?: string;
+  customerDeliveryAddress?: string;
+  customerCreditStatus?: ReceiptRecord['customer']['creditStatus'];
   paymentMode: PaymentMode;
   vatMode?: VATMode;
   vatRate?: number;
@@ -161,7 +168,17 @@ export async function createReceiptFromSale(payload: ReceiptSalePayload): Promis
     cashier: payload.cashier,
     businessDate: now.slice(0, 10),
     dateTime: now,
-    customer: { customerName: payload.customerName || 'Walk-in Customer' },
+    customer: {
+      customerId: payload.customerId,
+      customerName: payload.customerName || 'Walk-in Customer',
+      customerPhone: payload.customerPhone,
+      customerWhatsApp: payload.customerWhatsApp,
+      customerTaxNo: payload.customerTaxNumber,
+      customerAddress: payload.customerDeliveryAddress || payload.customerBillingAddress,
+      billingAddress: payload.customerBillingAddress,
+      deliveryAddress: payload.customerDeliveryAddress,
+      creditStatus: payload.customerCreditStatus
+    },
     businessDetails: {
       businessName: payload.businessVendor,
       tradingName: payload.businessVendor,

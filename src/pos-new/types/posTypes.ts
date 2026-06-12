@@ -521,6 +521,8 @@ export type InventoryMovementType =
   | 'TRANSFER_OUT'
   | 'BRANCH_TRANSFER_IN'
   | 'BRANCH_TRANSFER_OUT'
+  | 'WAREHOUSE_TRANSFER_IN'
+  | 'WAREHOUSE_TRANSFER_OUT'
   | 'SUPPLIER_RETURN'
   | 'DAMAGE_WRITEOFF'
   | 'WRITE_OFF'
@@ -534,6 +536,7 @@ export type InventoryReferenceType =
   | 'STOCKTAKE'
   | 'ADJUSTMENT'
   | 'TRANSFER'
+  | 'STOCK_TRANSFER'
   | 'SUPPLIER_RETURN'
   | 'DAMAGE'
   | 'MANUAL';
@@ -924,6 +927,7 @@ export type ApprovalRequestType =
 export type ApprovalStatus = 'Pending' | 'Approved' | 'Rejected';
 
 export type OperationalApprovalCategory =
+  | 'NEW_CUSTOMER'
   | 'Price Override'
   | 'Discount Above Limit'
   | 'Return Request'
@@ -932,6 +936,7 @@ export type OperationalApprovalCategory =
   | 'Cash Variance Review'
   | 'Stock Adjustment'
   | 'Stocktake Variance'
+  | 'Stock Transfer'
   | 'Inventory Import Approval'
   | 'Purchase Order'
   | 'Goods Receiving'
@@ -1951,46 +1956,423 @@ export interface StockAdjustmentRequest {
   createdDate: string;
 }
 
+export type StocktakeSessionStatus =
+  | 'Draft'
+  | 'Counting'
+  | 'Count Completed'
+  | 'Submitted'
+  | 'Pending Approval'
+  | 'Approved'
+  | 'Posted'
+  | 'Recount Requested'
+  | 'Cancelled'
+  | 'Closed';
+
+export type StocktakeScope =
+  | 'Full Inventory'
+  | 'Branch'
+  | 'Warehouse'
+  | 'Category'
+  | 'Supplier'
+  | 'Shelf Location'
+  | 'Selected Products'
+  | 'High Risk Products'
+  | 'Low Stock Products'
+  | 'No Movement Products';
+
+export type StocktakeCountMode =
+  | 'Visible System Qty'
+  | 'Blind Count'
+  | 'Supervisor Count'
+  | 'Recount';
+
+export type StocktakeLineStatus =
+  | 'Not Counted'
+  | 'Counted'
+  | 'Variance'
+  | 'No Variance'
+  | 'Recount Required'
+  | 'Approved'
+  | 'Posted'
+  | 'Excluded'
+  | 'Cancelled';
+
+export type StocktakeVarianceRisk =
+  | 'None'
+  | 'Low'
+  | 'Medium'
+  | 'High'
+  | 'Critical';
+
 export interface StocktakeLine {
-  productId?: string;
-  numericNo?: string;
+  lineId: string;
+  stocktakeId: string;
+  productId: string;
   sku: string;
-  alu?: string;
   productName: string;
-  industrialSector?: string;
-  category?: string;
-  brand?: string;
-  shelfLocation?: string;
+  brand: string;
+  category: string;
+  shelfLocation: string;
   systemQty: number;
-  countedQty: number;
-  variance: number;
-  riskLevel: 'Low' | 'Medium' | 'High' | 'Critical';
-  status: 'Pending' | 'Counted' | 'Risk Flagged' | 'Matched' | 'Short Count' | 'Over Count' | 'Review Required';
+  countedQty: number | null;
+  varianceQty: number;
+  unitCost: number;
+  valueImpact: number;
+  varianceRisk: StocktakeVarianceRisk;
+  lineStatus: StocktakeLineStatus;
+  countNotes: string;
+  recountNotes: string;
+  postedMovementId?: string;
+  numericNo?: string;
+  alu?: string;
+  industrialSector?: string;
+  variance?: number;
+  riskLevel?: 'Low' | 'Medium' | 'High' | 'Critical';
+  status?: 'Pending' | 'Counted' | 'Risk Flagged' | 'Matched' | 'Short Count' | 'Over Count' | 'Review Required';
   stocktakeType?: 'Full' | 'Spot' | 'Audit';
   countedBy?: string;
 }
 
 export interface StocktakeSession {
-  id: string;
-  vendorId?: string;
-  branchId?: string;
+  stocktakeId: string;
+  stocktakeNumber: string;
+  vendorId: string;
+  branchId: string;
   warehouseId?: string;
-  startDate: string;
-  status: 'In Progress' | 'Completed';
-  type: 'Spot Check' | 'Full Stocktake' | 'Full' | 'Spot' | 'Audit';
-  items: StocktakeLine[];
-  createdByStaffId?: string;
-  createdAt?: string;
-  updatedAt?: string;
+  scope: StocktakeScope;
+  countMode: StocktakeCountMode;
+  status: StocktakeSessionStatus;
+  requestedByStaffId: string;
+  requestedByStaffName: string;
+  countedByStaffId?: string;
+  countedByStaffName?: string;
+  approvedByStaffId?: string;
+  approvedByStaffName?: string;
+  postedByStaffId?: string;
+  postedByStaffName?: string;
+  startedAt: string;
+  submittedAt?: string;
+  approvedAt?: string;
+  postedAt?: string;
+  notes: string;
+  createdAt: string;
+  updatedAt: string;
+  categoryFilter?: string;
+  supplierFilter?: string;
+  shelfLocationFilter?: string;
+  selectedProductIds?: string[];
+  id?: string;
+  startDate?: string;
+  type?: 'Spot Check' | 'Full Stocktake' | 'Full' | 'Spot' | 'Audit';
+  items?: StocktakeLine[];
+}
+
+export interface StocktakeVarianceSummary {
+  totalLines: number;
+  countedLines: number;
+  notCounted: number;
+  excludedLines?: number;
+  noVariance: number;
+  varianceLines?: number;
+  positiveVarianceLines: number;
+  negativeVarianceLines: number;
+  totalGainQty: number;
+  totalLossQty: number;
+  estimatedValueImpact: number;
+  highestRisk: StocktakeVarianceRisk;
+  approvalRequired?: boolean;
 }
 
 export type StocktakeActivityEventType =
+  | 'STOCKTAKE_SESSION_CREATED'
+  | 'STOCKTAKE_BULK_COUNT_APPLIED'
+  | 'STOCKTAKE_COUNT_STARTED'
+  | 'STOCKTAKE_LINE_CLEARED'
+  | 'STOCKTAKE_LINE_COUNTED'
+  | 'STOCKTAKE_SUBMITTED'
+  | 'STOCKTAKE_RECOUNT_REQUESTED'
+  | 'STOCKTAKE_RECOUNT_COMPLETED'
+  | 'STOCKTAKE_LINE_EXCLUDED'
+  | 'STOCKTAKE_LINE_RESTORED'
+  | 'STOCKTAKE_VARIANCE_REVIEWED'
+  | 'STOCKTAKE_SUBMIT_BLOCKED'
+  | 'STOCKTAKE_VARIANCE_FOUND'
+  | 'STOCKTAKE_APPROVED'
+  | 'STOCKTAKE_VARIANCE_POSTED'
+  | 'STOCKTAKE_GAIN_POSTED'
+  | 'STOCKTAKE_LOSS_POSTED'
+  | 'STOCKTAKE_POST_BLOCKED'
+  | 'STOCKTAKE_POST_REVIEW_REQUIRED'
+  | 'STOCKTAKE_POSTED_LOCKED'
+  | 'STOCKTAKE_CANCELLED'
+  | 'STOCKTAKE_HIGH_RISK_VARIANCE'
   | 'STOCKTAKE_STARTED'
   | 'STOCKTAKE_COUNT_LOGGED'
-  | 'STOCKTAKE_VARIANCE_FOUND'
-  | 'STOCKTAKE_SUBMITTED'
   | 'STOCK_ADJUSTMENT_REQUESTED'
   | 'AUDIT_STOCKTAKE_REVIEW_REQUIRED';
+
+export interface StocktakeActivityEvent {
+  id: string;
+  stocktakeId: string;
+  stocktakeNumber: string;
+  eventType: StocktakeActivityEventType;
+  message: string;
+  operator: string;
+  severity: StocktakeVarianceRisk;
+  createdAt: string;
+}
+
+export interface StocktakeFilterState {
+  stocktakeNumber?: string;
+  branch?: string;
+  warehouse?: string;
+  scope?: StocktakeScope | 'ALL';
+  countMode?: StocktakeCountMode | 'ALL';
+  status?: StocktakeSessionStatus | 'ALL';
+  requestedBy?: string;
+  countedBy?: string;
+  dateFrom?: string;
+  dateTo?: string;
+  varianceRisk?: StocktakeVarianceRisk | 'ALL';
+}
+
+export interface StocktakeSessionSummary {
+  openSessions: number;
+  counting: number;
+  submitted: number;
+  pendingApproval: number;
+  recountRequired: number;
+  postedToday: number;
+  positiveVariance: number;
+  negativeVariance: number;
+  highRiskVariance: number;
+  estimatedValueImpact: number;
+}
+
+export interface StocktakePostingResult {
+  stocktakeId: string;
+  stocktakeNumber: string;
+  status: StocktakeSessionStatus;
+  stockPosted: boolean;
+  postedLines: StocktakeLine[];
+  movements: InventoryMovement[];
+  message: string;
+}
+
+export type StockTransferStatus =
+  | 'Draft'
+  | 'Pending Approval'
+  | 'Approved'
+  | 'Dispatched'
+  | 'Partially Dispatched'
+  | 'In Transit'
+  | 'Partially Received'
+  | 'Fully Received'
+  | 'Variance Review'
+  | 'Closed With Outstanding'
+  | 'Cancelled'
+  | 'Rejected'
+  | 'Reversed';
+
+export type StockTransferType =
+  | 'Branch To Branch'
+  | 'Warehouse To Warehouse'
+  | 'Warehouse To Branch'
+  | 'Branch To Warehouse'
+  | 'Store To Sales Floor'
+  | 'Sales Floor To Store'
+  | 'Good Stock To Damaged Holding'
+  | 'Good Stock To Return Holding'
+  | 'Return Holding To Supplier Return Preparation'
+  | 'Other';
+
+export type StockTransferLineStatus =
+  | 'Draft'
+  | 'Requested'
+  | 'Approved'
+  | 'Dispatched'
+  | 'Partially Dispatched'
+  | 'In Transit'
+  | 'Partially Received'
+  | 'Fully Received'
+  | 'Short Received'
+  | 'Over Received'
+  | 'Damaged In Transit'
+  | 'Cancelled'
+  | 'Closed Outstanding';
+
+export type StockTransferVarianceType =
+  | 'None'
+  | 'Short Received'
+  | 'Over Received'
+  | 'Damaged In Transit'
+  | 'Wrong Product'
+  | 'Missing Line'
+  | 'Unapproved Product'
+  | 'Source Stock Short'
+  | 'Destination Rejected';
+
+export interface StockTransfer {
+  transferId: string;
+  transferNumber: string;
+  vendorId: string;
+  transferType: StockTransferType;
+  sourceBranchId: string;
+  sourceBranchName: string;
+  sourceWarehouseId: string;
+  sourceWarehouseName: string;
+  destinationBranchId: string;
+  destinationBranchName: string;
+  destinationWarehouseId: string;
+  destinationWarehouseName: string;
+  requestedByStaffId: string;
+  requestedByStaffName: string;
+  approvedByStaffId?: string;
+  approvedByStaffName?: string;
+  dispatchedByStaffId?: string;
+  dispatchedByStaffName?: string;
+  receivedByStaffId?: string;
+  receivedByStaffName?: string;
+  transferDate: string;
+  expectedArrivalDate: string;
+  dispatchDate?: string;
+  receivedDate?: string;
+  status: StockTransferStatus;
+  priority: 'Low' | 'Normal' | 'High' | 'Urgent';
+  reason: string;
+  transportMethod: string;
+  courierReference?: string;
+  driverName?: string;
+  driverPhone?: string;
+  notes: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface StockTransferLine {
+  lineId: string;
+  transferId: string;
+  productId: string;
+  sku: string;
+  productName: string;
+  brand: string;
+  category: string;
+  sourceShelfLocation: string;
+  destinationShelfLocation: string;
+  qtyRequested: number;
+  qtyApproved: number;
+  qtyDispatched: number;
+  qtyReceived: number;
+  qtyAccepted: number;
+  qtyRejected: number;
+  qtyOutstanding: number;
+  unitCost: number;
+  valueImpact: number;
+  lineStatus: StockTransferLineStatus;
+  varianceType: StockTransferVarianceType;
+  notes: string;
+  dispatchPosted?: boolean;
+  receiptPosted?: boolean;
+  dispatchMovementId?: string;
+  receiptMovementId?: string;
+}
+
+export interface StockTransferDispatch {
+  dispatchId: string;
+  transferId: string;
+  dispatchedByStaffId: string;
+  dispatchedByStaffName: string;
+  dispatchDate: string;
+  transportMethod: string;
+  courierReference?: string;
+  driverName?: string;
+  driverPhone?: string;
+  notes: string;
+}
+
+export interface StockTransferReceive {
+  receiveId: string;
+  transferId: string;
+  receivedByStaffId: string;
+  receivedByStaffName: string;
+  receivedDate: string;
+  notes: string;
+}
+
+export interface StockTransferVariance {
+  varianceId: string;
+  transferId: string;
+  lineId: string;
+  varianceType: StockTransferVarianceType;
+  severity: StocktakeVarianceRisk;
+  message: string;
+  approvalRequired: boolean;
+  resolved: boolean;
+}
+
+export type StockTransferActivityEventType =
+  | 'STOCK_TRANSFER_DRAFT_CREATED'
+  | 'STOCK_TRANSFER_SUBMITTED_FOR_APPROVAL'
+  | 'STOCK_TRANSFER_APPROVED'
+  | 'STOCK_TRANSFER_REJECTED'
+  | 'STOCK_TRANSFER_DISPATCHED'
+  | 'STOCK_TRANSFER_PARTIALLY_DISPATCHED'
+  | 'STOCK_TRANSFER_IN_TRANSIT'
+  | 'STOCK_TRANSFER_RECEIVED'
+  | 'STOCK_TRANSFER_PARTIALLY_RECEIVED'
+  | 'STOCK_TRANSFER_RECEIPT_POSTED'
+  | 'STOCK_TRANSFER_VARIANCE_FOUND'
+  | 'STOCK_TRANSFER_CLOSED_WITH_OUTSTANDING'
+  | 'STOCK_TRANSFER_LEFT_OPEN'
+  | 'STOCK_TRANSFER_CANCELLED'
+  | 'STOCK_TRANSFER_SOURCE_STOCK_BLOCKED'
+  | 'STOCK_TRANSFER_REVERSED_PLACEHOLDER'
+  | 'STOCK_TRANSFER_EXPORTED';
+
+export interface StockTransferActivityEvent {
+  id: string;
+  transferId: string;
+  transferNumber: string;
+  eventType: StockTransferActivityEventType;
+  message: string;
+  operator: string;
+  severity: StocktakeVarianceRisk;
+  createdAt: string;
+}
+
+export interface StockTransferFilterState {
+  transferNumber?: string;
+  transferType?: StockTransferType | 'ALL';
+  sourceBranch?: string;
+  sourceWarehouse?: string;
+  destinationBranch?: string;
+  destinationWarehouse?: string;
+  status?: StockTransferStatus | 'ALL';
+  productOrSku?: string;
+  requestedBy?: string;
+  dateFrom?: string;
+  dateTo?: string;
+  varianceType?: StockTransferVarianceType | 'ALL';
+}
+
+export interface StockTransferSummary {
+  draftTransfers: number;
+  pendingApproval: number;
+  approved: number;
+  inTransit: number;
+  partiallyReceived: number;
+  varianceReview: number;
+  fullyReceived: number;
+  closedOutstanding: number;
+  transferQty: number;
+  transferValue: number;
+}
+
+export interface StockTransferCloseRequest {
+  transferId: string;
+  staffId: string;
+  reason: string;
+}
 
 export interface PurchaseDisciplineEvent {
   id: string;
@@ -2746,10 +3128,15 @@ export interface ReceiptBusinessDetails {
 }
 
 export interface ReceiptCustomerDetails {
+  customerId?: string;
   customerName: string;
   customerPhone?: string;
+  customerWhatsApp?: string;
   customerTaxNo?: string;
   customerAddress?: string;
+  billingAddress?: string;
+  deliveryAddress?: string;
+  creditStatus?: CustomerCreditStatus;
 }
 
 export interface ReceiptLine {

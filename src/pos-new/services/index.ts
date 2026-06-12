@@ -12,6 +12,29 @@ export * from './ownerService';
 export * from './posEntitlementService';
 export * from './paymentReportService';
 export * from './productLedgerService';
-export * from './inventoryMovementService';
 export * from './stockHealthService';
 export * from './inventoryReportService';
+export * from './stockTransferService';
+export {
+  calculateRunningBalance,
+  createInventoryMovement,
+  exportInventoryMovementsPlaceholder,
+  getInventoryMovementById,
+  getInventoryMovementEvents,
+  getInventoryMovementSummary,
+  getInventoryMovements,
+  getInventoryMovementsByFilters,
+  getInventoryMovementsByProduct,
+  getInventoryMovementsBySku,
+  getProductLedger as getInventoryMovementProductLedger,
+  getProductStockBalance,
+  postGoodsReceivedMovement,
+  postInventoryMovement,
+  postReturnMovement,
+  postSaleMovement,
+  postStockAdjustmentMovement,
+  postStocktakeAdjustmentMovement,
+  postSupplierReturnMovement,
+  postTransferMovement,
+  reverseInventoryMovement
+} from './inventoryMovementService';

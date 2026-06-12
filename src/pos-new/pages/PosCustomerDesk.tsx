@@ -25,6 +25,7 @@ import {
   getCustomerSummary,
   getCustomers,
   markCustomerDuplicate,
+  recordCustomerSelectedForSale,
   rejectCustomer,
   suspendCustomer
 } from '../services/customerService';
@@ -157,6 +158,7 @@ export default function PosCustomerDesk({ session, onNavigate }: PosCustomerDesk
 
   const handleSelectForSale = (customer: CustomerRecord) => {
     setSelectedCustomerId(customer.customerId);
+    void recordCustomerSelectedForSale(customer.customerId, session.staffName);
     setNotice(`${customer.customerName} selected for sale placeholder.`);
   };
 
@@ -246,7 +248,7 @@ export default function PosCustomerDesk({ session, onNavigate }: PosCustomerDesk
               <tbody>
                 {requests.map((customer) => (
                   <tr key={customer.customerId}>
-                    <td>{customer.customerCode}</td>
+                    <td>{customer.customerCode.startsWith('PEND') || customer.customerCode.startsWith('DUP') ? customer.customerCode : customer.customerId}</td>
                     <td>{customer.customerName}</td>
                     <td>{customer.phone}</td>
                     <td>{customer.whatsapp}</td>
@@ -298,11 +300,17 @@ export default function PosCustomerDesk({ session, onNavigate }: PosCustomerDesk
 }
 
 function CustomerTable({ customers, onProfile, onSelect, onNote, onSuspend }: { customers: CustomerRecord[]; onProfile: (customer: CustomerRecord) => void; onSelect: (customer: CustomerRecord) => void; onNote: (customer: CustomerRecord) => void; onSuspend: (customer: CustomerRecord) => void }) {
+  const lastPurchaseByCustomer = new Map<string, string>([
+    ['CUST-TAPIWA', '2026-06-09'],
+    ['CUST-RUDO', '2026-06-09'],
+    ['CUST-FARAI', '2026-06-09'],
+    ['CUST-APEX-FLEET', '2026-06-09']
+  ]);
   return (
     <section className="sci-pos-card">
       <div className="sci-pos-card__bar"><div><p className="sci-pos-eyebrow">Records</p><h2>Customer List</h2></div></div>
       <div className="sci-pos-table-wrap"><table className="sci-pos-table"><thead><tr>{['Customer Code', 'Customer Name', 'Type', 'Phone', 'WhatsApp', 'City / Town', 'Suburb', 'Source', 'Status', 'Credit Status', 'Last Purchase', 'Action'].map((heading) => <th key={heading}>{heading}</th>)}</tr></thead><tbody>
-        {customers.map((customer) => <tr key={customer.customerId} onDoubleClick={() => onProfile(customer)}><td className="sci-pos-table__strong">{customer.customerCode}</td><td>{customer.customerName}</td><td>{customer.customerType}</td><td>{customer.phone || 'None'}</td><td>{customer.whatsapp || 'None'}</td><td>{customer.cityTown}</td><td>{customer.suburb}</td><td>{customer.source}</td><td><span className={`sci-status-pill ${statusClass(customer.status)}`}>{customer.status}</span></td><td>{customer.creditStatus}</td><td>Placeholder</td><td><div className="pos-approval-actions"><button type="button" className="sci-pos-button sci-pos-button--secondary" onClick={() => onProfile(customer)}>View Profile</button><button type="button" className="sci-pos-button sci-pos-button--secondary" onClick={() => onSelect(customer)}>Select for Sale Placeholder</button><button type="button" className="sci-pos-button sci-pos-button--secondary" onClick={() => onNote(customer)}>Add Note</button><button type="button" className="sci-pos-button sci-pos-button--secondary" onClick={() => onSuspend(customer)}>Suspend Placeholder</button></div></td></tr>)}
+        {customers.map((customer) => <tr key={customer.customerId} onDoubleClick={() => onProfile(customer)}><td className="sci-pos-table__strong">{customer.customerCode}</td><td>{customer.customerName}</td><td>{customer.customerType}</td><td>{customer.phone || 'None'}</td><td>{customer.whatsapp || 'None'}</td><td>{customer.cityTown}</td><td>{customer.suburb}</td><td>{customer.source}</td><td><span className={`sci-status-pill ${statusClass(customer.status)}`}>{customer.status}</span></td><td>{customer.creditStatus}</td><td>{lastPurchaseByCustomer.get(customer.customerId) || 'No purchase'}</td><td><div className="pos-approval-actions"><button type="button" className="sci-pos-button sci-pos-button--secondary" onClick={() => onProfile(customer)}>View Profile</button><button type="button" className="sci-pos-button sci-pos-button--secondary" onClick={() => onSelect(customer)}>Select for Sale Placeholder</button><button type="button" className="sci-pos-button sci-pos-button--secondary" onClick={() => onNote(customer)}>Add Note</button><button type="button" className="sci-pos-button sci-pos-button--secondary" onClick={() => onSuspend(customer)}>Suspend Placeholder</button></div></td></tr>)}
       </tbody></table></div>
     </section>
   );

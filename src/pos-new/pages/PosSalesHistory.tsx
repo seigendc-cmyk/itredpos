@@ -6,13 +6,14 @@ import { hasPermission } from '../utils/posPermissions';
 
 interface PosSalesHistoryProps {
   session: PosSession;
+  onNavigate?: (page: string) => void;
 }
 
 const paymentMethods = ['All', 'Cash', 'EcoCash', 'Swipe', 'Bank Transfer', 'Split Payment'];
 const deliveryStatuses = ['All', 'Out for Delivery', 'Assigned', 'Waiting Collection', 'Pending Assignment', 'Failed', 'Not Linked'];
 const returnStatuses = ['All', 'Completed', 'Refunded', 'Partially Refunded', 'Voided', 'Fiscal Pending'];
 
-export default function PosSalesHistory({ session }: PosSalesHistoryProps) {
+export default function PosSalesHistory({ session, onNavigate }: PosSalesHistoryProps) {
   const [filters, setFilters] = useState({
     dateFrom: '',
     dateTo: '',
@@ -50,9 +51,16 @@ export default function PosSalesHistory({ session }: PosSalesHistoryProps) {
     });
   }, [deliveryByReceipt, filters]);
 
-  const handleAction = (permission: Parameters<typeof hasPermission>[1], label: string) => {
+  const handleAction = (permission: Parameters<typeof hasPermission>[1], label: string, receipt?: ReceiptRecord) => {
     if (!hasPermission(session.role as Role, permission)) {
       setNotice('You do not have permission to perform this action.');
+      return;
+    }
+    if (label === 'CAT Form' && receipt) {
+      const customer = receipt.customer.customerId
+        ? `${receipt.customer.customerName} (${receipt.customer.customerId}) | Phone: ${receipt.customer.customerPhone || 'No phone'} | Tax: ${receipt.customer.customerTaxNo || 'No tax number'} | Address: ${receipt.customer.deliveryAddress || receipt.customer.customerAddress || 'No address'}`
+        : `Walk-in Customer | Phone: ${receipt.customer.customerPhone || 'No phone captured'} | Tax: ${receipt.customer.customerTaxNo || 'No tax number'}`;
+      setNotice(`CAT Form Customer tab placeholder: ${customer}.`);
       return;
     }
     setNotice(`${label} is a build-development placeholder.`);
@@ -111,6 +119,7 @@ export default function PosSalesHistory({ session }: PosSalesHistoryProps) {
                 receipt={receipt}
                 deliveryStatus={deliveryByReceipt.get(receipt.receiptNumber) || 'Not Linked'}
                 onAction={handleAction}
+                onOpenCustomerCentre={() => onNavigate?.('CUSTOMER_CENTRE')}
               />
             ))}
           </tbody>
@@ -123,12 +132,14 @@ export default function PosSalesHistory({ session }: PosSalesHistoryProps) {
 function HistoryRow({
   receipt,
   deliveryStatus,
-  onAction
+  onAction,
+  onOpenCustomerCentre
 }: {
   key?: string;
   receipt: ReceiptRecord;
   deliveryStatus: string;
-  onAction: (permission: Parameters<typeof hasPermission>[1], label: string) => void;
+  onAction: (permission: Parameters<typeof hasPermission>[1], label: string, receipt?: ReceiptRecord) => void;
+  onOpenCustomerCentre: () => void;
 }) {
   return (
     <tr className="border-t border-[#d6d9e0] text-[11px] text-slate-700">
@@ -144,10 +155,11 @@ function HistoryRow({
       <td className="px-3 py-2 font-black">USD {receipt.grandTotal.toFixed(2)}</td>
       <td className="px-3 py-2">
         <div className="flex flex-wrap gap-1.5">
-          <HistoryButton icon={Eye} label="View Receipt" onClick={() => onAction('sales.viewHistory', 'View Receipt')} />
-          <HistoryButton icon={FileText} label="Open CAT Form Placeholder" onClick={() => onAction('sales.viewHistory', 'CAT Form')} />
-          <HistoryButton icon={RotateCcw} label="Request Return Placeholder" onClick={() => onAction('returns.request', 'Return Request')} />
-          <HistoryButton icon={Undo2} label="Request Credit Note Placeholder" onClick={() => onAction('creditNotes.request', 'Credit Note Request')} />
+          <HistoryButton icon={Eye} label="View Receipt" onClick={() => onAction('sales.viewHistory', 'View Receipt', receipt)} />
+          <HistoryButton icon={FileText} label="Open CAT Form Placeholder" onClick={() => onAction('sales.viewHistory', 'CAT Form', receipt)} />
+          <HistoryButton icon={Eye} label="Open Customer Centre" onClick={onOpenCustomerCentre} />
+          <HistoryButton icon={RotateCcw} label="Request Return Placeholder" onClick={() => onAction('returns.request', 'Return Request', receipt)} />
+          <HistoryButton icon={Undo2} label="Request Credit Note Placeholder" onClick={() => onAction('creditNotes.request', 'Credit Note Request', receipt)} />
         </div>
       </td>
     </tr>

@@ -15,7 +15,7 @@ import { createReceiptFromSale, getReceiptPreview } from '../services/receiptSer
 import { postSaleMovement } from '../services/inventoryMovementService';
 import { recordPaymentReportEvent } from '../services/paymentReportService';
 import { logTerminalControlEvent, runTerminalControlCheck } from '../services/terminalControlService';
-import { createCustomerRequest, getCustomers } from '../services/customerService';
+import { createCustomerRequest, getCustomers, recordCustomerSelectedForSale } from '../services/customerService';
 import {
   CartItem,
   CustomerRecord,
@@ -265,6 +265,7 @@ export default function PosSales({
     setCustomerAddress(customer.deliveryAddress || customer.billingAddress);
     setCustomerTaxNumber(customer.taxNumber);
     setCustomerNotes(`${customer.creditStatus}${customer.currentBalance ? ` - Balance ${money(customer.currentBalance)}` : ''}`);
+    void recordCustomerSelectedForSale(customer.customerId, staffName);
     logEvent('CUSTOMER_SELECTED_FOR_SALE', `${customer.customerName} selected for sale.`);
   };
 
@@ -515,6 +516,7 @@ export default function PosSales({
         return soldLine ? { ...product, stock: Math.max(0, product.stock - soldLine.quantity), qtyOnHand: Math.max(0, productStock(product) - soldLine.quantity) } : product;
       }));
 
+      const selectedCustomer = activeCustomers.find((customer) => customer.customerId === selectedCustomerId);
       const receipt = await createReceiptFromSale({
         sale,
         vendorId: VENDOR_ID,
@@ -525,7 +527,14 @@ export default function PosSales({
         terminal: terminalName,
         cashierId: staffName,
         cashier: staffName,
+        customerId: selectedCustomer?.customerId,
         customerName,
+        customerPhone,
+        customerWhatsApp,
+        customerTaxNumber,
+        customerBillingAddress: selectedCustomer?.billingAddress || customerAddress,
+        customerDeliveryAddress: selectedCustomer?.deliveryAddress || customerAddress,
+        customerCreditStatus: selectedCustomer?.creditStatus,
         paymentMode: receiptPaymentMode(payments[0]?.method || paymentMethod),
         vatMode,
         vatRate: parsedVatRate

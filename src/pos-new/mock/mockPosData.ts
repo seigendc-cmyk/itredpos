@@ -86,7 +86,16 @@ import {
   SupplierReturnCreditNotePlaceholder,
   StockAdjustment,
   StockAdjustmentLine,
-  StockAdjustmentActivityEvent
+  StockAdjustmentActivityEvent,
+  StocktakeActivityEvent,
+  StocktakeLine,
+  StocktakeSession,
+  StockTransfer,
+  StockTransferActivityEvent,
+  StockTransferDispatch,
+  StockTransferLine,
+  StockTransferReceive,
+  StockTransferVariance
 } from '../types/posTypes';
 
 export const mockVendors: Vendor[] = [
@@ -853,6 +862,146 @@ export const mockStockAdjustmentActivityEvents: StockAdjustmentActivityEvent[] =
   { id: 'STA-ACT-0002', adjustmentId: 'STA-ID-0002', adjustmentNumber: 'STA-0002', eventType: 'STOCK_ADJUSTMENT_SUBMITTED_FOR_APPROVAL', message: 'Damaged stock adjustment submitted. Stock not changed.', operator: 'Blessing Stock', createdAt: '2026-06-11T08:50:00Z' },
   { id: 'STA-ACT-0003', adjustmentId: 'STA-ID-0003', adjustmentNumber: 'STA-0003', eventType: 'STOCK_ADJUSTMENT_DRAFT_CREATED', message: 'Draft physical count correction created. Stock not changed.', operator: 'Blessing Stock', createdAt: '2026-06-11T09:10:00Z' },
   { id: 'STA-ACT-0004', adjustmentId: 'STA-ID-0004', adjustmentNumber: 'STA-0004', eventType: 'STOCK_ADJUSTMENT_HIGH_RISK', message: 'Critical theft/loss adjustment requires Owner review.', operator: 'Blessing Stock', createdAt: '2026-06-11T10:20:00Z' }
+];
+
+export const mockStocktakeSessions: StocktakeSession[] = [
+  {
+    stocktakeId: 'STK-ID-0001',
+    stocktakeNumber: 'STK-0001',
+    vendorId: 'SCI-LOG-ZW',
+    branchId: 'Harare Main',
+    warehouseId: 'Harare Spares Depot',
+    scope: 'Full Inventory',
+    countMode: 'Visible System Qty',
+    status: 'Counting',
+    requestedByStaffId: 'ST-BLESSING',
+    requestedByStaffName: 'Blessing Stock',
+    countedByStaffId: 'ST-BLESSING',
+    countedByStaffName: 'Blessing Stock',
+    startedAt: '2026-06-12T08:00:00Z',
+    notes: 'Full inventory count in progress. No stock impact until variance posting.',
+    createdAt: '2026-06-12T08:00:00Z',
+    updatedAt: '2026-06-12T08:25:00Z'
+  },
+  {
+    stocktakeId: 'STK-ID-0002',
+    stocktakeNumber: 'STK-0002',
+    vendorId: 'SCI-LOG-ZW',
+    branchId: 'Harare Main',
+    warehouseId: 'Harare Spares Depot',
+    scope: 'Shelf Location',
+    countMode: 'Visible System Qty',
+    status: 'Count Completed',
+    requestedByStaffId: 'ST-BLESSING',
+    requestedByStaffName: 'Blessing Stock',
+    countedByStaffId: 'ST-ELENA',
+    countedByStaffName: 'Elena Rostova',
+    startedAt: '2026-06-11T15:00:00Z',
+    notes: 'Shelf Location A1 variance detected. Await submit/review.',
+    shelfLocationFilter: 'A1-S4',
+    createdAt: '2026-06-11T15:00:00Z',
+    updatedAt: '2026-06-11T15:35:00Z'
+  },
+  {
+    stocktakeId: 'STK-ID-0003',
+    stocktakeNumber: 'STK-0003',
+    vendorId: 'SCI-LOG-ZW',
+    branchId: 'Harare Main',
+    warehouseId: 'Harare Spares Depot',
+    scope: 'High Risk Products',
+    countMode: 'Blind Count',
+    status: 'Pending Approval',
+    requestedByStaffId: 'ST-BLESSING',
+    requestedByStaffName: 'Blessing Stock',
+    countedByStaffId: 'ST-ELENA',
+    countedByStaffName: 'Elena Rostova',
+    startedAt: '2026-06-11T16:00:00Z',
+    submittedAt: '2026-06-11T16:45:00Z',
+    notes: 'High-risk blind count requires Owner approval. Draft/submitted state does not post stock.',
+    createdAt: '2026-06-11T16:00:00Z',
+    updatedAt: '2026-06-11T16:45:00Z'
+  },
+  {
+    stocktakeId: 'STK-ID-0004',
+    stocktakeNumber: 'STK-0004',
+    vendorId: 'SCI-LOG-ZW',
+    branchId: 'Harare Main',
+    warehouseId: 'Harare Spares Depot',
+    scope: 'Selected Products',
+    countMode: 'Supervisor Count',
+    status: 'Posted',
+    requestedByStaffId: 'ST-BLESSING',
+    requestedByStaffName: 'Blessing Stock',
+    countedByStaffId: 'ST-ELENA',
+    countedByStaffName: 'Elena Rostova',
+    approvedByStaffId: 'ST-ADMIN',
+    approvedByStaffName: 'Admin User',
+    postedByStaffId: 'ST-ADMIN',
+    postedByStaffName: 'Admin User',
+    startedAt: '2026-06-10T12:00:00Z',
+    submittedAt: '2026-06-10T12:25:00Z',
+    approvedAt: '2026-06-10T12:35:00Z',
+    postedAt: '2026-06-10T12:45:00Z',
+    notes: 'Posted stocktake created gain/loss inventory movements only. Accounting impact remains pending review placeholder.',
+    selectedProductIds: ['STOCK-P-02', 'STOCK-P-03'],
+    createdAt: '2026-06-10T12:00:00Z',
+    updatedAt: '2026-06-10T12:45:00Z'
+  }
+];
+
+export const mockStocktakeLines: StocktakeLine[] = [
+  { lineId: 'STK-LINE-0001', stocktakeId: 'STK-ID-0001', productId: 'STOCK-P-02', sku: 'BJ-CBHO49', productName: 'Ball Joint Honda Fit GD1', brand: 'Honda', category: 'Motor Spares', shelfLocation: 'A2-S5', systemQty: 28, countedQty: 28, varianceQty: 0, unitCost: 7.25, valueImpact: 0, varianceRisk: 'None', lineStatus: 'No Variance', countNotes: 'First pass counted.', recountNotes: '' },
+  { lineId: 'STK-LINE-0002', stocktakeId: 'STK-ID-0001', productId: 'STOCK-P-03', sku: 'BP-GD6-F', productName: 'Brake Pads Toyota GD6 Front', brand: 'Toyota', category: 'Motor Spares', shelfLocation: 'A3-S6', systemQty: 13, countedQty: null, varianceQty: 0, unitCost: 16.5, valueImpact: 0, varianceRisk: 'Medium', lineStatus: 'Not Counted', countNotes: '', recountNotes: '' },
+  { lineId: 'STK-LINE-0003', stocktakeId: 'STK-ID-0001', productId: 'STOCK-P-04', sku: 'OIL-5W30', productName: 'Engine Oil 5W30 5L', brand: 'SCI Industrial', category: 'Lubricants', shelfLocation: 'B1-S1', systemQty: 17, countedQty: 17, varianceQty: 0, unitCost: 14.5, valueImpact: 0, varianceRisk: 'None', lineStatus: 'No Variance', countNotes: 'Oil bay counted.', recountNotes: '' },
+  { lineId: 'STK-LINE-0004', stocktakeId: 'STK-ID-0002', productId: 'STOCK-P-01', sku: 'RAD-COROLLA', productName: 'Radiator Toyota Corolla', brand: 'Toyota', category: 'Motor Spares', shelfLocation: 'A1-S4', systemQty: 3, countedQty: 2, varianceQty: -1, unitCost: 75, valueImpact: -75, varianceRisk: 'High', lineStatus: 'Variance', countNotes: 'One unit not found at shelf A1.', recountNotes: '' },
+  { lineId: 'STK-LINE-0005', stocktakeId: 'STK-ID-0002', productId: 'STOCK-P-05', sku: 'CLT-N16', productName: 'Clutch Plate Nissan N16', brand: 'Nissan', category: 'Motor Spares', shelfLocation: 'A5-S2', systemQty: 0, countedQty: 1, varianceQty: 1, unitCost: 25, valueImpact: 25, varianceRisk: 'Medium', lineStatus: 'Variance', countNotes: 'One sealed unit found behind returns cage.', recountNotes: '' },
+  { lineId: 'STK-LINE-0006', stocktakeId: 'STK-ID-0003', productId: 'prod-press-gauge', sku: 'PSG-B10', productName: 'Dial Pressure Gauge (10 Bar)', brand: 'SCI Industrial', category: 'PNEUMATICS', shelfLocation: '', systemQty: 1, countedQty: 0, varianceQty: -1, unitCost: 13.5, valueImpact: -13.5, varianceRisk: 'High', lineStatus: 'Recount Required', countNotes: 'Blind count recorded zero.', recountNotes: 'Supervisor recount required before posting.' },
+  { lineId: 'STK-LINE-0007', stocktakeId: 'STK-ID-0003', productId: 'STOCK-P-03', sku: 'BP-GD6-F', productName: 'Brake Pads Toyota GD6 Front', brand: 'Toyota', category: 'Motor Spares', shelfLocation: 'A3-S6', systemQty: 13, countedQty: 9, varianceQty: -4, unitCost: 16.5, valueImpact: -66, varianceRisk: 'Critical', lineStatus: 'Variance', countNotes: 'Large negative variance, theft/loss suspected.', recountNotes: '' },
+  { lineId: 'STK-LINE-0008', stocktakeId: 'STK-ID-0004', productId: 'STOCK-P-02', sku: 'BJ-CBHO49', productName: 'Ball Joint Honda Fit GD1', brand: 'Honda', category: 'Motor Spares', shelfLocation: 'A2-S5', systemQty: 28, countedQty: 30, varianceQty: 2, unitCost: 7.25, valueImpact: 14.5, varianceRisk: 'Low', lineStatus: 'Posted', countNotes: 'Gain posted as STOCKTAKE_GAIN.', recountNotes: '', postedMovementId: 'MOV-STK-0004-GAIN' },
+  { lineId: 'STK-LINE-0009', stocktakeId: 'STK-ID-0004', productId: 'STOCK-P-03', sku: 'BP-GD6-F', productName: 'Brake Pads Toyota GD6 Front', brand: 'Toyota', category: 'Motor Spares', shelfLocation: 'A3-S6', systemQty: 13, countedQty: 12, varianceQty: -1, unitCost: 16.5, valueImpact: -16.5, varianceRisk: 'Medium', lineStatus: 'Posted', countNotes: 'Loss posted as STOCKTAKE_LOSS.', recountNotes: '', postedMovementId: 'MOV-STK-0004-LOSS' }
+];
+
+export const mockStocktakeActivityEvents: StocktakeActivityEvent[] = [
+  { id: 'STK-ACT-0001', stocktakeId: 'STK-ID-0001', stocktakeNumber: 'STK-0001', eventType: 'STOCKTAKE_COUNT_STARTED', message: 'STK-0001 full inventory count started. Stock not changed.', operator: 'Blessing Stock', severity: 'Low', createdAt: '2026-06-12T08:00:00Z' },
+  { id: 'STK-ACT-0002', stocktakeId: 'STK-ID-0002', stocktakeNumber: 'STK-0002', eventType: 'STOCKTAKE_VARIANCE_FOUND', message: 'Shelf Location A1 variance detected. Posting blocked until review.', operator: 'Elena Rostova', severity: 'High', createdAt: '2026-06-11T15:35:00Z' },
+  { id: 'STK-ACT-0003', stocktakeId: 'STK-ID-0003', stocktakeNumber: 'STK-0003', eventType: 'STOCKTAKE_HIGH_RISK_VARIANCE', message: 'High-risk blind count variance submitted for approval.', operator: 'Elena Rostova', severity: 'Critical', createdAt: '2026-06-11T16:45:00Z' },
+  { id: 'STK-ACT-0004', stocktakeId: 'STK-ID-0004', stocktakeNumber: 'STK-0004', eventType: 'STOCKTAKE_VARIANCE_POSTED', message: 'STK-0004 posted gain/loss movements. No cashbook or supplier payment posting.', operator: 'Admin User', severity: 'Medium', createdAt: '2026-06-10T12:45:00Z' }
+];
+
+export const mockStockTransfers: StockTransfer[] = [
+  { transferId: 'TRF-ID-0001', transferNumber: 'TRF-0001', vendorId: 'SCI-LOG-ZW', transferType: 'Warehouse To Branch', sourceBranchId: 'BR-HARARE', sourceBranchName: 'Harare Main', sourceWarehouseId: 'Harare Spares Depot', sourceWarehouseName: 'Harare Main Warehouse', destinationBranchId: 'BR-HARARE', destinationBranchName: 'Harare Main', destinationWarehouseId: 'Harare Sales Floor', destinationWarehouseName: 'Harare Sales Floor', requestedByStaffId: 'ST-BLESSING', requestedByStaffName: 'Blessing Stock', approvedByStaffId: 'ST-MANAGER', approvedByStaffName: 'Tawanda Supervisor', transferDate: '2026-06-12', expectedArrivalDate: '2026-06-12', status: 'Approved', priority: 'Normal', reason: 'Sales floor replenishment', transportMethod: 'Internal Runner', notes: 'Approved transfer. No stock moved until dispatch.', createdAt: '2026-06-12T08:15:00Z', updatedAt: '2026-06-12T08:25:00Z' },
+  { transferId: 'TRF-ID-0002', transferNumber: 'TRF-0002', vendorId: 'SCI-LOG-ZW', transferType: 'Branch To Branch', sourceBranchId: 'BR-HARARE', sourceBranchName: 'Harare Main', sourceWarehouseId: 'Harare Spares Depot', sourceWarehouseName: 'Harare Spares Depot', destinationBranchId: 'BR-BYO', destinationBranchName: 'Bulawayo Branch', destinationWarehouseId: 'Bulawayo Warehouse', destinationWarehouseName: 'Bulawayo Warehouse', requestedByStaffId: 'ST-BLESSING', requestedByStaffName: 'Blessing Stock', approvedByStaffId: 'ST-MANAGER', approvedByStaffName: 'Tawanda Supervisor', dispatchedByStaffId: 'ST-BLESSING', dispatchedByStaffName: 'Blessing Stock', transferDate: '2026-06-11', expectedArrivalDate: '2026-06-13', dispatchDate: '2026-06-11T14:20:00Z', status: 'In Transit', priority: 'High', reason: 'Bulawayo branch replenishment', transportMethod: 'Courier', courierReference: 'DHL-ZW-77821', driverName: 'Kuda M', driverPhone: '+263 77 600 1122', notes: 'Dispatched. Destination stock not increased yet.', createdAt: '2026-06-11T09:00:00Z', updatedAt: '2026-06-11T14:20:00Z' },
+  { transferId: 'TRF-ID-0003', transferNumber: 'TRF-0003', vendorId: 'SCI-LOG-ZW', transferType: 'Good Stock To Damaged Holding', sourceBranchId: 'BR-HARARE', sourceBranchName: 'Harare Main', sourceWarehouseId: 'Harare Sales Floor', sourceWarehouseName: 'Harare Sales Floor', destinationBranchId: 'BR-HARARE', destinationBranchName: 'Harare Main', destinationWarehouseId: 'Damaged Holding Area', destinationWarehouseName: 'Damaged Holding Area', requestedByStaffId: 'ST-ELENA', requestedByStaffName: 'Elena Rostova', approvedByStaffId: 'ST-MANAGER', approvedByStaffName: 'Tawanda Supervisor', dispatchedByStaffId: 'ST-ELENA', dispatchedByStaffName: 'Elena Rostova', receivedByStaffId: 'ST-BLESSING', receivedByStaffName: 'Blessing Stock', transferDate: '2026-06-10', expectedArrivalDate: '2026-06-10', dispatchDate: '2026-06-10T10:00:00Z', receivedDate: '2026-06-10T10:30:00Z', status: 'Fully Received', priority: 'Normal', reason: 'Move damaged goods to holding', transportMethod: 'Internal Runner', notes: 'Fully received into damaged holding. No financial posting.', createdAt: '2026-06-10T09:30:00Z', updatedAt: '2026-06-10T10:30:00Z' },
+  { transferId: 'TRF-ID-0004', transferNumber: 'TRF-0004', vendorId: 'SCI-LOG-ZW', transferType: 'Good Stock To Return Holding', sourceBranchId: 'BR-HARARE', sourceBranchName: 'Harare Main', sourceWarehouseId: 'Harare Sales Floor', sourceWarehouseName: 'Harare Sales Floor', destinationBranchId: 'BR-HARARE', destinationBranchName: 'Harare Main', destinationWarehouseId: 'Return Holding Area', destinationWarehouseName: 'Return Holding Area', requestedByStaffId: 'ST-BLESSING', requestedByStaffName: 'Blessing Stock', transferDate: '2026-06-12', expectedArrivalDate: '2026-06-12', status: 'Draft', priority: 'Low', reason: 'Prepare goods for return inspection', transportMethod: 'Internal Runner', notes: 'Draft transfer request. No stock movement.', createdAt: '2026-06-12T11:10:00Z', updatedAt: '2026-06-12T11:10:00Z' },
+  { transferId: 'TRF-ID-0005', transferNumber: 'TRF-0005', vendorId: 'SCI-LOG-ZW', transferType: 'Warehouse To Branch', sourceBranchId: 'BR-HARARE', sourceBranchName: 'Harare Main', sourceWarehouseId: 'Harare Spares Depot', sourceWarehouseName: 'Harare Spares Depot', destinationBranchId: 'BR-BYO', destinationBranchName: 'Bulawayo Branch', destinationWarehouseId: 'Bulawayo Warehouse', destinationWarehouseName: 'Bulawayo Warehouse', requestedByStaffId: 'ST-BLESSING', requestedByStaffName: 'Blessing Stock', approvedByStaffId: 'ST-MANAGER', approvedByStaffName: 'Tawanda Supervisor', dispatchedByStaffId: 'ST-BLESSING', dispatchedByStaffName: 'Blessing Stock', receivedByStaffId: 'ST-TAWANDA', receivedByStaffName: 'Tawanda Supervisor', transferDate: '2026-06-09', expectedArrivalDate: '2026-06-10', dispatchDate: '2026-06-09T15:00:00Z', receivedDate: '2026-06-10T09:15:00Z', status: 'Partially Received', priority: 'High', reason: 'Branch replenishment with short receipt', transportMethod: 'Courier', courierReference: 'TRUCK-441', notes: 'Short receipt variance remains open.', createdAt: '2026-06-09T12:00:00Z', updatedAt: '2026-06-10T09:15:00Z' }
+];
+
+export const mockStockTransferLines: StockTransferLine[] = [
+  { lineId: 'TRF-LINE-0001', transferId: 'TRF-ID-0001', productId: 'STOCK-P-02', sku: 'BJ-CBHO49', productName: 'Ball Joint Honda Fit GD1', brand: 'Honda', category: 'Motor Spares', sourceShelfLocation: 'A2-S5', destinationShelfLocation: 'SF-A1', qtyRequested: 8, qtyApproved: 8, qtyDispatched: 0, qtyReceived: 0, qtyAccepted: 0, qtyRejected: 0, qtyOutstanding: 8, unitCost: 7, valueImpact: 56, lineStatus: 'Approved', varianceType: 'None', notes: 'Ready for sales floor dispatch.' },
+  { lineId: 'TRF-LINE-0002', transferId: 'TRF-ID-0002', productId: 'STOCK-P-03', sku: 'BP-GD6-F', productName: 'Brake Pads Toyota GD6 Front', brand: 'Toyota', category: 'Motor Spares', sourceShelfLocation: 'A3-S6', destinationShelfLocation: 'BYO-B2', qtyRequested: 6, qtyApproved: 6, qtyDispatched: 6, qtyReceived: 0, qtyAccepted: 0, qtyRejected: 0, qtyOutstanding: 6, unitCost: 16, valueImpact: 96, lineStatus: 'In Transit', varianceType: 'None', notes: 'Courier in transit.', dispatchPosted: true },
+  { lineId: 'TRF-LINE-0003', transferId: 'TRF-ID-0003', productId: 'STOCK-P-04', sku: 'OIL-5W30', productName: 'Engine Oil 5W30 5L', brand: 'SCI Industrial', category: 'Lubricants', sourceShelfLocation: 'SF-L1', destinationShelfLocation: 'DMG-HOLD', qtyRequested: 2, qtyApproved: 2, qtyDispatched: 2, qtyReceived: 2, qtyAccepted: 2, qtyRejected: 0, qtyOutstanding: 0, unitCost: 14.5, valueImpact: 29, lineStatus: 'Fully Received', varianceType: 'Damaged In Transit', notes: 'Damaged holding receipt posted.', dispatchPosted: true, receiptPosted: true },
+  { lineId: 'TRF-LINE-0004', transferId: 'TRF-ID-0004', productId: 'STOCK-P-05', sku: 'CLT-N16', productName: 'Clutch Plate Nissan N16', brand: 'Nissan', category: 'Motor Spares', sourceShelfLocation: 'A4-S4', destinationShelfLocation: 'RET-HOLD', qtyRequested: 1, qtyApproved: 0, qtyDispatched: 0, qtyReceived: 0, qtyAccepted: 0, qtyRejected: 0, qtyOutstanding: 1, unitCost: 25, valueImpact: 25, lineStatus: 'Draft', varianceType: 'None', notes: 'Draft return holding transfer.' },
+  { lineId: 'TRF-LINE-0005', transferId: 'TRF-ID-0005', productId: 'STOCK-P-RAD-COROLLA', sku: 'RAD-COROLLA', productName: 'Radiator Toyota Corolla', brand: 'Toyota', category: 'Motor Spares', sourceShelfLocation: 'C2-S1', destinationShelfLocation: 'BYO-C1', qtyRequested: 5, qtyApproved: 5, qtyDispatched: 5, qtyReceived: 4, qtyAccepted: 4, qtyRejected: 0, qtyOutstanding: 1, unitCost: 75, valueImpact: 300, lineStatus: 'Short Received', varianceType: 'Short Received', notes: 'One radiator short on delivery.', dispatchPosted: true }
+];
+
+export const mockStockTransferDispatches: StockTransferDispatch[] = [
+  { dispatchId: 'TRF-DSP-0002', transferId: 'TRF-ID-0002', dispatchedByStaffId: 'ST-BLESSING', dispatchedByStaffName: 'Blessing Stock', dispatchDate: '2026-06-11T14:20:00Z', transportMethod: 'Courier', courierReference: 'DHL-ZW-77821', driverName: 'Kuda M', driverPhone: '+263 77 600 1122', notes: 'Dispatched from Harare Spares Depot.' },
+  { dispatchId: 'TRF-DSP-0005', transferId: 'TRF-ID-0005', dispatchedByStaffId: 'ST-BLESSING', dispatchedByStaffName: 'Blessing Stock', dispatchDate: '2026-06-09T15:00:00Z', transportMethod: 'Courier', courierReference: 'TRUCK-441', notes: 'Dispatched to Bulawayo Warehouse.' }
+];
+
+export const mockStockTransferReceipts: StockTransferReceive[] = [
+  { receiveId: 'TRF-REC-0003', transferId: 'TRF-ID-0003', receivedByStaffId: 'ST-BLESSING', receivedByStaffName: 'Blessing Stock', receivedDate: '2026-06-10T10:30:00Z', notes: 'Damaged holding receipt completed.' },
+  { receiveId: 'TRF-REC-0005', transferId: 'TRF-ID-0005', receivedByStaffId: 'ST-TAWANDA', receivedByStaffName: 'Tawanda Supervisor', receivedDate: '2026-06-10T09:15:00Z', notes: 'Short receipt captured; one unit outstanding.' }
+];
+
+export const mockStockTransferVariances: StockTransferVariance[] = [
+  { varianceId: 'TRF-VAR-0005', transferId: 'TRF-ID-0005', lineId: 'TRF-LINE-0005', varianceType: 'Short Received', severity: 'High', message: 'Short receipt: 4 accepted against 5 dispatched.', approvalRequired: true, resolved: false }
+];
+
+export const mockStockTransferActivityEvents: StockTransferActivityEvent[] = [
+  { id: 'TRF-ACT-0001', transferId: 'TRF-ID-0001', transferNumber: 'TRF-0001', eventType: 'STOCK_TRANSFER_APPROVED', message: 'TRF-0001 approved. Stock not moved until dispatch.', operator: 'Tawanda Supervisor', severity: 'Low', createdAt: '2026-06-12T08:25:00Z' },
+  { id: 'TRF-ACT-0002', transferId: 'TRF-ID-0002', transferNumber: 'TRF-0002', eventType: 'STOCK_TRANSFER_IN_TRANSIT', message: 'TRF-0002 dispatched and in transit. Destination stock not increased.', operator: 'Blessing Stock', severity: 'Medium', createdAt: '2026-06-11T14:20:00Z' },
+  { id: 'TRF-ACT-0005', transferId: 'TRF-ID-0005', transferNumber: 'TRF-0005', eventType: 'STOCK_TRANSFER_VARIANCE_FOUND', message: 'TRF-0005 short receipt variance recorded.', operator: 'Tawanda Supervisor', severity: 'High', createdAt: '2026-06-10T09:15:00Z' }
 ];
 
 export const mockProductLedgerEntries: ProductLedgerEntry[] = [
@@ -1786,10 +1935,10 @@ export const mockOperationalApprovals: OperationalApprovalRequest[] = [
     vendorId: 'SCI-LOG-ZW',
     branchId: 'BR-HARARE',
     branch: 'Harare Main',
-    category: 'Customer Approval',
+    category: 'NEW_CUSTOMER',
     requestedBy: 'Mary Cashier',
     requestedByRole: 'Cashier',
-    relatedRecord: 'CUST-REQ-001',
+    relatedRecord: 'CUST-PENDING-001',
     amountOrValue: 'Garage Account',
     risk: 'Medium',
     status: 'Pending',

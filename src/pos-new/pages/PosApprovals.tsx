@@ -26,6 +26,7 @@ type RiskFilter = 'All' | RiskLevel;
 
 const categories: Array<'All' | OperationalApprovalCategory> = [
   'All',
+  'NEW_CUSTOMER',
   'Price Override',
   'Discount Above Limit',
   'Return Request',
@@ -117,7 +118,7 @@ export default function PosApprovals({ session }: PosApprovalsProps) {
       return;
     }
     const updated = await decideOperationalApproval(approval.id, decision, operator, decisionNote.trim());
-    if (approval.category === 'Customer Approval') {
+    if (approval.category === 'Customer Approval' || approval.category === 'NEW_CUSTOMER') {
       if (decision === 'Approved') {
         await approveCustomer(approval.relatedRecord, operator, decisionNote.trim() || 'Approved from Approvals Desk.');
       } else {

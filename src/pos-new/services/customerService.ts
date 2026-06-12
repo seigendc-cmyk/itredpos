@@ -16,6 +16,7 @@ import {
 import { createOperationalApproval } from './approvalService';
 
 const CUSTOMER_KEY = 'itred_pos_customers_v1';
+const CUSTOMER_HISTORY_KEY = 'itred_pos_customer_purchase_history_v1';
 const CUSTOMER_NOTES_KEY = 'itred_pos_customer_notes_v1';
 const CUSTOMER_ACTIVITY_KEY = 'itred_pos_customer_activity_v1';
 const VENDOR_ID = 'SCI-LOG-ZW';
@@ -110,7 +111,7 @@ export async function searchCustomers(query: string, filters: CustomerFilterStat
 
 export async function getCustomerSummary(filters: CustomerFilterState = {}): Promise<CustomerSummary> {
   const customers = await getCustomers(filters);
-  const history = mockCustomerPurchaseHistory;
+  const history = readList<CustomerPurchaseHistoryRow>(CUSTOMER_HISTORY_KEY, mockCustomerPurchaseHistory);
   return {
     totalCustomers: customers.length,
     activeCustomers: customers.filter((customer) => customer.status === 'Active').length,
@@ -181,7 +182,7 @@ export async function createCustomerRequest(payload: {
     vendorId: VENDOR_ID,
     branchId: 'BR-HARARE',
     branch: 'Harare Main',
-    category: 'Customer Approval',
+    category: 'NEW_CUSTOMER',
     requestedBy: payload.requestedByStaffName,
     requestedByRole: payload.requestedByRole,
     relatedRecord: customer.customerId,
@@ -230,7 +231,7 @@ export async function updateCustomerPlaceholder(customerId: string, patch: Parti
 }
 
 export async function getCustomerPurchaseHistory(customerId: string): Promise<CustomerPurchaseHistoryRow[]> {
-  return mockCustomerPurchaseHistory.filter((row) => row.customerId === customerId);
+  return readList<CustomerPurchaseHistoryRow>(CUSTOMER_HISTORY_KEY, mockCustomerPurchaseHistory).filter((row) => row.customerId === customerId);
 }
 
 export async function getCustomerNotes(customerId: string): Promise<CustomerNote[]> {
@@ -247,6 +248,15 @@ export async function addCustomerNote(customerId: string, staffId: string, note:
 
 export async function getCustomerActivityEvents(customerId: string): Promise<CustomerActivityEvent[]> {
   return readList<CustomerActivityEvent>(CUSTOMER_ACTIVITY_KEY, mockCustomerActivityEvents).filter((event) => event.customerId === customerId);
+}
+
+export async function recordCustomerSelectedForSale(customerId: string, staffId: string): Promise<CustomerActivityEvent[]> {
+  return recordCustomerActivity({
+    customerId,
+    eventType: 'CUSTOMER_SELECTED_FOR_SALE',
+    user: staffId,
+    notes: 'Customer selected for Sales Terminal cart.'
+  });
 }
 
 export async function exportCustomerListPlaceholder(filters: CustomerFilterState = {}): Promise<string> {

@@ -114,7 +114,7 @@ interface StockActivityEvent {
   message: string;
 }
 
-type StockTab = 'Stock List' | 'Product List' | 'Product Ledger' | 'Inventory Movements' | 'Stock Health' | 'Inventory Reports' | 'Goods Receiving' | 'Purchase Orders' | 'Supplier Returns' | 'Stock Adjustments' | 'Stocktake';
+type StockTab = 'Stock List' | 'Product List' | 'Product Ledger' | 'Inventory Movements' | 'Stock Health' | 'Inventory Reports' | 'Goods Receiving' | 'Purchase Orders' | 'Supplier Returns' | 'Stock Adjustments' | 'Stocktake' | 'Stock Transfers';
 
 // Interactive default mock products specified by user request dynamically generated from mockPosData
 const INDUSTRIAL_SECTORS = ['Motor Spares', 'Mining Supplies', 'Retail FMCG', 'Agriculture', 'Hardware'] as const;
@@ -550,8 +550,14 @@ export default function PosStock({
     'STOCK_ADJUSTMENT_OUT',
     'STOCKTAKE_ADJUSTMENT_IN',
     'STOCKTAKE_ADJUSTMENT_OUT',
+    'STOCKTAKE_GAIN',
+    'STOCKTAKE_LOSS',
     'TRANSFER_IN',
     'TRANSFER_OUT',
+    'BRANCH_TRANSFER_IN',
+    'BRANCH_TRANSFER_OUT',
+    'WAREHOUSE_TRANSFER_IN',
+    'WAREHOUSE_TRANSFER_OUT',
     'SUPPLIER_RETURN',
     'DAMAGE_WRITEOFF',
     'MANUAL_CORRECTION'
@@ -563,6 +569,7 @@ export default function PosStock({
     'RETURN',
     'GRN',
     'STOCKTAKE',
+    'STOCK_TRANSFER',
     'ADJUSTMENT',
     'TRANSFER',
     'SUPPLIER_RETURN',
@@ -671,7 +678,7 @@ export default function PosStock({
   };
 
   const handleInventoryMovementExport = async () => {
-    if (!canPerformAction(session?.role || 'Owner', 'inventoryMovements.export')) {
+    if (!canPerformAction((session?.role as Role) || 'Owner', 'inventoryMovements.export')) {
       setReportNotice('You do not have permission to perform this action.');
       return;
     }
@@ -1227,7 +1234,7 @@ export default function PosStock({
 
       {/* 1B. SOLID TAB NAVIGATION SELECTORS */}
       <div className="industrial-toolbar">
-        {(['Stock List', 'Product List', 'Product Ledger', 'Inventory Movements', 'Stock Health', 'Inventory Reports', 'Goods Receiving', 'Purchase Orders', 'Supplier Returns', 'Stock Adjustments', 'Stocktake'] as const).map((tab) => {
+        {(['Stock List', 'Product List', 'Product Ledger', 'Inventory Movements', 'Stock Health', 'Inventory Reports', 'Goods Receiving', 'Purchase Orders', 'Supplier Returns', 'Stock Adjustments', 'Stock Transfers', 'Stocktake'] as const).map((tab) => {
           const isActive = activeTab === tab;
           return (
             <button
@@ -1271,14 +1278,14 @@ export default function PosStock({
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-3 bg-slate-50 border border-[#b1b5c2] p-3">
             <LedgerSelect label="Product" value={movementSummaryFilters.productId || 'ALL'} onChange={(value) => setMovementSummaryFilters((current) => ({ ...current, productId: value === 'ALL' ? 'ALL' : value }))} options={['ALL', ...localStock.map((item) => item.id)]} />
             <LedgerInput label="SKU" value={movementSummaryFilters.sku || ''} onChange={(value) => setMovementSummaryFilters((current) => ({ ...current, sku: value }))} />
-            <LedgerSelect label="Movement Type" value={movementSummaryFilters.movementType || 'ALL'} onChange={(value) => setMovementSummaryFilters((current) => ({ ...current, movementType: value as InventoryMovementType | 'ALL' }))} options={['ALL', 'GOODS_RECEIVED', 'SUPPLIER_RETURN', 'SALE', 'CUSTOMER_RETURN', 'STOCK_ADJUSTMENT_IN', 'STOCK_ADJUSTMENT_OUT', 'STOCKTAKE_GAIN', 'STOCKTAKE_LOSS', 'BRANCH_TRANSFER_IN', 'BRANCH_TRANSFER_OUT', 'OPENING_BALANCE', 'WRITE_OFF', 'REVERSAL']} />
-            <LedgerSelect label="Reference Type" value={movementSummaryFilters.referenceType || 'ALL'} onChange={(value) => setMovementSummaryFilters((current) => ({ ...current, referenceType: value as InventoryReferenceType | 'ALL' }))} options={['ALL', 'RECEIPT', 'RETURN', 'GRN', 'STOCKTAKE', 'ADJUSTMENT', 'TRANSFER', 'SUPPLIER_RETURN', 'DAMAGE', 'MANUAL']} />
+            <LedgerSelect label="Movement Type" value={movementSummaryFilters.movementType || 'ALL'} onChange={(value) => setMovementSummaryFilters((current) => ({ ...current, movementType: value as InventoryMovementType | 'ALL' }))} options={['ALL', 'GOODS_RECEIVED', 'SUPPLIER_RETURN', 'SALE', 'CUSTOMER_RETURN', 'STOCK_ADJUSTMENT_IN', 'STOCK_ADJUSTMENT_OUT', 'STOCKTAKE_GAIN', 'STOCKTAKE_LOSS', 'BRANCH_TRANSFER_IN', 'BRANCH_TRANSFER_OUT', 'WAREHOUSE_TRANSFER_IN', 'WAREHOUSE_TRANSFER_OUT', 'OPENING_BALANCE', 'WRITE_OFF', 'REVERSAL']} />
+            <LedgerSelect label="Reference Type" value={movementSummaryFilters.referenceType || 'ALL'} onChange={(value) => setMovementSummaryFilters((current) => ({ ...current, referenceType: value as InventoryReferenceType | 'ALL' }))} options={['ALL', 'RECEIPT', 'RETURN', 'GRN', 'STOCKTAKE', 'STOCK_TRANSFER', 'ADJUSTMENT', 'TRANSFER', 'SUPPLIER_RETURN', 'DAMAGE', 'MANUAL']} />
             <LedgerInput label="Reference Number" value={movementSummaryFilters.referenceNumber || ''} onChange={(value) => setMovementSummaryFilters((current) => ({ ...current, referenceNumber: value }))} />
             <LedgerSelect label="Branch" value={movementSummaryFilters.branchId || 'ALL'} onChange={(value) => setMovementSummaryFilters((current) => ({ ...current, branchId: value }))} options={healthBranchOptions as string[]} />
             <LedgerSelect label="Warehouse" value={movementSummaryFilters.warehouseId || 'ALL'} onChange={(value) => setMovementSummaryFilters((current) => ({ ...current, warehouseId: value }))} options={healthWarehouseOptions as string[]} />
             <LedgerInput label="Date From" value={movementSummaryFilters.dateFrom || ''} onChange={(value) => setMovementSummaryFilters((current) => ({ ...current, dateFrom: value }))} />
             <LedgerInput label="Date To" value={movementSummaryFilters.dateTo || ''} onChange={(value) => setMovementSummaryFilters((current) => ({ ...current, dateTo: value }))} />
-            <LedgerSelect label="Staff" value={movementSummaryFilters.staffName || 'ALL'} onChange={(value) => setMovementSummaryFilters((current) => ({ ...current, staffName: value }))} options={['ALL', ...Array.from(new Set(allInventoryMovements.map((movement) => movement.staffName)))]} />
+            <LedgerSelect label="Staff" value={movementSummaryFilters.staffName || 'ALL'} onChange={(value) => setMovementSummaryFilters((current) => ({ ...current, staffName: value }))} options={['ALL', ...Array.from(new Set(allInventoryMovements.map((movement) => movement.staffName))).filter((staffName): staffName is string => typeof staffName === 'string')]} />
             <LedgerSelect label="Status" value={movementSummaryFilters.status || 'ALL'} onChange={(value) => setMovementSummaryFilters((current) => ({ ...current, status: value as InventoryMovementStatus | 'ALL' }))} options={['ALL', 'Draft', 'Posted', 'Pending Approval', 'Reversed', 'Rejected']} />
             <button type="button" onClick={handleInventoryMovementExport} className="px-3 py-2 bg-orange-600 text-white border border-orange-700 font-black uppercase text-[9px] rounded-none self-end">Export Placeholder</button>
           </div>
@@ -1324,11 +1331,11 @@ export default function PosStock({
                     <td className="py-2 px-3 uppercase">{movement.status}</td>
                     <td className="py-2 px-3">
                       <div className="flex flex-wrap gap-1 justify-center">
-                        <button type="button" onClick={() => setReportNotice(`Source ${movement.referenceType} ${movement.referenceNumber} selected for review.`)} className="px-2 py-1 border border-[#b1b5c2] text-[8px] font-black uppercase">View Source</button>
+                        <button type="button" onClick={() => setReportNotice(movement.referenceType === 'STOCKTAKE' ? `View Stocktake Source Placeholder: ${movement.referenceNumber}.` : `Source ${movement.referenceType} ${movement.referenceNumber} selected for review.`)} className="px-2 py-1 border border-[#b1b5c2] text-[8px] font-black uppercase">{movement.referenceType === 'STOCKTAKE' ? 'View Stocktake Source' : 'View Source'}</button>
                         <button type="button" onClick={() => {
                           const product = localStock.find((item) => item.id === movement.productId);
                           if (product) void openProductLedger(product);
-                        }} className="px-2 py-1 border border-orange-300 bg-orange-50 text-orange-800 text-[8px] font-black uppercase">Ledger</button>
+                        }} className="px-2 py-1 border border-orange-300 bg-orange-50 text-orange-800 text-[8px] font-black uppercase">View Product Ledger</button>
                         <button type="button" onClick={handleInventoryMovementExport} className="px-2 py-1 border border-[#b1b5c2] text-[8px] font-black uppercase">Export</button>
                       </div>
                     </td>
@@ -1827,7 +1834,7 @@ export default function PosStock({
           setStockApprovals={setStockApprovals}
           canApprove={canApprove}
           onUpdateStock={onUpdateStock}
-          activeTab={activeTab as 'Goods Receiving' | 'Purchase Orders' | 'Supplier Returns' | 'Stock Adjustments' | 'Stocktake'}
+          activeTab={activeTab as 'Goods Receiving' | 'Purchase Orders' | 'Supplier Returns' | 'Stock Adjustments' | 'Stocktake' | 'Stock Transfers'}
           setActiveTab={(tab) => setActiveTab(tab)}
           stocktakePreselect={stocktakePreselect}
           stocktakePreselectToken={stocktakePreselectToken}

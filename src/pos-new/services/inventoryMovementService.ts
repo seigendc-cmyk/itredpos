@@ -172,10 +172,14 @@ export async function postStocktakeAdjustmentMovement(payload: InventoryMovement
   const movement = await postInventoryMovement(payload);
   if (movement.status === 'Pending Approval') {
     recordInventoryEvent('AUDIT_STOCKTAKE_REVIEW_REQUIRED', `Audit stocktake review required for ${movement.sku}.`, movement.movementId);
+  } else if (movement.movementType === 'STOCKTAKE_GAIN') {
+    recordInventoryEvent('STOCKTAKE_GAIN_POSTED', `Stocktake gain posted for ${movement.sku}.`, movement.movementId);
+  } else if (movement.movementType === 'STOCKTAKE_LOSS') {
+    recordInventoryEvent('STOCKTAKE_LOSS_POSTED', `Stocktake loss posted for ${movement.sku}.`, movement.movementId);
   } else {
     recordInventoryEvent('STOCKTAKE_ADJUSTMENT_POSTED', `Stocktake adjustment posted for ${movement.sku}.`, movement.movementId);
   }
-  recordInventoryEvent('STOCKTAKE_VARIANCE_FOUND', `Stocktake movement recorded for ${movement.sku}.`, movement.movementId);
+  recordInventoryEvent('STOCKTAKE_VARIANCE_POSTED', `Stocktake movement recorded for ${movement.sku}.`, movement.movementId);
   return movement;
 }
 
@@ -234,8 +238,8 @@ export async function getInventoryMovementSummary(
     totalGoodsReceivedQtyIn: movements.filter((movement) => movement.movementType === 'GOODS_RECEIVED').reduce((sum, movement) => sum + movement.qtyIn, 0),
     totalAdjustmentQtyIn: movements.filter((movement) => movement.movementType === 'STOCK_ADJUSTMENT_IN' || movement.movementType === 'STOCKTAKE_ADJUSTMENT_IN' || movement.movementType === 'STOCKTAKE_GAIN' || movement.movementType === 'MANUAL_CORRECTION').reduce((sum, movement) => sum + movement.qtyIn, 0),
     totalAdjustmentQtyOut: movements.filter((movement) => movement.movementType === 'STOCK_ADJUSTMENT_OUT' || movement.movementType === 'STOCKTAKE_ADJUSTMENT_OUT' || movement.movementType === 'STOCKTAKE_LOSS' || movement.movementType === 'DAMAGE_WRITEOFF' || movement.movementType === 'WRITE_OFF' || movement.movementType === 'MANUAL_CORRECTION').reduce((sum, movement) => sum + movement.qtyOut, 0),
-    totalTransferIn: movements.filter((movement) => movement.movementType === 'TRANSFER_IN' || movement.movementType === 'BRANCH_TRANSFER_IN').reduce((sum, movement) => sum + movement.qtyIn, 0),
-    totalTransferOut: movements.filter((movement) => movement.movementType === 'TRANSFER_OUT' || movement.movementType === 'BRANCH_TRANSFER_OUT').reduce((sum, movement) => sum + movement.qtyOut, 0),
+    totalTransferIn: movements.filter((movement) => movement.movementType === 'TRANSFER_IN' || movement.movementType === 'BRANCH_TRANSFER_IN' || movement.movementType === 'WAREHOUSE_TRANSFER_IN').reduce((sum, movement) => sum + movement.qtyIn, 0),
+    totalTransferOut: movements.filter((movement) => movement.movementType === 'TRANSFER_OUT' || movement.movementType === 'BRANCH_TRANSFER_OUT' || movement.movementType === 'WAREHOUSE_TRANSFER_OUT').reduce((sum, movement) => sum + movement.qtyOut, 0),
     totalSupplierReturnQtyOut: movements.filter((movement) => movement.movementType === 'SUPPLIER_RETURN').reduce((sum, movement) => sum + movement.qtyOut, 0),
     netMovement: movements.reduce((sum, movement) => sum + movement.qtyIn - movement.qtyOut, 0),
     highRiskMovements: movements.filter((movement) => movement.riskFlag === 'High' || movement.riskFlag === 'Critical').length

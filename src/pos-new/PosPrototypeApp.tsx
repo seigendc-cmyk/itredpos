@@ -814,7 +814,7 @@ export default function PosPrototypeApp() {
       )}
 
       {activePage === 'SALES_HISTORY' && (
-        <PosSalesHistory session={activeSession} />
+        <PosSalesHistory session={activeSession} onNavigate={(page) => setActivePage(page as PosPageId)} />
       )}
 
       {activePage === 'CUSTOMER_CENTRE' && (
