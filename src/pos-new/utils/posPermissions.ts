@@ -163,6 +163,15 @@ export type PermissionKey =
   | 'bi.riskReview'
   | 'bi.rules.manage'
   | 'bi.export'
+  | 'bi.advice.view'
+  | 'bi.advice.assign'
+  | 'bi.advice.resolve'
+  | 'bi.advice.dismiss'
+  | 'bi.advice.escalate'
+  | 'bi.advice.createTask'
+  | 'bi.shelfStocktake.assign'
+  | 'bi.reorderBlock.review'
+  | 'bi.reorderBlock.override'
   | 'sync.view'
   | 'sync.run'
   | 'sync.queue.view'
@@ -353,6 +362,15 @@ const ALL_PERMISSIONS: PermissionKey[] = [
   'bi.riskReview',
   'bi.rules.manage',
   'bi.export',
+  'bi.advice.view',
+  'bi.advice.assign',
+  'bi.advice.resolve',
+  'bi.advice.dismiss',
+  'bi.advice.escalate',
+  'bi.advice.createTask',
+  'bi.shelfStocktake.assign',
+  'bi.reorderBlock.review',
+  'bi.reorderBlock.override',
   'sync.view',
   'sync.run',
   'sync.queue.view',
@@ -418,6 +436,8 @@ const ROLE_PERMISSIONS: Record<Role, PermissionKey[]> = {
     'inventoryAccounting.view', 'inventoryAccounting.review', 'inventoryAccounting.approve', 'inventoryAccounting.hold', 'inventoryAccounting.reject', 'inventoryAccounting.export',
     'settings.view',
     'bi.view', 'bi.review', 'bi.riskReview', 'bi.export',
+    'bi.advice.view', 'bi.advice.assign', 'bi.advice.resolve', 'bi.advice.dismiss', 'bi.advice.escalate', 'bi.advice.createTask',
+    'bi.shelfStocktake.assign', 'bi.reorderBlock.review', 'bi.reorderBlock.override',
     'sync.view', 'sync.run', 'sync.queue.view', 'sync.retry', 'sync.batch.create', 'sync.batch.run', 'sync.conflict.view', 'sync.conflict.resolve', 'sync.conflict.hold', 'sync.export', 'sync.clearSynced',
     'productImport.view', 'productImport.create', 'productImport.map', 'productImport.validate', 'productImport.approve', 'productImport.import', 'productImport.export'
   ],
@@ -448,7 +468,7 @@ const ROLE_PERMISSIONS: Record<Role, PermissionKey[]> = {
     'reports.view',
     'accounting.view', 'accounting.review',
     'inventoryAccounting.view', 'inventoryAccounting.review',
-    'bi.view', 'bi.review', 'bi.riskReview',
+    'bi.view', 'bi.review', 'bi.riskReview', 'bi.advice.view', 'bi.advice.resolve', 'bi.advice.createTask', 'bi.shelfStocktake.assign', 'bi.reorderBlock.review',
     'sync.view', 'sync.run', 'sync.queue.view', 'sync.retry', 'sync.batch.create', 'sync.conflict.view', 'sync.conflict.hold',
     'productImport.view', 'productImport.create', 'productImport.map', 'productImport.validate', 'productImport.export'
   ],
@@ -481,7 +501,7 @@ const ROLE_PERMISSIONS: Record<Role, PermissionKey[]> = {
     'reports.view',
     'accounting.view',
     'inventoryAccounting.view',
-    'bi.view',
+    'bi.view', 'bi.advice.view', 'bi.shelfStocktake.assign', 'bi.reorderBlock.review',
     'sync.view', 'sync.run', 'sync.queue.view', 'sync.retry', 'sync.batch.create', 'sync.conflict.view', 'sync.export',
     'productImport.view', 'productImport.create', 'productImport.map', 'productImport.validate'
   ],

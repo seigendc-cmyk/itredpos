@@ -163,6 +163,164 @@ export type StockStatus = 'In Stock' | 'Low Stock' | 'Out of Stock' | 'Dead Stoc
 
 export type RiskLevel = 'Low' | 'Medium' | 'High' | 'Critical';
 
+export type BIAdviceStatus =
+  | 'New'
+  | 'Assigned'
+  | 'In Progress'
+  | 'Waiting Review'
+  | 'Resolved'
+  | 'Dismissed'
+  | 'Escalated'
+  | 'Blocked';
+
+export type BIAdviceCategory =
+  | 'Stock Health'
+  | 'Reorder Control'
+  | 'Shelf Stocktake'
+  | 'Staff Behaviour'
+  | 'Cash Control'
+  | 'Sales Integrity'
+  | 'Delivery Verification'
+  | 'Pricing Control'
+  | 'Approval Control'
+  | 'Inventory Risk';
+
+export type BIAdvicePriority = 'Low' | 'Medium' | 'High' | 'Critical';
+
+export type BIAdviceActionType =
+  | 'Review Stock'
+  | 'Block Reorder'
+  | 'Create Purchase Reminder'
+  | 'Assign Shelf Stocktake'
+  | 'Start Stocktake'
+  | 'Create Task'
+  | 'Request Approval'
+  | 'Review Staff Action'
+  | 'Review Cash Variance'
+  | 'Review Delivery'
+  | 'Dismiss Warning'
+  | 'Escalate To Owner';
+
+export type BIAdviceRecipientType = 'Staff' | 'Role' | 'Desk' | 'Branch' | 'Owner';
+
+export interface BIAdviceActionPoint {
+  actionPointId: string;
+  adviceId: string;
+  actionType: BIAdviceActionType;
+  label: string;
+  description: string;
+  assignedToStaffId?: string;
+  assignedToRole?: string;
+  dueDate?: string;
+  status: BIAdviceStatus;
+  completedAt?: string;
+  completedByStaffId?: string;
+  resultNote?: string;
+}
+
+export interface BIAdviceRecord {
+  adviceId: string;
+  adviceNumber: string;
+  category: BIAdviceCategory;
+  title: string;
+  narrative: string;
+  riskLevel: RiskLevel;
+  priority: BIAdvicePriority;
+  sourceTriggerId: string;
+  sourceLogId?: string;
+  sourceModule: string;
+  productId?: string;
+  productName?: string;
+  sku?: string;
+  branchId?: string;
+  branchName?: string;
+  shelfLocation?: string;
+  assignedToStaffId?: string;
+  assignedToStaffName?: string;
+  assignedToRole?: string;
+  assignedDesk?: string;
+  dueDate?: string;
+  status: BIAdviceStatus;
+  recommendedAction: BIAdviceActionType;
+  actionPoints: BIAdviceActionPoint[];
+  createdAt: string;
+  updatedAt: string;
+  resolvedAt?: string;
+  notes?: string;
+}
+
+export interface BIAdviceRuleResult {
+  ruleName: string;
+  triggered: boolean;
+  riskLevel: RiskLevel;
+  advice?: BIAdviceRecord;
+  warning?: BIReorderBlockWarning;
+  notes: string;
+}
+
+export interface BIShelfStocktakeAssignment {
+  assignmentId: string;
+  branchId: string;
+  branchName: string;
+  warehouseId: string;
+  shelfLocation: string;
+  assignedDate: string;
+  assignedStaffId: string;
+  assignedStaffName: string;
+  itemCount: number;
+  status: 'Assigned' | 'In Progress' | 'Completed' | 'Pending' | 'Reassigned';
+  reason: string;
+  createdFromBIAdviceId: string;
+}
+
+export interface BIReorderBlockWarning {
+  warningId: string;
+  productId: string;
+  sku: string;
+  productName: string;
+  currentQty: number;
+  availableQty: number;
+  lastMovementDate?: string;
+  daysWithoutMovement: number;
+  reorderRequestId?: string;
+  blocked: boolean;
+  reason: string;
+  createdAt: string;
+}
+
+export interface BIAdviceFilterState {
+  search?: string;
+  category?: 'ALL' | BIAdviceCategory;
+  riskLevel?: 'ALL' | RiskLevel;
+  status?: 'ALL' | BIAdviceStatus;
+  assignedRole?: string;
+  assignedStaff?: string;
+  branch?: string;
+  dateFrom?: string;
+  dateTo?: string;
+}
+
+export interface BIAdviceActivityEvent {
+  eventId: string;
+  eventType:
+    | 'BI_ADVICE_GENERATED'
+    | 'BI_ADVICE_ASSIGNED'
+    | 'BI_ADVICE_ROUTED_TO_DESK'
+    | 'BI_ACTION_POINT_CREATED'
+    | 'BI_ACTION_POINT_COMPLETED'
+    | 'BI_REORDER_BLOCK_WARNING_CREATED'
+    | 'BI_SHELF_STOCKTAKE_PLAN_CREATED'
+    | 'BI_SHELF_STOCKTAKE_ASSIGNED'
+    | 'BI_ADVICE_RESOLVED'
+    | 'BI_ADVICE_DISMISSED'
+    | 'BI_ADVICE_ESCALATED'
+    | 'BI_TASK_CREATED_FROM_ADVICE';
+  adviceId?: string;
+  message: string;
+  staffId?: string;
+  createdAt: string;
+}
+
 export type PaymentMethod = 'Cash' | 'EcoCash' | 'Swipe' | 'Bank Transfer' | 'Split Payment' | 'CASH' | 'CARD' | 'NFC' | 'SPLIT';
 
 export interface Product {

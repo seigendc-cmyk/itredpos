@@ -86,7 +86,16 @@ const managerDirectPermissions = [
   'businessAdministrator.view',
   'hardware.view',
   'bi.view',
-  'bi.riskReview'
+  'bi.riskReview',
+  'bi.advice.view',
+  'bi.advice.assign',
+  'bi.advice.resolve',
+  'bi.advice.dismiss',
+  'bi.advice.escalate',
+  'bi.advice.createTask',
+  'bi.shelfStocktake.assign',
+  'bi.reorderBlock.review',
+  'bi.reorderBlock.override'
 ];
 
 const directRolePermissions: Record<SecurityRoleKey, string[]> = {
@@ -111,7 +120,12 @@ const directRolePermissions: Record<SecurityRoleKey, string[]> = {
     'approvals.view',
     'approvals.approveLowRisk',
     'reports.view',
-    'sync.view'
+    'sync.view',
+    'bi.view',
+    'bi.riskReview',
+    'bi.advice.view',
+    'bi.advice.resolve',
+    'bi.advice.createTask'
   ],
   Accountant: [
     'dashboard.view',
@@ -140,7 +154,8 @@ const directRolePermissions: Record<SecurityRoleKey, string[]> = {
     'businessRegistration.view',
     'businessRegistration.dashboardView',
     'businessTax.view',
-    'businessAdministrator.view'
+    'businessAdministrator.view',
+    'bi.advice.view'
   ],
   StockController: [
     'dashboard.view',
@@ -169,6 +184,10 @@ const directRolePermissions: Record<SecurityRoleKey, string[]> = {
     'openingBalance.view',
     'openingBalance.create',
     'reports.inventory',
+    'bi.view',
+    'bi.advice.view',
+    'bi.shelfStocktake.assign',
+    'bi.reorderBlock.review',
     'sync.view',
     'sync.retry',
     'sync.batch.create'
@@ -195,6 +214,7 @@ const directRolePermissions: Record<SecurityRoleKey, string[]> = {
     'delivery.track',
     'delivery.verifyCode',
     'delivery.complete',
+    'bi.advice.view',
     'sync.view'
   ],
   Viewer: [

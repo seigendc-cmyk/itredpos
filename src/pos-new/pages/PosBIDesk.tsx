@@ -13,7 +13,25 @@ import {
   ShieldAlert,
   Sliders
 } from 'lucide-react';
+import BIAdviceDetailModal from '../components/BIAdviceDetailModal';
+import BIAdviceFlowPanel from '../components/BIAdviceFlowPanel';
+import BIShelfStocktakeAssignmentModal from '../components/BIShelfStocktakeAssignmentModal';
+import {
+  assignBIAdvice,
+  createBIAdviceActionPoint,
+  generateBIAdviceFromTriggerLogs,
+  getBIAdviceActivityEvents,
+  getBIAdviceRecords,
+  getBIShelfStocktakeAssignments,
+  resolveBIAdvice,
+  dismissBIAdvice,
+  escalateBIAdvice,
+  updateBIAdviceStatus,
+  updateBIShelfStocktakeAssignmentStatus
+} from '../services/biAdviceService';
+import { routeBIAdviceToDesk } from '../services/biAdviceRoutingService';
 import { BiEvent, PosSession, Product, Role, Transaction } from '../types';
+import type { BIAdviceActivityEvent, BIAdviceFilterState, BIAdviceRecord, BIShelfStocktakeAssignment } from '../types';
 import { mockBIEvents } from '../mock/mockPosData';
 import { canPerformAction } from '../utils/posPermissions';
 import { matchesFreeOrderSearch } from '../utils/searchUtils';
@@ -67,10 +85,10 @@ interface BiRuleDefinition {
   recommendedAction: string;
 }
 
-type BiDeskTab = 'BI Overview' | 'Ruleset Library' | 'Trigger Logs' | 'Risk Output' | 'BI Activity' | 'Settings / Thresholds';
+type BiDeskTab = 'BI Overview' | 'Ruleset Library' | 'Trigger Logs' | 'BI Advice Flow' | 'Risk Output' | 'BI Activity' | 'Settings / Thresholds';
 type BiRuleDomain = 'Anti-Theft' | 'Stock Health' | 'Cash Control' | 'Staff Behaviour' | 'Sales Integrity' | 'Delivery Verification';
 
-const biTabs: BiDeskTab[] = ['BI Overview', 'Ruleset Library', 'Trigger Logs', 'Risk Output', 'BI Activity', 'Settings / Thresholds'];
+const biTabs: BiDeskTab[] = ['BI Overview', 'Ruleset Library', 'Trigger Logs', 'BI Advice Flow', 'Risk Output', 'BI Activity', 'Settings / Thresholds'];
 const ruleDomains: BiRuleDomain[] = ['Anti-Theft', 'Stock Health', 'Cash Control', 'Staff Behaviour', 'Sales Integrity', 'Delivery Verification'];
 
 const ruleDescriptions: Record<BiRuleDomain, string> = {
@@ -301,6 +319,15 @@ function riskBadgeClass(severity: BiAlertRow['severity']): string {
   return 'bi-risk-badge bi-risk-badge--low';
 }
 
+function triggerActionText(row: BiAlertRow): string {
+  if (row.actionLabel === 'Start Stocktake') return 'Start Stocktake';
+  if (row.actionLabel === 'Create Task') return row.eventType.includes('LOW_STOCK') ? 'Create Reminder' : 'Create Task';
+  if (row.actionLabel === 'Approve') return 'Open Advice';
+  if (row.domain === 'Stock Health') return 'Review Stock';
+  if (row.domain === 'Staff Behaviour') return 'Assign Staff';
+  return 'Open Advice';
+}
+
 function permissionMessage(): JSX.Element {
   return <div className="sci-pos-alert sci-pos-alert--danger">You do not have permission to view this BI section.</div>;
 }
@@ -324,6 +351,12 @@ export default function PosBIDesk({
   const [triggerSearch, setTriggerSearch] = useState('');
   const [severityFilter, setSeverityFilter] = useState('ALL');
   const [domainFilter, setDomainFilter] = useState('ALL');
+  const [adviceFilters, setAdviceFilters] = useState<BIAdviceFilterState>({});
+  const [adviceRecords, setAdviceRecords] = useState<BIAdviceRecord[]>([]);
+  const [adviceActivity, setAdviceActivity] = useState<BIAdviceActivityEvent[]>([]);
+  const [shelfAssignments, setShelfAssignments] = useState<BIShelfStocktakeAssignment[]>([]);
+  const [selectedAdvice, setSelectedAdvice] = useState<BIAdviceRecord | null>(null);
+  const [selectedShelfAssignment, setSelectedShelfAssignment] = useState<BIShelfStocktakeAssignment | null>(null);
   const [activityFeed, setActivityFeed] = useState<ActivityLogItem[]>([
     { id: 'BIA-1', timestamp: '16:05:22', message: 'Rule evaluated: SALE_BLOCKED_ZERO_STOCK (Gate: Blocked transaction output)', type: 'INFO' },
     { id: 'BIA-2', timestamp: '15:45:11', message: 'Supervisor review opened for cash variance: USD -5.00 on register 01', type: 'WARNING' },
@@ -337,6 +370,12 @@ export default function PosBIDesk({
   const canReviewRisk = canPerformAction(roleName, 'bi.riskReview') || canPerformAction(roleName, 'bi.review');
   const canManageRules = canPerformAction(roleName, 'bi.rules.manage');
   const canExportBi = canPerformAction(roleName, 'bi.export') || canPerformAction(roleName, 'reports.export');
+  const canViewAdvice = canPerformAction(roleName, 'bi.advice.view');
+  const canAssignAdvice = canPerformAction(roleName, 'bi.advice.assign');
+  const canResolveAdvice = canPerformAction(roleName, 'bi.advice.resolve');
+  const canDismissAdvice = canPerformAction(roleName, 'bi.advice.dismiss');
+  const canEscalateAdvice = canPerformAction(roleName, 'bi.advice.escalate');
+  const canCreateAdviceTask = canPerformAction(roleName, 'bi.advice.createTask');
   const productTriggerRows = useMemo(
     () => products.map((product) => mapProductToTriggerRow(product, branchName, terminalName)).filter((row): row is BiAlertRow => Boolean(row)),
     [branchName, products, terminalName]
@@ -360,6 +399,22 @@ export default function PosBIDesk({
       return newRows.length > 0 ? [...newRows, ...current] : current;
     });
   }, [biEvents]);
+
+  const loadAdvice = async (filters: BIAdviceFilterState = adviceFilters) => {
+    const [records, activity, assignments] = await Promise.all([
+      getBIAdviceRecords(filters),
+      getBIAdviceActivityEvents(),
+      getBIShelfStocktakeAssignments()
+    ]);
+    setAdviceRecords(records);
+    setAdviceActivity(activity);
+    setShelfAssignments(assignments);
+  };
+
+  useEffect(() => {
+    void loadAdvice(adviceFilters);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [adviceFilters]);
 
   const openTab = (tab: BiDeskTab) => {
     setActiveDeskTab(tab);
@@ -396,6 +451,118 @@ export default function PosBIDesk({
       onLogBiEvent('BI_RISK_ACTION_RECORDED' as BiEvent['eventType'], staffName, terminalName, { rowId, actionType, nextStatus }, 'INFO');
       return { ...row, status: nextStatus, actionLabel: 'Done' };
     }));
+  };
+
+  const handleGenerateAdvice = async () => {
+    if (!canViewAdvice) {
+      addActivity('BI advice generation blocked by permission.', 'WARNING');
+      return;
+    }
+    const generated = await generateBIAdviceFromTriggerLogs(triggerRows, products);
+    await Promise.all(generated.map(routeBIAdviceToDesk));
+    addActivity(`BI_ADVICE_GENERATED: ${generated.length} advice record(s) prepared from trigger logs.`, 'SUCCESS');
+    await loadAdvice(adviceFilters);
+  };
+
+  const handleOpenAdvice = async (advice: BIAdviceRecord) => {
+    setSelectedAdvice(advice);
+    const assignment = shelfAssignments.find((item) => item.createdFromBIAdviceId === advice.adviceId) || null;
+    setSelectedShelfAssignment(assignment);
+    setAdviceActivity(await getBIAdviceActivityEvents({ adviceId: advice.adviceId }));
+  };
+
+  const handleCreateTaskFromAdvice = async (advice: BIAdviceRecord) => {
+    if (!canCreateAdviceTask) {
+      addActivity('Create Task from BI advice blocked by permission.', 'WARNING');
+      return;
+    }
+    await createBIAdviceActionPoint({
+      adviceId: advice.adviceId,
+      actionType: 'Create Task',
+      label: 'Create Task',
+      description: `Local task placeholder created from ${advice.adviceNumber}.`,
+      assignedToRole: advice.assignedToRole,
+      dueDate: advice.dueDate
+    });
+    addActivity(`BI_TASK_CREATED_FROM_ADVICE: ${advice.adviceNumber} task placeholder created.`, 'ACTION');
+    await loadAdvice(adviceFilters);
+  };
+
+  const handleAssignAdvice = async (advice: BIAdviceRecord) => {
+    if (!canAssignAdvice) {
+      addActivity('BI advice assignment blocked by permission.', 'WARNING');
+      return;
+    }
+    const assigned = await assignBIAdvice(advice.adviceId, {
+      assignedToStaffName: advice.assignedToStaffName || staffName,
+      assignedToStaffId: advice.assignedToStaffId || staffName.toUpperCase().replace(/[^A-Z0-9]+/g, '-'),
+      assignedToRole: advice.assignedToRole || 'Manager',
+      assignedDesk: advice.assignedDesk || 'BI Desk',
+      dueDate: advice.dueDate || new Date(Date.now() + 86400000).toISOString().slice(0, 10),
+      note: 'Assigned locally from BI Advice Flow.'
+    });
+    if (assigned) await routeBIAdviceToDesk(assigned);
+    addActivity(`BI_ADVICE_ASSIGNED: ${advice.adviceNumber} assigned.`, 'ACTION');
+    await loadAdvice(adviceFilters);
+  };
+
+  const handleStartStocktakeAdvice = async (advice: BIAdviceRecord) => {
+    const assignment = shelfAssignments.find((item) => item.createdFromBIAdviceId === advice.adviceId) || null;
+    if (assignment) {
+      setSelectedShelfAssignment(assignment);
+      setSelectedAdvice(advice);
+      return;
+    }
+    await createBIAdviceActionPoint({
+      adviceId: advice.adviceId,
+      actionType: 'Start Stocktake',
+      label: 'Start Stocktake',
+      description: 'Stocktake session prepared for this shelf.',
+      assignedToRole: advice.assignedToRole || 'Stock Controller',
+      dueDate: advice.dueDate
+    });
+    addActivity(`BI_ACTION_POINT_CREATED: Stocktake session prepared for ${advice.adviceNumber}.`, 'ACTION');
+    await loadAdvice(adviceFilters);
+  };
+
+  const handleResolveAdvice = async (advice: BIAdviceRecord) => {
+    if (!canResolveAdvice) {
+      addActivity('BI advice resolve blocked by permission.', 'WARNING');
+      return;
+    }
+    await resolveBIAdvice(advice.adviceId, staffName, 'Resolved locally from BI Advice Flow.');
+    addActivity(`BI_ADVICE_RESOLVED: ${advice.adviceNumber}.`, 'SUCCESS');
+    await loadAdvice(adviceFilters);
+  };
+
+  const handleDismissAdvice = async (advice: BIAdviceRecord) => {
+    if (!canDismissAdvice) {
+      addActivity('BI advice dismiss blocked by permission.', 'WARNING');
+      return;
+    }
+    await dismissBIAdvice(advice.adviceId, staffName, 'Dismissed locally after review.');
+    addActivity(`BI_ADVICE_DISMISSED: ${advice.adviceNumber}.`, 'INFO');
+    await loadAdvice(adviceFilters);
+  };
+
+  const handleEscalateAdvice = async (advice: BIAdviceRecord) => {
+    if (!canEscalateAdvice) {
+      addActivity('BI advice escalation blocked by permission.', 'WARNING');
+      return;
+    }
+    const escalated = await escalateBIAdvice(advice.adviceId, staffName, 'Escalated to Owner for deterministic rule review.');
+    if (escalated) await routeBIAdviceToDesk({ ...escalated, assignedDesk: 'Owner Desk', assignedToRole: 'Owner' });
+    addActivity(`BI_ADVICE_ESCALATED: ${advice.adviceNumber}.`, 'WARNING');
+    await loadAdvice(adviceFilters);
+  };
+
+  const handleShelfStatus = async (status: BIShelfStocktakeAssignment['status']) => {
+    if (!selectedShelfAssignment) return;
+    await updateBIShelfStocktakeAssignmentStatus(selectedShelfAssignment.assignmentId, status);
+    if (selectedAdvice) await updateBIAdviceStatus(selectedAdvice.adviceId, status === 'Completed' ? 'Resolved' : 'In Progress', staffName, `Shelf stocktake ${status}.`);
+    addActivity(`BI_SHELF_STOCKTAKE_ASSIGNED: ${selectedShelfAssignment.shelfLocation} marked ${status}.`, 'ACTION');
+    setSelectedShelfAssignment(null);
+    await loadAdvice(adviceFilters);
   };
 
   const domainRules = rulesMap[selectedDomain];
@@ -634,8 +801,8 @@ export default function PosBIDesk({
                         {isDone ? (
                           <span className="bi-done-label"><Check size={13} aria-hidden="true" /> Done</span>
                         ) : (
-                          <button type="button" className="sci-pos-button sci-pos-button--secondary" onClick={() => handleAlertAction(row.id, row.actionLabel)}>
-                            {row.actionLabel}
+                          <button type="button" className="bi-log-action-button" onClick={() => handleAlertAction(row.id, row.actionLabel)} title={triggerActionText(row)} aria-label={triggerActionText(row)}>
+                            {triggerActionText(row)}
                           </button>
                         )}
                       </td>
@@ -650,6 +817,32 @@ export default function PosBIDesk({
               </tbody>
             </table>
           </div>
+        </section>
+      )}
+
+      {activeDeskTab === 'BI Advice Flow' && (
+        <section className="sci-pos-card">
+          <div className="bi-section-header">
+            <BookOpen className="bi-section-header-icon" size={18} aria-hidden="true" />
+            <div>
+              <h2 className="bi-section-header-title">BI Advice Flow</h2>
+              <span>Rule-based warnings, recommendations, assigned action points, and staff desk routing.</span>
+            </div>
+          </div>
+          <BIAdviceFlowPanel
+            records={adviceRecords}
+            filters={adviceFilters}
+            onFiltersChange={setAdviceFilters}
+            onGenerate={handleGenerateAdvice}
+            onViewAdvice={handleOpenAdvice}
+            onCreateTask={handleCreateTaskFromAdvice}
+            onAssignStaff={handleAssignAdvice}
+            onStartStocktake={handleStartStocktakeAdvice}
+            onResolve={handleResolveAdvice}
+            onDismiss={handleDismissAdvice}
+            onEscalate={handleEscalateAdvice}
+            canView={canViewAdvice}
+          />
         </section>
       )}
 
@@ -718,6 +911,27 @@ export default function PosBIDesk({
           </div>
         </section>
       )}
+
+      <BIAdviceDetailModal
+        advice={selectedAdvice}
+        activity={adviceActivity}
+        shelfAssignment={selectedShelfAssignment}
+        onAssign={() => selectedAdvice && void handleAssignAdvice(selectedAdvice)}
+        onCreateTask={() => selectedAdvice && void handleCreateTaskFromAdvice(selectedAdvice)}
+        onStartStocktake={() => selectedAdvice && void handleStartStocktakeAdvice(selectedAdvice)}
+        onResolve={() => selectedAdvice && void handleResolveAdvice(selectedAdvice)}
+        onDismiss={() => selectedAdvice && void handleDismissAdvice(selectedAdvice)}
+        onEscalate={() => selectedAdvice && void handleEscalateAdvice(selectedAdvice)}
+        onClose={() => setSelectedAdvice(null)}
+      />
+      <BIShelfStocktakeAssignmentModal
+        assignment={selectedShelfAssignment}
+        advice={selectedAdvice}
+        onStart={() => void handleShelfStatus('In Progress')}
+        onMarkInProgress={() => void handleShelfStatus('In Progress')}
+        onMarkCompleted={() => void handleShelfStatus('Completed')}
+        onClose={() => setSelectedShelfAssignment(null)}
+      />
     </div>
   );
 }

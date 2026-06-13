@@ -23,6 +23,8 @@ const highRisk = new Set([
   'goodsReceiving.post',
   'delivery.cashReview',
   'accounting.approve',
+  'bi.advice.escalate',
+  'bi.reorderBlock.override',
   'sync.conflict.resolve'
 ]);
 
@@ -251,6 +253,15 @@ export const securityRightsCatalog: SecurityPermissionRight[] = [
   right('BI', 'bi.riskReview', manager, 'Review BI risk signals.'),
   right('BI', 'bi.export', accountant, 'Export BI outputs.'),
   right('BI', 'bi.rules.manage', owner, 'Manage BI rules placeholders.'),
+  right('BI', 'bi.advice.view', manager, 'View deterministic BI advice records.'),
+  right('BI', 'bi.advice.assign', manager, 'Assign BI advice to staff, roles, or desks.'),
+  right('BI', 'bi.advice.resolve', supervisor, 'Resolve BI advice after review.'),
+  right('BI', 'bi.advice.dismiss', manager, 'Dismiss BI advice after review.'),
+  right('BI', 'bi.advice.escalate', manager, 'Escalate BI advice to Owner review.'),
+  right('BI', 'bi.advice.createTask', supervisor, 'Create local task placeholders from BI advice.'),
+  right('BI', 'bi.shelfStocktake.assign', stock, 'Assign shelf stocktake action points from BI advice.'),
+  right('BI', 'bi.reorderBlock.review', stock, 'Review stagnant-stock reorder block warnings.'),
+  right('BI', 'bi.reorderBlock.override', manager, 'Override reorder block warnings after manager review.'),
 
   right('Audit', 'audit.view', owner, 'View audit events.'),
   right('Audit', 'audit.export', owner, 'Export audit events.'),
