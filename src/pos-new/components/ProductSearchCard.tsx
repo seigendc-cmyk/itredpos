@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { LayoutGrid, List, RotateCcw, Search, ShoppingCart, SlidersHorizontal, X } from 'lucide-react';
 import { Product } from '../types';
 import { matchesFreeOrderSearch } from '../utils/searchUtils';
@@ -19,6 +19,7 @@ interface ProductSearchCardProps {
   onOpenShift?: () => void;
   onAssignDrawer?: () => void;
   onAddMiscellaneousSale?: () => void;
+  collapseFieldsSignal?: number;
 }
 
 type StockFilter = 'ALL' | 'IN_STOCK' | 'LOW_STOCK' | 'OUT_OF_STOCK';
@@ -49,7 +50,7 @@ interface ProductFieldConfig {
 
 const VIEW_MODE_KEY = 'itredpos.sales.productViewMode';
 const VISIBLE_FIELDS_KEY = 'itredpos.sales.productVisibleFields';
-const defaultVisibleFields: ProductFieldKey[] = ['sku', 'productName', 'brand', 'shelf', 'qty', 'price', 'stockStatus'];
+const defaultVisibleFields: ProductFieldKey[] = ['sku', 'productName', 'brand', 'qty', 'price', 'stockStatus'];
 
 const quickCategories: QuickCategory[] = [
   'ALL',
@@ -170,7 +171,8 @@ export default function ProductSearchCard({
   onActivateTerminal,
   onOpenShift,
   onAssignDrawer,
-  onAddMiscellaneousSale
+  onAddMiscellaneousSale,
+  collapseFieldsSignal = 0
 }: ProductSearchCardProps) {
   const [query, setQuery] = useState('');
   const [category, setCategory] = useState('ALL');
@@ -185,11 +187,14 @@ export default function ProductSearchCard({
   const [viewMode, setViewModeState] = useState<ViewMode>(readStoredViewMode);
   const [visibleFields, setVisibleFieldsState] = useState<ProductFieldKey[]>(readStoredFields);
   const [filterCabinetOpen, setFilterCabinetOpen] = useState(false);
+  const [isFieldsCardExpanded, setIsFieldsCardExpanded] = useState(false);
+  const fieldsCardRef = useRef<HTMLDivElement | null>(null);
 
   const selectedFields = useMemo(
     () => fieldConfigs.filter((field) => visibleFields.includes(field.key)),
     [visibleFields]
   );
+  const selectedFieldsSummary = selectedFields.map((field) => field.label).join(', ');
 
   const categories = useMemo(
     () => distinct(products.map((product) => product.productCategory || product.category)),
@@ -289,7 +294,46 @@ export default function ProductSearchCard({
     });
   }, [branch, branchName, brand, category, products, query, sector, stockFilter, subcategory, supplier, warehouse, warehouseName]);
 
+  const collapseFieldsCard = (eventType = 'SALES_FIELDS_CARD_COLLAPSED') => {
+    setIsFieldsCardExpanded((current) => {
+      if (current) onActivity?.(eventType, 'Sales product Fields card collapsed.');
+      return false;
+    });
+  };
+
+  const toggleFieldsCard = () => {
+    setIsFieldsCardExpanded((current) => {
+      const next = !current;
+      onActivity?.(next ? 'SALES_FIELDS_CARD_OPENED' : 'SALES_FIELDS_CARD_COLLAPSED', next ? 'Sales product Fields card opened.' : 'Sales product Fields card collapsed.');
+      return next;
+    });
+  };
+
+  useEffect(() => {
+    collapseFieldsCard('SALES_FIELDS_CARD_COLLAPSED');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [collapseFieldsSignal]);
+
+  useEffect(() => {
+    if (!isFieldsCardExpanded) return undefined;
+    const handlePointerDown = (event: MouseEvent) => {
+      if (fieldsCardRef.current?.contains(event.target as Node)) return;
+      collapseFieldsCard();
+    };
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') collapseFieldsCard();
+    };
+    document.addEventListener('mousedown', handlePointerDown);
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('mousedown', handlePointerDown);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isFieldsCardExpanded]);
+
   const setViewMode = (nextMode: ViewMode) => {
+    collapseFieldsCard();
     setViewModeState(nextMode);
     savePreference(VIEW_MODE_KEY, nextMode);
   };
@@ -310,6 +354,7 @@ export default function ProductSearchCard({
   };
 
   const clearSearch = () => {
+    collapseFieldsCard();
     setQuery('');
     setCategory('ALL');
     setSubcategory('ALL');
@@ -323,6 +368,7 @@ export default function ProductSearchCard({
   };
 
   const handleAdd = (product: Product) => {
+    collapseFieldsCard();
     if (!canSellInventoryItems) {
       setMessage('Inventory browsing is read-only while terminal is inactive.');
       onBlockedProduct?.(product);
@@ -339,11 +385,13 @@ export default function ProductSearchCard({
   };
 
   const handleQuickCategory = (nextCategory: QuickCategory) => {
+    collapseFieldsCard();
     setSector(nextCategory === 'ALL' ? 'ALL' : nextCategory);
     setMessage('');
   };
 
   const applyFilterCabinet = () => {
+    collapseFieldsCard();
     setFilterCabinetOpen(false);
     setMessage('Product filters applied.');
     onActivity?.('SALES_PRODUCT_FILTERS_APPLIED', `${filteredProducts.length} product result(s) after filters.`);
@@ -402,7 +450,7 @@ export default function ProductSearchCard({
       </div>
 
       <div className="sales-product-tools">
-        <button type="button" className="sci-pos-button sci-pos-button--secondary" onClick={() => setFilterCabinetOpen(true)} disabled={!canSellInventoryItems}>
+        <button type="button" className="sci-pos-button sci-pos-button--secondary" onClick={() => { collapseFieldsCard(); setFilterCabinetOpen(true); }} disabled={!canSellInventoryItems}>
           <SlidersHorizontal size={16} aria-hidden="true" />
           Filter Cabinet
         </button>
@@ -412,44 +460,66 @@ export default function ProductSearchCard({
         </button>
       </div>
 
-      <div className="pos-field-chooser sales-fields-card">
-        <div className="pos-field-chooser__title">Fields</div>
-        {[
-          { title: 'Core', keys: ['sku', 'productName', 'brand', 'qty', 'price', 'stockStatus'] as ProductFieldKey[] },
-          { title: 'Optional', keys: ['manufacturer', 'supplier', 'shelf', 'sector', 'category', 'alu', 'productNo', 'barcode'] as ProductFieldKey[] }
-        ].map((group) => (
-          <div key={group.title} className="sales-field-group">
-            <span>{group.title}</span>
-            <div className="pos-field-chooser__options">
-              {group.keys.map((key) => {
-                const field = fieldConfigs.find((item) => item.key === key);
-                if (!field) return null;
-                return (
-                  <label key={field.key} className={visibleFields.includes(field.key) ? 'is-selected' : undefined}>
-                    <input
-                      type="checkbox"
-                      checked={visibleFields.includes(field.key)}
-                      onChange={() => toggleField(field.key)}
-                    />
-                    <span>{field.label}</span>
-                  </label>
-                );
-              })}
-            </div>
+      <div ref={fieldsCardRef} className={`pos-field-chooser sales-fields-card ${isFieldsCardExpanded ? 'sales-fields-card--expanded' : 'sales-fields-card--collapsed'}`}>
+        <div className="sales-fields-card-header">
+          <div>
+            <div className="pos-field-chooser__title">Fields</div>
+            <p className="sales-fields-summary">Fields: {visibleFields.length} selected - {selectedFieldsSummary}</p>
           </div>
-        ))}
+          <button type="button" className="sales-fields-toggle" onClick={toggleFieldsCard} aria-expanded={isFieldsCardExpanded}>
+            {isFieldsCardExpanded ? 'Collapse' : 'Manage Fields'}
+          </button>
+        </div>
+        {isFieldsCardExpanded && (
+          <>
+            <div className="sales-fields-grid">
+              {[
+                { title: 'Core', keys: ['sku', 'productName', 'brand', 'qty', 'price', 'stockStatus'] as ProductFieldKey[] },
+                { title: 'Optional', keys: ['manufacturer', 'supplier', 'shelf', 'sector', 'category', 'alu', 'productNo', 'barcode'] as ProductFieldKey[] }
+              ].map((group) => (
+                <div key={group.title} className="sales-field-group">
+                  <span>{group.title}</span>
+                  <div className="pos-field-chooser__options">
+                    {group.keys.map((key) => {
+                      const field = fieldConfigs.find((item) => item.key === key);
+                      if (!field) return null;
+                      return (
+                        <label key={field.key} className={visibleFields.includes(field.key) ? 'is-selected' : undefined}>
+                          <input
+                            type="checkbox"
+                            checked={visibleFields.includes(field.key)}
+                            onChange={() => toggleField(field.key)}
+                          />
+                          <span>{field.label}</span>
+                        </label>
+                      );
+                    })}
+                  </div>
+                </div>
+              ))}
+            </div>
+            <div className="sales-fields-actions">
+              <button type="button" className="sci-pos-button sci-pos-button--primary" onClick={() => collapseFieldsCard()}>Apply Fields</button>
+              <button type="button" className="sci-pos-button sci-pos-button--secondary" onClick={() => { setVisibleFields(defaultVisibleFields); onActivity?.('SALES_FIELDS_DEFAULTS_RESTORED', 'Default product fields restored.'); }}>Reset Default Fields</button>
+              <button type="button" className="sci-pos-button sci-pos-button--secondary" onClick={() => collapseFieldsCard()}>Collapse</button>
+            </div>
+          </>
+        )}
       </div>
 
       <div className="pos-search-controls sales-search-row">
-        <label className="pos-search-input">
-          <Search size={18} aria-hidden="true" />
-        <span className="sr-only">Search products</span>
+        <label className="pos-search-input sales-search-bubble">
+          <span className="sr-only">Search products</span>
           <input
+            className="sales-search-input"
             value={query}
-            onChange={(event) => setQuery(event.target.value)}
+            onFocus={() => collapseFieldsCard()}
+            onKeyDown={(event) => { if (event.key === 'Enter') collapseFieldsCard(); }}
+            onChange={(event) => { collapseFieldsCard(); setQuery(event.target.value); }}
             disabled={!canSellInventoryItems}
             placeholder="Search by product, SKU, barcode, ALU, brand, supplier, shelf, sector, category, make, model, or part number..."
           />
+          <Search className="sales-search-icon" size={18} aria-hidden="true" />
         </label>
       </div>
 

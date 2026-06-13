@@ -209,6 +209,7 @@ interface SalesCartCardProps {
   onCompleteSale: () => boolean | Promise<boolean>;
   onHoldSale: () => void;
   onCancelSale: () => void;
+  onSalesOperationStart?: (operation: string) => void;
 }
 
 const paymentMethods: SalesPaymentMethod[] = [
@@ -346,7 +347,8 @@ export default function SalesCartCard({
   onVatRateChange,
   onCompleteSale,
   onHoldSale,
-  onCancelSale
+  onCancelSale,
+  onSalesOperationStart
 }: SalesCartCardProps) {
   const [customerSearch, setCustomerSearch] = useState('');
   const [customerDrawerOpen, setCustomerDrawerOpen] = useState(false);
@@ -432,6 +434,10 @@ export default function SalesCartCard({
     onCheckoutActivity?.(eventType, message);
   };
 
+  const startSalesOperation = (operation: string) => {
+    onSalesOperationStart?.(operation);
+  };
+
   const validateCartForCheckout = (): boolean => {
     if (cart.length === 0) {
       onCartNotice?.('Cart is empty. Add products before checkout.');
@@ -458,6 +464,7 @@ export default function SalesCartCard({
   };
 
   const openToolPanel = (panel: CartToolPanel) => {
+    startSalesOperation(`Cart Tool ${panel || 'menu'}`);
     setCartToolsOpen(false);
     if (panel === 'notes') {
       setDraftInternalNote(cartInternalNote);
@@ -468,6 +475,7 @@ export default function SalesCartCard({
   };
 
   const openHoldSalePanel = () => {
+    startSalesOperation('Hold Sale');
     if (!canHoldSale) {
       onCartNotice?.('You do not have permission to hold sales.');
       return;
@@ -488,6 +496,7 @@ export default function SalesCartCard({
   );
 
   const openPaymentFromCheckout = () => {
+    startSalesOperation('Receive Payment');
     setCartItemsOpen(false);
     setDeliveryDrawerOpen(false);
     setPaymentDrawerOpen(true);
@@ -498,6 +507,7 @@ export default function SalesCartCard({
   };
 
   const startCheckoutFromCartItems = () => {
+    startSalesOperation('Cart Items Checkout');
     setCheckoutStartedFromCartItems(true);
     setCheckoutFlowStep('CartReview');
     emitCheckoutActivity('CHECKOUT_BUTTON_CLICKED', 'Checkout button clicked from Cart Items.');
@@ -678,13 +688,13 @@ export default function SalesCartCard({
             <ReceiptText size={16} aria-hidden="true" />
             Draft Receipt
           </div>
-          <button type="button" className="sales-cart-items-trigger" onClick={() => setCartItemsOpen(true)}>
+          <button type="button" className="sales-cart-items-trigger" onClick={() => { startSalesOperation('Cart Items'); setCartItemsOpen(true); }}>
             <ShoppingCart size={16} aria-hidden="true" />
             Cart Items
             <span>{itemCount}</span>
           </button>
           <div className="sales-cart-tools-host">
-            <button type="button" className="sci-pos-icon-button" onClick={() => setCartToolsOpen((current) => !current)} aria-label="Cart tools" aria-expanded={cartToolsOpen}>
+            <button type="button" className="sci-pos-icon-button" onClick={() => { startSalesOperation('Cart Tools'); setCartToolsOpen((current) => !current); }} aria-label="Cart tools" aria-expanded={cartToolsOpen}>
               <MoreVertical size={16} aria-hidden="true" />
             </button>
             {cartToolsOpen && (
@@ -727,7 +737,7 @@ export default function SalesCartCard({
             <span>Items <strong>{itemCount}</strong></span>
             <span>Subtotal <strong>{money(totals.subtotal)}</strong></span>
             <span>Last Added <strong>{lastCartItem ? `${lastCartItem.product.productName || lastCartItem.product.name} x${lastCartItem.quantity}` : 'None'}</strong></span>
-            <button type="button" className="sci-pos-button sci-pos-button--secondary" onClick={() => setCartItemsOpen(true)} disabled={cart.length === 0}>
+            <button type="button" className="sci-pos-button sci-pos-button--secondary" onClick={() => { startSalesOperation('Cart Items'); setCartItemsOpen(true); }} disabled={cart.length === 0}>
               View / Edit Cart Items
             </button>
           </div>
@@ -745,7 +755,7 @@ export default function SalesCartCard({
             <span>{customerMode}</span>
             <span>{customerPhone || customerWhatsApp || 'No phone / WhatsApp'}</span>
             <span>{customerTaxNumber ? `Tax ${customerTaxNumber}` : 'No tax number'}</span>
-            <button type="button" className="sci-pos-button sci-pos-button--secondary" onClick={() => setCustomerDrawerOpen(true)}>
+            <button type="button" className="sci-pos-button sci-pos-button--secondary" onClick={() => { startSalesOperation('Customer Details'); setCustomerDrawerOpen(true); }}>
               Customer Details
             </button>
           </div>
@@ -757,7 +767,7 @@ export default function SalesCartCard({
               <Calculator size={17} aria-hidden="true" />
               <h3>Tax</h3>
             </div>
-            <button type="button" className="sci-pos-link-button" onClick={() => setTaxDrawerOpen(true)}>View / Edit Tax</button>
+            <button type="button" className="sci-pos-link-button" onClick={() => { startSalesOperation('Tax Details'); setTaxDrawerOpen(true); }}>View / Edit Tax</button>
           </div>
           <div className="sales-cart-compact-summary sales-cart-metrics-row">
             <span>VAT Mode <strong>{vatMode}</strong></span>
@@ -773,7 +783,7 @@ export default function SalesCartCard({
               <Truck size={17} aria-hidden="true" />
               <h3>Delivery / iDeliver</h3>
             </div>
-            <button type="button" className="sci-pos-link-button" onClick={() => setDeliveryDrawerOpen(true)}>Delivery / iDeliver</button>
+            <button type="button" className="sci-pos-link-button" onClick={() => { startSalesOperation('Delivery / iDeliver'); setDeliveryDrawerOpen(true); }}>Delivery / iDeliver</button>
           </div>
           <div className="sales-cart-compact-summary sales-cart-metrics-row">
             <span>Method <strong>{deliveryMode}</strong></span>
@@ -789,7 +799,7 @@ export default function SalesCartCard({
               <Banknote size={17} aria-hidden="true" />
               <h3>Payment</h3>
             </div>
-            <button type="button" className="sci-pos-button sci-pos-button--secondary" onClick={() => setPaymentDrawerOpen(true)} disabled={!canReceivePayment}>
+            <button type="button" className="sci-pos-button sci-pos-button--secondary" onClick={() => { startSalesOperation('Receive Payment'); setPaymentDrawerOpen(true); }} disabled={!canReceivePayment}>
               Receive Payment
             </button>
           </div>
@@ -818,7 +828,7 @@ export default function SalesCartCard({
             <PauseCircle size={17} aria-hidden="true" />
             Hold Sale
           </button>
-          <button type="button" className="sci-pos-button sci-pos-button--primary" onClick={onCompleteSale} disabled={!canComplete} title={disableCompleteReason}>
+          <button type="button" className="sci-pos-button sci-pos-button--primary" onClick={() => { startSalesOperation('Complete Sale'); void onCompleteSale(); }} disabled={!canComplete} title={disableCompleteReason}>
             <CreditCard size={17} aria-hidden="true" />
             Complete Sale
           </button>

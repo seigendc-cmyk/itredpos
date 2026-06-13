@@ -81,6 +81,7 @@ type SalesWorkspaceDrawer = 'recentReceipts' | 'heldSales' | 'activityFeed' | nu
 
 const DEFAULT_PRODUCTS = mockProducts;
 const VENDOR_ID = 'SCI-LOG-ZW';
+const SHIFT_START_INTENT_KEY = 'itred_pos_open_shift_start_wizard_v1';
 const paymentReferenceRequired = new Set<SalesPaymentMethod>(['EcoCash', 'Innbucks', 'Mukuru', 'ZIPIT', 'Bank Transfer', 'Card']);
 
 function money(value: number): string {
@@ -186,6 +187,7 @@ export default function PosSales({
   const [workspaceMenuOpen, setWorkspaceMenuOpen] = useState(false);
   const [workspaceDrawer, setWorkspaceDrawer] = useState<SalesWorkspaceDrawer>(null);
   const [profitSnapshotOpen, setProfitSnapshotOpen] = useState(false);
+  const [collapseFieldsSignal, setCollapseFieldsSignal] = useState(0);
   const [miscSaleOpen, setMiscSaleOpen] = useState(false);
   const [heldSaleSearch, setHeldSaleSearch] = useState('');
   const [recentReceiptSearch, setRecentReceiptSearch] = useState('');
@@ -343,6 +345,9 @@ export default function PosSales({
       WHATSAPP_DELIVERY_MESSAGE_PREPARED: 'WhatsApp Message Prepared',
       SALES_PRODUCT_FILTERS_APPLIED: 'Product Filters Applied',
       SALES_PRODUCT_FIELDS_UPDATED: 'Product Fields Updated',
+      SALES_FIELDS_CARD_OPENED: 'Fields Card Opened',
+      SALES_FIELDS_CARD_COLLAPSED: 'Fields Card Collapsed',
+      SALES_FIELDS_DEFAULTS_RESTORED: 'Default Fields Restored',
       CAT_FORM_OPENED_LOCAL: 'CAT Form Opened',
       CHECKOUT_STARTED_FROM_CART_ITEMS: 'Checkout Started',
       CHECKOUT_BUTTON_CLICKED: 'Checkout Button Clicked',
@@ -370,6 +375,11 @@ export default function PosSales({
       SALE_COMPLETED_WITH_MISCELLANEOUS_LINE: 'Sale Completed With Miscellaneous Line'
     };
     return titles[eventType] || eventType.toLowerCase().split('_').map((word) => word.charAt(0).toUpperCase() + word.slice(1)).join(' ');
+  };
+
+  const collapseProductFieldsForOperation = (operation: string) => {
+    setCollapseFieldsSignal((current) => current + 1);
+    logEvent('SALES_FIELDS_CARD_COLLAPSED', `Product fields card collapsed for ${operation}.`);
   };
 
   const clearCartState = () => {
@@ -584,6 +594,7 @@ export default function PosSales({
   };
 
   const handleOpenMiscellaneousSale = () => {
+    collapseProductFieldsForOperation('Miscellaneous Sale');
     if (!canCreateMiscellaneousSale) {
       setStatusMessage('You do not have permission to add miscellaneous sales.');
       return;
@@ -812,6 +823,7 @@ export default function PosSales({
   };
 
   const handleCompleteSale = async (): Promise<boolean> => {
+    collapseProductFieldsForOperation('Complete Sale');
     const validationMessage = validateSale();
     if (validationMessage) {
       setStatusMessage(validationMessage);
@@ -1386,6 +1398,7 @@ export default function PosSales({
   };
 
   const openWorkspaceDrawer = (drawer: SalesWorkspaceDrawer) => {
+    collapseProductFieldsForOperation(drawer || 'Sales Workspace');
     setWorkspaceDrawer(drawer);
     setWorkspaceMenuOpen(false);
   };
@@ -1412,8 +1425,17 @@ export default function PosSales({
     logEvent('SHIFT_RECOVERY_STATE_CLEARED', 'Local recovery state cleared from Sales Terminal.');
   };
 
+  const handleStartSellingFromSales = () => {
+    try {
+      localStorage.setItem(SHIFT_START_INTENT_KEY, 'open');
+    } catch {
+      // Start Selling navigation still works without localStorage.
+    }
+    logEvent('START_SELLING_CLICKED', 'Start Selling clicked from Sales Terminal blocked state.');
+    onNavigate('SHIFT');
+  };
+
   const salesBlocked = salesReadiness ? !salesReadiness.allowed : false;
-  const salesBlockedNeedsDrawer = salesReadiness?.reasons.some((reason) => reason.toLowerCase().includes('drawer')) || false;
 
   return (
     <div className="sales-terminal-shell">
@@ -1425,7 +1447,7 @@ export default function PosSales({
         </div>
         <div className="sci-page-header__actions">
           <div className="sales-workspace-menu-host">
-            <button type="button" className="sci-pos-button sci-pos-button--secondary" onClick={() => setWorkspaceMenuOpen((current) => !current)} aria-expanded={workspaceMenuOpen}>
+            <button type="button" className="sci-pos-button sci-pos-button--secondary" onClick={() => { collapseProductFieldsForOperation('Sales Workspace Menu'); setWorkspaceMenuOpen((current) => !current); }} aria-expanded={workspaceMenuOpen}>
               <Menu size={17} aria-hidden="true" />
               Sales Workspace Menu
             </button>
@@ -1438,11 +1460,11 @@ export default function PosSales({
                   <button type="button" onClick={() => openWorkspaceDrawer('heldSales')}>Held Sales</button>
                   <button type="button" onClick={() => openWorkspaceDrawer('activityFeed')}>Sales Activity Feed</button>
                   {canViewProfitSnapshot && (
-                    <button type="button" onClick={() => { setProfitSnapshotOpen(true); setWorkspaceMenuOpen(false); }}>Sales Profit Snapshot</button>
+                    <button type="button" onClick={() => { collapseProductFieldsForOperation('Sales Profit Snapshot'); setProfitSnapshotOpen(true); setWorkspaceMenuOpen(false); }}>Sales Profit Snapshot</button>
                   )}
-                  <button type="button" onClick={() => { setStatusMessage(`Draft receipt prepared locally. Items: ${cart.length}, total: ${money(grandTotal)}${receiptNote ? `, note: ${receiptNote}` : ''}.`); logEvent('RECEIPT_DRAFTED', 'Draft receipt prepared from active cart.'); setWorkspaceMenuOpen(false); }}>Draft Receipt</button>
-                  <button type="button" onClick={() => { onNavigate('SALES_HISTORY'); setWorkspaceMenuOpen(false); }}>Open Sales History</button>
-                  <button type="button" onClick={() => { handleClearWorkspace('Entire Workspace'); setWorkspaceMenuOpen(false); }}>Clear Workspace</button>
+                  <button type="button" onClick={() => { collapseProductFieldsForOperation('Draft Receipt'); setStatusMessage(`Draft receipt prepared locally. Items: ${cart.length}, total: ${money(grandTotal)}${receiptNote ? `, note: ${receiptNote}` : ''}.`); logEvent('RECEIPT_DRAFTED', 'Draft receipt prepared from active cart.'); setWorkspaceMenuOpen(false); }}>Draft Receipt</button>
+                  <button type="button" onClick={() => { collapseProductFieldsForOperation('Open Sales History'); onNavigate('SALES_HISTORY'); setWorkspaceMenuOpen(false); }}>Open Sales History</button>
+                  <button type="button" onClick={() => { collapseProductFieldsForOperation('Clear Workspace'); handleClearWorkspace('Entire Workspace'); setWorkspaceMenuOpen(false); }}>Clear Workspace</button>
                 </div>
               </>
             )}
@@ -1478,12 +1500,17 @@ export default function PosSales({
         <section className="shift-recovery-banner sales-readiness-banner">
           <ShieldCheck size={18} aria-hidden="true" />
           <div>
-            <strong>Sales Blocked</strong>
-            <span>{salesReadiness?.message || 'Open shift and drawer readiness must be completed before sales.'}</span>
+            <strong>Sales Not Ready</strong>
+            <span>{salesReadiness?.message || 'Terminal activation, shift opening, or drawer assignment is incomplete.'}</span>
           </div>
-          <button type="button" className="sci-pos-button sci-pos-button--primary" onClick={() => onNavigate('SHIFT')}>
-            {salesBlockedNeedsDrawer ? 'Assign Drawer' : 'Open Shift'}
+          <button type="button" className="sci-pos-button sci-pos-button--primary" onClick={handleStartSellingFromSales}>
+            Start Selling
           </button>
+          {canCreateMiscellaneousSale && (
+            <button type="button" className="sci-pos-button sci-pos-button--secondary" onClick={handleOpenMiscellaneousSale}>
+              Add Miscellaneous Sale
+            </button>
+          )}
         </section>
       )}
 
@@ -1528,6 +1555,7 @@ export default function PosSales({
           onOpenShift={() => onNavigate('SHIFT')}
           onAssignDrawer={() => onNavigate('SHIFT')}
           onAddMiscellaneousSale={handleOpenMiscellaneousSale}
+          collapseFieldsSignal={collapseFieldsSignal}
         />
         <SalesCartCard
           cart={cart}
@@ -1646,6 +1674,7 @@ export default function PosSales({
           onCompleteSale={handleCompleteSale}
           onHoldSale={handleHoldSale}
           onCancelSale={handleCancelSale}
+          onSalesOperationStart={collapseProductFieldsForOperation}
         />
       </div>
 

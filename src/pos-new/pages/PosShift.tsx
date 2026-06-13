@@ -8,6 +8,7 @@ import {
   History,
   Lock,
   MoreVertical,
+  Play,
   ShieldCheck,
   Terminal as TerminalIcon,
   Unlock,
@@ -16,6 +17,7 @@ import {
 import CashDrawerAssignmentModal from '../components/CashDrawerAssignmentModal';
 import CloseShiftModal from '../components/CloseShiftModal';
 import OpenShiftModal from '../components/OpenShiftModal';
+import ShiftStartWizardModal from '../components/ShiftStartWizardModal';
 import ShiftEodReportsModal from '../components/ShiftEodReportsModal';
 import TerminalShiftHistoryModal from '../components/TerminalShiftHistoryModal';
 import {
@@ -94,6 +96,7 @@ type ShiftAction = 'open' | 'close' | 'drawer' | null;
 type ShiftSection = 'Status' | 'Terminal Activation' | 'Shift Activity';
 
 const VENDOR_ID = 'SCI-LOG-ZW';
+const SHIFT_START_INTENT_KEY = 'itred_pos_open_shift_start_wizard_v1';
 const permissionBlockedMessage = 'You do not have permission to perform this action.';
 const processWarning = 'A shift process is still in progress. Finish or cancel the process before exiting.';
 
@@ -140,6 +143,18 @@ function eventTitle(value: string): string {
     TERMINAL_READINESS_CHECK_RUN: 'Terminal Readiness Check Run',
     TERMINAL_ACTIVATED: 'Terminal Activated',
     TERMINAL_SHIFT_OPEN_FLOW_STARTED: 'Terminal Shift Open Flow Started',
+    START_SELLING_CLICKED: 'Start Selling Clicked',
+    SHIFT_START_WIZARD_OPENED: 'Shift Start Wizard Opened',
+    SHIFT_START_TERMINAL_CHECK_RUN: 'Shift Start Terminal Check Run',
+    SHIFT_START_TERMINAL_ACTIVATED: 'Shift Start Terminal Activated',
+    SHIFT_START_RECOVERY_FOUND: 'Shift Start Recovery Found',
+    SHIFT_START_RECOVERY_RESTORED: 'Shift Start Recovery Restored',
+    SHIFT_START_DRAWER_ASSIGNED: 'Shift Start Drawer Assigned',
+    SHIFT_START_SHIFT_OPENED: 'Shift Start Shift Opened',
+    SHIFT_START_READY_TO_SELL: 'Shift Start Ready To Sell',
+    SHIFT_START_NAVIGATED_TO_SALES: 'Shift Start Navigated To Sales',
+    SHIFT_START_CANCELLED: 'Shift Start Cancelled',
+    SHIFT_START_BLOCKED: 'Shift Start Blocked',
     SHIFT_RECOVERY_STATE_SAVED: 'Shift Recovery Saved',
     SHIFT_RECOVERY_STATE_FOUND: 'Shift Recovery Found',
     SHIFT_RECOVERY_STATE_RESTORED: 'Shift Recovery Restored',
@@ -198,6 +213,8 @@ export default function PosShift({
   const [activationTerminalId, setActivationTerminalId] = useState('POS-03');
   const [activationReason, setActivationReason] = useState('Terminal activation requested from Shift Control.');
   const [openTerminalActionMenuId, setOpenTerminalActionMenuId] = useState<string | null>(null);
+  const [startWizardOpen, setStartWizardOpen] = useState(false);
+  const [startWizardDirty, setStartWizardDirty] = useState(false);
 
   const currentDrawer = drawerAssignments.find((assignment) => assignment.status === 'Assigned') || null;
   const cashSalesTotal = useMemo(() => transactions
@@ -212,6 +229,23 @@ export default function PosShift({
     .reduce((sum, transaction) => sum + (transaction.tax || 0), 0), [transactions]);
   const paymentTotal = salesTotal;
   const saleAllowed = readiness?.allowed ?? (terminal?.status === 'Active' && shift?.status === 'Open' && Boolean(currentDrawer));
+  const shiftReadinessStatus = recoverable ? 'Recovery Required'
+    : terminal?.status !== 'Active' ? 'Needs Terminal Activation'
+      : !currentDrawer ? 'Needs Drawer Assignment'
+        : shift?.status !== 'Open' ? 'Needs Open Shift'
+          : saleAllowed ? 'Ready to Sell'
+            : 'Sales Blocked';
+  const shiftReadinessReason = shiftReadinessStatus === 'Recovery Required'
+    ? 'Previous shift state found. Recover or clear it before continuing sales.'
+    : shiftReadinessStatus === 'Needs Terminal Activation'
+      ? 'Activate this terminal before opening shift.'
+      : shiftReadinessStatus === 'Needs Drawer Assignment'
+        ? 'Assign a cash drawer before cash sales.'
+        : shiftReadinessStatus === 'Needs Open Shift'
+          ? 'Open a shift to begin sales.'
+          : shiftReadinessStatus === 'Ready to Sell'
+            ? 'Terminal, shift, and drawer are ready.'
+            : readiness?.message || 'One or more required steps are incomplete.';
   const salesReadinessLabel = saleAllowed
     ? 'Ready'
     : readiness?.reasons.find((reason) => reason.includes('drawer')) ? 'Needs Drawer'
@@ -261,14 +295,25 @@ export default function PosShift({
   }, [branchId, terminalId, roleName, staffId]);
 
   useEffect(() => {
+    try {
+      if (localStorage.getItem(SHIFT_START_INTENT_KEY) !== 'open') return;
+      localStorage.removeItem(SHIFT_START_INTENT_KEY);
+      void handleStartSelling();
+    } catch {
+      // Shift start intent is best-effort local navigation state.
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
     const handleBeforeUnload = (event: BeforeUnloadEvent) => {
-      if (!activeModal && !getPendingShiftProcess()) return;
+      if (!activeModal && !startWizardOpen && !getPendingShiftProcess()) return;
       event.preventDefault();
       event.returnValue = processWarning;
     };
     window.addEventListener('beforeunload', handleBeforeUnload);
     return () => window.removeEventListener('beforeunload', handleBeforeUnload);
-  }, [activeModal]);
+  }, [activeModal, startWizardOpen]);
 
   useEffect(() => {
     if (recoverable) {
@@ -308,6 +353,26 @@ export default function PosShift({
     clearPendingShiftProcess();
     setModalDirty(false);
     setActiveModal(null);
+  };
+
+  const guardedCloseStartWizard = () => {
+    if ((startWizardDirty || getPendingShiftProcess()) && !window.confirm('A shift start process is in progress. Finish or cancel before exiting.')) {
+      void logTerminalControlEvent({
+        vendorId: VENDOR_ID,
+        branchId,
+        terminalId,
+        staffId,
+        staffName,
+        eventType: 'SHIFT_START_BLOCKED',
+        message: 'Shift start wizard exit blocked by confirmation.',
+        severity: 'WARNING'
+      });
+      return;
+    }
+    clearPendingShiftProcess();
+    setStartWizardDirty(false);
+    setStartWizardOpen(false);
+    void logTerminalControlEvent({ vendorId: VENDOR_ID, branchId, terminalId, staffId, staffName, eventType: 'SHIFT_START_CANCELLED', message: 'Start Selling flow cancelled.', severity: 'INFO' });
   };
 
   const openActionModal = (modal: ShiftAction) => {
@@ -371,7 +436,12 @@ export default function PosShift({
       clearPendingShiftProcess();
       setStatusMessage('Shift opened successfully.');
       setActiveModal(null);
+      setStartWizardOpen(false);
       setModalDirty(false);
+      setStartWizardDirty(false);
+      await logTerminalControlEvent({ vendorId: VENDOR_ID, branchId, terminalId, staffId, staffName, eventType: 'SHIFT_START_SHIFT_OPENED', message: 'Shift opened from Start Selling flow or Open Shift modal.', severity: 'INFO' });
+      await logTerminalControlEvent({ vendorId: VENDOR_ID, branchId, terminalId, staffId, staffName, eventType: 'SHIFT_START_READY_TO_SELL', message: 'Shift opened. Sales Terminal is ready.', severity: 'INFO' });
+      await logTerminalControlEvent({ vendorId: VENDOR_ID, branchId, terminalId, staffId, staffName, eventType: 'SHIFT_START_NAVIGATED_TO_SALES', message: 'Navigated to Sales Terminal after shift open.', severity: 'INFO' });
       await loadControlData();
       onNavigate?.('SALES');
     } catch {
@@ -452,6 +522,7 @@ export default function PosShift({
     });
     saveShiftRecoveryState(recoveryContext(shift, drawer));
     markRecoveryCheckpoint('CASH_DRAWER_ASSIGNED', { drawerId: drawer.drawerId });
+    await logTerminalControlEvent({ vendorId: VENDOR_ID, branchId, terminalId, staffId, staffName, eventType: 'SHIFT_START_DRAWER_ASSIGNED', message: `${drawer.drawerId} assigned from shift start flow.`, severity: 'INFO' });
     clearPendingShiftProcess();
     setStatusMessage('Cash drawer assigned.');
     setActiveModal(null);
@@ -482,6 +553,73 @@ export default function PosShift({
     });
     setStatusMessage('Terminal activation requested.');
     await loadControlData();
+  };
+
+  const handleStartSelling = async () => {
+    await logTerminalControlEvent({ vendorId: VENDOR_ID, branchId, terminalId, staffId, staffName, eventType: 'START_SELLING_CLICKED', message: 'Start Selling clicked from Shift Control.', severity: 'INFO' });
+    savePendingShiftProcess(makePendingShiftProcess({ type: 'opening-shift', label: 'start selling flow', terminalId, staffName }));
+    setStartWizardOpen(true);
+    setStartWizardDirty(false);
+    await logTerminalControlEvent({ vendorId: VENDOR_ID, branchId, terminalId, staffId, staffName, eventType: 'SHIFT_START_WIZARD_OPENED', message: 'Start Selling wizard opened.', severity: 'INFO' });
+    if (recoverable) {
+      await logTerminalControlEvent({ vendorId: VENDOR_ID, branchId, terminalId, staffId, staffName, eventType: 'SHIFT_START_RECOVERY_FOUND', message: 'Previous Shift State Found.', severity: 'WARNING' });
+    }
+    if (canPerformAction(roleName, 'terminal.readinessCheck')) {
+      const check = await runTerminalControlCheck({ vendorId: VENDOR_ID, branchId, terminalId, terminalName, staffId, staffName, role: roleName, requiresCashDrawer: true });
+      setReadiness(check);
+      await logTerminalControlEvent({ vendorId: VENDOR_ID, branchId, terminalId, staffId, staffName, eventType: 'SHIFT_START_TERMINAL_CHECK_RUN', message: check.message, severity: check.allowed ? 'INFO' : 'WARNING' });
+    }
+  };
+
+  const handleWizardRunTerminalCheck = async () => {
+    if (!requirePermission('terminal.readinessCheck')) return;
+    const check = await runTerminalControlCheck({ vendorId: VENDOR_ID, branchId, terminalId, terminalName, staffId, staffName, role: roleName, requiresCashDrawer: true });
+    setReadiness(check);
+    await logTerminalControlEvent({ vendorId: VENDOR_ID, branchId, terminalId, staffId, staffName, eventType: 'SHIFT_START_TERMINAL_CHECK_RUN', message: check.message, severity: check.allowed ? 'INFO' : 'WARNING' });
+    await loadControlData();
+  };
+
+  const handleWizardActivateTerminal = async () => {
+    if (!requirePermission('terminal.activate')) return;
+    const request = await requestTerminalActivation({
+      vendorId: VENDOR_ID,
+      branchId,
+      terminalId,
+      terminalName,
+      requestedBy: staffName,
+      reason: 'Activated from Start Selling flow.'
+    });
+    await approveTerminalActivation(request.id, staffName);
+    await logTerminalControlEvent({ vendorId: VENDOR_ID, branchId, terminalId, staffId, staffName, eventType: 'SHIFT_START_TERMINAL_ACTIVATED', message: `${terminalId} activated from Start Selling flow.`, severity: 'INFO' });
+    setStatusMessage('Terminal activated. Continue Start Selling.');
+    await loadControlData();
+  };
+
+  const handleWizardRecoverShift = async () => {
+    await handleRecoverShift();
+    await logTerminalControlEvent({ vendorId: VENDOR_ID, branchId, terminalId, staffId, staffName, eventType: 'SHIFT_START_RECOVERY_RESTORED', message: 'Recovery restored from Start Selling flow.', severity: 'INFO' });
+  };
+
+  const handleWizardClearRecovery = async () => {
+    if (!canPerformAction(roleName, 'shift.override')) {
+      setStatusMessage(permissionBlockedMessage);
+      return;
+    }
+    clearShiftRecoveryState();
+    clearPendingShiftProcess();
+    setRecoverable(false);
+    setShowRecoveryDetails(false);
+    setStatusMessage('Recovery state cleared.');
+    await logTerminalControlEvent({ vendorId: VENDOR_ID, branchId, terminalId, staffId, staffName, eventType: 'SHIFT_RECOVERY_STATE_CLEARED', message: 'Recovery state cleared from Start Selling flow.', severity: 'INFO' });
+    await loadControlData();
+  };
+
+  const handleWizardGoToSales = async () => {
+    await logTerminalControlEvent({ vendorId: VENDOR_ID, branchId, terminalId, staffId, staffName, eventType: 'SHIFT_START_NAVIGATED_TO_SALES', message: 'Go to Sales Terminal clicked from Start Selling flow.', severity: 'INFO' });
+    clearPendingShiftProcess();
+    setStartWizardOpen(false);
+    setStartWizardDirty(false);
+    onNavigate?.('SALES');
   };
 
   const handleApproveActivation = async (requestId: string) => {
@@ -631,6 +769,10 @@ export default function PosShift({
           <span className={`sci-status-pill ${saleAllowed ? 'sci-status-pill--success' : 'sci-status-pill--danger'}`}>
             Sales {saleAllowed ? 'Allowed' : 'Blocked'}
           </span>
+          <button type="button" className="sci-pos-button sci-pos-button--primary shift-start-primary-button" onClick={() => void handleStartSelling()}>
+            <Play size={16} aria-hidden="true" />
+            Start Selling
+          </button>
           <button type="button" className="sci-pos-button sci-pos-button--primary" onClick={() => openActionModal('open')}>
             <Unlock size={16} aria-hidden="true" />
             Open Shift
@@ -678,6 +820,17 @@ export default function PosShift({
       )}
 
       {statusMessage && <div className="sci-pos-alert" role="status">{statusMessage}</div>}
+
+      <section className={`shift-readiness-banner shift-readiness-banner--${shiftReadinessStatus.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`}>
+        <ShieldCheck size={18} aria-hidden="true" />
+        <div>
+          <strong>{shiftReadinessStatus}</strong>
+          <span>{shiftReadinessReason}</span>
+        </div>
+        <button type="button" className="sci-pos-button sci-pos-button--primary" onClick={() => void handleStartSelling()}>
+          Start Selling
+        </button>
+      </section>
 
       <section className="shift-status-grid" aria-label="Shift status cards">
         {statusCards.map((card) => {
@@ -926,6 +1079,34 @@ export default function PosShift({
         payload={eodPayload}
         onClose={() => setEodOpen(false)}
         onReportEvent={handleEodReportEvent}
+      />
+      <ShiftStartWizardModal
+        open={startWizardOpen}
+        staffName={staffName}
+        branchName={branchName}
+        terminalName={terminalName}
+        terminal={terminal}
+        shift={shift}
+        currentDrawer={currentDrawer}
+        readiness={readiness}
+        recoverable={recoverable}
+        cashSalesRequireDrawer
+        canActivateTerminal={canPerformAction(roleName, 'terminal.activate')}
+        canRunReadinessCheck={canPerformAction(roleName, 'terminal.readinessCheck')}
+        canAssignDrawer={canPerformAction(roleName, 'cashDrawer.assign')}
+        canOpenShift={canPerformAction(roleName, 'shift.open')}
+        canRecoverShift={canPerformAction(roleName, 'shift.recovery.restore')}
+        canOverrideRecovery={canPerformAction(roleName, 'shift.override')}
+        onRunTerminalCheck={handleWizardRunTerminalCheck}
+        onActivateTerminal={handleWizardActivateTerminal}
+        onRecoverState={handleWizardRecoverShift}
+        onReviewRecovery={() => setShowRecoveryDetails(true)}
+        onClearRecovery={handleWizardClearRecovery}
+        onAssignDrawer={handleAssignDrawer}
+        onOpenShift={handleOpenShift}
+        onGoToSales={handleWizardGoToSales}
+        onCancel={guardedCloseStartWizard}
+        onDirtyChange={setStartWizardDirty}
       />
     </div>
   );
