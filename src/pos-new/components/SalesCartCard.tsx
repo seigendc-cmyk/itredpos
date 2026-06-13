@@ -412,6 +412,7 @@ export default function SalesCartCard({
   const loyaltyRedemptionValue = Math.min(Number(loyaltyPoints) || 0, availableLoyaltyPoints) * 0.01;
   const deliveryFeeAmount = Math.max(0, Number(deliveryFee) || 0);
   const deliveryRequiresCashCollection = deliveryPaymentMode === 'Cash On Delivery' || deliveryPaymentMode === 'Delivery Fee Cash';
+  const deliveryNeedsReview = (deliveryMode === 'Vendor Delivery' || deliveryMode === 'iDeliver Service') && !deliveryAddress.trim() && !deliveryNotes.trim();
   const shouldOpenDeliveryBeforePayment = () => {
     if (deliveryMode === 'Vendor Delivery' || deliveryMode === 'iDeliver Service') return true;
     if (deliveryMode === 'Customer Collection' && (deliveryNotes.trim() || deliveryFeeAmount > 0)) return true;
@@ -513,19 +514,16 @@ export default function SalesCartCard({
     emitCheckoutActivity('CHECKOUT_BUTTON_CLICKED', 'Checkout button clicked from Cart Items.');
     emitCheckoutActivity('CHECKOUT_STARTED_FROM_CART_ITEMS', 'Checkout started from Cart Items.');
     if (!validateCartForCheckout()) return;
-    const deliveryRequired = shouldOpenDeliveryBeforePayment();
-    setDeliveryStepIncluded(deliveryRequired);
-    if (deliveryRequired) {
-      setCartItemsOpen(false);
-      setDeliveryDrawerOpen(true);
-      setPendingCheckoutAfterDelivery(true);
-      setCheckoutFlowStep('DeliveryReview');
-      emitCheckoutActivity('CHECKOUT_DELIVERY_REQUIRED', 'Delivery review required before payment.');
-      emitCheckoutActivity('CHECKOUT_DELIVERY_REVIEW_OPENED', 'Delivery / iDeliver checkout review opened.');
-      emitCheckoutActivity('CHECKOUT_DELIVERY_STEP_OPENED', 'Delivery step opened from checkout.');
-      return;
+    const deliverySelected = shouldOpenDeliveryBeforePayment();
+    setDeliveryStepIncluded(deliverySelected);
+    if (deliverySelected) {
+      emitCheckoutActivity(
+        deliveryNeedsReview ? 'CHECKOUT_DELIVERY_REQUIRED' : 'CHECKOUT_DELIVERY_SKIPPED',
+        deliveryNeedsReview ? 'Delivery details need review, but checkout opened payment first.' : 'Delivery details included without blocking payment.'
+      );
+    } else {
+      emitCheckoutActivity('CHECKOUT_DELIVERY_SKIPPED', 'Delivery review skipped for no-delivery checkout.');
     }
-    emitCheckoutActivity('CHECKOUT_DELIVERY_SKIPPED', 'Delivery review skipped for no-delivery checkout.');
     openPaymentFromCheckout();
   };
 
@@ -990,11 +988,18 @@ export default function SalesCartCard({
                     <span>Subtotal <strong>{money(totals.subtotal)}</strong></span>
                     <span>Discount <strong>{money(totals.discountTotal)}</strong></span>
                     <span>Credit / Loyalty <strong>{money(creditRedemptionAmount + loyaltyRedemptionAmount)}</strong></span>
-                    <span>Tax <strong>{money(totals.taxTotal)}</strong></span>
+                    <span>VAT / Tax <strong>{money(totals.taxTotal)}</strong></span>
                     <span>Delivery <strong>{money(totals.deliveryFee)}</strong></span>
-                    <span>Total <strong>{money(totals.grandTotal)}</strong></span>
+                    <span>Total Due <strong>{money(totals.grandTotal)}</strong></span>
                     <span>Paid <strong>{money(totals.paymentReceived)}</strong></span>
                     <span>Balance <strong>{money(totals.balanceDue)}</strong></span>
+                  </div>
+                )}
+                {checkoutStartedFromCartItems && deliveryNeedsReview && (
+                  <div className="checkout-delivery-warning" role="alert">
+                    <strong>Delivery details need review.</strong>
+                    <span>Add an address or clear delivery instructions before dispatch.</span>
+                    <button type="button" className="sci-pos-button sci-pos-button--secondary" onClick={backToDeliveryFromPayment}>Review Delivery</button>
                   </div>
                 )}
                 <label>Payment Method<select value={paymentMethod} onChange={(event) => onPaymentMethodChange(event.target.value as SalesPaymentMethod)}>{paymentMethods.map((method) => <option key={method} value={method}>{paymentLabels[method]}</option>)}</select></label>
@@ -1025,9 +1030,8 @@ export default function SalesCartCard({
             <div className="sales-drawer-actions">
               <button type="button" className="sci-pos-button sci-pos-button--primary" onClick={() => { onAddPayment(); emitCheckoutActivity('CHECKOUT_PAYMENT_ADDED', 'Payment line added during checkout.'); }} disabled={!canReceivePayment}>Add Payment</button>
               <button type="button" className="sci-pos-button sci-pos-button--secondary" onClick={onClearPayments}>Clear Payment</button>
-              {checkoutStartedFromCartItems && deliveryStepIncluded && <button type="button" className="sci-pos-button sci-pos-button--secondary" onClick={backToDeliveryFromPayment}>Back to Delivery</button>}
               {checkoutStartedFromCartItems && <button type="button" className="sci-pos-button sci-pos-button--secondary" onClick={backToCartItemsFromCheckout}>Back to Cart Items</button>}
-              {checkoutStartedFromCartItems && <button type="button" className="sci-pos-button sci-pos-button--primary" disabled={!canComplete} title={disableCompleteReason} onClick={completeTransactionFromPayment}>Complete Transaction</button>}
+              {checkoutStartedFromCartItems && <button type="button" className="sci-pos-button sci-pos-button--primary" disabled={!canComplete} title={disableCompleteReason} onClick={completeTransactionFromPayment}>Complete Sale</button>}
               <button type="button" className="sci-pos-button sci-pos-button--secondary" onClick={() => setPaymentDrawerOpen(false)}>Close</button>
             </div>
           </aside>

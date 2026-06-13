@@ -16,6 +16,8 @@ export type PermissionKey =
   | 'sales.priceOverride'
   | 'sales.void'
   | 'sales.reprintReceipt'
+  | 'receipt.pdf'
+  | 'receipt.whatsappShare'
   | 'sales.creditRedeem'
   | 'sales.loyalty'
   | 'sales.accountSale'
@@ -46,6 +48,7 @@ export type PermissionKey =
   | 'cashDrawer.release'
   | 'customers.createRequest'
   | 'customers.view'
+  | 'customers.creditView'
   | 'customers.approve'
   | 'inventory.view'
   | 'inventory.import'
@@ -220,6 +223,8 @@ const ALL_PERMISSIONS: PermissionKey[] = [
   'sales.priceOverride',
   'sales.void',
   'sales.reprintReceipt',
+  'receipt.pdf',
+  'receipt.whatsappShare',
   'sales.creditRedeem',
   'sales.loyalty',
   'sales.accountSale',
@@ -250,6 +255,7 @@ const ALL_PERMISSIONS: PermissionKey[] = [
   'cashDrawer.release',
   'customers.createRequest',
   'customers.view',
+  'customers.creditView',
   'customers.approve',
   'inventory.view',
   'inventory.import',
@@ -416,7 +422,7 @@ const ROLE_PERMISSIONS: Record<Role, PermissionKey[]> = {
   Owner: ALL_PERMISSIONS,
   SysAdmin: ALL_PERMISSIONS,
   Manager: [
-    'sales.open', 'sales.create', 'sales.complete', 'sales.hold', 'sales.viewHistory', 'sales.discount', 'sales.priceOverride', 'sales.void', 'sales.reprintReceipt',
+    'sales.open', 'sales.create', 'sales.complete', 'sales.hold', 'sales.viewHistory', 'sales.discount', 'sales.priceOverride', 'sales.void', 'sales.reprintReceipt', 'receipt.pdf', 'receipt.whatsappShare',
     'sales.creditRedeem', 'sales.loyalty', 'sales.accountSale',
     'sales.profitSnapshot.view', 'sales.profitSnapshot.generate', 'sales.profitSnapshot.export', 'sales.profitSnapshot.print',
     'sales.miscellaneous.create', 'sales.miscellaneous.review', 'sales.miscellaneous.approve',
@@ -425,7 +431,7 @@ const ROLE_PERMISSIONS: Record<Role, PermissionKey[]> = {
     'shift.view', 'shift.open', 'shift.close', 'shift.forceClose', 'shift.eodReport.view', 'shift.eodReport.print', 'shift.recovery.restore', 'shift.override',
     'cashDrawer.assign', 'cashDrawer.release',
     'payment.capture',
-    'customers.view', 'customers.createRequest', 'customers.approve',
+    'customers.view', 'customers.createRequest', 'customers.creditView', 'customers.approve',
     'inventory.view', 'inventory.import', 'inventory.approveImport', 'inventory.adjust', 'inventory.approveAdjustment',
     'productMaster.view', 'productMaster.create', 'productMaster.edit', 'productMaster.activate', 'productMaster.block', 'productMaster.export',
     'openingBalance.view', 'openingBalance.create', 'openingBalance.approve', 'openingBalance.post', 'openingBalance.cancel',
@@ -453,14 +459,14 @@ const ROLE_PERMISSIONS: Record<Role, PermissionKey[]> = {
     'productImport.view', 'productImport.create', 'productImport.map', 'productImport.validate', 'productImport.approve', 'productImport.import', 'productImport.export'
   ],
   Supervisor: [
-    'sales.open', 'sales.create', 'sales.complete', 'sales.hold', 'sales.viewHistory', 'sales.discount', 'sales.priceOverride', 'sales.void', 'sales.reprintReceipt',
+    'sales.open', 'sales.create', 'sales.complete', 'sales.hold', 'sales.viewHistory', 'sales.discount', 'sales.priceOverride', 'sales.void', 'sales.reprintReceipt', 'receipt.whatsappShare',
     'sales.loyalty',
     'sales.miscellaneous.create', 'sales.miscellaneous.review',
     'returns.request', 'returns.approve', 'creditNotes.request',
     'shift.view', 'shift.open', 'shift.close', 'shift.eodReport.view', 'terminal.readinessCheck', 'terminal.history.view', 'shift.recovery.restore',
     'cashDrawer.assign', 'cashDrawer.release',
     'payment.capture',
-    'customers.view', 'customers.createRequest',
+    'customers.view', 'customers.createRequest', 'customers.creditView',
     'inventory.view',
     'productMaster.view', 'productMaster.create', 'productMaster.edit',
     'openingBalance.view', 'openingBalance.create',
@@ -485,7 +491,7 @@ const ROLE_PERMISSIONS: Record<Role, PermissionKey[]> = {
     'productImport.view', 'productImport.create', 'productImport.map', 'productImport.validate', 'productImport.export'
   ],
   Cashier: [
-    'sales.open', 'sales.create', 'sales.complete', 'sales.hold', 'sales.viewHistory', 'sales.reprintReceipt',
+    'sales.open', 'sales.create', 'sales.complete', 'sales.hold', 'sales.viewHistory', 'sales.reprintReceipt', 'receipt.whatsappShare',
     'sales.miscellaneous.create',
     'returns.request', 'creditNotes.request',
     'shift.view', 'shift.open', 'shift.close', 'terminal.history.view', 'shift.recovery.restore',

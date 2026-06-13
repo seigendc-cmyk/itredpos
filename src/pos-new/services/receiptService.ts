@@ -58,6 +58,7 @@ export interface ReceiptSalePayload {
   customerDeliveryAddress?: string;
   customerCreditStatus?: ReceiptRecord['customer']['creditStatus'];
   paymentMode: PaymentMode;
+  paymentLines?: Array<{ method: string; amount: number; reference?: string }>;
   vatMode?: VATMode;
   vatRate?: number;
 }
@@ -114,6 +115,17 @@ function cashierMatch(rowCashier: string, cashier?: string): boolean {
   return !cashier || cashier === 'All Staff' || rowCashier === cashier;
 }
 
+function normalizePaymentMode(method: string): PaymentMode {
+  if (method === 'Credit / Account') return 'Credit Sale';
+  if (method === 'Mixed Payment') return 'Split Payment';
+  if (method === 'Card' || method === 'CARD') return 'Swipe';
+  if (method === 'Already Paid' || method === 'No Payment Due') return 'Cash';
+  if (method === 'Innbucks' || method === 'Mukuru' || method === 'ZIPIT') return 'Bank Transfer';
+  if (method === 'EcoCash') return 'EcoCash';
+  if (method === 'Bank Transfer') return 'Bank Transfer';
+  return 'Cash';
+}
+
 export async function getReceipts(filters: ReceiptFilters): Promise<ReceiptRecord[]> {
   return readList<ReceiptRecord>(RECEIPTS_KEY, mockReceiptRecords).filter((receipt) =>
     branchMatch(receipt.branch, filters.branch) &&
@@ -136,6 +148,14 @@ export async function generateReceiptNumber(branchId: string, terminalId: string
   const sequence = sequenceRows.find((row) => row.terminal === terminalId || row.terminal === branchId) || sequenceRows[0];
   const nextNumber = Number(sequence.nextReceiptNo.replace(/\D/g, '')) || mockReceiptRecords.length + 1;
   return `${sequence.prefix}-${String(nextNumber).padStart(4, '0')}`;
+}
+
+export function formatReceiptNumber(value?: number): string {
+  return `RCT-${String(value || Date.now() % 10000).padStart(4, '0')}`;
+}
+
+export function formatReceiptCurrency(value: number): string {
+  return `USD ${value.toFixed(2)}`;
 }
 
 export async function createReceiptFromSale(payload: ReceiptSalePayload): Promise<ReceiptRecord> {
@@ -208,19 +228,71 @@ export async function createReceiptFromSale(payload: ReceiptSalePayload): Promis
 
   saveList(RECEIPTS_KEY, [receipt, ...readList<ReceiptRecord>(RECEIPTS_KEY, mockReceiptRecords)]);
   saveList(LINES_KEY, [...lines, ...readList<ReceiptLine>(LINES_KEY, mockReceiptLines)]);
-  saveList(PAYMENTS_KEY, [
-    {
-      id: `RP-${receiptNumber}`,
-      receiptNumber,
-      paymentMode: payload.paymentMode,
-      amount: payload.sale.total,
-      reference: `${payload.paymentMode}-${payload.terminal}`,
-      confirmed: true
-    },
-    ...readList<ReceiptPaymentLine>(PAYMENTS_KEY, mockReceiptPayments)
-  ]);
+  const paymentRows: ReceiptPaymentLine[] = (payload.paymentLines && payload.paymentLines.length > 0
+    ? payload.paymentLines
+    : [{ method: payload.paymentMode, amount: payload.sale.total, reference: `${payload.paymentMode}-${payload.terminal}` }]
+  ).map((payment, index) => ({
+    id: `RP-${receiptNumber}-${index + 1}`,
+    receiptNumber,
+    paymentMode: normalizePaymentMode(payment.method),
+    amount: payment.amount,
+    reference: payment.reference,
+    confirmed: true
+  }));
+  saveList(PAYMENTS_KEY, [...paymentRows, ...readList<ReceiptPaymentLine>(PAYMENTS_KEY, mockReceiptPayments)]);
   addAudit('RECEIPT_CREATED', receiptNumber, `Receipt ${receiptNumber} created from completed sale.`, payload.cashier);
   return receipt;
+}
+
+export async function generateReceiptFromCompletedSale(sale: Sale): Promise<ReceiptRecord> {
+  return createReceiptFromSale({
+    sale,
+    vendorId: 'SCI-LOG-ZW',
+    businessVendor: 'iTred Commerce POS',
+    branchId: 'BR-HARARE',
+    branch: 'Harare Main',
+    terminalId: sale.terminal || 'POS-01',
+    terminal: sale.terminal || 'POS-01',
+    cashierId: sale.operator,
+    cashier: sale.operator,
+    customerName: sale.customerName,
+    paymentMode: sale.paymentMethod === 'CASH' ? 'Cash' : sale.paymentMethod === 'SPLIT' ? 'Split Payment' : 'Swipe'
+  });
+}
+
+export async function getLastReceipt(): Promise<ReceiptRecord | undefined> {
+  return readList<ReceiptRecord>(RECEIPTS_KEY, mockReceiptRecords)[0];
+}
+
+export async function getRecentReceipts(): Promise<ReceiptRecord[]> {
+  return readList<ReceiptRecord>(RECEIPTS_KEY, mockReceiptRecords).slice(0, 10);
+}
+
+export function prepareReceiptPrintPayload(receipt: ReceiptRecord): ReceiptRecord {
+  addAudit('RECEIPT_PRINT_STARTED', receipt.receiptNumber, `Receipt ${receipt.receiptNumber} print started.`, receipt.cashier);
+  return receipt;
+}
+
+export function prepareReceiptPdfPrintPayload(receipt: ReceiptRecord): ReceiptRecord {
+  addAudit('RECEIPT_PDF_PREPARED', receipt.receiptNumber, `Receipt ${receipt.receiptNumber} PDF print path prepared.`, receipt.cashier);
+  return receipt;
+}
+
+export function prepareReceiptWhatsAppMessage(receipt: ReceiptRecord, phone: string): string {
+  addAudit('RECEIPT_WHATSAPP_SHARE_PREPARED', receipt.receiptNumber, `Receipt ${receipt.receiptNumber} WhatsApp share prepared for ${phone}.`, receipt.cashier);
+  const status = receipt.status === 'Completed' ? 'Paid/Completed' : receipt.status;
+  return [
+    `Thank you for shopping with ${receipt.businessDetails.businessName}.`,
+    `Receipt ${receipt.receiptNumber}, ${new Date(receipt.dateTime).toLocaleDateString()}.`,
+    `Total ${formatReceiptCurrency(receipt.grandTotal)}.`,
+    `Payment status: ${status}.`,
+    receipt.customer.deliveryAddress ? `Delivery: ${receipt.customer.deliveryAddress}.` : '',
+    'Please keep this message for your records.'
+  ].filter(Boolean).join(' ');
+}
+
+export async function getReceiptActivityEvents(): Promise<ReceiptAuditEvent[]> {
+  return getReceiptAuditEvents();
 }
 
 export async function getReceiptPreview(receiptNumber: string, format: ReceiptFormat): Promise<ReceiptPrintPreview | undefined> {

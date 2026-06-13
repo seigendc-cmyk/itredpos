@@ -5,6 +5,7 @@ import SalesCartCard, {
   DeliveryMode,
   SalesCartNotesPayload,
   SalesCreditRedemptionPayload,
+  SalesLoyaltyRedemptionPayload,
   SalesDeliveryPaymentMode,
   SalesDeliveryPriority,
   SalesDiscountPayload,
@@ -16,6 +17,7 @@ import SalesCartCard, {
 } from '../components/SalesCartCard';
 import ReceiptPreview80mm from '../components/ReceiptPreview80mm';
 import SalesReceiptReviewModal from '../components/SalesReceiptReviewModal';
+import ReceiptOutputModal from '../components/ReceiptOutputModal';
 import SalesProfitSnapshotCard from '../components/SalesProfitSnapshotCard';
 import MiscellaneousSaleModal, { MiscellaneousSalePayload } from '../components/MiscellaneousSaleModal';
 import { mockProducts, mockRecentSales } from '../mock/mockPosData';
@@ -110,9 +112,10 @@ function branchIdFromName(branchName: string): string {
 
 function receiptPaymentMode(method: SalesPaymentMethod): PaymentMode {
   if (method === 'Credit / Account') return 'Credit Sale';
-  if (method === 'Card') return 'CARD';
+  if (method === 'Card') return 'Swipe';
   if (method === 'Mixed Payment') return 'Split Payment';
   if (method === 'Already Paid' || method === 'No Payment Due') return 'Cash';
+  if (method === 'Innbucks' || method === 'Mukuru' || method === 'ZIPIT') return 'Bank Transfer';
   return method;
 }
 
@@ -184,6 +187,7 @@ export default function PosSales({
   const [receiptPreview, setReceiptPreview] = useState<ReceiptPrintPreview | null>(null);
   const [receiptReviewSale, setReceiptReviewSale] = useState<Sale | null>(null);
   const [preparedReceiptPreview, setPreparedReceiptPreview] = useState<ReceiptPrintPreview | null>(null);
+  const [receiptOutputPreview, setReceiptOutputPreview] = useState<ReceiptPrintPreview | null>(null);
   const [workspaceMenuOpen, setWorkspaceMenuOpen] = useState(false);
   const [workspaceDrawer, setWorkspaceDrawer] = useState<SalesWorkspaceDrawer>(null);
   const [profitSnapshotOpen, setProfitSnapshotOpen] = useState(false);
@@ -241,8 +245,8 @@ export default function PosSales({
   const paymentReceived = payments.reduce((sum, payment) => sum + payment.amount, 0);
   const changeDue = Math.max(0, paymentReceived - grandTotal);
   const balanceDue = Math.max(0, grandTotal - paymentReceived);
-  const creditSaleAllowed = paymentMethod === 'Credit / Account' || paymentMethod === 'Already Paid' || paymentMethod === 'No Payment Due' ||
-    payments.some((payment) => ['Credit / Account', 'Already Paid', 'No Payment Due'].includes(payment.method));
+  const creditSaleAllowed = paymentMethod === 'Credit / Account' || paymentMethod === 'Already Paid' || (paymentMethod === 'No Payment Due' && grandTotal === 0) ||
+    payments.some((payment) => payment.method === 'Credit / Account' || payment.method === 'Already Paid' || (payment.method === 'No Payment Due' && grandTotal === 0));
   const canComplete = cart.length > 0 && (creditSaleAllowed || paymentReceived >= grandTotal);
   const canCompleteWithPermission = canComplete && canPerformAction(roleName, 'sales.complete');
   const canViewProfitSnapshot = canPerformAction(roleName, 'sales.profitSnapshot.view');
@@ -613,6 +617,7 @@ export default function PosSales({
       category: 'Miscellaneous',
       productCategory: 'Miscellaneous',
       stock: 0,
+      unit: 'Each',
       qtyOnHand: 0,
       availableStock: 0,
       minStock: 0,
@@ -785,7 +790,23 @@ export default function PosSales({
       setStatusMessage('Already Paid requires a payment note or reference.');
       return;
     }
+    if (paymentMethod === 'No Payment Due' && grandTotal > 0) {
+      setStatusMessage('No Payment Due is only available for zero-balance sales.');
+      return;
+    }
     const amount = Number(paymentAmount);
+    if (paymentMethod === 'No Payment Due' && grandTotal === 0) {
+      setPayments((current) => [{
+        id: makeId('PAY'),
+        method: paymentMethod,
+        amount: 0,
+        reference: paymentReference.trim() || 'Zero balance sale'
+      }, ...current]);
+      setPaymentAmount('');
+      setPaymentReference('');
+      logEvent('PAYMENT_CAPTURED', 'No Payment Due line added for zero-balance sale.');
+      return;
+    }
     if (!Number.isFinite(amount) || amount <= 0) {
       setStatusMessage('Enter a payment amount above zero.');
       return;
@@ -806,6 +827,7 @@ export default function PosSales({
     }, ...current]);
     setPaymentAmount('');
     setPaymentReference('');
+    logEvent('PAYMENT_CAPTURED', `${paymentMethod} payment captured for ${money(amount)}.`);
     logEvent('PAYMENT_LINE_ADDED', `${paymentMethod} payment added for ${money(amount)}.`);
   };
 
@@ -819,6 +841,9 @@ export default function PosSales({
     });
     if (insufficientLine) return `Insufficient stock for ${productName(insufficientLine.product)}.`;
     if (!creditSaleAllowed && paymentReceived < grandTotal) return 'Payment is under the sale total.';
+    if ((paymentMethod === 'Already Paid' || payments.some((payment) => payment.method === 'Already Paid')) && !paymentReference.trim() && !payments.some((payment) => payment.method === 'Already Paid' && payment.reference)) return 'Already Paid requires a payment note or reference.';
+    if ((paymentMethod === 'Credit / Account' || payments.some((payment) => payment.method === 'Credit / Account')) && customerMode === 'Walk-in Customer' && !paymentReference.trim()) return 'Credit / Account requires a selected customer or confirmation note.';
+    if ((paymentMethod === 'No Payment Due' || payments.some((payment) => payment.method === 'No Payment Due')) && grandTotal > 0) return 'No Payment Due is only available for zero-balance sales.';
     return null;
   };
 
@@ -982,9 +1007,12 @@ export default function PosSales({
         customerWhatsApp,
         customerTaxNumber,
         customerBillingAddress: selectedCustomer?.billingAddress || customerAddress,
-        customerDeliveryAddress: selectedCustomer?.deliveryAddress || customerAddress,
+        customerDeliveryAddress: deliveryAddress || selectedCustomer?.deliveryAddress || customerAddress,
         customerCreditStatus: selectedCustomer?.creditStatus,
         paymentMode: receiptPaymentMode(payments[0]?.method || paymentMethod),
+        paymentLines: payments.length > 0
+          ? payments.map((payment) => ({ method: payment.method, amount: payment.amount, reference: payment.reference }))
+          : [{ method: paymentMethod, amount: grandTotal, reference: paymentReference.trim() || undefined }],
         vatMode,
         vatRate: parsedVatRate
       });
@@ -1116,7 +1144,7 @@ export default function PosSales({
               entityId: deliveryRequest.deliveryId,
               entityNumber: deliveryRequest.deliveryNumber,
               operationType: 'CREATE_DELIVERY_REQUEST',
-              payload: { deliveryId: deliveryRequest.deliveryId, deliveryNumber: deliveryRequest.deliveryNumber, receiptNumber: receipt.receiptNumber, deliveryMethod },
+              payload: { deliveryId: deliveryRequest.deliveryId, deliveryNumber: deliveryRequest.deliveryNumber, receiptNumber: receipt.receiptNumber, deliveryMethod: deliveryMode },
               status: 'Queued',
               notes: 'Delivery request queued for sync. WhatsApp draft remains local.'
             });
@@ -1128,20 +1156,23 @@ export default function PosSales({
               operator: staffName,
               terminal: terminalName,
               severity: 'INFO',
-              payload: { deliveryId: deliveryRequest.deliveryId, deliveryNumber: deliveryRequest.deliveryNumber, receiptNumber: receipt.receiptNumber, deliveryMethod }
+              payload: { deliveryId: deliveryRequest.deliveryId, deliveryNumber: deliveryRequest.deliveryNumber, receiptNumber: receipt.receiptNumber, deliveryMethod: deliveryMode }
             });
           } catch {
             logEvent('DELIVERY_BI_SKIPPED', 'Delivery BI placeholder was skipped safely.');
           }
         }
       }
+      const completedSaleForReceipts = { ...sale, invoiceNo: receipt.receiptNumber };
       setPreparedReceiptPreview(preview || null);
-      setRecentSales((current) => [sale, ...current].slice(0, 6));
+      setReceiptOutputPreview(preview || null);
+      setRecentSales((current) => [completedSaleForReceipts, ...current].slice(0, 6));
       clearCartState();
-      setStatusMessage(saleQueuedLocally ? (deliveryQueuedLocally ? 'Sale completed locally and queued for sync. Delivery request queued for sync.' : 'Sale completed locally and queued for sync.') : deliveryMode === 'No Delivery' ? 'Sale completed successfully.' : 'Sale completed and delivery request prepared.');
+      setStatusMessage('Sale completed successfully.');
       logEvent('SALE_COMPLETED', `Sale ${invoiceNo} completed for ${money(grandTotal)}.`);
       if (hasMiscellaneousLines) logEvent('SALE_COMPLETED_WITH_MISCELLANEOUS_LINE', `Sale ${invoiceNo} included miscellaneous non-inventory line(s).`);
-      logEvent('RECEIPT_DRAFTED', `Receipt ${receipt.receiptNumber} prepared for preview.`);
+      logEvent('RECEIPT_GENERATED', `Receipt ${receipt.receiptNumber} generated for completed sale.`);
+      if (saleQueuedLocally || deliveryQueuedLocally) logEvent('SALE_COMPLETED_LOCAL_QUEUE', 'Completed sale placeholder queue updated locally.');
       return true;
     } catch (error) {
       setStatusMessage(error instanceof Error ? error.message : 'Sale completion failed.');
@@ -1236,11 +1267,13 @@ export default function PosSales({
     setStatusMessage(`Held sale cancelled locally for ${heldSale.heldSaleNumber}.`);
   };
 
-  const handleOpenReceiptReview = (sale: Sale) => {
+  const handleOpenReceiptReview = async (sale: Sale) => {
     if (!canPerformAction(roleName, 'sales.viewHistory') && !canPerformAction(roleName, 'sales.open')) {
       setStatusMessage('You do not have permission to view receipt history.');
       return;
     }
+    const preview = await getReceiptPreview(sale.invoiceNo, '80mm');
+    if (preview) setReceiptOutputPreview(preview);
     setReceiptReviewSale(sale);
     setStatusMessage('Receipt opened for review.');
     logEvent('RECENT_RECEIPT_OPENED_FOR_REVIEW', `Receipt ${sale.invoiceNo} opened for read-only review.`);
@@ -1299,6 +1332,7 @@ export default function PosSales({
       setReceiptPreview(null);
       setReceiptReviewSale(null);
       setPreparedReceiptPreview(null);
+      setReceiptOutputPreview(null);
     }
     setStatusMessage(`${mode} cleared locally.`);
     logEvent('SALES_WORKSPACE_CLEARED', `${mode} cleared from Sales Terminal.`);
@@ -1313,13 +1347,18 @@ export default function PosSales({
     logEvent('SALE_CART_NOTE_UPDATED', payload.internalNote || payload.receiptNote || payload.deliveryNote || 'Cart notes cleared.');
   };
 
-  const handleReprintSale = (sale: Sale) => {
+  const handleReprintSale = async (sale: Sale) => {
     if (!canPerformAction(roleName, 'sales.reprintReceipt')) {
       setStatusMessage('You do not have permission to reprint receipts.');
       return;
     }
-    setReceiptReviewSale(sale);
-    setStatusMessage(`Reprint prepared for ${sale.invoiceNo}. Use browser print from the receipt preview.`);
+    const preview = await getReceiptPreview(sale.invoiceNo, '80mm');
+    if (preview) {
+      setReceiptOutputPreview(preview);
+    } else {
+      setReceiptReviewSale(sale);
+    }
+    setStatusMessage(`Reprint prepared for ${sale.invoiceNo}. Use Print Receipt from the receipt output modal.`);
     logEvent('RECEIPT_REPRINT_PREPARED', `${sale.invoiceNo} prepared for reprint.`);
   };
 
@@ -1329,7 +1368,7 @@ export default function PosSales({
       setStatusMessage('No recent receipt available for reprint.');
       return;
     }
-    handleReprintSale(lastReceipt);
+    void handleReprintSale(lastReceipt);
   };
 
   const handleDuplicateSaleToCart = (sale: Sale) => {
@@ -1710,14 +1749,14 @@ export default function PosSales({
                   <p className="sales-drawer-note">Double-click a receipt to open read-only receipt review.</p>
                   <label className="sales-drawer-search">Search Recent Receipts<input value={recentReceiptSearch} onChange={(event) => setRecentReceiptSearch(event.target.value)} placeholder="Search receipt, customer, payment, cashier, item, SKU..." /></label>
                   {filteredRecentSales.map((sale) => (
-                    <article key={sale.id} className="sales-drawer-row" onDoubleClick={() => handleOpenReceiptReview(sale)}>
+                    <article key={sale.id} className="sales-drawer-row" onDoubleClick={() => void handleOpenReceiptReview(sale)}>
                       <div><strong>{sale.invoiceNo}</strong><span>{sale.customerName || 'Walk-in Customer'} | {sale.items.length} item(s) | {sale.paymentMethod} | {new Date(sale.date).toLocaleString()}</span></div>
                       <b>{money(sale.total)}</b>
                       <small>{sale.status}</small>
                       <div className="pos-recent-receipt__actions">
-                        <button type="button" className="sci-pos-link-button" onClick={() => handleOpenReceiptReview(sale)}>View Receipt</button>
+                        <button type="button" className="sci-pos-link-button" onClick={() => void handleOpenReceiptReview(sale)}>View Receipt</button>
                         <button type="button" className="sci-pos-link-button" onClick={() => { setStatusMessage(`CAT form opened locally for ${sale.invoiceNo}.`); logEvent('CAT_FORM_OPENED_LOCAL', `${sale.invoiceNo} CAT form opened locally.`); }}>Open CAT Form</button>
-                        <button type="button" className="sci-pos-link-button" onClick={() => handleReprintSale(sale)}>Reprint</button>
+                        <button type="button" className="sci-pos-link-button" onClick={() => void handleReprintSale(sale)}>Reprint</button>
                         <button type="button" className="sci-pos-link-button" disabled={!canPerformAction(roleName, 'sales.open')} onClick={() => handleDuplicateSaleToCart(sale)}>Duplicate as New Sale</button>
                       </div>
                     </article>
@@ -1770,6 +1809,18 @@ export default function PosSales({
         onReprint={handleReprintSale}
         onCatForm={(sale) => { setStatusMessage(`CAT form opened locally for ${sale.invoiceNo}.`); logEvent('CAT_FORM_OPENED_LOCAL', `${sale.invoiceNo} CAT form opened locally.`); }}
         onDuplicate={handleDuplicateSaleToCart}
+      />
+      <ReceiptOutputModal
+        preview={receiptOutputPreview}
+        canPrint={canPerformAction(roleName, 'sales.reprintReceipt')}
+        canPdf={canPerformAction(roleName, 'receipt.pdf')}
+        canWhatsApp={canPerformAction(roleName, 'receipt.whatsappShare')}
+        onClose={() => setReceiptOutputPreview(null)}
+        onOpenSalesHistory={() => {
+          setReceiptOutputPreview(null);
+          onNavigate('SALES_HISTORY');
+        }}
+        onActivity={logEvent}
       />
       <SalesProfitSnapshotCard
         open={profitSnapshotOpen}

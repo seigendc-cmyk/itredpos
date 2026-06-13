@@ -5,7 +5,7 @@ import type { Sale } from '../types';
 interface SalesReceiptReviewModalProps {
   sale: Sale | null;
   onClose: () => void;
-  onReprint: (sale: Sale) => void;
+  onReprint: (sale: Sale) => void | Promise<void>;
   onCatForm: (sale: Sale) => void;
   onDuplicate: (sale: Sale) => void;
 }
@@ -69,7 +69,7 @@ export default function SalesReceiptReviewModal({ sale, onClose, onReprint, onCa
           {activeTab === 'Audit' && <div className="sales-review-grid"><div><span>Review Mode</span><strong>Read-only</strong></div><div><span>Stock</span><strong>No stock changes</strong></div><div><span>Payment</span><strong>No payment changes</strong></div><div><span>Receipt</span><strong>No receipt mutation</strong></div></div>}
         </div>
         <div className="sales-drawer-actions">
-          <button type="button" className="sci-pos-button sci-pos-button--secondary" onClick={() => onReprint(sale)}><Printer size={16} aria-hidden="true" /> Reprint</button>
+          <button type="button" className="sci-pos-button sci-pos-button--secondary" onClick={() => void onReprint(sale)}><Printer size={16} aria-hidden="true" /> Reprint</button>
           <button type="button" className="sci-pos-button sci-pos-button--secondary" onClick={() => onCatForm(sale)}><FileText size={16} aria-hidden="true" /> Open CAT Form</button>
           <button type="button" className="sci-pos-button sci-pos-button--secondary" onClick={() => onDuplicate(sale)}><CopyPlus size={16} aria-hidden="true" /> Duplicate as New Sale</button>
           <button type="button" className="sci-pos-button sci-pos-button--primary" onClick={onClose}>Close</button>
