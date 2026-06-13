@@ -11,6 +11,14 @@ interface ProductSearchCardProps {
   onBlockedProduct?: (product: Product) => void;
   onBlockedStockAttempt?: (product: Product) => void;
   onActivity?: (eventType: string, message: string) => void;
+  canSellInventoryItems?: boolean;
+  inventoryBlockedMessage?: string;
+  canAddMiscellaneousSale?: boolean;
+  onNavigateShiftControl?: () => void;
+  onActivateTerminal?: () => void;
+  onOpenShift?: () => void;
+  onAssignDrawer?: () => void;
+  onAddMiscellaneousSale?: () => void;
 }
 
 type StockFilter = 'ALL' | 'IN_STOCK' | 'LOW_STOCK' | 'OUT_OF_STOCK';
@@ -154,7 +162,15 @@ export default function ProductSearchCard({
   onAddProduct,
   onBlockedProduct,
   onBlockedStockAttempt,
-  onActivity
+  onActivity,
+  canSellInventoryItems = true,
+  inventoryBlockedMessage = 'Terminal is not active or shift is not ready. Activate terminal and open shift before selling inventory items.',
+  canAddMiscellaneousSale = false,
+  onNavigateShiftControl,
+  onActivateTerminal,
+  onOpenShift,
+  onAssignDrawer,
+  onAddMiscellaneousSale
 }: ProductSearchCardProps) {
   const [query, setQuery] = useState('');
   const [category, setCategory] = useState('ALL');
@@ -307,6 +323,12 @@ export default function ProductSearchCard({
   };
 
   const handleAdd = (product: Product) => {
+    if (!canSellInventoryItems) {
+      setMessage('Inventory browsing is read-only while terminal is inactive.');
+      onBlockedProduct?.(product);
+      onActivity?.('TERMINAL_INVENTORY_SALES_BLOCKED', inventoryBlockedMessage);
+      return;
+    }
     if (productQty(product) <= 0) {
       setMessage('Cannot add product. Stock is not available.');
       (onBlockedStockAttempt || onBlockedProduct)?.(product);
@@ -342,14 +364,14 @@ export default function ProductSearchCard({
   };
 
   const renderCartIcon = (product: Product) => {
-    const disabled = productQty(product) <= 0;
+    const disabled = !canSellInventoryItems || productQty(product) <= 0;
     return (
       <button
         type="button"
         className="cart-icon-cta"
         onClick={() => handleAdd(product)}
         disabled={disabled}
-        title={disabled ? 'Out of stock' : 'Add to cart'}
+        title={!canSellInventoryItems ? 'Inventory selling blocked until terminal is ready' : disabled ? 'Out of stock' : 'Add to cart'}
         aria-label="Add product to cart"
       >
         <ShoppingCart size={18} aria-hidden="true" />
@@ -380,7 +402,7 @@ export default function ProductSearchCard({
       </div>
 
       <div className="sales-product-tools">
-        <button type="button" className="sci-pos-button sci-pos-button--secondary" onClick={() => setFilterCabinetOpen(true)}>
+        <button type="button" className="sci-pos-button sci-pos-button--secondary" onClick={() => setFilterCabinetOpen(true)} disabled={!canSellInventoryItems}>
           <SlidersHorizontal size={16} aria-hidden="true" />
           Filter Cabinet
         </button>
@@ -425,10 +447,25 @@ export default function ProductSearchCard({
           <input
             value={query}
             onChange={(event) => setQuery(event.target.value)}
+            disabled={!canSellInventoryItems}
             placeholder="Search by product, SKU, barcode, ALU, brand, supplier, shelf, sector, category, make, model, or part number..."
           />
         </label>
       </div>
+
+      {!canSellInventoryItems && (
+        <div className="sales-inventory-blocked-panel" role="status">
+          <strong>Inventory Product Sales Blocked</strong>
+          <span>{inventoryBlockedMessage}</span>
+          <div>
+            <button type="button" className="sci-pos-button sci-pos-button--secondary" onClick={onNavigateShiftControl}>Go to Shift Control</button>
+            <button type="button" className="sci-pos-button sci-pos-button--secondary" onClick={onActivateTerminal}>Activate Terminal</button>
+            <button type="button" className="sci-pos-button sci-pos-button--secondary" onClick={onOpenShift}>Open Shift</button>
+            <button type="button" className="sci-pos-button sci-pos-button--secondary" onClick={onAssignDrawer}>Assign Drawer</button>
+            {canAddMiscellaneousSale && <button type="button" className="sci-pos-button sci-pos-button--primary" onClick={onAddMiscellaneousSale}>Add Miscellaneous Sale</button>}
+          </div>
+        </div>
+      )}
 
       {message && (
         <div className="sci-pos-alert pos-product-search-message" role="status">

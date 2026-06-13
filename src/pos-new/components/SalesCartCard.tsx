@@ -445,6 +445,7 @@ export default function SalesCartCard({
       return false;
     }
     const blockedLine = cart.find((item) => {
+      if (item.lineType === 'MiscellaneousItem' || item.isInventoryAsset === false || item.stockMovementRequired === false) return false;
       const available = item.product.availableStock ?? item.product.qtyOnHand ?? item.product.stock;
       return available <= 0 || item.quantity > available;
     });

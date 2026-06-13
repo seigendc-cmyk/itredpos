@@ -32,6 +32,7 @@ function lineTotal(item: CartItem): number {
 }
 
 function stockStatus(item: CartItem): { label: string; tone: string } {
+  if (item.lineType === 'MiscellaneousItem' || item.isInventoryAsset === false) return { label: 'Non-Inventory / BI Flagged', tone: 'warning' };
   const qty = item.product.availableStock ?? item.product.qtyOnHand ?? item.product.stock;
   if (qty <= 0) return { label: 'Out of Stock', tone: 'danger' };
   if (qty <= (item.product.reorderLevel ?? item.product.minStock)) return { label: 'Low Stock', tone: 'warning' };
@@ -101,7 +102,7 @@ export default function FloatingCartItemsCard({
                         <strong>{item.product.productName || item.product.name}</strong>
                         <span className={`sales-status-text sales-status-text--${status.tone}`}>{status.label}</span>
                       </td>
-                      <td className="sales-sku">{item.product.sku || item.product.code}</td>
+                      <td className={`sales-sku ${item.lineType === 'MiscellaneousItem' ? 'sales-sku--misc' : ''}`}>{item.sku || item.product.sku || item.product.code}</td>
                       <td>
                         <div className="floating-cart-qty">
                           <button type="button" onClick={() => onQuantityChange(item.product.id, -1)} disabled={item.quantity <= 1} aria-label="Decrease quantity"><Minus size={13} /></button>

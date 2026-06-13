@@ -63,6 +63,10 @@ function nowIso(): string {
   return new Date().toISOString();
 }
 
+function todayIsoDate(): string {
+  return new Date().toISOString().slice(0, 10);
+}
+
 function makeId(prefix: string): string {
   return `${prefix}-${Date.now()}-${Math.floor(1000 + Math.random() * 9000)}`;
 }
@@ -112,13 +116,147 @@ function normalizeRisk(value?: string): RiskLevel {
   return 'Medium';
 }
 
+function mockAdviceRecords(): BIAdviceRecord[] {
+  const now = nowIso();
+  const today = todayIsoDate();
+  return [
+    {
+      adviceId: 'BIA-MOCK-REORDER-STAGNANT',
+      adviceNumber: 'BIA-RB-MOCK-001',
+      category: 'Reorder Control',
+      title: 'Stagnant Stock Reorder Warning',
+      narrative: 'Product is available in stock but has no significant movement in the last 45 days. Reordering is risky until shelf quantity, condition, and sales history are reviewed.',
+      riskLevel: 'High',
+      priority: 'High',
+      sourceTriggerId: 'MOCK-STAGNANT-45D',
+      sourceLogId: 'BI-LOG-STAGNANT-45D',
+      sourceModule: 'BI Brain Trigger Logs',
+      productId: 'PROD-MOCK-STAGNANT',
+      productName: 'Industrial Bearing Kit',
+      sku: 'BRG-KIT-45D',
+      branchName: 'Harare Main',
+      shelfLocation: 'A1-S4',
+      assignedToRole: 'Stock Controller + Manager',
+      assignedDesk: 'Stock Desk / Manager Desk',
+      dueDate: today,
+      status: 'New',
+      recommendedAction: 'Block Reorder',
+      actionPoints: [makeActionPoint('BIA-MOCK-REORDER-STAGNANT', 'Block Reorder', 'Block reorder until Manager approval and shelf condition review are complete.', 'Manager', today)],
+      createdAt: now,
+      updatedAt: now,
+      notes: 'Manager approval required before purchase order continuation.'
+    },
+    {
+      adviceId: 'BIA-MOCK-SHELF-STOCKTAKE',
+      adviceNumber: 'BIA-SH-MOCK-001',
+      category: 'Shelf Stocktake',
+      title: 'Shelf Stocktake Assignment',
+      narrative: 'Monthly rotating shelf stocktake has assigned Shelf A1-S3 for today. Staff must count items and submit variance before close of day.',
+      riskLevel: 'Medium',
+      priority: 'Medium',
+      sourceTriggerId: 'MOCK-SHELF-A1-S3',
+      sourceLogId: 'BI-LOG-SHELF-A1-S3',
+      sourceModule: 'BI Shelf Stocktake Planner',
+      branchName: 'Harare Main',
+      shelfLocation: 'A1-S3',
+      assignedToStaffId: 'ST-BLESSING',
+      assignedToStaffName: 'Blessing Stock',
+      assignedToRole: 'Stock Controller',
+      assignedDesk: 'Stock Desk',
+      dueDate: today,
+      status: 'Assigned',
+      recommendedAction: 'Start Stocktake',
+      actionPoints: [makeActionPoint('BIA-MOCK-SHELF-STOCKTAKE', 'Start Stocktake', 'Start shelf stocktake and submit variance before close of day.', 'Stock Controller', today)],
+      createdAt: now,
+      updatedAt: now,
+      notes: 'Shelf A1-S3 assigned to Stock Controller One today.'
+    },
+    {
+      adviceId: 'BIA-MOCK-CASH-VARIANCE',
+      adviceNumber: 'BIA-CASH-MOCK-001',
+      category: 'Cash Control',
+      title: 'Cash Drawer Variance Review',
+      narrative: 'Counted cash is higher/lower than expected drawer cash. Review sales, refunds, cash drops, and drawer open logs before EOD approval.',
+      riskLevel: 'Critical',
+      priority: 'Critical',
+      sourceTriggerId: 'MOCK-CASH-VARIANCE',
+      sourceLogId: 'BI-LOG-CASH-VARIANCE',
+      sourceModule: 'Shift EOD Control',
+      branchName: 'Harare Main',
+      assignedToRole: 'Manager / Owner',
+      assignedDesk: 'Cash Control / Owner Desk',
+      dueDate: today,
+      status: 'New',
+      recommendedAction: 'Review Cash Variance',
+      actionPoints: [makeActionPoint('BIA-MOCK-CASH-VARIANCE', 'Review Cash Variance', 'Review sales, refunds, cash drops, and drawer open logs before EOD approval.', 'Manager', today)],
+      createdAt: now,
+      updatedAt: now,
+      notes: 'Cash variance owner review route.'
+    },
+    {
+      adviceId: 'BIA-MOCK-PRICE-OVERRIDE',
+      adviceNumber: 'BIA-PRICE-MOCK-001',
+      category: 'Pricing Control',
+      title: 'Price Override Review',
+      narrative: 'Repeated manual price overrides were detected in the selected shift. Review cashier behaviour and product pricing rules.',
+      riskLevel: 'High',
+      priority: 'High',
+      sourceTriggerId: 'MOCK-PRICE-OVERRIDE',
+      sourceLogId: 'BI-LOG-PRICE-OVERRIDE',
+      sourceModule: 'Sales Integrity',
+      branchName: 'Harare Main',
+      assignedToRole: 'Manager / Supervisor',
+      assignedDesk: 'Manager Desk',
+      dueDate: today,
+      status: 'New',
+      recommendedAction: 'Review Staff Action',
+      actionPoints: [makeActionPoint('BIA-MOCK-PRICE-OVERRIDE', 'Review Staff Action', 'Supervisor must review manual price override pattern.', 'Supervisor', today)],
+      createdAt: now,
+      updatedAt: now,
+      notes: 'Pricing control warning for cashier behaviour.'
+    },
+    {
+      adviceId: 'BIA-MOCK-DELIVERY-CODE',
+      adviceNumber: 'BIA-DEL-MOCK-001',
+      category: 'Delivery Verification',
+      title: 'Delivery Code Verification Risk',
+      narrative: 'Delivery fulfilment code was not verified or had failed attempts. Review delivery confirmation before marking delivery complete.',
+      riskLevel: 'Medium',
+      priority: 'Medium',
+      sourceTriggerId: 'MOCK-DELIVERY-CODE',
+      sourceLogId: 'BI-LOG-DELIVERY-CODE',
+      sourceModule: 'Delivery Verification',
+      branchName: 'Harare Main',
+      assignedToRole: 'Delivery Staff / Manager',
+      assignedDesk: 'Delivery Desk / Manager Desk',
+      dueDate: today,
+      status: 'Assigned',
+      recommendedAction: 'Review Delivery',
+      actionPoints: [makeActionPoint('BIA-MOCK-DELIVERY-CODE', 'Review Delivery', 'Delivery supervisor must verify customer code attempts before completion.', 'Delivery Staff', today)],
+      createdAt: now,
+      updatedAt: now,
+      notes: 'Delivery Desk / Manager Desk route.'
+    }
+  ];
+}
+
+function ensureAdviceSeeded(): BIAdviceRecord[] {
+  const records = readList<BIAdviceRecord>(ADVICE_KEY);
+  if (records.length > 0) return records;
+  const seeded = mockAdviceRecords();
+  saveList(ADVICE_KEY, seeded);
+  seeded.forEach((record) => recordActivity({ eventType: 'BI_ADVICE_GENERATED', adviceId: record.adviceId, message: `${record.adviceNumber} seeded for local BI Advice Flow.` }));
+  return seeded;
+}
+
 function categoryFromTrigger(trigger: TriggerLike): BIAdviceCategory {
   const domain = String(trigger.domain || '');
   const eventType = String(trigger.eventType || '');
   if (domain.includes('Cash') || eventType.includes('CASH')) return 'Cash Control';
   if (domain.includes('Delivery') || eventType.includes('DELIVERY')) return 'Delivery Verification';
   if (domain.includes('Staff') || eventType.includes('LOGIN')) return 'Staff Behaviour';
-  if (domain.includes('Sales') || eventType.includes('PRICE')) return 'Sales Integrity';
+  if (eventType.includes('PRICE')) return 'Pricing Control';
+  if (domain.includes('Sales')) return 'Sales Integrity';
   if (eventType.includes('REORDER')) return 'Reorder Control';
   return 'Stock Health';
 }
@@ -167,7 +305,7 @@ function upsertAdvice(advice: BIAdviceRecord): BIAdviceRecord {
 }
 
 export async function getBIAdviceRecords(filters: BIAdviceFilterState = {}): Promise<BIAdviceRecord[]> {
-  const records = readList<BIAdviceRecord>(ADVICE_KEY);
+  const records = ensureAdviceSeeded();
   return records.filter((record) => {
     const matchesSearch = matchesFreeOrderSearch(record, filters.search || '', [
       'adviceNumber',
@@ -187,6 +325,7 @@ export async function getBIAdviceRecords(filters: BIAdviceFilterState = {}): Pro
       'notes'
     ]);
     const matchesCategory = !filters.category || filters.category === 'ALL' || record.category === filters.category;
+    const matchesPriority = !filters.priority || filters.priority === 'ALL' || record.priority === filters.priority;
     const matchesRisk = !filters.riskLevel || filters.riskLevel === 'ALL' || record.riskLevel === filters.riskLevel;
     const matchesStatus = !filters.status || filters.status === 'ALL' || record.status === filters.status;
     const matchesRole = !filters.assignedRole || record.assignedToRole === filters.assignedRole;
@@ -195,8 +334,30 @@ export async function getBIAdviceRecords(filters: BIAdviceFilterState = {}): Pro
     const created = new Date(record.createdAt).getTime();
     const afterFrom = !filters.dateFrom || created >= new Date(filters.dateFrom).getTime();
     const beforeTo = !filters.dateTo || created <= new Date(filters.dateTo).getTime() + 86400000;
-    return matchesSearch && matchesCategory && matchesRisk && matchesStatus && matchesRole && matchesStaff && matchesBranch && afterFrom && beforeTo;
+    return matchesSearch && matchesCategory && matchesPriority && matchesRisk && matchesStatus && matchesRole && matchesStaff && matchesBranch && afterFrom && beforeTo;
   });
+}
+
+export async function getBIAdviceSummary(): Promise<{
+  newAdvice: number;
+  assigned: number;
+  inProgress: number;
+  critical: number;
+  shelfStocktakesToday: number;
+  reorderBlocks: number;
+  resolvedToday: number;
+}> {
+  const records = ensureAdviceSeeded();
+  const today = todayIsoDate();
+  return {
+    newAdvice: records.filter((record) => record.status === 'New').length,
+    assigned: records.filter((record) => record.status === 'Assigned').length,
+    inProgress: records.filter((record) => record.status === 'In Progress').length,
+    critical: records.filter((record) => record.priority === 'Critical' || record.riskLevel === 'Critical').length,
+    shelfStocktakesToday: records.filter((record) => record.category === 'Shelf Stocktake' && record.dueDate === today).length,
+    reorderBlocks: records.filter((record) => record.category === 'Reorder Control').length,
+    resolvedToday: records.filter((record) => record.status === 'Resolved' && record.resolvedAt?.startsWith(today)).length
+  };
 }
 
 export async function getBIAdviceRecordById(adviceId: string): Promise<BIAdviceRecord | null> {
@@ -239,6 +400,8 @@ export async function createBIAdviceFromTrigger(trigger: TriggerLike): Promise<B
 
 export async function generateBIAdviceFromTriggerLogs(triggers: TriggerLike[] = [], products: Product[] = []): Promise<BIAdviceRecord[]> {
   const generated: BIAdviceRecord[] = [];
+  const seeded = ensureAdviceSeeded();
+  if (triggers.length === 0 && products.length === 0) return seeded;
   for (const trigger of triggers) {
     generated.push(await createBIAdviceFromTrigger(trigger));
   }
@@ -321,6 +484,88 @@ export async function escalateBIAdvice(adviceId: string, staffId: string, reason
 
 export async function getBIAdviceActivityEvents(filters: { adviceId?: string } = {}): Promise<BIAdviceActivityEvent[]> {
   return readList<BIAdviceActivityEvent>(ACTIVITY_KEY).filter((event) => !filters.adviceId || event.adviceId === filters.adviceId);
+}
+
+export async function generateReorderBlockWarnings(filters: { products?: Product[] } = {}): Promise<BIReorderBlockWarning[]> {
+  const sourceProducts = filters.products || [];
+  const warnings = sourceProducts.map(createReorderBlockWarningForProduct).filter((warning): warning is BIReorderBlockWarning => Boolean(warning));
+  if (warnings.length === 0) {
+    const mockWarning: BIReorderBlockWarning = {
+      warningId: 'BRW-MOCK-STAGNANT-45D',
+      productId: 'PROD-MOCK-STAGNANT',
+      sku: 'BRG-KIT-45D',
+      productName: 'Industrial Bearing Kit',
+      currentQty: 18,
+      availableQty: 18,
+      lastMovementDate: new Date(Date.now() - 45 * 86400000).toISOString(),
+      daysWithoutMovement: 45,
+      blocked: true,
+      reason: 'Product is available in stock but has no significant movement in the last 45 days. Manager approval is required before reorder.',
+      createdAt: nowIso()
+    };
+    saveList(REORDER_WARNING_KEY, [mockWarning, ...readList<BIReorderBlockWarning>(REORDER_WARNING_KEY).filter((item) => item.warningId !== mockWarning.warningId)]);
+    createAdviceFromReorderWarning(mockWarning, {
+      id: mockWarning.productId,
+      code: mockWarning.sku,
+      sku: mockWarning.sku,
+      name: mockWarning.productName,
+      productName: mockWarning.productName,
+      category: 'Industrial Spares',
+      stock: mockWarning.currentQty,
+      availableStock: mockWarning.availableQty,
+      minStock: 5,
+      price: 120,
+      cost: 82,
+      branch: 'Harare Main',
+      shelfLocation: 'A1-S4',
+      lastMovementDate: mockWarning.lastMovementDate
+    } as Product);
+    return [mockWarning];
+  }
+  return warnings;
+}
+
+export async function createMiscellaneousSaleAdvice(payload: {
+  receiptNo?: string;
+  description: string;
+  amount: number;
+  quantity: number;
+  reason: string;
+  staffName: string;
+  terminalName: string;
+  branchName: string;
+  notes?: string;
+}): Promise<BIAdviceRecord> {
+  const adviceId = `BIA-MISC-${Date.now()}`;
+  const priority = payload.amount >= 250 ? 'High' : 'Medium';
+  return upsertAdvice({
+    adviceId,
+    adviceNumber: `BIA-MISC-${Date.now().toString().slice(-8)}`,
+    category: 'Sales Integrity',
+    title: 'Miscellaneous Sale Review Required',
+    narrative: 'A miscellaneous non-inventory sale was captured. This item is not part of the inventory asset register and must be reviewed to confirm whether it should become a product, service, or approved one-off sale.',
+    riskLevel: priority,
+    priority,
+    sourceTriggerId: `MISCELLANEOUS_SALE_REVIEW_REQUIRED-${payload.receiptNo || adviceId}`,
+    sourceLogId: payload.receiptNo,
+    sourceModule: 'Sales Terminal',
+    productName: payload.description,
+    sku: 'MISC-SALE',
+    branchName: payload.branchName,
+    assignedToRole: priority === 'High' ? 'Owner' : 'Manager',
+    assignedDesk: 'Manager Desk / Owner Desk / BI Desk',
+    dueDate: todayIsoDate(),
+    status: 'New',
+    recommendedAction: 'Create Task',
+    actionPoints: [
+      makeActionPoint(adviceId, 'Create Task', 'Review receipt for miscellaneous sale classification.', 'Manager', todayIsoDate()),
+      makeActionPoint(adviceId, 'Review Stock', 'Verify reason and decide whether to create product master item.', 'Manager', todayIsoDate()),
+      makeActionPoint(adviceId, 'Request Approval', 'Approve as one-off sale or request correction.', priority === 'High' ? 'Owner' : 'Manager', todayIsoDate())
+    ],
+    createdAt: nowIso(),
+    updatedAt: nowIso(),
+    notes: `Reason: ${payload.reason}. Amount: USD ${payload.amount.toFixed(2)}. Staff: ${payload.staffName}. Terminal: ${payload.terminalName}.${payload.notes ? ` Notes: ${payload.notes}` : ''}`
+  });
 }
 
 export function createReorderBlockWarningForProduct(product: Product): BIReorderBlockWarning | null {
@@ -420,6 +665,60 @@ export function createMonthlyShelfStocktakeAssignments(products: Product[], bran
     recordActivity({ eventType: 'BI_SHELF_STOCKTAKE_PLAN_CREATED', message: `${fresh.length} monthly shelf stocktake assignments prepared.` });
   }
   return assignments.filter((assignment) => assignment.assignedDate === today);
+}
+
+export async function generateShelfStocktakeAssignmentsForMonth(payload: {
+  branchId?: string;
+  branchName?: string;
+  warehouseId?: string;
+  month?: string;
+  workingDays?: string[];
+  staff?: Array<{ id: string; name: string }>;
+  products?: Product[];
+} = {}): Promise<BIShelfStocktakeAssignment[]> {
+  const products = payload.products || [];
+  const fallbackShelves = ['A1-S1', 'A1-S2', 'B1-S1', 'B1-S2', 'C1-S1'];
+  const workingDays = payload.workingDays && payload.workingDays.length > 0 ? payload.workingDays : workingDaysThisMonth();
+  const shelves = products.length > 0
+    ? Array.from(new Set(products.map((product) => product.shelfLocation || product.binLocation || 'UNASSIGNED').filter(Boolean)))
+    : fallbackShelves;
+  const today = todayIsoDate();
+  const staff = payload.staff && payload.staff.length > 0 ? payload.staff : [{ id: 'ST-BLESSING', name: 'Stock Controller One' }];
+  const assignments = shelves.map((shelf, index): BIShelfStocktakeAssignment => {
+    const assignedDate = workingDays[index % workingDays.length] || today;
+    const assignedStaff = staff[index % staff.length];
+    const shelfProducts = products.filter((product) => (product.shelfLocation || product.binLocation || 'UNASSIGNED') === shelf);
+    return {
+      assignmentId: `BISA-${shelf.replace(/[^a-z0-9]/gi, '-')}-${assignedDate}`,
+      branchId: payload.branchId || 'BR-LOCAL',
+      branchName: payload.branchName || 'Harare Main',
+      warehouseId: payload.warehouseId || shelfProducts[0]?.warehouseId || 'WH-LOCAL',
+      shelfLocation: shelf,
+      assignedDate,
+      assignedStaffId: assignedStaff.id,
+      assignedStaffName: assignedStaff.name,
+      itemCount: shelfProducts.length || 12,
+      status: assignedDate === today ? 'Assigned' : 'Pending',
+      reason: 'Monthly rotating shelf stocktake',
+      createdFromBIAdviceId: `BIA-SHELF-${shelf}`
+    };
+  });
+  const existing = readList<BIShelfStocktakeAssignment>(SHELF_ASSIGNMENT_KEY);
+  const merged = [...assignments, ...existing.filter((item) => !assignments.some((assignment) => assignment.assignmentId === item.assignmentId))];
+  saveList(SHELF_ASSIGNMENT_KEY, merged);
+  assignments.filter((assignment) => assignment.assignedDate === today).forEach(createAdviceFromShelfAssignment);
+  recordActivity({ eventType: 'BI_SHELF_STOCKTAKE_PLAN_CREATED', message: `${assignments.length} shelf stocktake assignment(s) generated for ${payload.month || today.slice(0, 7)}.` });
+  return assignments;
+}
+
+export async function getTodayShelfStocktakeAssignments(filters: { branchId?: string; staffId?: string } = {}): Promise<BIShelfStocktakeAssignment[]> {
+  const today = todayIsoDate();
+  const assignments = readList<BIShelfStocktakeAssignment>(SHELF_ASSIGNMENT_KEY);
+  return assignments.filter((assignment) =>
+    assignment.assignedDate === today &&
+    (!filters.branchId || assignment.branchId === filters.branchId) &&
+    (!filters.staffId || assignment.assignedStaffId === filters.staffId)
+  );
 }
 
 function createAdviceFromShelfAssignment(assignment: BIShelfStocktakeAssignment): BIAdviceRecord {

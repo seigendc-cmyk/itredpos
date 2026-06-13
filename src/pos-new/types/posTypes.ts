@@ -291,6 +291,7 @@ export interface BIReorderBlockWarning {
 export interface BIAdviceFilterState {
   search?: string;
   category?: 'ALL' | BIAdviceCategory;
+  priority?: 'ALL' | BIAdvicePriority;
   riskLevel?: 'ALL' | RiskLevel;
   status?: 'ALL' | BIAdviceStatus;
   assignedRole?: string;
@@ -803,6 +804,17 @@ export interface CartItem {
   quantity: number;
   discount: number; // custom percentage or dollar
   overriddenPrice?: number;
+  lineType?: 'InventoryItem' | 'MiscellaneousItem' | 'ServiceItem' | 'DeliveryFee' | 'Discount' | 'Credit';
+  isInventoryAsset?: boolean;
+  inventoryProductId?: string;
+  sku?: string;
+  miscReason?: string;
+  miscNotes?: string;
+  requiresManagementReview?: boolean;
+  biFlagged?: boolean;
+  stockMovementRequired?: boolean;
+  taxable?: boolean;
+  vatRate?: number;
 }
 
 export interface SalePayment {
@@ -811,7 +823,7 @@ export interface SalePayment {
   reference?: string;
 }
 
-export type SalesProfitPeriod = 'Today' | 'Current Shift' | 'This Week' | 'This Month' | 'Custom';
+export type SalesProfitPeriod = 'Today' | 'Current Shift' | 'Yesterday' | 'This Week' | 'This Month' | 'Custom';
 
 export type SalesProfitSnapshotStatus = 'Ready' | 'Empty' | 'Restricted' | 'Generated' | 'Error';
 
@@ -824,8 +836,19 @@ export interface SalesProfitSnapshotFilter {
   cashierStaffId?: string;
   includeHeldSales?: boolean;
   includeReturns?: boolean;
+  includeDiscounts?: boolean;
   includeDeliveryFees?: boolean;
   includeOpex?: boolean;
+  includeDrawerExpenses?: boolean;
+}
+
+export interface SalesProfitDrawerExpense {
+  expenseId: string;
+  expenseType: string;
+  amount: number;
+  note: string;
+  staff: string;
+  time: string;
 }
 
 export interface SalesProfitSnapshotMetric {
@@ -850,7 +873,9 @@ export interface SalesProfitSnapshotPayload {
   cogs: number;
   grossProfit: number;
   opex: number;
+  drawerExpenses: number;
   netDrawerProfit: number;
+  drawerExpenseBreakdown: SalesProfitDrawerExpense[];
   salesCount: number;
   itemCount: number;
   averageGrossMargin: number;
@@ -880,6 +905,10 @@ export interface Sale {
     quantity: number;
     price: number;
     total: number;
+    lineType?: CartItem['lineType'];
+    isInventoryAsset?: boolean;
+    requiresManagementReview?: boolean;
+    biFlagged?: boolean;
   }[];
   subtotal: number;
   tax: number;

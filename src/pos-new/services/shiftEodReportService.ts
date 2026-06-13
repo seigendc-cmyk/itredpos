@@ -7,7 +7,9 @@ export interface ShiftEodContext {
   branchName: string;
   terminalId: string;
   terminalName: string;
+  staffId?: string;
   staffName: string;
+  roleName?: string;
   shift?: ShiftSessionControl | Shift | null;
   transactions?: Transaction[];
   cashLogs?: CashLog[];
@@ -67,10 +69,12 @@ export interface ShiftPaymentSummary {
   ecocashPlaceholder: number;
   innbucksPlaceholder: number;
   mukuruPlaceholder: number;
+  zipitPlaceholder: number;
   bankTransfer: number;
   cardPlaceholder: number;
   accountCredit: number;
   mixedPayment: number;
+  alreadyPaid: number;
 }
 
 export interface ShiftDrawerSummary {
@@ -98,7 +102,15 @@ export interface ShiftActivitySummary {
 
 export interface ShiftEodPrintPayload {
   generatedAt: string;
+  generatedBy: string;
+  reportNumber: string;
+  reportStatus: string;
+  source: string;
   businessName: string;
+  branchId: string;
+  terminalId: string;
+  staffId: string;
+  roleName: string;
   summary: ShiftEodSummary;
   vat: ShiftVatSummary;
   cashVariance: ShiftCashVarianceSummary;
@@ -106,6 +118,14 @@ export interface ShiftEodPrintPayload {
   payments: ShiftPaymentSummary;
   drawer: ShiftDrawerSummary;
   activity: ShiftActivitySummary;
+  exceptions: string[];
+  signatures: {
+    preparedBy: string;
+    reviewedBy: string;
+    approvedBy: string;
+    cashHandedOverBy: string;
+    cashReceivedBy: string;
+  };
   pdfInstruction: string;
 }
 
@@ -133,7 +153,9 @@ function contextFrom(input: ShiftEodContext | string): ShiftEodContext {
     branchName: 'Harare Main',
     terminalId: DEFAULT_TERMINAL_ID,
     terminalName: DEFAULT_TERMINAL_ID,
+    staffId: 'STAFF-LOCAL',
     staffName: 'Local Operator',
+    roleName: 'Local Operator',
     shift: { id: input, status: 'CLOSED', operator: 'Local Operator', startTime: nowIso(), startingCash: 0, expectedCash: 0, salesCount: 0, totalSales: 0 }
   };
 }
@@ -200,6 +222,34 @@ function paymentTotal(transactions: Transaction[] = [], matcher: (method: string
   return completedTransactions(transactions)
     .filter((transaction) => matcher(String(transaction.paymentMethod)))
     .reduce((sum, transaction) => sum + transaction.total, 0);
+}
+
+function normalisePaymentMethod(method: string): string {
+  return method.trim().toUpperCase().replace(/[\s/_-]+/g, '');
+}
+
+function varianceStatus(variance: number): string {
+  if (variance === 0) return 'Balanced';
+  return variance > 0 ? 'Over declared cash' : 'Cash short';
+}
+
+function buildReportNumber(summary: ShiftEodSummary, generatedAt: string): string {
+  const shiftPart = summary.shiftId.replace(/[^A-Z0-9]+/gi, '-').replace(/^-|-$/g, '') || 'SHIFT-LOCAL';
+  const timestampPart = generatedAt.replace(/[-:.TZ]/g, '').slice(0, 12);
+  return `EOD-${shiftPart}-${timestampPart}`;
+}
+
+function buildExceptions(context: ShiftEodContext, cashVariance: ShiftCashVarianceSummary, activity: ShiftActivitySummary): string[] {
+  const exceptions: string[] = [];
+  if (cashVariance.variance !== 0) {
+    exceptions.push(`Cash variance recorded: ${varianceStatus(cashVariance.variance)} by USD ${Math.abs(cashVariance.variance).toFixed(2)}.`);
+  }
+  if (activity.deliveryEvents > 0) exceptions.push(`${activity.deliveryEvents} delivery event(s) require EOD review.`);
+  if (activity.approvalEvents > 0) exceptions.push(`${activity.approvalEvents} approval event(s) recorded during this shift.`);
+  if ((context.cashNotes || '').trim()) exceptions.push(`EOD notes: ${context.cashNotes!.trim()}`);
+  exceptions.push('Unposted offline sales: Local build placeholder - none flagged.');
+  exceptions.push('Suspicious overrides: Local build placeholder - none flagged.');
+  return exceptions;
 }
 
 async function resolveContext(input: ShiftEodContext | string): Promise<ShiftEodContext> {
@@ -290,10 +340,12 @@ export async function generateShiftPaymentSummary(input: ShiftEodContext | strin
     ecocashPlaceholder: paymentTotal(transactions, (method) => method === 'EcoCash'),
     innbucksPlaceholder: paymentTotal(transactions, (method) => method === 'Innbucks'),
     mukuruPlaceholder: paymentTotal(transactions, (method) => method === 'Mukuru'),
+    zipitPlaceholder: paymentTotal(transactions, (method) => normalisePaymentMethod(method) === 'ZIPIT'),
     bankTransfer: paymentTotal(transactions, (method) => method === 'Bank Transfer'),
     cardPlaceholder: paymentTotal(transactions, (method) => method === 'CARD' || method === 'Card'),
     accountCredit: paymentTotal(transactions, (method) => method === 'Credit Sale'),
-    mixedPayment: paymentTotal(transactions, (method) => method === 'SPLIT' || method === 'Split Payment')
+    mixedPayment: paymentTotal(transactions, (method) => method === 'SPLIT' || method === 'Split Payment'),
+    alreadyPaid: paymentTotal(transactions, (method) => normalisePaymentMethod(method) === 'ALREADYPAID')
   };
 }
 
@@ -331,6 +383,7 @@ export async function generateShiftActivitySummary(input: ShiftEodContext | stri
 }
 
 export async function prepareShiftEodPrintPayload(input: ShiftEodContext | string): Promise<ShiftEodPrintPayload> {
+  const context = contextFrom(input);
   const [summary, vat, cashVariance, sales, payments, drawer, activity] = await Promise.all([
     generateShiftEodSummary(input),
     generateShiftVatSummary(input),
@@ -340,9 +393,18 @@ export async function prepareShiftEodPrintPayload(input: ShiftEodContext | strin
     generateShiftDrawerSummary(input),
     generateShiftActivitySummary(input)
   ]);
+  const generatedAt = nowIso();
   return {
-    generatedAt: nowIso(),
+    generatedAt,
+    generatedBy: context.staffName || summary.staff,
+    reportNumber: buildReportNumber(summary, generatedAt),
+    reportStatus: 'Local Build Preview',
+    source: 'Local Build Development',
     businessName: 'iTred Commerce POS',
+    branchId: context.branchId,
+    terminalId: context.terminalId,
+    staffId: context.staffId || 'STAFF-LOCAL',
+    roleName: context.roleName || 'POS Operator',
     summary,
     vat,
     cashVariance,
@@ -350,6 +412,14 @@ export async function prepareShiftEodPrintPayload(input: ShiftEodContext | strin
     payments,
     drawer,
     activity,
+    exceptions: buildExceptions(context, cashVariance, activity),
+    signatures: {
+      preparedBy: context.staffName || summary.staff,
+      reviewedBy: '',
+      approvedBy: '',
+      cashHandedOverBy: context.staffName || summary.staff,
+      cashReceivedBy: ''
+    },
     pdfInstruction: prepareShiftEodPdfPlaceholder(summary.shiftId)
   };
 }

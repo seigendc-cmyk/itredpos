@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Check, Eye, Filter, ShieldCheck, X } from 'lucide-react';
+import { Check, Eye, Filter, MoreVertical, ShieldCheck, X } from 'lucide-react';
 import {
   OperationalApprovalCategory,
   OperationalApprovalEvent,
@@ -15,6 +15,7 @@ import {
   viewOperationalApproval
 } from '../services/approvalService';
 import { approveCustomer, rejectCustomer } from '../services/customerService';
+import { approveTerminalActivation, getTerminalActivationRequests, runTerminalControlCheck } from '../services/terminalControlService';
 import { hasPermission } from '../utils/posPermissions';
 
 interface PosApprovalsProps {
@@ -72,6 +73,7 @@ export default function PosApprovals({ session }: PosApprovalsProps) {
   const [selectedApprovalId, setSelectedApprovalId] = useState<string>('');
   const [decisionNote, setDecisionNote] = useState('');
   const [notice, setNotice] = useState<string | null>(null);
+  const [openActionMenuId, setOpenActionMenuId] = useState<string | null>(null);
 
   const loadApprovals = async () => {
     const [approvalRows, eventRows] = await Promise.all([
@@ -128,7 +130,67 @@ export default function PosApprovals({ session }: PosApprovalsProps) {
     setApprovals(updated);
     setEvents(await getOperationalApprovalEvents());
     setNotice(`${approval.category} ${decision.toLowerCase()}.`);
+    if (approval.category === 'Terminal Activation') {
+      setNotice(decision === 'Approved' ? 'Terminal activation approved.' : 'Terminal activation rejected.');
+    }
     setDecisionNote('');
+  };
+
+  const isTerminalActivation = (approval: OperationalApprovalRequest | null) => approval?.category === 'Terminal Activation';
+
+  const handleMenuOpened = (approval: OperationalApprovalRequest) => {
+    setOpenActionMenuId((current) => current === approval.id ? null : approval.id);
+    setSelectedApprovalId(approval.id);
+    setNotice(`APPROVAL_ACTION_MENU_OPENED: ${approval.id}.`);
+  };
+
+  const handleRequestMoreInfo = (approval: OperationalApprovalRequest) => {
+    setSelectedApprovalId(approval.id);
+    setNotice(`More information requested for ${approval.id}.`);
+    setOpenActionMenuId(null);
+  };
+
+  const handleAssignReviewer = (approval: OperationalApprovalRequest) => {
+    setSelectedApprovalId(approval.id);
+    setNotice(`${approval.id} assigned to ${operator} for local review.`);
+    setOpenActionMenuId(null);
+  };
+
+  const handleEscalate = (approval: OperationalApprovalRequest) => {
+    setSelectedApprovalId(approval.id);
+    setNotice(`${approval.id} escalated to Owner locally.`);
+    setOpenActionMenuId(null);
+  };
+
+  const handleRunReadiness = async (approval: OperationalApprovalRequest) => {
+    const terminalId = approval.relatedRecord || 'POS-01';
+    const check = await runTerminalControlCheck({
+      vendorId: 'SCI-LOG-ZW',
+      branchId: approval.branch?.toLowerCase().includes('bulawayo') ? 'BR-BYO' : 'BR-HARARE',
+      terminalId,
+      terminalName: terminalId,
+      staffId: operator,
+      staffName: operator,
+      role: roleName,
+      requiresCashDrawer: true
+    });
+    setNotice(`Readiness: ${check.message}`);
+    setOpenActionMenuId(null);
+  };
+
+  const handleActivateTerminalFromApproval = async (approval: OperationalApprovalRequest) => {
+    const requests = await getTerminalActivationRequests('SCI-LOG-ZW');
+    const request = requests.find((item) => item.id === approval.relatedRecord || item.terminalId === approval.relatedRecord || item.terminalName === approval.relatedRecord);
+    if (!request) {
+      setNotice('Terminal activation request not found locally.');
+      return;
+    }
+    await approveTerminalActivation(request.id, operator);
+    const updated = approval.status === 'Pending' ? await decideOperationalApproval(approval.id, 'Approved', operator, decisionNote.trim() || 'Approved for terminal activation.') : await getOperationalApprovals();
+    setApprovals(updated);
+    setEvents(await getOperationalApprovalEvents());
+    setNotice('Terminal activated successfully.');
+    setOpenActionMenuId(null);
   };
 
   return (
@@ -246,11 +308,20 @@ export default function PosApprovals({ session }: PosApprovalsProps) {
                     <td><span className={`sci-status-pill ${statusClass(approval.status)}`}>{approval.status}</span></td>
                     <td>{moneylessDate(approval.requestedAt)}</td>
                     <td>
-                      <div className="pos-approval-actions">
-                        <ApprovalButton icon={Eye} label="View Context" onClick={() => handleViewContext(approval)} />
-                        <ApprovalButton icon={Check} label="Approve" onClick={() => handleDecision(approval, 'Approved')} disabled={approval.status !== 'Pending'} />
-                        <ApprovalButton icon={X} label="Reject" onClick={() => handleDecision(approval, 'Rejected')} disabled={approval.status !== 'Pending'} />
-                      </div>
+                      <ApprovalActionMenu
+                        approval={approval}
+                        open={openActionMenuId === approval.id}
+                        onOpen={() => handleMenuOpened(approval)}
+                        onView={() => void handleViewContext(approval)}
+                        onApprove={() => void handleDecision(approval, 'Approved')}
+                        onReject={() => void handleDecision(approval, 'Rejected')}
+                        onMoreInfo={() => handleRequestMoreInfo(approval)}
+                        onAssign={() => handleAssignReviewer(approval)}
+                        onEscalate={() => handleEscalate(approval)}
+                        onOpenRelated={() => setNotice(`${approval.relatedRecord} opened locally.`)}
+                        onReadiness={() => void handleRunReadiness(approval)}
+                        onActivate={() => void handleActivateTerminalFromApproval(approval)}
+                      />
                     </td>
                   </tr>
                 ))}
@@ -282,6 +353,12 @@ export default function PosApprovals({ session }: PosApprovalsProps) {
                 <div><dt>Reason</dt><dd>{selectedApproval.reason}</dd></div>
                 <div><dt>Value</dt><dd>{selectedApproval.amountOrValue}</dd></div>
                 <div><dt>Branch</dt><dd>{selectedApproval.branch}</dd></div>
+                {isTerminalActivation(selectedApproval) && (
+                  <>
+                    <div><dt>Terminal ID</dt><dd>{selectedApproval.relatedRecord}</dd></div>
+                    <div><dt>Action Required</dt><dd>{selectedApproval.status === 'Approved' ? 'Activate Terminal' : 'Approve or reject terminal activation.'}</dd></div>
+                  </>
+                )}
               </dl>
               <label className="pos-approval-note">
                 Decision Note
@@ -296,6 +373,16 @@ export default function PosApprovals({ session }: PosApprovalsProps) {
                   <X size={16} aria-hidden="true" />
                   Reject
                 </button>
+                {isTerminalActivation(selectedApproval) && (
+                  <>
+                    <button type="button" className="sci-pos-button sci-pos-button--secondary" onClick={() => void handleRunReadiness(selectedApproval)}>
+                      Run Readiness Check
+                    </button>
+                    <button type="button" className="sci-pos-button sci-pos-button--secondary" onClick={() => void handleActivateTerminalFromApproval(selectedApproval)} disabled={selectedApproval.status === 'Rejected'}>
+                      Activate Terminal
+                    </button>
+                  </>
+                )}
               </div>
             </div>
           ) : (
@@ -326,21 +413,53 @@ export default function PosApprovals({ session }: PosApprovalsProps) {
   );
 }
 
-function ApprovalButton({
-  icon: Icon,
-  label,
-  onClick,
-  disabled = false
+function ApprovalActionMenu({
+  approval,
+  open,
+  onOpen,
+  onView,
+  onApprove,
+  onReject,
+  onMoreInfo,
+  onAssign,
+  onEscalate,
+  onOpenRelated,
+  onReadiness,
+  onActivate
 }: {
-  icon: typeof Eye;
-  label: string;
-  onClick: () => void;
-  disabled?: boolean;
+  approval: OperationalApprovalRequest;
+  open: boolean;
+  onOpen: () => void;
+  onView: () => void;
+  onApprove: () => void;
+  onReject: () => void;
+  onMoreInfo: () => void;
+  onAssign: () => void;
+  onEscalate: () => void;
+  onOpenRelated: () => void;
+  onReadiness: () => void;
+  onActivate: () => void;
 }) {
+  const terminal = approval.category === 'Terminal Activation';
   return (
-    <button type="button" onClick={onClick} disabled={disabled} className="sci-pos-button sci-pos-button--secondary">
-      <Icon size={15} aria-hidden="true" />
-      {label}
-    </button>
+    <div className="approval-action-menu-host">
+      <button type="button" className="row-action-trigger" onClick={onOpen} aria-label="Approval actions" aria-expanded={open} title="Approval actions">
+        <MoreVertical size={18} aria-hidden="true" />
+      </button>
+      {open && (
+        <div className="approval-action-menu">
+          <button type="button" onClick={onView}>View Review Detail</button>
+          <button type="button" onClick={onApprove} disabled={approval.status !== 'Pending'}>Approve</button>
+          <button type="button" onClick={onReject} disabled={approval.status !== 'Pending'}>Reject</button>
+          <button type="button" onClick={onMoreInfo}>Request More Information</button>
+          <button type="button" onClick={onAssign}>Assign Reviewer</button>
+          <button type="button" onClick={onEscalate}>Escalate to Owner</button>
+          <button type="button" onClick={onOpenRelated}>Open Related Record</button>
+          {terminal && <button type="button" onClick={onReadiness}>Run Readiness Check</button>}
+          {terminal && <button type="button" onClick={onActivate} disabled={approval.status === 'Rejected'}>Activate Terminal</button>}
+          <button type="button" onClick={onView}>Mark Reviewed</button>
+        </div>
+      )}
+    </div>
   );
 }

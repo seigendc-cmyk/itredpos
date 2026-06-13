@@ -20,6 +20,8 @@ import {
   assignBIAdvice,
   createBIAdviceActionPoint,
   generateBIAdviceFromTriggerLogs,
+  generateReorderBlockWarnings,
+  generateShelfStocktakeAssignmentsForMonth,
   getBIAdviceActivityEvents,
   getBIAdviceRecords,
   getBIShelfStocktakeAssignments,
@@ -371,11 +373,14 @@ export default function PosBIDesk({
   const canManageRules = canPerformAction(roleName, 'bi.rules.manage');
   const canExportBi = canPerformAction(roleName, 'bi.export') || canPerformAction(roleName, 'reports.export');
   const canViewAdvice = canPerformAction(roleName, 'bi.advice.view');
+  const canGenerateAdvice = canPerformAction(roleName, 'bi.advice.generate');
   const canAssignAdvice = canPerformAction(roleName, 'bi.advice.assign');
   const canResolveAdvice = canPerformAction(roleName, 'bi.advice.resolve');
   const canDismissAdvice = canPerformAction(roleName, 'bi.advice.dismiss');
   const canEscalateAdvice = canPerformAction(roleName, 'bi.advice.escalate');
   const canCreateAdviceTask = canPerformAction(roleName, 'bi.advice.createTask');
+  const canAssignShelfStocktake = canPerformAction(roleName, 'bi.shelfStocktake.assign');
+  const canReviewReorderBlock = canPerformAction(roleName, 'bi.reorderBlock.review');
   const productTriggerRows = useMemo(
     () => products.map((product) => mapProductToTriggerRow(product, branchName, terminalName)).filter((row): row is BiAlertRow => Boolean(row)),
     [branchName, products, terminalName]
@@ -454,13 +459,39 @@ export default function PosBIDesk({
   };
 
   const handleGenerateAdvice = async () => {
-    if (!canViewAdvice) {
+    if (!canGenerateAdvice) {
       addActivity('BI advice generation blocked by permission.', 'WARNING');
       return;
     }
     const generated = await generateBIAdviceFromTriggerLogs(triggerRows, products);
     await Promise.all(generated.map(routeBIAdviceToDesk));
     addActivity(`BI_ADVICE_GENERATED: ${generated.length} advice record(s) prepared from trigger logs.`, 'SUCCESS');
+    await loadAdvice(adviceFilters);
+  };
+
+  const handleGenerateShelfPlan = async () => {
+    if (!canAssignShelfStocktake) {
+      addActivity('Shelf stocktake plan generation blocked by permission.', 'WARNING');
+      return;
+    }
+    const generated = await generateShelfStocktakeAssignmentsForMonth({
+      branchId: branchName.toUpperCase().replace(/[^A-Z0-9]+/g, '-'),
+      branchName,
+      warehouseId: 'WH-LOCAL',
+      products,
+      staff: [{ id: staffName.toUpperCase().replace(/[^A-Z0-9]+/g, '-'), name: staffName }]
+    });
+    addActivity(`BI_SHELF_STOCKTAKE_PLAN_CREATED: ${generated.length} shelf assignment(s) generated.`, 'SUCCESS');
+    await loadAdvice(adviceFilters);
+  };
+
+  const handleGenerateReorderWarnings = async () => {
+    if (!canReviewReorderBlock) {
+      addActivity('Reorder block warning generation blocked by permission.', 'WARNING');
+      return;
+    }
+    const warnings = await generateReorderBlockWarnings({ products });
+    addActivity(`BI_REORDER_BLOCK_WARNING_CREATED: ${warnings.length} reorder warning(s) prepared.`, 'WARNING');
     await loadAdvice(adviceFilters);
   };
 
@@ -834,6 +865,9 @@ export default function PosBIDesk({
             filters={adviceFilters}
             onFiltersChange={setAdviceFilters}
             onGenerate={handleGenerateAdvice}
+            onGenerateShelfPlan={handleGenerateShelfPlan}
+            onGenerateReorderWarnings={handleGenerateReorderWarnings}
+            onRefresh={() => void loadAdvice(adviceFilters)}
             onViewAdvice={handleOpenAdvice}
             onCreateTask={handleCreateTaskFromAdvice}
             onAssignStaff={handleAssignAdvice}

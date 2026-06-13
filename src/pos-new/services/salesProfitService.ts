@@ -2,6 +2,7 @@ import { mockProducts, mockRecentSales } from '../mock/mockPosData';
 import type {
   Product,
   Sale,
+  SalesProfitDrawerExpense,
   SalesProfitSnapshotActivityEvent,
   SalesProfitSnapshotFilter,
   SalesProfitSnapshotPayload
@@ -41,8 +42,10 @@ export function getSalesProfitDefaultFilter(): SalesProfitSnapshotFilter {
     dateTo: today,
     includeHeldSales: false,
     includeReturns: true,
+    includeDiscounts: true,
     includeDeliveryFees: true,
-    includeOpex: true
+    includeOpex: true,
+    includeDrawerExpenses: true
   };
 }
 
@@ -50,6 +53,12 @@ function dateRangeForFilter(filter: SalesProfitSnapshotFilter): { dateFrom?: str
   const now = new Date();
   if (filter.period === 'Custom') return { dateFrom: filter.dateFrom, dateTo: filter.dateTo };
   if (filter.period === 'Today' || filter.period === 'Current Shift') return { dateFrom: today, dateTo: today };
+  if (filter.period === 'Yesterday') {
+    const yesterday = new Date(now);
+    yesterday.setDate(now.getDate() - 1);
+    const value = yesterday.toISOString().slice(0, 10);
+    return { dateFrom: value, dateTo: value };
+  }
   if (filter.period === 'This Week') {
     const start = new Date(now);
     start.setDate(now.getDate() - now.getDay());
@@ -59,6 +68,17 @@ function dateRangeForFilter(filter: SalesProfitSnapshotFilter): { dateFrom?: str
     return { dateFrom: `${today.slice(0, 7)}-01`, dateTo: today };
   }
   return { dateFrom: filter.dateFrom, dateTo: filter.dateTo };
+}
+
+export function filterSalesByPeriod(sales: Sale[], filter: SalesProfitSnapshotFilter): Sale[] {
+  const { dateFrom, dateTo } = dateRangeForFilter(filter);
+  return sales.filter((sale) =>
+    String(sale.status).toUpperCase() === 'COMPLETED' &&
+    saleInRange(sale, dateFrom, dateTo) &&
+    (!filter.branchId || sale.branch === filter.branchId || filter.branchId === 'All Branches') &&
+    (!filter.terminalId || sale.terminal === filter.terminalId || filter.terminalId === 'All Terminals') &&
+    (!filter.cashierStaffId || sale.operator === filter.cashierStaffId || filter.cashierStaffId === 'All Cashiers')
+  );
 }
 
 function saleInRange(sale: Sale, dateFrom?: string, dateTo?: string): boolean {
@@ -82,14 +102,32 @@ export function calculateGrossProfit(grossSalesRevenue: number, cogs: number): n
   return grossSalesRevenue - cogs;
 }
 
-export function calculateOpex(filter: SalesProfitSnapshotFilter): number {
-  if (!filter.includeOpex) return 0;
+export function getMockDrawerExpenses(filter: SalesProfitSnapshotFilter): SalesProfitDrawerExpense[] {
+  if (filter.includeDrawerExpenses === false || filter.includeOpex === false) return [];
   const periodFactor = filter.period === 'This Month' ? 18 : filter.period === 'This Week' ? 5 : 1;
-  return 42.5 * periodFactor;
+  return [
+    { expenseId: 'DRE-001', expenseType: 'Till cash shortfall', amount: 8.5 * periodFactor, note: 'Local drawer variance estimate.', staff: 'Manager Review', time: `${today}T09:45:00` },
+    { expenseId: 'DRE-002', expenseType: 'Petty cash payout', amount: 14 * periodFactor, note: 'Shop consumable placeholder.', staff: 'Supervisor', time: `${today}T11:10:00` },
+    { expenseId: 'DRE-003', expenseType: 'Delivery cash handover variance', amount: 6 * periodFactor, note: 'Delivery handover review placeholder.', staff: 'Delivery Desk', time: `${today}T14:30:00` },
+    { expenseId: 'DRE-004', expenseType: 'Refund handling cost', amount: 5 * periodFactor, note: 'Local refund handling estimate.', staff: 'Cash Control', time: `${today}T15:15:00` },
+    { expenseId: 'DRE-005', expenseType: 'Packaging / small shop expense', amount: 9 * periodFactor, note: 'Packaging and counter supplies estimate.', staff: 'Sales Terminal', time: `${today}T16:00:00` }
+  ];
+}
+
+export function calculateDrawerExpenses(filter: SalesProfitSnapshotFilter): number {
+  return getMockDrawerExpenses(filter).reduce((sum, expense) => sum + expense.amount, 0);
+}
+
+export function calculateOpex(filter: SalesProfitSnapshotFilter): number {
+  return calculateDrawerExpenses(filter);
+}
+
+export function calculateDrawerNetProfit(grossProfit: number, drawerExpenses: number): number {
+  return grossProfit - drawerExpenses;
 }
 
 export function calculateNetDrawerProfit(grossProfit: number, opex: number): number {
-  return grossProfit - opex;
+  return calculateDrawerNetProfit(grossProfit, opex);
 }
 
 export function generateSalesProfitSnapshot(
@@ -100,19 +138,18 @@ export function generateSalesProfitSnapshot(
   context: { branchName?: string; terminalName?: string; cashierName?: string } = {}
 ): SalesProfitSnapshotPayload {
   const { dateFrom, dateTo } = dateRangeForFilter(filter);
-  const completedSales = sales.filter((sale) =>
-    String(sale.status).toUpperCase() === 'COMPLETED' &&
-    saleInRange(sale, dateFrom, dateTo) &&
-    (!filter.terminalId || sale.terminal === filter.terminalId) &&
-    (!filter.cashierStaffId || sale.operator === filter.cashierStaffId)
-  );
+  let completedSales = filterSalesByPeriod(sales, filter);
+  if (completedSales.length === 0 && sales.length === 0) {
+    completedSales = mockRecentSales.filter((sale) => String(sale.status).toUpperCase() === 'COMPLETED').slice(0, 5);
+  }
   const grossSalesRevenue = calculateGrossSalesRevenue(completedSales);
   const returnsValue = filter.includeReturns ? sales.filter((sale) => String(sale.status).toUpperCase().includes('RETURN')).reduce((sum, sale) => sum + sale.total, 0) : 0;
   const netSalesRevenue = grossSalesRevenue - returnsValue;
   const cogs = calculateCOGS(completedSales, products);
   const grossProfit = calculateGrossProfit(grossSalesRevenue, cogs);
-  const opex = calculateOpex(filter);
-  const netDrawerProfit = calculateNetDrawerProfit(grossProfit, opex);
+  const drawerExpenseBreakdown = getMockDrawerExpenses(filter);
+  const drawerExpenses = calculateDrawerExpenses(filter);
+  const netDrawerProfit = calculateDrawerNetProfit(grossProfit, drawerExpenses);
   const itemCount = completedSales.reduce((sum, sale) => sum + sale.items.reduce((lineSum, item) => lineSum + item.quantity, 0), 0);
   const averageGrossMargin = grossSalesRevenue > 0 ? (grossProfit / grossSalesRevenue) * 100 : 0;
   const payload: SalesProfitSnapshotPayload = {
@@ -130,12 +167,14 @@ export function generateSalesProfitSnapshot(
     netSalesRevenue,
     cogs,
     grossProfit,
-    opex,
+    opex: drawerExpenses,
+    drawerExpenses,
     netDrawerProfit,
+    drawerExpenseBreakdown,
     salesCount: completedSales.length,
     itemCount,
     averageGrossMargin,
-    notes: 'Local operational estimate only. No accounting, cashbook, inventory, sale, or receipt records were posted or mutated.',
+    notes: 'Local / Build Development Estimate. No accounting, cashbook, inventory, sale, or receipt records were posted or mutated.',
     status: completedSales.length > 0 ? 'Generated' : 'Empty'
   };
   recordActivity('SALES_PROFIT_SNAPSHOT_GENERATED', `Sales Profit Snapshot generated for ${filter.period}.`, generatedBy);
@@ -144,6 +183,10 @@ export function generateSalesProfitSnapshot(
 
 export function getSalesProfitSnapshotActivityEvents(): SalesProfitSnapshotActivityEvent[] {
   return readActivity();
+}
+
+export function getSalesProfitActivityEvents(): SalesProfitSnapshotActivityEvent[] {
+  return getSalesProfitSnapshotActivityEvents();
 }
 
 export function recordSalesProfitSnapshotPrintPlaceholder(staffId: string): void {

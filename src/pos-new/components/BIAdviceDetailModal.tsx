@@ -58,6 +58,8 @@ export default function BIAdviceDetailModal({
             <div className="bi-advice-narrative">
               <strong>{advice.title}</strong>
               <p>{advice.narrative}</p>
+              <small>Business risk: {advice.riskLevel} / Priority: {advice.priority}</small>
+              <small>Rule trigger: {advice.sourceTriggerId}</small>
               <small>Recommended action: {advice.recommendedAction}</small>
             </div>
           )}
@@ -65,6 +67,7 @@ export default function BIAdviceDetailModal({
             <div className="shift-history-detail-grid">
               <div><span>Source Module</span><strong>{advice.sourceModule}</strong></div>
               <div><span>Source Trigger</span><strong>{advice.sourceTriggerId}</strong></div>
+              <div><span>Source Log</span><strong>{advice.sourceLogId || advice.sourceTriggerId}</strong></div>
               <div><span>Product</span><strong>{advice.productName || 'Not linked'}</strong></div>
               <div><span>SKU</span><strong>{advice.sku || 'Not linked'}</strong></div>
               <div><span>Risk</span><strong>{advice.riskLevel}</strong></div>
@@ -106,7 +109,7 @@ export default function BIAdviceDetailModal({
             </div>
           )}
           <footer className="shift-control-modal__footer">
-            <button type="button" className="sci-pos-button sci-pos-button--secondary" onClick={onAssign}>Assign</button>
+            <button type="button" className="sci-pos-button sci-pos-button--secondary" onClick={onAssign}>Assign Staff</button>
             <button type="button" className="sci-pos-button sci-pos-button--secondary" onClick={onCreateTask}>Create Task</button>
             <button type="button" className="sci-pos-button sci-pos-button--primary" onClick={onStartStocktake}>Start Stocktake</button>
             <button type="button" className="sci-pos-button sci-pos-button--secondary" onClick={onResolve}>Resolve</button>

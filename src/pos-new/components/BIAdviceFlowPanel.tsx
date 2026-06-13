@@ -1,11 +1,14 @@
 import { Search } from 'lucide-react';
-import type { BIAdviceCategory, BIAdviceFilterState, BIAdviceRecord, BIAdviceStatus, RiskLevel } from '../types';
+import type { BIAdviceCategory, BIAdviceFilterState, BIAdvicePriority, BIAdviceRecord, BIAdviceStatus } from '../types';
 
 interface BIAdviceFlowPanelProps {
   records: BIAdviceRecord[];
   filters: BIAdviceFilterState;
   onFiltersChange: (filters: BIAdviceFilterState) => void;
   onGenerate: () => void;
+  onGenerateShelfPlan: () => void;
+  onGenerateReorderWarnings: () => void;
+  onRefresh: () => void;
   onViewAdvice: (advice: BIAdviceRecord) => void;
   onCreateTask: (advice: BIAdviceRecord) => void;
   onAssignStaff: (advice: BIAdviceRecord) => void;
@@ -17,7 +20,7 @@ interface BIAdviceFlowPanelProps {
 }
 
 const categories: Array<'ALL' | BIAdviceCategory> = ['ALL', 'Stock Health', 'Reorder Control', 'Shelf Stocktake', 'Staff Behaviour', 'Cash Control', 'Sales Integrity', 'Delivery Verification', 'Pricing Control', 'Approval Control', 'Inventory Risk'];
-const risks: Array<'ALL' | RiskLevel> = ['ALL', 'Low', 'Medium', 'High', 'Critical'];
+const priorities: Array<'ALL' | BIAdvicePriority> = ['ALL', 'Low', 'Medium', 'High', 'Critical'];
 const statuses: Array<'ALL' | BIAdviceStatus> = ['ALL', 'New', 'Assigned', 'In Progress', 'Waiting Review', 'Resolved', 'Dismissed', 'Escalated', 'Blocked'];
 
 function summary(records: BIAdviceRecord[]) {
@@ -38,6 +41,9 @@ export default function BIAdviceFlowPanel({
   filters,
   onFiltersChange,
   onGenerate,
+  onGenerateShelfPlan,
+  onGenerateReorderWarnings,
+  onRefresh,
   onViewAdvice,
   onCreateTask,
   onAssignStaff,
@@ -57,6 +63,10 @@ export default function BIAdviceFlowPanel({
 
   return (
     <section className="bi-advice-flow-panel">
+      <div className="bi-advice-flow-intro">
+        <strong>BI Advice Flow</strong>
+        <span>Rule-based business protection advice generated from BI Brain logs and operational triggers.</span>
+      </div>
       <div className="bi-advice-summary-grid">
         <div><span>New Advice</span><strong>{totals.newAdvice}</strong></div>
         <div><span>Assigned</span><strong>{totals.assigned}</strong></div>
@@ -75,8 +85,8 @@ export default function BIAdviceFlowPanel({
         <select value={filters.category || 'ALL'} onChange={(event) => setFilter({ category: event.target.value as BIAdviceFilterState['category'] })}>
           {categories.map((category) => <option key={category} value={category}>{category}</option>)}
         </select>
-        <select value={filters.riskLevel || 'ALL'} onChange={(event) => setFilter({ riskLevel: event.target.value as BIAdviceFilterState['riskLevel'] })}>
-          {risks.map((risk) => <option key={risk} value={risk}>{risk}</option>)}
+        <select value={filters.priority || 'ALL'} onChange={(event) => setFilter({ priority: event.target.value as BIAdviceFilterState['priority'] })} aria-label="Priority filter">
+          {priorities.map((priority) => <option key={priority} value={priority}>{priority}</option>)}
         </select>
         <select value={filters.status || 'ALL'} onChange={(event) => setFilter({ status: event.target.value as BIAdviceFilterState['status'] })}>
           {statuses.map((status) => <option key={status} value={status}>{status}</option>)}
@@ -86,7 +96,10 @@ export default function BIAdviceFlowPanel({
         <input value={filters.branch || ''} onChange={(event) => setFilter({ branch: event.target.value })} placeholder="Branch" />
         <input type="date" value={filters.dateFrom || ''} onChange={(event) => setFilter({ dateFrom: event.target.value })} />
         <input type="date" value={filters.dateTo || ''} onChange={(event) => setFilter({ dateTo: event.target.value })} />
-        <button type="button" className="sci-pos-button sci-pos-button--primary" onClick={onGenerate}>Generate BI Advice</button>
+        <button type="button" className="sci-pos-button sci-pos-button--primary" onClick={onGenerate}>Generate Advice From Logs</button>
+        <button type="button" className="sci-pos-button sci-pos-button--secondary" onClick={onGenerateShelfPlan}>Generate Shelf Stocktake Plan</button>
+        <button type="button" className="sci-pos-button sci-pos-button--secondary" onClick={onGenerateReorderWarnings}>Generate Reorder Block Warnings</button>
+        <button type="button" className="sci-pos-button sci-pos-button--secondary" onClick={onRefresh}>Refresh</button>
       </div>
 
       <div className="bi-advice-table-scroll">

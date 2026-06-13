@@ -473,6 +473,22 @@ export async function runTerminalControlCheck(context: TerminalControlContext): 
   };
 }
 
+export function canSellInventoryItems(input: {
+  check?: TerminalControlCheck | null;
+  staffSessionValid?: boolean;
+  branchExists?: boolean;
+  terminalExists?: boolean;
+  recoveryBlocked?: boolean;
+}): boolean {
+  return Boolean(
+    input.check?.allowed
+    && input.staffSessionValid !== false
+    && input.branchExists !== false
+    && input.terminalExists !== false
+    && input.recoveryBlocked !== true
+  );
+}
+
 export async function getTerminalControlEvents(vendorId: string, branchId?: string): Promise<TerminalControlEvent[]> {
   const events = readList<TerminalControlEvent>(EVENT_KEY, mockTerminalControlEvents);
   return events.filter((event) => event.vendorId === vendorId && (!branchId || event.branchId === branchId));

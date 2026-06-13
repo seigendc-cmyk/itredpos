@@ -69,6 +69,12 @@ function deskRoutesForAdvice(advice: BIAdviceRecord): BIAdviceRoute[] {
     routes.push(makeRoute(advice, 'Delivery Desk', 'Delivery Staff'));
     routes.push(makeRoute(advice, 'Manager Desk', 'Manager'));
   }
+  if (advice.category === 'Sales Integrity') {
+    routes.push(makeRoute(advice, 'Manager Desk', 'Manager'));
+    routes.push(makeRoute(advice, 'Owner Desk', 'Owner'));
+    routes.push(makeRoute(advice, 'BI Desk', 'Manager'));
+  }
+  if (advice.category === 'Pricing Control') routes.push(makeRoute(advice, 'Manager Desk', 'Manager'));
   if (advice.riskLevel === 'High' || advice.riskLevel === 'Critical') {
     routes.push(makeRoute(advice, 'Approvals Desk', 'Manager'));
     routes.push(makeRoute(advice, 'BI Desk', 'Manager'));

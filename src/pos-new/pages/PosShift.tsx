@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Activity,
   AlertTriangle,
@@ -7,6 +7,7 @@ import {
   FileText,
   History,
   Lock,
+  MoreVertical,
   ShieldCheck,
   Terminal as TerminalIcon,
   Unlock,
@@ -123,6 +124,11 @@ function eventTitle(value: string): string {
     SHIFT_OPEN_FAILED: 'Shift Open Failed',
     SHIFT_CLOSE_STARTED: 'Shift Close Started',
     SHIFT_EOD_PREVIEW_GENERATED: 'Shift EOD Preview Generated',
+    SHIFT_EOD_REPORT_PREVIEW_OPENED: 'Shift EOD Report Preview Opened',
+    SHIFT_EOD_REPORT_PRINT_PREPARED: 'Shift EOD Report Print Prepared',
+    SHIFT_EOD_REPORT_PRINT_STARTED: 'Shift EOD Report Print Started',
+    SHIFT_EOD_REPORT_PDF_PRINT_STARTED: 'Shift EOD Report PDF Print Started',
+    SHIFT_EOD_REPORT_PRINT_FAILED: 'Shift EOD Report Print Failed',
     SHIFT_CLOSED: 'Shift Closed',
     SHIFT_CLOSE_BLOCKED: 'Shift Close Blocked',
     CASH_DRAWER_ASSIGNMENT_STARTED: 'Cash Drawer Assignment Started',
@@ -186,6 +192,7 @@ export default function PosShift({
   const [eodOpen, setEodOpen] = useState(false);
   const [activationTerminalId, setActivationTerminalId] = useState('POS-03');
   const [activationReason, setActivationReason] = useState('Terminal activation requested from Shift Control.');
+  const [openTerminalActionMenuId, setOpenTerminalActionMenuId] = useState<string | null>(null);
 
   const currentDrawer = drawerAssignments.find((assignment) => assignment.status === 'Assigned') || null;
   const cashSalesTotal = useMemo(() => transactions
@@ -374,7 +381,9 @@ export default function PosShift({
     branchName,
     terminalId,
     terminalName,
+    staffId,
     staffName,
+    roleName,
     shift: shift || activeShift,
     transactions,
     cashLogs,
@@ -477,6 +486,40 @@ export default function PosShift({
     await loadControlData();
   };
 
+  const handleTerminalActionMenu = (requestId: string) => {
+    setOpenTerminalActionMenuId((current) => current === requestId ? null : requestId);
+    void logTerminalControlEvent({ vendorId: VENDOR_ID, branchId, terminalId, staffId, staffName, eventType: 'TERMINAL_ACTIVATION_MENU_OPENED', message: 'Terminal activation action menu opened.', severity: 'INFO' });
+  };
+
+  const handleTerminalMenuAction = async (requestId: string, action: string) => {
+    const request = activationRequests.find((item) => item.id === requestId);
+    setOpenTerminalActionMenuId(null);
+    if (!request) return;
+    if (action === 'Activate Terminal') {
+      await handleApproveActivation(request.id);
+      setStatusMessage('Terminal activated successfully.');
+      return;
+    }
+    if (action === 'Run Readiness Check') {
+      const check = await runTerminalControlCheck({ vendorId: VENDOR_ID, branchId, terminalId: request.terminalId, terminalName: request.terminalName, staffId, staffName, role: roleName, requiresCashDrawer: true });
+      setStatusMessage(`Readiness: ${check.message}`);
+      return;
+    }
+    if (action === 'Assign Drawer') {
+      openActionModal('drawer');
+      return;
+    }
+    if (action === 'Open Shift') {
+      openActionModal('open');
+      return;
+    }
+    if (action === 'Recover Last State') {
+      await handleRecoverShift();
+      return;
+    }
+    setStatusMessage(`${action}: ${request.terminalId} local placeholder opened.`);
+  };
+
   const handleLockTerminal = async () => {
     if (!requirePermission('terminal.deactivate')) return;
     await lockTerminal({ vendorId: VENDOR_ID, branchId, terminalId, staffName });
@@ -525,6 +568,19 @@ export default function PosShift({
     setSelectedHistoryShift(historyShift);
     void logTerminalControlEvent({ vendorId: VENDOR_ID, branchId, terminalId, staffId, staffName, eventType: 'TERMINAL_HISTORY_OPENED', message: `${historyShift.id} terminal history opened.`, severity: 'INFO' });
   };
+
+  const handleEodReportEvent = useCallback((eventType: string, message: string) => {
+    void logTerminalControlEvent({
+      vendorId: VENDOR_ID,
+      branchId,
+      terminalId,
+      staffId,
+      staffName,
+      eventType,
+      message,
+      severity: eventType === 'SHIFT_EOD_REPORT_PRINT_FAILED' ? 'WARNING' : 'INFO'
+    });
+  }, [branchId, staffId, staffName, terminalId]);
 
   return (
     <div className="shift-control-page">
@@ -701,9 +757,20 @@ export default function PosShift({
                     <td>{request.requestedBy}</td>
                     <td>{request.reason}</td>
                     <td>
-                      <button type="button" className="sci-pos-button sci-pos-button--secondary" onClick={() => handleApproveActivation(request.id)}>
-                        Activate
-                      </button>
+                      <div className="approval-action-menu-host">
+                        <button type="button" className="row-action-trigger" onClick={() => handleTerminalActionMenu(request.id)} aria-label="Terminal activation actions" aria-expanded={openTerminalActionMenuId === request.id} title="Terminal activation actions">
+                          <MoreVertical size={18} aria-hidden="true" />
+                        </button>
+                        {openTerminalActionMenuId === request.id && (
+                          <div className="approval-action-menu">
+                            {['View Terminal Details', 'Activate Terminal', 'Deactivate Terminal', 'Register Terminal Placeholder', 'Run Readiness Check', 'View Active Period History', 'Recover Last State', 'Assign Drawer', 'Open Shift'].map((action) => (
+                              <button key={action} type="button" onClick={() => void handleTerminalMenuAction(request.id, action)}>
+                                {action}
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -795,7 +862,12 @@ export default function PosShift({
         controlEvents={controlEvents}
         onClose={() => setSelectedHistoryShift(null)}
       />
-      <ShiftEodReportsModal open={eodOpen} payload={eodPayload} onClose={() => setEodOpen(false)} />
+      <ShiftEodReportsModal
+        open={eodOpen}
+        payload={eodPayload}
+        onClose={() => setEodOpen(false)}
+        onReportEvent={handleEodReportEvent}
+      />
     </div>
   );
 }

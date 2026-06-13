@@ -17,6 +17,7 @@ import SalesCartCard, {
 import ReceiptPreview80mm from '../components/ReceiptPreview80mm';
 import SalesReceiptReviewModal from '../components/SalesReceiptReviewModal';
 import SalesProfitSnapshotCard from '../components/SalesProfitSnapshotCard';
+import MiscellaneousSaleModal, { MiscellaneousSalePayload } from '../components/MiscellaneousSaleModal';
 import { mockProducts, mockRecentSales } from '../mock/mockPosData';
 import { createAccountingPostingPlaceholder } from '../services/accountingService';
 import { biEventService } from '../services/biEventService';
@@ -24,7 +25,9 @@ import { createReceiptFromSale, getReceiptPreview } from '../services/receiptSer
 import { postSaleMovement } from '../services/inventoryMovementService';
 import { createDeliveryRequestFromReceipt } from '../services/deliveryService';
 import { recordPaymentReportEvent } from '../services/paymentReportService';
-import { logTerminalControlEvent, runTerminalControlCheck } from '../services/terminalControlService';
+import { canSellInventoryItems as canSellInventoryItemsForSession, logTerminalControlEvent, runTerminalControlCheck } from '../services/terminalControlService';
+import { createMiscellaneousSaleAdvice } from '../services/biAdviceService';
+import { routeBIAdviceToDesk } from '../services/biAdviceRoutingService';
 import {
   clearShiftRecoveryState,
   getShiftRecoveryState,
@@ -183,6 +186,7 @@ export default function PosSales({
   const [workspaceMenuOpen, setWorkspaceMenuOpen] = useState(false);
   const [workspaceDrawer, setWorkspaceDrawer] = useState<SalesWorkspaceDrawer>(null);
   const [profitSnapshotOpen, setProfitSnapshotOpen] = useState(false);
+  const [miscSaleOpen, setMiscSaleOpen] = useState(false);
   const [heldSaleSearch, setHeldSaleSearch] = useState('');
   const [recentReceiptSearch, setRecentReceiptSearch] = useState('');
   const [salesReadiness, setSalesReadiness] = useState<TerminalControlCheck | null>(null);
@@ -243,6 +247,15 @@ export default function PosSales({
   const canGenerateProfitSnapshot = canPerformAction(roleName, 'sales.profitSnapshot.generate');
   const canExportProfitSnapshot = canPerformAction(roleName, 'sales.profitSnapshot.export');
   const canPrintProfitSnapshot = canPerformAction(roleName, 'sales.profitSnapshot.print');
+  const canCreateMiscellaneousSale = canPerformAction(roleName, 'sales.miscellaneous.create');
+  const canSellInventoryItems = canSellInventoryItemsForSession({
+    check: salesReadiness,
+    staffSessionValid: Boolean(session?.staffName || staffName),
+    branchExists: Boolean(branchName),
+    terminalExists: Boolean(terminalName),
+    recoveryBlocked: salesRecoveryFound
+  });
+  const inventoryBlockedMessage = 'Terminal is not active. Activate terminal and open shift to sell inventory items.';
   const disableCompleteReason = cart.length === 0
     ? 'Cart is empty.'
     : !canPerformAction(roleName, 'sales.complete')
@@ -348,7 +361,13 @@ export default function PosSales({
       CART_TOTALS_UPDATED: 'Cart Totals Updated',
       CHECKOUT_BACK_TO_CART: 'Checkout Back to Cart',
       CHECKOUT_BACK_TO_DELIVERY: 'Checkout Back to Delivery',
-      CHECKOUT_COMPLETED: 'Checkout Completed'
+      CHECKOUT_COMPLETED: 'Checkout Completed',
+      TERMINAL_INVENTORY_SALES_BLOCKED: 'Inventory Sales Blocked',
+      MISCELLANEOUS_SALE_MODAL_OPENED: 'Miscellaneous Sale Opened',
+      MISCELLANEOUS_SALE_LINE_ADDED: 'Miscellaneous Sale Added',
+      MISCELLANEOUS_SALE_BI_FLAG_CREATED: 'Miscellaneous Sale BI Flag Created',
+      MISCELLANEOUS_SALE_REVIEW_REQUIRED: 'Miscellaneous Sale Review Required',
+      SALE_COMPLETED_WITH_MISCELLANEOUS_LINE: 'Sale Completed With Miscellaneous Line'
     };
     return titles[eventType] || eventType.toLowerCase().split('_').map((word) => word.charAt(0).toUpperCase() + word.slice(1)).join(' ');
   };
@@ -532,12 +551,17 @@ export default function PosSales({
   };
 
   const handleBlockedProduct = (product: Product) => {
-    const message = 'Cannot add product. Stock is not available.';
+    const message = canSellInventoryItems ? 'Cannot add product. Stock is not available.' : inventoryBlockedMessage;
     logEvent('SALE_BLOCKED_ZERO_STOCK', `${message} ${productSku(product)} ${productName(product)}.`);
     setStatusMessage(message);
   };
 
   const handleAddProduct = (product: Product) => {
+    if (!canSellInventoryItems) {
+      setStatusMessage(inventoryBlockedMessage);
+      logEvent('TERMINAL_INVENTORY_SALES_BLOCKED', inventoryBlockedMessage);
+      return;
+    }
     const currentProduct = localProducts.find((item) => item.id === product.id) || product;
     const availableStock = productStock(currentProduct);
     if (availableStock <= 0) {
@@ -554,14 +578,83 @@ export default function PosSales({
         }
         return current.map((item) => item.product.id === currentProduct.id ? { ...item, quantity: item.quantity + 1 } : item);
       }
-      return [...current, { product: currentProduct, quantity: 1, discount: 0 }];
+      return [...current, { product: currentProduct, quantity: 1, discount: 0, lineType: 'InventoryItem', isInventoryAsset: true, inventoryProductId: currentProduct.id, sku: productSku(currentProduct), stockMovementRequired: true }];
     });
     logEvent('PRODUCT_ADDED_TO_CART', `${productSku(currentProduct)} added to cart.`);
+  };
+
+  const handleOpenMiscellaneousSale = () => {
+    if (!canCreateMiscellaneousSale) {
+      setStatusMessage('You do not have permission to add miscellaneous sales.');
+      return;
+    }
+    setMiscSaleOpen(true);
+    logEvent('MISCELLANEOUS_SALE_MODAL_OPENED', 'Miscellaneous sale modal opened.');
+  };
+
+  const handleAddMiscellaneousSale = async (payload: MiscellaneousSalePayload) => {
+    const product: Product = {
+      id: makeId('MISC'),
+      code: 'MISC-SALE',
+      sku: 'MISC-SALE',
+      name: payload.description,
+      productName: payload.description,
+      category: 'Miscellaneous',
+      productCategory: 'Miscellaneous',
+      stock: 0,
+      qtyOnHand: 0,
+      availableStock: 0,
+      minStock: 0,
+      price: payload.unitPrice,
+      sellingPrice: payload.unitPrice,
+      cost: 0,
+      costPrice: 0,
+      branch: branchName,
+      branchId: branchIdFromName(branchName),
+      warehouse: warehouseName,
+      warehouseId: warehouseName,
+      taxRate: payload.taxable ? payload.vatRate : 0
+    } as Product;
+    setCart((current) => [...current, {
+      product,
+      quantity: payload.quantity,
+      discount: 0,
+      overriddenPrice: payload.unitPrice,
+      lineType: 'MiscellaneousItem',
+      isInventoryAsset: false,
+      inventoryProductId: undefined,
+      sku: 'MISC-SALE',
+      miscReason: payload.reason,
+      miscNotes: [payload.notes, payload.customerRequestReference ? `Reference: ${payload.customerRequestReference}` : ''].filter(Boolean).join(' | '),
+      requiresManagementReview: true,
+      biFlagged: true,
+      stockMovementRequired: false,
+      taxable: payload.taxable,
+      vatRate: payload.vatRate
+    }]);
+    const amount = payload.quantity * payload.unitPrice;
+    const advice = await createMiscellaneousSaleAdvice({
+      description: payload.description,
+      amount,
+      quantity: payload.quantity,
+      reason: payload.reason,
+      staffName,
+      terminalName,
+      branchName,
+      notes: payload.notes
+    });
+    await routeBIAdviceToDesk(advice);
+    setMiscSaleOpen(false);
+    setStatusMessage('Miscellaneous sale item added and flagged for management review.');
+    logEvent('MISCELLANEOUS_SALE_LINE_ADDED', `${payload.description} added as MISC-SALE for ${money(amount)}.`);
+    logEvent('MISCELLANEOUS_SALE_BI_FLAG_CREATED', 'BI Advice Flow warning created for miscellaneous sale.');
+    logEvent('MISCELLANEOUS_SALE_REVIEW_REQUIRED', 'Manager review required for non-inventory sale line.');
   };
 
   const handleQuantityChange = (productId: string, delta: number) => {
     setCart((current) => current.flatMap((item) => {
       if (item.product.id !== productId) return [item];
+      if (item.lineType === 'MiscellaneousItem') return [{ ...item, quantity: Math.max(1, item.quantity + delta) }];
       const availableStock = productStock(localProducts.find((product) => product.id === productId) || item.product);
       const nextQuantity = item.quantity + delta;
       if (nextQuantity < 1) return [item];
@@ -577,6 +670,7 @@ export default function PosSales({
     const requestedQuantity = Math.max(1, Math.floor(quantity || 1));
     setCart((current) => current.map((item) => {
       if (item.product.id !== productId) return item;
+      if (item.lineType === 'MiscellaneousItem') return { ...item, quantity: requestedQuantity };
       const availableStock = productStock(localProducts.find((product) => product.id === productId) || item.product);
       if (requestedQuantity > availableStock) {
         setStatusMessage('Cannot set quantity above available stock.');
@@ -708,6 +802,7 @@ export default function PosSales({
     if (!canPerformAction(roleName, 'sales.complete')) return 'You do not have permission to complete a sale.';
     if (cart.length === 0) return 'Cart is empty.';
     const insufficientLine = cart.find((item) => {
+      if (item.lineType === 'MiscellaneousItem' || item.isInventoryAsset === false || item.stockMovementRequired === false) return false;
       const currentProduct = localProducts.find((product) => product.id === item.product.id) || item.product;
       return productStock(currentProduct) < item.quantity;
     });
@@ -725,6 +820,8 @@ export default function PosSales({
 
     const salePayment = payments[0]?.method || paymentMethod;
     const requiresCashDrawer = salePayment === 'Cash' || payments.some((payment) => payment.method === 'Cash');
+    const hasInventoryLines = cart.some((item) => item.lineType !== 'MiscellaneousItem' && item.isInventoryAsset !== false && item.stockMovementRequired !== false);
+    const hasMiscellaneousLines = cart.some((item) => item.lineType === 'MiscellaneousItem' || item.biFlagged);
     const controlCheck = await runTerminalControlCheck({
       vendorId: VENDOR_ID,
       branchId: branchIdFromName(branchName),
@@ -735,7 +832,7 @@ export default function PosSales({
       role: roleName,
       requiresCashDrawer
     });
-    if (!controlCheck.allowed) {
+    if (!controlCheck.allowed && hasInventoryLines) {
       const reason = controlCheck.message || 'Sale cannot be completed because the terminal or shift is not active.';
       setStatusMessage(reason);
       logEvent('SALE_BLOCKED_SHIFT_OR_TERMINAL', reason);
@@ -775,10 +872,14 @@ export default function PosSales({
       items: cart.map((item) => ({
         productId: item.product.id,
         name: productName(item.product),
-        code: productSku(item.product),
+        code: item.sku || productSku(item.product),
         quantity: item.quantity,
         price: item.overriddenPrice ?? productPrice(item.product),
-        total: cartLineTotal(item)
+        total: cartLineTotal(item),
+        lineType: item.lineType,
+        isInventoryAsset: item.isInventoryAsset !== false,
+        requiresManagementReview: item.requiresManagementReview,
+        biFlagged: item.biFlagged
       })),
       subtotal,
       tax: taxTotal,
@@ -808,7 +909,7 @@ export default function PosSales({
         status: sale.status
       });
 
-      await Promise.all(cart.map((item) => {
+      await Promise.all(cart.filter((item) => item.lineType !== 'MiscellaneousItem' && item.isInventoryAsset !== false && item.stockMovementRequired !== false).map((item) => {
         const currentProduct = localProducts.find((product) => product.id === item.product.id) || item.product;
         const balanceBefore = productStock(currentProduct);
         return postSaleMovement({
@@ -841,9 +942,9 @@ export default function PosSales({
         });
       }));
 
-      cart.forEach((item) => onProductStockChange(item.product.id, item.quantity));
+      cart.filter((item) => item.lineType !== 'MiscellaneousItem' && item.isInventoryAsset !== false && item.stockMovementRequired !== false).forEach((item) => onProductStockChange(item.product.id, item.quantity));
       setLocalProducts((current) => current.map((product) => {
-        const soldLine = cart.find((item) => item.product.id === product.id);
+        const soldLine = cart.find((item) => item.product.id === product.id && item.lineType !== 'MiscellaneousItem' && item.isInventoryAsset !== false && item.stockMovementRequired !== false);
         return soldLine ? {
           ...product,
           stock: Math.max(0, product.stock - soldLine.quantity),
@@ -941,6 +1042,22 @@ export default function PosSales({
             paymentMethod: receiptPaymentMode(payments[0]?.method || paymentMethod)
           }
         });
+        if (hasMiscellaneousLines) {
+          await Promise.all(cart.filter((item) => item.lineType === 'MiscellaneousItem' || item.biFlagged).map(async (item) => {
+            const advice = await createMiscellaneousSaleAdvice({
+            receiptNo: invoiceNo,
+            description: productName(item.product),
+            amount: cartLineTotal(item),
+            quantity: item.quantity,
+            reason: item.miscReason || 'Miscellaneous non-inventory sale completed.',
+            staffName,
+            terminalName,
+            branchName,
+            notes: item.miscNotes
+            });
+            await routeBIAdviceToDesk(advice);
+          }));
+        }
       } catch {
         logEvent('SALE_COMPLETION_SERVICE_PLACEHOLDER', 'Optional accounting, payment, or BI placeholder service was skipped safely.');
       }
@@ -1011,6 +1128,7 @@ export default function PosSales({
       clearCartState();
       setStatusMessage(saleQueuedLocally ? (deliveryQueuedLocally ? 'Sale completed locally and queued for sync. Delivery request queued for sync.' : 'Sale completed locally and queued for sync.') : deliveryMode === 'No Delivery' ? 'Sale completed successfully.' : 'Sale completed and delivery request prepared.');
       logEvent('SALE_COMPLETED', `Sale ${invoiceNo} completed for ${money(grandTotal)}.`);
+      if (hasMiscellaneousLines) logEvent('SALE_COMPLETED_WITH_MISCELLANEOUS_LINE', `Sale ${invoiceNo} included miscellaneous non-inventory line(s).`);
       logEvent('RECEIPT_DRAFTED', `Receipt ${receipt.receiptNumber} prepared for preview.`);
       return true;
     } catch (error) {
@@ -1402,6 +1520,14 @@ export default function PosSales({
           onBlockedProduct={handleBlockedProduct}
           onBlockedStockAttempt={handleBlockedProduct}
           onActivity={logEvent}
+          canSellInventoryItems={canSellInventoryItems}
+          inventoryBlockedMessage={inventoryBlockedMessage}
+          canAddMiscellaneousSale={canCreateMiscellaneousSale}
+          onNavigateShiftControl={() => onNavigate('SHIFT')}
+          onActivateTerminal={() => onNavigate('SHIFT')}
+          onOpenShift={() => onNavigate('SHIFT')}
+          onAssignDrawer={() => onNavigate('SHIFT')}
+          onAddMiscellaneousSale={handleOpenMiscellaneousSale}
         />
         <SalesCartCard
           cart={cart}
@@ -1630,6 +1756,11 @@ export default function PosSales({
         cashierName={staffName}
         onClose={() => setProfitSnapshotOpen(false)}
         onNotice={setStatusMessage}
+      />
+      <MiscellaneousSaleModal
+        open={miscSaleOpen}
+        onSubmit={(payload) => void handleAddMiscellaneousSale(payload)}
+        onCancel={() => setMiscSaleOpen(false)}
       />
     </div>
   );
