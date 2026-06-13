@@ -11,8 +11,14 @@ export const repositoryRuntimeConfig = {
   firebaseAuthShellEnabled: true,
   firebaseAuthRequired: false,
   tenantResolutionEnabled: false,
+  staffSessionGateEnabled: true,
+  staffSessionGateRequired: false,
+  staffPinVerificationEnabled: true,
   staffPinRequired: false,
+  roleMenuFilteringEnabled: true,
+  strictPermissionEnforcementEnabled: false,
   buildDevelopmentBypassEnabled: true,
+  buildDevelopmentOwnerBypassEnabled: true,
   authRequired: false,
   offlineQueueEnabled: true,
   buildDevelopmentMode: true
@@ -62,8 +68,32 @@ export function isStaffPinRequired(): boolean {
   return repositoryRuntimeConfig.staffPinRequired;
 }
 
+export function isStaffSessionGateEnabled(): boolean {
+  return repositoryRuntimeConfig.staffSessionGateEnabled;
+}
+
+export function isStaffSessionGateRequired(): boolean {
+  return repositoryRuntimeConfig.staffSessionGateRequired;
+}
+
+export function isStaffPinVerificationEnabled(): boolean {
+  return repositoryRuntimeConfig.staffPinVerificationEnabled;
+}
+
+export function isRoleMenuFilteringEnabled(): boolean {
+  return repositoryRuntimeConfig.roleMenuFilteringEnabled;
+}
+
+export function isStrictPermissionEnforcementEnabled(): boolean {
+  return repositoryRuntimeConfig.strictPermissionEnforcementEnabled;
+}
+
 export function isBuildDevelopmentBypassEnabled(): boolean {
   return repositoryRuntimeConfig.buildDevelopmentBypassEnabled;
+}
+
+export function isBuildDevelopmentOwnerBypassEnabled(): boolean {
+  return repositoryRuntimeConfig.buildDevelopmentOwnerBypassEnabled;
 }
 
 export function getDefaultRepositoryMode(): RepositoryDataSourceMode {

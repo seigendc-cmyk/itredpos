@@ -38,6 +38,9 @@ import {
 import { Role } from '../types';
 import { getAllowedMenusForRole, hasPermission } from '../utils/posPermissions';
 import A5FloatingForm from '../components/A5FloatingForm';
+import StaffSessionGatePanel from '../components/StaffSessionGatePanel';
+import RoleMenuReadinessPanel from '../components/RoleMenuReadinessPanel';
+import { getCurrentStaffGateSession, getStaffSessionGateReadiness } from '../auth/staffSessionGateService';
 
 interface PosSettingsProps {
   businessProfile: BusinessProfile;
@@ -114,6 +117,8 @@ export default function PosSettings({
 
   // Current active configuration section tab
   const [activeSection, setActiveSection] = useState<SettingsSectionId>('BUSINESS_PROFILE');
+  const staffGateReadiness = getStaffSessionGateReadiness();
+  const currentStaffGateSession = getCurrentStaffGateSession();
   
   // Feedback Toasts / Banner messages
   const [toastMessage, setToastMessage] = useState<string | null>(null);
@@ -1716,11 +1721,22 @@ export default function PosSettings({
                     <ReadOnlyAccessMetric label="Owner Access" value="Full During Development" />
                     <ReadOnlyAccessMetric label="Commercial Gates" value="Deferred" />
                     <ReadOnlyAccessMetric label="Last Build Check" value="Placeholder" />
+                    <ReadOnlyAccessMetric label="Current Staff Session" value={currentStaffGateSession.gateStatus} />
                   </div>
                   <div className="mt-3 border border-orange-200 bg-orange-50 p-2 text-[10px] text-orange-900 font-bold uppercase">
                     During build-development, Owner has full access. Commercial feature enforcement is deferred.
                   </div>
                 </div>
+                <div className="bg-white border-2 border-[#b1b5c2] p-4 text-[#1e222b]">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3">
+                    {staffGateReadiness.map((item) => <ReadOnlyAccessMetric key={item.item} label={item.item} value={item.status} />)}
+                  </div>
+                  <div className="mt-3 border border-orange-200 bg-orange-50 p-2 text-[10px] text-orange-900 font-bold uppercase">
+                    Staff PIN gate and role menu filtering are preview-only. Strict permission enforcement and mandatory gate behavior remain disabled.
+                  </div>
+                </div>
+                <StaffSessionGatePanel />
+                <RoleMenuReadinessPanel />
               </div>
             )}
 

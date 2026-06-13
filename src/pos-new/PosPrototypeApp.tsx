@@ -47,6 +47,8 @@ import {
   mockSettings 
 } from './mock/mockPosData';
 import { getAllowedMenusForRole } from './utils/posPermissions';
+import { getAllowedMenusForStaffSession, getCurrentStaffGateSession } from './auth/staffSessionGateService';
+import { isRoleMenuFilteringEnabled, isStrictPermissionEnforcementEnabled } from './repositories/repositoryConfig';
 import './posNew.css';
 
 // Core industrial standard catalog seeds loaded from centralized mockPosData
@@ -335,6 +337,7 @@ export default function PosPrototypeApp() {
 
   // Dynamic authorization check & routing redirect logic
   useEffect(() => {
+    if (isRoleMenuFilteringEnabled() && !isStrictPermissionEnforcementEnabled()) return;
     const userRole = activeSession ? activeSession.role : 'SysAdmin';
     const allowed = userRole === 'Owner' || userRole === 'SysAdmin'
       ? getAllowedMenusForRole(userRole)
@@ -743,11 +746,14 @@ export default function PosPrototypeApp() {
     );
   }
 
-  const userRoleForAccess = activeSession ? activeSession.role : 'SysAdmin';
-  const allowedForAccess = userRoleForAccess === 'Owner' || userRoleForAccess === 'SysAdmin'
-    ? getAllowedMenusForRole(userRoleForAccess)
-    : rolePermissions[userRoleForAccess] || ['DASHBOARD', 'SETTINGS'];
-  const isPageRestricted = !allowedForAccess.includes(activePage);
+  const staffGateSession = getCurrentStaffGateSession();
+  const previewAllowedForAccess = isRoleMenuFilteringEnabled()
+    ? getAllowedMenusForStaffSession(staffGateSession)
+    : [];
+  const allowedForAccess = isRoleMenuFilteringEnabled() && isStrictPermissionEnforcementEnabled()
+    ? previewAllowedForAccess
+    : getAllowedMenusForRole('Owner');
+  const isPageRestricted = isStrictPermissionEnforcementEnabled() && !allowedForAccess.includes(activePage);
 
   return (
     <PosShell

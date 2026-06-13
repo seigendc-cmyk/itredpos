@@ -77,3 +77,17 @@ The current implementation uses a mock tenant directory only. Signed-in email, v
 Tenant roles map to existing POS permission keys through the tenant permission mapping layer. `VendorOwner` keeps Owner build-development full access, while staff roles map to the existing POS permission model for Cashier, Supervisor, Stock Controller, Delivery Staff, Manager, and limited Viewer access.
 
 Production Firestore tenant lookup remains disabled. No production login gate is enforced, no business workflows are connected to Firestore, no Storage upload is added, and iTredVD Console remains internal-only.
+
+## Build 19C Staff PIN Gate and Role Menu Readiness
+
+Staff PIN gate preparation exists in preview mode only. The gate is enabled for inspection, but it is not mandatory and does not block the app during build-development.
+
+PIN verification uses local mock demo credentials only. The demo credentials are not production credential logic, are not hashed, and are not connected to Firestore or Firebase Auth token claims.
+
+Role menu mapping and role action permission previews are prepared so Owner, Manager, Supervisor, Cashier, Stock Controller, Delivery Staff, Accountant, and Viewer access can be inspected before route guards are enforced. Strict permission enforcement remains disabled.
+
+Owner build-development bypass remains active. Owner retains full menu and action access and cannot be locked out by the preview Staff PIN gate.
+
+Production Firestore staff credential rules, credential hashing, custom claims, audit repositories, and tenant security rules will be designed later. This build does not connect staff profiles, PIN credentials, products, sales, inventory, delivery, accounting, approvals, or offline sync to Firestore.
+
+Vendor users still have no access to internal iTredVD Console, subscription management, pricing management, plan management, or company staff administration.

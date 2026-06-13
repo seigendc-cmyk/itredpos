@@ -4,6 +4,7 @@ import type {
   TenantStaffProfileContract,
   TenantTerminalAccessContract
 } from './tenantResolutionTypes';
+import type { StaffPinCredential } from './staffPinTypes';
 
 export const mockTenantMemberships: TenantMembershipContract[] = [
   {
@@ -66,4 +67,12 @@ export const mockTerminalAccess: TenantTerminalAccessContract[] = [
   { terminalAccessId: 'TA-ADMIN-BACK01', vendorId: 'demo-vendor-001', branchId: 'BR-HARARE', terminalId: 'BACK-01', terminalName: 'BACK-01 Harare Back Office', staffId: 'ST-ADMIN', accessStatus: 'Active' },
   { terminalAccessId: 'TA-MARY-POS01', vendorId: 'demo-vendor-001', branchId: 'BR-HARARE', terminalId: 'POS-01', terminalName: 'POS-01 Harare Front Counter', staffId: 'ST-MARY', accessStatus: 'Active' },
   { terminalAccessId: 'TA-BLESSING-POS02', vendorId: 'demo-vendor-001', branchId: 'BR-BYO', terminalId: 'POS-02', terminalName: 'POS-02 Bulawayo Counter', staffId: 'ST-BLESSING', accessStatus: 'Active' }
+];
+
+export const mockStaffPinCredentials: StaffPinCredential[] = [
+  { staffId: 'ST-OWNER', staffName: 'Owner Build User', demoPin: '0000', isBuildDevelopmentDemo: true, notes: 'Build-development demo PIN only. Do not use for production credential logic.' },
+  { staffId: 'ST-ADMIN', staffName: 'Main Manager', demoPin: '1111', isBuildDevelopmentDemo: true, notes: 'Build-development demo PIN only. Do not use for production credential logic.' },
+  { staffId: 'ST-MARY', staffName: 'Cashier One', demoPin: '2222', isBuildDevelopmentDemo: true, notes: 'Build-development demo PIN only. Do not use for production credential logic.' },
+  { staffId: 'ST-BLESSING', staffName: 'Stock Controller One', demoPin: '3333', isBuildDevelopmentDemo: true, notes: 'Build-development demo PIN only. Do not use for production credential logic.' },
+  { staffId: 'ST-DELIVERY', staffName: 'Delivery Driver One', demoPin: '4444', isBuildDevelopmentDemo: true, notes: 'Build-development demo PIN only. Do not use for production credential logic.' }
 ];
