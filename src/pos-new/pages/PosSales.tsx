@@ -19,6 +19,7 @@ import { createDeliveryRequestFromReceipt } from '../services/deliveryService';
 import { recordPaymentReportEvent } from '../services/paymentReportService';
 import { logTerminalControlEvent, runTerminalControlCheck } from '../services/terminalControlService';
 import { createCustomerRequest, getCustomers, recordCustomerSelectedForSale } from '../services/customerService';
+import { enqueueOfflineAction, getNetworkStatus } from '../services/offlineSyncService';
 import { getProductTotalAvailableStock } from '../services/stockBalanceService';
 import {
   CartItem,
@@ -311,6 +312,37 @@ export default function PosSales({
       requestedByRole: roleName
     });
     logEvent('CUSTOMER_CREATED_PENDING', `${created.customerName} customer request saved locally.`);
+    const network = await getNetworkStatus();
+    if (network === 'Offline' || network === 'Unstable') {
+      await enqueueOfflineAction({
+        vendorId: VENDOR_ID,
+        branchId: branchIdFromName(branchName),
+        terminalId: terminalName,
+        staffId: staffName,
+        staffName,
+        entityType: 'Customer Request',
+        entityId: created.customerId,
+        entityNumber: created.customerCode,
+        operationType: 'CREATE_CUSTOMER_REQUEST',
+        payload: { customerId: created.customerId, customerName: created.customerName, phone: created.phone, status: created.status },
+        status: 'Queued',
+        notes: 'Customer request saved locally and queued for sync.'
+      });
+      await enqueueOfflineAction({
+        vendorId: VENDOR_ID,
+        branchId: branchIdFromName(branchName),
+        terminalId: terminalName,
+        staffId: staffName,
+        staffName,
+        entityType: 'Approval Request',
+        entityId: created.customerId,
+        entityNumber: created.customerCode,
+        operationType: 'CREATE_APPROVAL_REQUEST',
+        payload: { approvalType: 'CUSTOMER_REQUEST', customerId: created.customerId, status: 'Pending Approval' },
+        status: 'Queued',
+        notes: 'Approval request queued locally for customer request.'
+      });
+    }
     try {
       await biEventService.recordBIEvent({
         eventType: 'CUSTOMER_CREATED_PENDING',
@@ -322,7 +354,7 @@ export default function PosSales({
     } catch {
       logEvent('CUSTOMER_CREATED_PENDING_BI_SKIPPED', 'Customer pending BI placeholder was skipped safely.');
     }
-    setStatusMessage('Customer request created and sent for approval.');
+    setStatusMessage(network === 'Offline' || network === 'Unstable' ? 'Customer request saved locally and queued for sync.' : 'Customer request created and sent for approval.');
     getCustomers({ status: 'Active' }).then(setActiveCustomers).catch(() => undefined);
   };
 
@@ -483,6 +515,8 @@ export default function PosSales({
       changeGiven: changeDue,
       status: 'COMPLETED'
     };
+    let saleQueuedLocally = false;
+    let deliveryQueuedLocally = false;
 
     try {
       onAddTransaction({
@@ -567,6 +601,52 @@ export default function PosSales({
         vatMode,
         vatRate: parsedVatRate
       });
+      const network = await getNetworkStatus();
+      const shouldQueueOffline = network === 'Offline' || network === 'Unstable';
+      const queueStatus = shouldQueueOffline ? 'Queued' : 'Ready To Sync';
+      await enqueueOfflineAction({
+        vendorId: VENDOR_ID,
+        branchId: branchIdFromName(branchName),
+        terminalId: terminalName,
+        staffId: staffName,
+        staffName,
+        entityType: 'Receipt',
+        entityId: receipt.id,
+        entityNumber: receipt.receiptNumber,
+        operationType: 'CREATE_RECEIPT',
+        payload: { receiptNumber: receipt.receiptNumber, invoiceNo, total: grandTotal, paymentMode: receiptPaymentMode(payments[0]?.method || paymentMethod), offlineCompleted: shouldQueueOffline },
+        status: queueStatus,
+        notes: shouldQueueOffline ? 'Sale completed locally and queued for sync.' : 'Development placeholder queue item. No backend call made.'
+      });
+      await enqueueOfflineAction({
+        vendorId: VENDOR_ID,
+        branchId: branchIdFromName(branchName),
+        terminalId: terminalName,
+        staffId: staffName,
+        staffName,
+        entityType: 'Payment',
+        entityId: receipt.receiptNumber,
+        entityNumber: receipt.receiptNumber,
+        operationType: 'CREATE_PAYMENT',
+        payload: { receiptNumber: receipt.receiptNumber, amount: grandTotal, paymentMode: receiptPaymentMode(payments[0]?.method || paymentMethod), payments },
+        status: queueStatus,
+        notes: 'Payment sync placeholder queued locally.'
+      });
+      await enqueueOfflineAction({
+        vendorId: VENDOR_ID,
+        branchId: branchIdFromName(branchName),
+        terminalId: terminalName,
+        staffId: staffName,
+        staffName,
+        entityType: 'BI Event',
+        entityId: `BI-${receipt.receiptNumber}`,
+        entityNumber: 'SALE_COMPLETED_LOCAL',
+        operationType: 'CREATE_BI_EVENT',
+        payload: { eventType: shouldQueueOffline ? 'SALE_COMPLETED_LOCAL' : 'SALE_COMPLETED', receiptNumber: receipt.receiptNumber, total: grandTotal },
+        status: queueStatus,
+        notes: 'BI/audit event queued locally for sync readiness.'
+      });
+      saleQueuedLocally = shouldQueueOffline;
       try {
         await createAccountingPostingPlaceholder({
           sourceReference: invoiceNo,
@@ -622,6 +702,23 @@ export default function PosSales({
         });
         if (deliveryRequest) {
           logEvent('DELIVERY_REQUEST_CREATED', `${deliveryRequest.deliveryNumber} prepared for ${receipt.receiptNumber}.`);
+          if (shouldQueueOffline) {
+            await enqueueOfflineAction({
+              vendorId: VENDOR_ID,
+              branchId: branchIdFromName(branchName),
+              terminalId: terminalName,
+              staffId: staffName,
+              staffName,
+              entityType: 'Delivery Request',
+              entityId: deliveryRequest.deliveryId,
+              entityNumber: deliveryRequest.deliveryNumber,
+              operationType: 'CREATE_DELIVERY_REQUEST',
+              payload: { deliveryId: deliveryRequest.deliveryId, deliveryNumber: deliveryRequest.deliveryNumber, receiptNumber: receipt.receiptNumber, deliveryMethod },
+              status: 'Queued',
+              notes: 'Delivery request queued for sync. WhatsApp draft remains local.'
+            });
+            deliveryQueuedLocally = true;
+          }
           try {
             await biEventService.recordBIEvent({
               eventType: deliveryMode === 'iDeliver Service' ? 'IDELIVER_BROADCAST_PREPARED' : 'DELIVERY_REQUEST_CREATED',
@@ -638,7 +735,7 @@ export default function PosSales({
       setPreparedReceiptPreview(preview || null);
       setRecentSales((current) => [sale, ...current].slice(0, 6));
       clearCartState();
-      setStatusMessage(deliveryMode === 'No Delivery' ? 'Sale completed successfully.' : 'Sale completed and delivery request prepared.');
+      setStatusMessage(saleQueuedLocally ? (deliveryQueuedLocally ? 'Sale completed locally and queued for sync. Delivery request queued for sync.' : 'Sale completed locally and queued for sync.') : deliveryMode === 'No Delivery' ? 'Sale completed successfully.' : 'Sale completed and delivery request prepared.');
       logEvent('SALE_COMPLETED', `Sale ${invoiceNo} completed for ${money(grandTotal)}.`);
       logEvent('RECEIPT_CREATED', `Receipt ${receipt.receiptNumber} prepared for preview.`);
     } catch (error) {

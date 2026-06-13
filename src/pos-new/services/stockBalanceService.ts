@@ -218,7 +218,40 @@ export async function updateStockBalanceFromMovement(movement: InventoryMovement
     (balance.warehouseId === movement.warehouseId || balance.warehouseName === movement.warehouseId)
   ) || balances.find((balance) => balance.productId === movement.productId && balance.locationType === 'Main Warehouse');
 
-  if (!matching) return null;
+  if (!matching) {
+    const qtyOnHand = Math.max(0, qtyDelta);
+    const created: ProductStockBalance = {
+      balanceId: `BAL-${Date.now()}-${Math.floor(Math.random() * 9000 + 1000)}`,
+      vendorId: movement.vendorId,
+      productId: movement.productId,
+      sku: movement.sku,
+      productName: movement.productName,
+      branchId: movement.branchId,
+      branchName: movement.branchId,
+      warehouseId: movement.warehouseId,
+      warehouseName: movement.warehouseId,
+      locationId: `${movement.warehouseId}-MAIN`,
+      locationName: movement.shelfLocation || 'Main Warehouse',
+      locationType: 'Main Warehouse',
+      shelfLocation: movement.shelfLocation,
+      qtyOnHand,
+      qtyReserved: 0,
+      qtyAvailable: qtyOnHand,
+      qtyDamaged: 0,
+      qtyReturnHolding: 0,
+      qtyInTransit: 0,
+      qtyBlocked: 0,
+      reorderLevel: 0,
+      reorderQty: 0,
+      status: 'Available',
+      lastMovementDate: movement.movementDate,
+      lastMovementAt: movement.movementDate,
+      updatedAt: new Date().toISOString()
+    };
+    const classified = { ...created, status: classifyBalance(created) };
+    writeBalances([classified, ...balances]);
+    return classified;
+  }
 
   const next = balances.map((balance) => {
     if (balance.balanceId !== matching.balanceId) return balance;

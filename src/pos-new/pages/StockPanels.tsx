@@ -82,6 +82,10 @@ import {
   ProductStockBalance,
   ProductStockBalanceSummary,
   ProductSupplierLink,
+  ManualProductDraft,
+  ManualProductValidationIssue,
+  OpeningBalanceDraft,
+  ProductCreationActivityEvent,
   ApprovalRequest, 
   ApprovalRequestType 
 } from '../types';
@@ -92,6 +96,7 @@ import StockAdjustmentForm from '../components/StockAdjustmentForm';
 import StocktakeForm from '../components/StocktakeForm';
 import StockTransferForm from '../components/StockTransferForm';
 import ProductMasterForm from '../components/ProductMasterForm';
+import ManualProductForm from '../components/ManualProductForm';
 import {
   postGoodsReceivedMovement,
   postStockAdjustmentMovement,
@@ -213,6 +218,18 @@ import {
   updateProductMasterPlaceholder
 } from '../services/productMasterService';
 import {
+  activateProduct,
+  approveOpeningBalanceDraft,
+  cancelOpeningBalanceDraft,
+  createManualProductDraft,
+  createOpeningBalanceDraft,
+  detectManualProductDuplicate,
+  getOpeningBalanceDrafts as getManualOpeningBalanceDrafts,
+  getProductCreationActivityEvents,
+  postOpeningBalanceDraft,
+  validateManualProduct
+} from '../services/manualProductService';
+import {
   exportStockBalancesPlaceholder,
   getProductStockBalances,
   getProductStockBalanceSummary
@@ -319,18 +336,47 @@ export default function StockPanels({
   const [selectedProductLedger, setSelectedProductLedger] = useState<InventoryMovement[]>([]);
   const [selectedProductAudit, setSelectedProductAudit] = useState<Array<{ id: string; productId: string; eventType: string; message: string; staffId: string; createdAt: string }>>([]);
   const [productMasterNotice, setProductMasterNotice] = useState<string | null>(null);
+  const emptyManualProductDraft = (): ManualProductDraft => ({
+    vendorId: 'SCI-LOG-ZW',
+    productName: '',
+    industrialSector: 'MOTOR_SPARES',
+    category: '',
+    subcategory: '',
+    unitOfMeasure: 'pcs',
+    condition: 'New',
+    productStatus: 'Draft',
+    taxMode: 'VAT Registered',
+    vatRate: 15,
+    branchId: 'BR-HARARE',
+    warehouseId: 'WH-HARARE-01',
+    locationType: 'Main Warehouse',
+    createdByStaffId: staffName,
+    createdByStaffName: staffName
+  });
+  const [manualProductOpen, setManualProductOpen] = useState(false);
+  const [manualProductDraft, setManualProductDraft] = useState<ManualProductDraft>(emptyManualProductDraft());
+  const [manualProductValidation, setManualProductValidation] = useState<ManualProductValidationIssue[]>([]);
+  const [manualProductActivity, setManualProductActivity] = useState<ProductCreationActivityEvent[]>([]);
+  const [manualOpeningBalanceDrafts, setManualOpeningBalanceDrafts] = useState<OpeningBalanceDraft[]>([]);
+  const [manualSavedProduct, setManualSavedProduct] = useState<ProductMasterRecord | null>(null);
+  const [manualDuplicateProduct, setManualDuplicateProduct] = useState<ProductMasterRecord | null>(null);
+  const [manualProductNotice, setManualProductNotice] = useState<string | null>(null);
 
   const refreshProductMaster = async (filters = productMasterFilters) => {
-    const [rows, summary, balanceSummary, balances] = await Promise.all([
+    const [rows, summary, balanceSummary, balances, openingDrafts, creationActivity] = await Promise.all([
       getProductMasterRecords(filters),
       getProductMasterSummary(filters),
       getProductStockBalanceSummary(),
-      getProductStockBalances()
+      getProductStockBalances(),
+      getManualOpeningBalanceDrafts({}),
+      getProductCreationActivityEvents({})
     ]);
     setProductMasterRows(rows);
     setProductMasterSummary(summary);
     setStockBalanceSummary(balanceSummary);
     setAllProductBalances(balances);
+    setManualOpeningBalanceDrafts(openingDrafts);
+    setManualProductActivity(creationActivity);
   };
 
   const openProductMaster = async (product: ProductMasterRecord) => {
@@ -356,6 +402,124 @@ export default function StockPanels({
   useEffect(() => {
     refreshProductMaster();
   }, []);
+
+  const openManualProductForm = async () => {
+    if (!canPerformAction(simulatedRole, 'productMaster.create')) {
+      setProductMasterNotice(blockedPermissionMessage);
+      return;
+    }
+    setManualProductDraft(emptyManualProductDraft());
+    setManualSavedProduct(null);
+    setManualDuplicateProduct(null);
+    setManualProductValidation([]);
+    setManualProductNotice(null);
+    setManualProductOpen(true);
+    setManualOpeningBalanceDrafts(await getManualOpeningBalanceDrafts({}));
+    setManualProductActivity(await getProductCreationActivityEvents({}));
+  };
+
+  const runManualValidation = async (draft = manualProductDraft) => {
+    const issues = await validateManualProduct(draft);
+    setManualProductValidation(issues);
+    return issues;
+  };
+
+  const handleManualDuplicateCheck = async () => {
+    const duplicate = await detectManualProductDuplicate(manualProductDraft);
+    setManualDuplicateProduct(duplicate || null);
+    setManualProductNotice(duplicate ? `Duplicate risk found: ${duplicate.productName}.` : 'No duplicate product found locally.');
+    await runManualValidation();
+  };
+
+  const handleManualSaveDraft = async () => {
+    if (!canPerformAction(simulatedRole, 'productMaster.create')) {
+      setManualProductNotice(blockedPermissionMessage);
+      return;
+    }
+    const issues = await runManualValidation();
+    if (issues.some((issue) => issue.severity === 'Error' && issue.field === 'duplicate')) {
+      setManualProductNotice('Duplicate active product blocks draft creation.');
+      return;
+    }
+    const created = await createManualProductDraft({ ...manualProductDraft, productStatus: 'Draft', createdByStaffId: staffName, createdByStaffName: staffName });
+    setManualSavedProduct(created);
+    setManualProductDraft((current) => ({ ...current, productId: created.productId, sku: created.sku, productName: created.productName }));
+    setManualProductNotice('Manual product draft created locally. Stock was not posted.');
+    await refreshProductMaster(productMasterFilters);
+  };
+
+  const handleManualActivate = async () => {
+    if (!canPerformAction(simulatedRole, 'productMaster.activate')) {
+      setManualProductNotice(blockedPermissionMessage);
+      return;
+    }
+    const issues = await runManualValidation(manualProductDraft);
+    if (issues.some((issue) => issue.severity === 'Error')) {
+      setManualProductNotice('Activation blocked by validation errors. Product was not activated.');
+      return;
+    }
+    const product = manualSavedProduct || await createManualProductDraft({ ...manualProductDraft, productStatus: 'Draft', createdByStaffId: staffName, createdByStaffName: staffName });
+    const updated = await activateProduct(product.productId, staffName);
+    if (updated) {
+      setManualSavedProduct(updated);
+      setManualProductNotice('Product activated locally. Stock was not posted.');
+      await refreshProductMaster(productMasterFilters);
+    }
+  };
+
+  const handleManualCreateOpeningBalance = async () => {
+    if (!canPerformAction(simulatedRole, 'openingBalance.create')) {
+      setManualProductNotice(blockedPermissionMessage);
+      return;
+    }
+    const product = manualSavedProduct || await createManualProductDraft({ ...manualProductDraft, productStatus: 'Draft', createdByStaffId: staffName, createdByStaffName: staffName });
+    const qty = Number(manualProductDraft.openingQty || 0);
+    const unitCost = Number(manualProductDraft.openingUnitCost ?? manualProductDraft.costPrice ?? 0);
+    if (qty < 0 || unitCost < 0) {
+      setManualProductNotice('Opening quantity and unit cost must be zero or above.');
+      return;
+    }
+    if (qty === 0) {
+      setManualProductNotice('Enter an opening quantity above zero to create a draft.');
+      return;
+    }
+    await createOpeningBalanceDraft({
+      vendorId: product.vendorId,
+      branchId: manualProductDraft.branchId || 'BR-HARARE',
+      warehouseId: manualProductDraft.warehouseId || 'WH-HARARE-01',
+      productId: product.productId,
+      sku: product.sku,
+      productName: product.productName,
+      shelfLocation: manualProductDraft.shelfLocation,
+      qty,
+      unitCost,
+      createdByStaffId: staffName,
+      createdByStaffName: staffName,
+      notes: 'Created from Manual Product form. Stock not posted.'
+    });
+    setManualSavedProduct(product);
+    setManualProductNotice('Opening Balance Draft created. Stock was not posted.');
+    await refreshProductMaster(productMasterFilters);
+  };
+
+  const handleOpeningBalanceAction = async (draft: OpeningBalanceDraft, action: 'approve' | 'post' | 'cancel') => {
+    const permission = action === 'approve' ? 'openingBalance.approve' : action === 'post' ? 'openingBalance.post' : 'openingBalance.cancel';
+    if (!canPerformAction(simulatedRole, permission)) {
+      setProductMasterNotice(blockedPermissionMessage);
+      return;
+    }
+    if (action === 'approve') {
+      await approveOpeningBalanceDraft(draft.openingBalanceId, staffName, 'Approved from Product Master Opening Balance Drafts panel.');
+      setProductMasterNotice('Opening balance draft approved locally.');
+    } else if (action === 'post') {
+      await postOpeningBalanceDraft(draft.openingBalanceId, staffName);
+      setProductMasterNotice('Opening balance posted as OPENING_BALANCE inventory movement.');
+    } else {
+      await cancelOpeningBalanceDraft(draft.openingBalanceId, staffName, 'Cancelled from Product Master Opening Balance Drafts panel.');
+      setProductMasterNotice('Opening balance draft cancelled locally.');
+    }
+    await refreshProductMaster(productMasterFilters);
+  };
   
   // 1. Purchase Orders State. PO records are procurement memos only: no stock,
   // accounting, cashbook, COGS or inventory asset value is posted from this flow.
@@ -2470,11 +2634,11 @@ export default function StockPanels({
               </button>
               <button
                 type="button"
-                onClick={() => setProductMasterNotice('New Product Master draft placeholder is ready for create flow wiring.')}
+                onClick={() => void openManualProductForm()}
                 className="px-4 py-2 bg-orange-600 hover:bg-orange-700 border border-orange-700 text-white font-black uppercase text-[9.5px] rounded-none cursor-pointer flex items-center gap-2"
               >
                 <PlusCircle className="w-4 h-4" />
-                New Product Placeholder
+                New Product
               </button>
             </div>
           </div>
@@ -2587,6 +2751,56 @@ export default function StockPanels({
             </table>
           </div>
 
+          <div className="border border-[#b1b5c2] bg-white">
+            <div className="bg-[#252a31] text-white px-3 py-2 flex flex-col md:flex-row md:items-center md:justify-between gap-2">
+              <div>
+                <h3 className="text-[11px] font-black uppercase">Opening Balance Drafts</h3>
+                <p className="text-[9px] text-slate-200 uppercase">Draft and approved opening balances do not change stock until Post Opening Balance is clicked.</p>
+              </div>
+              <span className="text-[9px] uppercase text-orange-300 font-black">{manualOpeningBalanceDrafts.length} draft row(s)</span>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs">
+                <thead className="bg-[#f8fafc] text-[#252a31]">
+                  <tr>
+                    {['Draft No.', 'Date', 'Product', 'SKU', 'Branch', 'Warehouse', 'Shelf', 'Qty', 'Unit Cost', 'Value Estimate', 'Status', 'Created By', 'Action'].map((header) => (
+                      <th key={header} className="p-2 text-left text-[9px] uppercase font-black border-b border-[#d7dce5]">{header}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {manualOpeningBalanceDrafts.map((draft) => (
+                    <tr key={draft.openingBalanceId} className="border-t border-[#e5e7eb]">
+                      <td className="p-2 font-black">{draft.openingBalanceNumber}</td>
+                      <td className="p-2">{draft.createdAt.slice(0, 10)}</td>
+                      <td className="p-2">{draft.productName}</td>
+                      <td className="p-2">{draft.sku}</td>
+                      <td className="p-2">{draft.branchId}</td>
+                      <td className="p-2">{draft.warehouseId}</td>
+                      <td className="p-2">{draft.shelfLocation || '-'}</td>
+                      <td className="p-2">{draft.qty}</td>
+                      <td className="p-2">{draft.unitCost.toFixed(2)}</td>
+                      <td className="p-2">{draft.valueEstimate.toFixed(2)}</td>
+                      <td className="p-2"><span className={`px-2 py-1 border text-[8px] font-black uppercase ${draft.status === 'Posted' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : draft.status === 'Cancelled' ? 'bg-red-50 text-red-700 border-red-200' : 'bg-orange-50 text-orange-800 border-orange-200'}`}>{draft.status}</span></td>
+                      <td className="p-2">{draft.createdByStaffName}</td>
+                      <td className="p-2">
+                        <div className="flex flex-wrap gap-1">
+                          <POAction label="View" onClick={() => setProductMasterNotice(`${draft.openingBalanceNumber}: ${draft.productName}, qty ${draft.qty}.`)} />
+                          <POAction label="Approve" onClick={() => void handleOpeningBalanceAction(draft, 'approve')} />
+                          <POAction label="Post Opening Balance" primary onClick={() => void handleOpeningBalanceAction(draft, 'post')} />
+                          <POAction label="Cancel" onClick={() => void handleOpeningBalanceAction(draft, 'cancel')} />
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                  {manualOpeningBalanceDrafts.length === 0 && (
+                    <tr><td className="p-4 text-slate-600 font-semibold" colSpan={13}>No manual opening balance drafts found.</td></tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
           {selectedProductMaster && (
             <ProductMasterForm
               product={selectedProductMaster}
@@ -2638,6 +2852,31 @@ export default function StockPanels({
                 const result = await exportProductMasterPlaceholder({ ...productMasterFilters, search: selectedProductMaster.sku });
                 setProductMasterNotice(result.message);
               }}
+            />
+          )}
+
+          {manualProductOpen && (
+            <ManualProductForm
+              draft={manualProductDraft}
+              validationIssues={manualProductValidation}
+              activity={manualProductActivity}
+              openingBalanceDrafts={manualOpeningBalanceDrafts}
+              savedProduct={manualSavedProduct}
+              duplicateProduct={manualDuplicateProduct}
+              notice={manualProductNotice}
+              onChange={(patch) => setManualProductDraft((current) => ({ ...current, ...patch }))}
+              onSaveDraft={() => void handleManualSaveDraft()}
+              onActivate={() => void handleManualActivate()}
+              onCreateOpeningBalance={() => void handleManualCreateOpeningBalance()}
+              onCheckDuplicate={() => void handleManualDuplicateCheck()}
+              onClear={() => {
+                setManualProductDraft(emptyManualProductDraft());
+                setManualSavedProduct(null);
+                setManualDuplicateProduct(null);
+                setManualProductValidation([]);
+                setManualProductNotice(null);
+              }}
+              onClose={() => setManualProductOpen(false)}
             />
           )}
         </div>

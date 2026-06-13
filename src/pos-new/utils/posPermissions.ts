@@ -33,8 +33,14 @@ export type PermissionKey =
   | 'productMaster.view'
   | 'productMaster.create'
   | 'productMaster.edit'
+  | 'productMaster.activate'
   | 'productMaster.block'
   | 'productMaster.export'
+  | 'openingBalance.view'
+  | 'openingBalance.create'
+  | 'openingBalance.approve'
+  | 'openingBalance.post'
+  | 'openingBalance.cancel'
   | 'stockBalances.view'
   | 'stockBalances.adjust'
   | 'stockBalances.transfer'
@@ -136,7 +142,24 @@ export type PermissionKey =
   | 'bi.view'
   | 'bi.review'
   | 'sync.view'
-  | 'sync.run';
+  | 'sync.run'
+  | 'sync.queue.view'
+  | 'sync.retry'
+  | 'sync.batch.create'
+  | 'sync.batch.run'
+  | 'sync.conflict.view'
+  | 'sync.conflict.resolve'
+  | 'sync.conflict.hold'
+  | 'sync.export'
+  | 'sync.clearSynced'
+  | 'productImport.view'
+  | 'productImport.create'
+  | 'productImport.map'
+  | 'productImport.validate'
+  | 'productImport.approve'
+  | 'productImport.import'
+  | 'productImport.cancel'
+  | 'productImport.export';
 
 export type PosAction =
   | PermissionKey
@@ -178,8 +201,14 @@ const ALL_PERMISSIONS: PermissionKey[] = [
   'productMaster.view',
   'productMaster.create',
   'productMaster.edit',
+  'productMaster.activate',
   'productMaster.block',
   'productMaster.export',
+  'openingBalance.view',
+  'openingBalance.create',
+  'openingBalance.approve',
+  'openingBalance.post',
+  'openingBalance.cancel',
   'stockBalances.view',
   'stockBalances.adjust',
   'stockBalances.transfer',
@@ -281,7 +310,24 @@ const ALL_PERMISSIONS: PermissionKey[] = [
   'bi.view',
   'bi.review',
   'sync.view',
-  'sync.run'
+  'sync.run',
+  'sync.queue.view',
+  'sync.retry',
+  'sync.batch.create',
+  'sync.batch.run',
+  'sync.conflict.view',
+  'sync.conflict.resolve',
+  'sync.conflict.hold',
+  'sync.export',
+  'sync.clearSynced',
+  'productImport.view',
+  'productImport.create',
+  'productImport.map',
+  'productImport.validate',
+  'productImport.approve',
+  'productImport.import',
+  'productImport.cancel',
+  'productImport.export'
 ];
 
 const ROLE_MENUS: Record<Role, PosPageId[]> = {
@@ -303,7 +349,9 @@ const ROLE_PERMISSIONS: Record<Role, PermissionKey[]> = {
     'terminal.activate', 'terminal.deactivate', 'shift.open', 'shift.close', 'shift.forceClose',
     'customers.createRequest', 'customers.approve',
     'inventory.view', 'inventory.import', 'inventory.approveImport', 'inventory.adjust', 'inventory.approveAdjustment',
-    'productMaster.view', 'productMaster.create', 'productMaster.edit', 'productMaster.block', 'productMaster.export', 'stockBalances.view', 'stockBalances.adjust', 'stockBalances.transfer',
+    'productMaster.view', 'productMaster.create', 'productMaster.edit', 'productMaster.activate', 'productMaster.block', 'productMaster.export',
+    'openingBalance.view', 'openingBalance.create', 'openingBalance.approve', 'openingBalance.post', 'openingBalance.cancel',
+    'stockBalances.view', 'stockBalances.adjust', 'stockBalances.transfer',
     'inventoryReports.view', 'inventoryReports.export', 'stockHealth.view', 'stockHealth.review', 'reorderRecommendations.create', 'stocktakeRecommendations.create', 'transferRecommendations.create', 'supplierPerformance.view',
     'stockAdjustments.view', 'stockAdjustments.create', 'stockAdjustments.edit', 'stockAdjustments.approve', 'stockAdjustments.post', 'stockAdjustments.cancel', 'stockAdjustments.reverse',
     'inventoryMovements.view', 'inventoryMovements.export', 'productLedger.view',
@@ -321,7 +369,8 @@ const ROLE_PERMISSIONS: Record<Role, PermissionKey[]> = {
     'inventoryAccounting.view', 'inventoryAccounting.review', 'inventoryAccounting.approve', 'inventoryAccounting.hold', 'inventoryAccounting.reject', 'inventoryAccounting.export',
     'settings.view',
     'bi.view', 'bi.review',
-    'sync.view', 'sync.run'
+    'sync.view', 'sync.run', 'sync.queue.view', 'sync.retry', 'sync.batch.create', 'sync.batch.run', 'sync.conflict.view', 'sync.conflict.resolve', 'sync.conflict.hold', 'sync.export', 'sync.clearSynced',
+    'productImport.view', 'productImport.create', 'productImport.map', 'productImport.validate', 'productImport.approve', 'productImport.import', 'productImport.export'
   ],
   Supervisor: [
     'sales.create', 'sales.complete', 'sales.viewHistory', 'sales.discount', 'sales.priceOverride', 'sales.void', 'sales.reprintReceipt',
@@ -329,7 +378,9 @@ const ROLE_PERMISSIONS: Record<Role, PermissionKey[]> = {
     'shift.open', 'shift.close',
     'customers.createRequest',
     'inventory.view',
-    'productMaster.view', 'stockBalances.view',
+    'productMaster.view', 'productMaster.create', 'productMaster.edit',
+    'openingBalance.view', 'openingBalance.create',
+    'stockBalances.view',
     'inventoryReports.view', 'stockHealth.view', 'stockHealth.review', 'reorderRecommendations.create', 'stocktakeRecommendations.create', 'transferRecommendations.create', 'supplierPerformance.view',
     'stockAdjustments.view', 'stockAdjustments.create', 'stockAdjustments.edit', 'stockAdjustments.post',
     'inventoryMovements.view', 'productLedger.view',
@@ -346,7 +397,8 @@ const ROLE_PERMISSIONS: Record<Role, PermissionKey[]> = {
     'accounting.view', 'accounting.review',
     'inventoryAccounting.view', 'inventoryAccounting.review',
     'bi.view', 'bi.review',
-    'sync.view', 'sync.run'
+    'sync.view', 'sync.run', 'sync.queue.view', 'sync.retry', 'sync.batch.create', 'sync.conflict.view', 'sync.conflict.hold',
+    'productImport.view', 'productImport.create', 'productImport.map', 'productImport.validate', 'productImport.export'
   ],
   Cashier: [
     'sales.create', 'sales.complete', 'sales.viewHistory', 'sales.reprintReceipt',
@@ -355,12 +407,14 @@ const ROLE_PERMISSIONS: Record<Role, PermissionKey[]> = {
     'customers.createRequest',
     'delivery.view', 'delivery.create',
     'tasks.view',
-    'sync.view'
+    'sync.view', 'sync.queue.view', 'sync.conflict.view'
   ],
   'Stock Controller': [
     'sales.viewHistory',
     'inventory.view', 'inventory.import', 'inventory.adjust',
-    'productMaster.view', 'productMaster.create', 'productMaster.edit', 'productMaster.export', 'stockBalances.view', 'stockBalances.adjust', 'stockBalances.transfer',
+    'productMaster.view', 'productMaster.create', 'productMaster.edit', 'productMaster.export',
+    'openingBalance.view', 'openingBalance.create',
+    'stockBalances.view', 'stockBalances.adjust', 'stockBalances.transfer',
     'inventoryReports.view', 'inventoryReports.export', 'stockHealth.view', 'stockHealth.review', 'reorderRecommendations.create', 'stocktakeRecommendations.create', 'transferRecommendations.create', 'supplierPerformance.view',
     'stockAdjustments.view', 'stockAdjustments.create', 'stockAdjustments.edit',
     'inventoryMovements.view', 'productLedger.view',
@@ -375,12 +429,13 @@ const ROLE_PERMISSIONS: Record<Role, PermissionKey[]> = {
     'accounting.view',
     'inventoryAccounting.view',
     'bi.view',
-    'sync.view', 'sync.run'
+    'sync.view', 'sync.run', 'sync.queue.view', 'sync.retry', 'sync.batch.create', 'sync.conflict.view', 'sync.export',
+    'productImport.view', 'productImport.create', 'productImport.map', 'productImport.validate'
   ],
   'Delivery Staff': [
     'delivery.view', 'delivery.track', 'delivery.verifyCode', 'delivery.complete', 'delivery.cashReview',
     'tasks.view',
-    'sync.view', 'sync.run'
+    'sync.view', 'sync.run', 'sync.queue.view', 'sync.retry'
   ]
 };
 

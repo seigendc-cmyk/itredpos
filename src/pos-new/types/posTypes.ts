@@ -484,6 +484,147 @@ export interface ProductMasterSummary {
   riskProducts: number;
 }
 
+export type ManualProductFormMode = 'Create' | 'Edit' | 'View';
+
+export type ProductCreationStatus = 'Draft' | 'Active' | 'Pending Review' | 'Blocked' | 'Rejected';
+
+export type OpeningBalanceDraftStatus = 'Draft' | 'Pending Approval' | 'Approved' | 'Posted' | 'Cancelled';
+
+export interface ManualProductDraft {
+  productId?: string;
+  vendorId: string;
+  productName: string;
+  sku?: string;
+  barcode?: string;
+  alu?: string;
+  vendorSku?: string;
+  productNumericNumber?: string;
+  description?: string;
+  brand?: string;
+  manufacturer?: string;
+  industrialSector: string;
+  category?: string;
+  subcategory?: string;
+  unitOfMeasure?: string;
+  condition?: string;
+  colour?: string;
+  tags?: string[];
+  productStatus: ProductCreationStatus;
+  make?: string;
+  model?: string;
+  yearFrom?: string;
+  yearTo?: string;
+  side?: string;
+  partNumber?: string;
+  oemNumber?: string;
+  engineCode?: string;
+  chassisCode?: string;
+  size?: string;
+  material?: string;
+  grade?: string;
+  productType?: string;
+  wattage?: string;
+  voltage?: string;
+  batteryCapacity?: string;
+  panelType?: string;
+  inverterType?: string;
+  costPrice?: number;
+  sellingPrice?: number;
+  taxMode?: string;
+  vatRate?: number;
+  priceEffectiveDate?: string;
+  priceNotes?: string;
+  supplierName?: string;
+  supplierItemCode?: string;
+  supplierContact?: string;
+  supplierPhone?: string;
+  supplierEmail?: string;
+  lastCost?: number;
+  leadTimeDays?: number;
+  minimumOrderQty?: number;
+  preferredSupplier?: boolean;
+  supplierNotes?: string;
+  branchId?: string;
+  warehouseId?: string;
+  shelfLocation?: string;
+  openingQty?: number;
+  openingUnitCost?: number;
+  reorderLevel?: number;
+  reorderQty?: number;
+  locationType?: StockLocationType;
+  notes?: string;
+  createdByStaffId?: string;
+  createdByStaffName?: string;
+}
+
+export interface ManualProductValidationIssue {
+  issueId: string;
+  field: string;
+  severity: 'Error' | 'Warning' | 'Info';
+  message: string;
+  suggestedFix: string;
+}
+
+export interface OpeningBalanceDraftLine {
+  lineId: string;
+  openingBalanceId: string;
+  productId: string;
+  sku: string;
+  productName: string;
+  shelfLocation?: string;
+  qty: number;
+  unitCost: number;
+  valueEstimate: number;
+}
+
+export interface OpeningBalanceDraft {
+  openingBalanceId: string;
+  openingBalanceNumber: string;
+  vendorId: string;
+  branchId: string;
+  warehouseId: string;
+  productId: string;
+  sku: string;
+  productName: string;
+  shelfLocation?: string;
+  qty: number;
+  unitCost: number;
+  valueEstimate: number;
+  status: OpeningBalanceDraftStatus;
+  createdByStaffId: string;
+  createdByStaffName: string;
+  approvedByStaffId?: string;
+  postedByStaffId?: string;
+  notes: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type ProductCreationActivityEventType =
+  | 'PRODUCT_DRAFT_CREATED'
+  | 'PRODUCT_CREATED'
+  | 'PRODUCT_ACTIVATED'
+  | 'PRODUCT_DUPLICATE_WARNING'
+  | 'PRODUCT_BLOCKED'
+  | 'SUPPLIER_LINK_CREATED'
+  | 'PRICE_RECORD_CREATED'
+  | 'REORDER_RULE_CREATED'
+  | 'OPENING_BALANCE_DRAFT_CREATED'
+  | 'OPENING_BALANCE_APPROVED'
+  | 'OPENING_BALANCE_POSTED'
+  | 'OPENING_BALANCE_CANCELLED';
+
+export interface ProductCreationActivityEvent {
+  eventId: string;
+  eventType: ProductCreationActivityEventType;
+  productId?: string;
+  openingBalanceId?: string;
+  message: string;
+  staffId?: string;
+  staffName?: string;
+  createdAt: string;
+}
+
 export interface ProductStockBalanceSummary {
   totalLocations: number;
   totalQtyOnHand: number;
@@ -818,6 +959,7 @@ export type InventoryReferenceType =
   | 'RECEIPT'
   | 'RETURN'
   | 'GRN'
+  | 'OPENING_BALANCE'
   | 'STOCKTAKE'
   | 'ADJUSTMENT'
   | 'TRANSFER'
@@ -3214,6 +3356,431 @@ export interface SyncActivityEvent {
 }
 
 export type TerminalConnectivityStatus = 'ONLINE' | 'OFFLINE';
+
+export type NetworkStatus = 'Online' | 'Offline' | 'Unstable' | 'Unknown';
+
+export type SyncQueueStatus =
+  | 'Queued'
+  | 'Ready To Sync'
+  | 'Syncing'
+  | 'Synced'
+  | 'Failed'
+  | 'Conflict'
+  | 'Cancelled'
+  | 'Held For Review';
+
+export type SyncEntityType =
+  | 'Sale'
+  | 'Receipt'
+  | 'Payment'
+  | 'Customer'
+  | 'Customer Request'
+  | 'Approval Request'
+  | 'Delivery Request'
+  | 'Inventory Movement'
+  | 'Purchase Order'
+  | 'Goods Receiving'
+  | 'Supplier Return'
+  | 'Stock Adjustment'
+  | 'Stocktake'
+  | 'Stock Transfer'
+  | 'Accounting Readiness'
+  | 'BI Event'
+  | 'Audit Event'
+  | 'Settings Change'
+  | 'Terminal Session'
+  | 'Shift Session';
+
+export type SyncConflictType =
+  | 'Duplicate Receipt'
+  | 'Stock Quantity Conflict'
+  | 'Customer Duplicate'
+  | 'Price Changed'
+  | 'Product Changed'
+  | 'Shift Closed Remotely'
+  | 'Terminal Deactivated Remotely'
+  | 'Approval Status Changed'
+  | 'Delivery Status Changed'
+  | 'Document Already Posted'
+  | 'Version Mismatch'
+  | 'Permission Conflict'
+  | 'Unknown Conflict';
+
+export type SyncConflictResolution =
+  | 'Use Local'
+  | 'Use Remote'
+  | 'Merge'
+  | 'Retry'
+  | 'Cancel Local'
+  | 'Hold For Review'
+  | 'Manual Review Required';
+
+export type SyncPriority = 'Low' | 'Normal' | 'High' | 'Critical';
+
+export type OfflineSyncHealthStatus = 'Healthy' | 'Warning' | 'Critical' | 'Offline' | 'Unknown';
+
+export type OfflineSyncActivityEventType =
+  | 'OFFLINE_ACTION_QUEUED'
+  | 'SYNC_BATCH_CREATED'
+  | 'SYNC_BATCH_PREPARED'
+  | 'SYNC_BATCH_RUN_PLACEHOLDER'
+  | 'SYNC_ITEM_SYNCED_PLACEHOLDER'
+  | 'SYNC_ITEM_FAILED'
+  | 'SYNC_ITEM_RETRIED'
+  | 'SYNC_CONFLICT_DETECTED'
+  | 'SYNC_CONFLICT_RESOLVED'
+  | 'SYNC_CONFLICT_HELD_FOR_REVIEW'
+  | 'SYNC_ITEM_CANCELLED'
+  | 'TERMINAL_SYNC_HEALTH_REVIEWED'
+  | 'LOCAL_SNAPSHOT_CREATED'
+  | 'SYNC_REPORT_EXPORT_PREPARED';
+
+export interface OfflineSyncQueueItem {
+  queueId: string;
+  vendorId: string;
+  branchId: string;
+  terminalId: string;
+  staffId: string;
+  staffName: string;
+  entityType: SyncEntityType;
+  entityId: string;
+  entityNumber?: string;
+  operationType: string;
+  payload: Record<string, unknown>;
+  payloadHash: string;
+  localVersion: number;
+  remoteVersion?: number;
+  priority: SyncPriority;
+  status: SyncQueueStatus;
+  retryCount: number;
+  lastError?: string;
+  conflictId?: string;
+  queuedAt: string;
+  lastAttemptAt?: string;
+  syncedAt?: string;
+  notes?: string;
+}
+
+export interface OfflineSyncBatch {
+  batchId: string;
+  vendorId: string;
+  branchId: string;
+  terminalId: string;
+  createdByStaffId: string;
+  createdByStaffName: string;
+  itemCount: number;
+  highPriorityCount: number;
+  failedCount: number;
+  conflictCount: number;
+  status: SyncQueueStatus;
+  createdAt: string;
+  completedAt?: string;
+  notes?: string;
+}
+
+export interface OfflineSyncConflict {
+  conflictId: string;
+  queueId: string;
+  vendorId: string;
+  branchId: string;
+  terminalId: string;
+  entityType: SyncEntityType;
+  entityId: string;
+  entityNumber?: string;
+  conflictType: SyncConflictType;
+  localPayload: Record<string, unknown>;
+  remotePayload?: Record<string, unknown>;
+  localVersion: number;
+  remoteVersion?: number;
+  detectedAt: string;
+  status: SyncQueueStatus;
+  recommendedResolution: SyncConflictResolution;
+  riskLevel: RiskLevel;
+  notes?: string;
+}
+
+export interface OfflineSyncConflictDecision {
+  decisionId: string;
+  conflictId: string;
+  queueId: string;
+  resolution: SyncConflictResolution;
+  decidedByStaffId: string;
+  decidedByStaffName: string;
+  reason: string;
+  decidedAt: string;
+}
+
+export interface OfflineSyncHealth {
+  terminalId: string;
+  terminalName: string;
+  branchId: string;
+  branchName: string;
+  networkStatus: NetworkStatus;
+  lastSyncAt?: string;
+  queueCount: number;
+  failedCount: number;
+  conflictCount: number;
+  localStorageStatus: 'Available' | 'Unavailable' | 'Unknown';
+  syncHealth: OfflineSyncHealthStatus;
+}
+
+export interface OfflineSyncActivityEvent {
+  eventId: string;
+  eventType: OfflineSyncActivityEventType;
+  queueId?: string;
+  batchId?: string;
+  conflictId?: string;
+  message: string;
+  staffId?: string;
+  staffName?: string;
+  terminalId?: string;
+  branchId?: string;
+  createdAt: string;
+}
+
+export interface OfflineSyncFilterState {
+  entityType?: 'ALL' | SyncEntityType;
+  status?: 'ALL' | SyncQueueStatus;
+  priority?: 'ALL' | SyncPriority;
+  branchId?: string;
+  terminalId?: string;
+  staffId?: string;
+  dateFrom?: string;
+  dateTo?: string;
+  conflictType?: 'ALL' | SyncConflictType;
+  searchReference?: string;
+}
+
+export interface OfflineSyncSummary {
+  networkStatus: NetworkStatus;
+  queuedItems: number;
+  readyToSync: number;
+  failedItems: number;
+  conflicts: number;
+  syncedToday: number;
+  heldForReview: number;
+  criticalItems: number;
+  lastSync?: string;
+  terminalHealth: OfflineSyncHealthStatus;
+}
+
+export interface LocalTerminalSnapshot {
+  snapshotId: string;
+  terminalId: string;
+  terminalName: string;
+  branchId: string;
+  branchName: string;
+  staffId: string;
+  staffName: string;
+  openShiftId?: string;
+  localReceipts: number;
+  localCustomers: number;
+  localDeliveries: number;
+  localInventoryEvents: number;
+  localBIEvents: number;
+  lastSnapshotAt: string;
+  storageEstimate: string;
+}
+
+export interface LocalDataVersionRecord {
+  recordId: string;
+  entityType: SyncEntityType;
+  entityId: string;
+  localVersion: number;
+  remoteVersion?: number;
+  payloadHash: string;
+  updatedAt: string;
+}
+
+export type ProductImportBatchStatus =
+  | 'Draft'
+  | 'Mapping'
+  | 'Validating'
+  | 'Validation Failed'
+  | 'Ready For Approval'
+  | 'Pending Approval'
+  | 'Approved'
+  | 'Imported'
+  | 'Partially Imported'
+  | 'Rejected'
+  | 'Cancelled';
+
+export type ProductImportRowStatus =
+  | 'Pending'
+  | 'Valid'
+  | 'Warning'
+  | 'Error'
+  | 'Duplicate'
+  | 'Imported'
+  | 'Skipped';
+
+export type ProductImportSource =
+  | 'Excel Upload Placeholder'
+  | 'CSV Upload'
+  | 'Paste Table'
+  | 'Manual Batch'
+  | 'Supplier File'
+  | 'Offline Catalogue File';
+
+export type ProductImportDuplicateAction =
+  | 'Skip'
+  | 'Update Existing Draft'
+  | 'Create New Product'
+  | 'Hold For Review';
+
+export type IndustrialSectorCode =
+  | 'MOTOR_SPARES'
+  | 'HARDWARE'
+  | 'GROCERY'
+  | 'AGRICULTURE'
+  | 'CLOTHING'
+  | 'FURNITURE'
+  | 'ELECTRONICS'
+  | 'LUBRICANTS'
+  | 'PHARMACY'
+  | 'BUILDING_MATERIALS'
+  | 'SOLAR_PRODUCTS'
+  | 'GENERAL_RETAIL'
+  | 'OTHER';
+
+export type ProductImportIssueSeverity = 'Error' | 'Warning' | 'Info';
+
+export interface ProductImportValidationIssue {
+  issueId: string;
+  batchId: string;
+  rowId: string;
+  rowNumber: number;
+  field: string;
+  issueType: string;
+  message: string;
+  severity: ProductImportIssueSeverity;
+  suggestedFix: string;
+}
+
+export interface ProductImportRow {
+  rowId: string;
+  batchId: string;
+  rowNumber: number;
+  rawData: Record<string, string>;
+  mappedProduct: Record<string, string | number | undefined>;
+  validationIssues: ProductImportValidationIssue[];
+  duplicateProductId?: string;
+  duplicateAction: ProductImportDuplicateAction;
+  status: ProductImportRowStatus;
+  notes?: string;
+}
+
+export interface ProductImportBatch {
+  batchId: string;
+  batchNumber: string;
+  vendorId: string;
+  branchId: string;
+  warehouseId: string;
+  industrialSectorCode: IndustrialSectorCode;
+  source: ProductImportSource;
+  status: ProductImportBatchStatus;
+  fileName?: string;
+  uploadedByStaffId: string;
+  uploadedByStaffName: string;
+  totalRows: number;
+  validRows: number;
+  warningRows: number;
+  errorRows: number;
+  duplicateRows: number;
+  importedRows: number;
+  skippedRows: number;
+  createdAt: string;
+  updatedAt: string;
+  notes: string;
+}
+
+export interface ProductImportColumnMapping {
+  mappingId: string;
+  batchId: string;
+  sourceColumn: string;
+  targetField: string;
+  required: boolean;
+  sectorSpecific: boolean;
+  sampleValue: string;
+  status: 'Mapped' | 'Unmapped' | 'Review Required';
+}
+
+export interface ProductImportPreviewSummary {
+  batchId: string;
+  totalRows: number;
+  validRows: number;
+  warningRows: number;
+  errorRows: number;
+  duplicateRows: number;
+  productsToCreate: number;
+  openingBalanceDraftsToCreate: number;
+}
+
+export interface OpeningBalanceDraftFromImport {
+  draftId: string;
+  batchId: string;
+  rowId: string;
+  rowNumber: number;
+  sku?: string;
+  productName: string;
+  branchId: string;
+  warehouseId: string;
+  shelfLocation?: string;
+  importedQty: number;
+  unitCost: number;
+  valueEstimate: number;
+  status: 'Draft - Not Posted' | 'Skipped' | 'Ready For Posting Placeholder';
+  createdAt: string;
+  notes?: string;
+}
+
+export interface IndustrialSectorMappingTemplate {
+  templateId: string;
+  industrialSectorCode: IndustrialSectorCode;
+  sectorName: string;
+  requiredFields: string[];
+  recommendedFields: string[];
+  optionalFields: string[];
+  sectorSpecificFields: string[];
+  defaultCategoryOptions: string[];
+  defaultSubcategoryOptions: string[];
+}
+
+export type ProductImportActivityEventType =
+  | 'PRODUCT_IMPORT_BATCH_CREATED'
+  | 'PRODUCT_IMPORT_FILE_PARSED_PLACEHOLDER'
+  | 'PRODUCT_IMPORT_COLUMNS_MAPPED'
+  | 'PRODUCT_IMPORT_VALIDATED'
+  | 'PRODUCT_IMPORT_VALIDATION_FAILED'
+  | 'PRODUCT_IMPORT_DUPLICATES_FOUND'
+  | 'PRODUCT_IMPORT_SUBMITTED_FOR_APPROVAL'
+  | 'PRODUCT_IMPORT_APPROVED'
+  | 'PRODUCT_IMPORT_REJECTED'
+  | 'PRODUCT_IMPORT_BATCH_IMPORTED'
+  | 'PRODUCT_IMPORT_ROW_SKIPPED'
+  | 'OPENING_BALANCE_DRAFT_CREATED_FROM_IMPORT';
+
+export interface ProductImportActivityEvent {
+  eventId: string;
+  batchId?: string;
+  rowId?: string;
+  eventType: ProductImportActivityEventType;
+  message: string;
+  staffId?: string;
+  staffName?: string;
+  createdAt: string;
+}
+
+export interface ProductImportFilterState {
+  batchNumber?: string;
+  industrialSectorCode?: 'ALL' | IndustrialSectorCode;
+  status?: 'ALL' | ProductImportBatchStatus;
+  source?: 'ALL' | ProductImportSource;
+  uploadedBy?: string;
+  dateFrom?: string;
+  dateTo?: string;
+  search?: string;
+}
 
 export type EODCheckStatus =
   | 'Passed'

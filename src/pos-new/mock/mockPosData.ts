@@ -42,6 +42,20 @@ import {
   SyncQueueItem,
   SyncConflict,
   SyncActivityEvent,
+  OfflineSyncQueueItem,
+  OfflineSyncBatch,
+  OfflineSyncConflict,
+  OfflineSyncConflictDecision,
+  OfflineSyncHealth,
+  OfflineSyncActivityEvent,
+  LocalTerminalSnapshot,
+  ProductImportBatch,
+  ProductImportRow,
+  ProductImportColumnMapping,
+  ProductImportValidationIssue,
+  IndustrialSectorMappingTemplate,
+  ProductImportActivityEvent,
+  OpeningBalanceDraftFromImport,
   OwnerSummary,
   EODSession,
   EODChecklistItem,
@@ -589,6 +603,60 @@ export const mockProductReorderRules: ProductReorderRule[] = mockProductStockBal
     status: 'Active',
     notes: 'Local reorder placeholder for Product Master.'
   }));
+
+export const mockIndustrialSectorMappingTemplates: IndustrialSectorMappingTemplate[] = [
+  { templateId: 'PIM-TPL-MOTOR', industrialSectorCode: 'MOTOR_SPARES', sectorName: 'Motor Spares', requiredFields: ['productName', 'sku or barcode or alu', 'sellingPrice'], recommendedFields: ['brand', 'make', 'model', 'yearFrom', 'yearTo', 'side', 'partNumber', 'oemNumber', 'category', 'shelfLocation', 'qty', 'costPrice', 'supplierName'], optionalFields: ['manufacturer', 'engineCode', 'chassisCode', 'vendorSku', 'productNumericNumber', 'tags'], sectorSpecificFields: ['make', 'model', 'yearFrom', 'yearTo', 'side', 'partNumber', 'oemNumber', 'engineCode', 'chassisCode', 'alu'], defaultCategoryOptions: ['Body Parts', 'Suspension', 'Braking', 'Cooling', 'Electrical', 'Service Parts'], defaultSubcategoryOptions: ['Toyota', 'Honda', 'Nissan', 'Mazda', 'Isuzu', 'Universal'] },
+  { templateId: 'PIM-TPL-HARDWARE', industrialSectorCode: 'HARDWARE', sectorName: 'Hardware', requiredFields: ['productName', 'sku or barcode', 'sellingPrice'], recommendedFields: ['brand', 'category', 'subcategory', 'size', 'material', 'unitOfMeasure', 'shelfLocation', 'qty', 'costPrice', 'supplierName'], optionalFields: ['manufacturer', 'grade', 'condition', 'reorderLevel', 'reorderQty', 'tags'], sectorSpecificFields: ['size', 'material', 'grade', 'productType', 'unitOfMeasure'], defaultCategoryOptions: ['Fasteners', 'Tools', 'Paint', 'Plumbing', 'Electrical', 'Safety'], defaultSubcategoryOptions: ['Bolts', 'Nuts', 'Hand Tools', 'Power Tools', 'Pipe Fittings', 'Cable'] },
+  { templateId: 'PIM-TPL-GENERAL', industrialSectorCode: 'GENERAL_RETAIL', sectorName: 'General Retail', requiredFields: ['productName', 'sku or barcode', 'sellingPrice'], recommendedFields: ['brand', 'category', 'qty', 'costPrice', 'supplierName'], optionalFields: ['manufacturer', 'unitOfMeasure', 'shelfLocation', 'taxMode', 'vatRate', 'tags'], sectorSpecificFields: ['brand', 'category', 'unitOfMeasure', 'supplierName', 'shelfLocation'], defaultCategoryOptions: ['Retail Goods', 'Accessories', 'Consumables', 'General Merchandise'], defaultSubcategoryOptions: ['Standard', 'Premium', 'Seasonal', 'Counter Line'] },
+  { templateId: 'PIM-TPL-SOLAR', industrialSectorCode: 'SOLAR_PRODUCTS', sectorName: 'Solar Products', requiredFields: ['productName', 'sku or barcode', 'sellingPrice'], recommendedFields: ['productName', 'sku or barcode', 'brand', 'wattage', 'voltage', 'batteryCapacity', 'panelType', 'inverterType', 'sellingPrice', 'qty', 'supplierName'], optionalFields: ['manufacturer', 'category', 'shelfLocation', 'costPrice', 'unitOfMeasure', 'tags'], sectorSpecificFields: ['wattage', 'voltage', 'batteryCapacity', 'panelType', 'inverterType'], defaultCategoryOptions: ['Solar Panels', 'Solar Batteries', 'Inverters', 'Charge Controllers', 'Solar Accessories'], defaultSubcategoryOptions: ['Mono Panel', 'Lithium Battery', 'Hybrid Inverter', 'MPPT Controller', 'Mounting Kit'] }
+];
+
+export const mockProductImportBatches: ProductImportBatch[] = [
+  { batchId: 'PIM-BATCH-0001', batchNumber: 'PIM-2026-0001', vendorId: 'SCI-LOG-ZW', branchId: 'BR-HARARE', warehouseId: 'WH-HARARE-01', industrialSectorCode: 'MOTOR_SPARES', source: 'CSV Upload', status: 'Ready For Approval', fileName: 'motor-spares-june.csv', uploadedByStaffId: 'ST-BLESSING', uploadedByStaffName: 'Blessing Stock', totalRows: 4, validRows: 2, warningRows: 1, errorRows: 0, duplicateRows: 1, importedRows: 0, skippedRows: 0, createdAt: '2026-06-12T09:15:00Z', updatedAt: '2026-06-12T09:35:00Z', notes: 'Motor spares CSV mapped and validated. Duplicate row held for review.' },
+  { batchId: 'PIM-BATCH-0002', batchNumber: 'PIM-2026-0002', vendorId: 'SCI-LOG-ZW', branchId: 'BR-HARARE', warehouseId: 'WH-HARARE-01', industrialSectorCode: 'HARDWARE', source: 'Paste Table', status: 'Validation Failed', fileName: 'pasted-hardware-lines', uploadedByStaffId: 'ST-ADMIN', uploadedByStaffName: 'Admin User', totalRows: 3, validRows: 1, warningRows: 1, errorRows: 1, duplicateRows: 0, importedRows: 0, skippedRows: 0, createdAt: '2026-06-12T10:00:00Z', updatedAt: '2026-06-12T10:08:00Z', notes: 'One hardware row is missing product name and cannot import.' },
+  { batchId: 'PIM-BATCH-0003', batchNumber: 'PIM-2026-0003', vendorId: 'SCI-LOG-ZW', branchId: 'BR-HARARE', warehouseId: 'WH-HARARE-01', industrialSectorCode: 'SOLAR_PRODUCTS', source: 'Supplier File', status: 'Mapping', fileName: 'solar-catalogue-placeholder.csv', uploadedByStaffId: 'ST-ADMIN', uploadedByStaffName: 'Admin User', totalRows: 3, validRows: 0, warningRows: 0, errorRows: 0, duplicateRows: 0, importedRows: 0, skippedRows: 0, createdAt: '2026-06-12T10:30:00Z', updatedAt: '2026-06-12T10:30:00Z', notes: 'Solar panels, batteries, and inverters waiting for column mapping.' }
+];
+
+export const mockProductImportValidationIssues: ProductImportValidationIssue[] = [
+  { issueId: 'PIM-ISS-0001', batchId: 'PIM-BATCH-0001', rowId: 'PIM-ROW-0002', rowNumber: 2, field: 'make/model/year/side', issueType: 'Sector Warning', message: 'Motor spares row is missing vehicle fitment fields.', severity: 'Warning', suggestedFix: 'Add make, model, year range, and side where applicable.' },
+  { issueId: 'PIM-ISS-0002', batchId: 'PIM-BATCH-0001', rowId: 'PIM-ROW-0003', rowNumber: 3, field: 'sku', issueType: 'Duplicate', message: 'Duplicate SKU matched existing product BP-GD6-F.', severity: 'Warning', suggestedFix: 'Select duplicate action before import.' },
+  { issueId: 'PIM-ISS-0003', batchId: 'PIM-BATCH-0002', rowId: 'PIM-ROW-0006', rowNumber: 2, field: 'productName', issueType: 'Required Field', message: 'Product name is required.', severity: 'Error', suggestedFix: 'Enter a product name or skip the row.' },
+  { issueId: 'PIM-ISS-0004', batchId: 'PIM-BATCH-0002', rowId: 'PIM-ROW-0007', rowNumber: 3, field: 'unitOfMeasure', issueType: 'Sector Warning', message: 'Hardware row should include unit of measure.', severity: 'Warning', suggestedFix: 'Apply default unit of measure or map a unit column.' }
+];
+
+export const mockProductImportRows: ProductImportRow[] = [
+  { rowId: 'PIM-ROW-0001', batchId: 'PIM-BATCH-0001', rowNumber: 1, rawData: { productName: 'Toyota Hilux GD6 Mirror Right Chrome', sku: 'MIR-GD6-RC', alu: 'MIR-GD6-RC', brand: 'Toyota', make: 'Toyota', model: 'Hilux GD6', side: 'Right', sellingPrice: '68', costPrice: '34', qty: '2', shelfLocation: 'A1-S4' }, mappedProduct: { productName: 'Toyota Hilux GD6 Mirror Right Chrome', sku: 'MIR-GD6-RC', alu: 'MIR-GD6-RC', brand: 'Toyota', make: 'Toyota', model: 'Hilux GD6', side: 'Right', sellingPrice: 68, costPrice: 34, qty: 2, shelfLocation: 'A1-S4', category: 'Body Parts' }, validationIssues: [], duplicateAction: 'Create New Product', status: 'Valid' },
+  { rowId: 'PIM-ROW-0002', batchId: 'PIM-BATCH-0001', rowNumber: 2, rawData: { productName: 'Universal Radiator Cap 1.1 Bar', sku: 'RAD-CAP-11', sellingPrice: '8', costPrice: '3.5', qty: '10' }, mappedProduct: { productName: 'Universal Radiator Cap 1.1 Bar', sku: 'RAD-CAP-11', sellingPrice: 8, costPrice: 3.5, qty: 10, category: 'Cooling' }, validationIssues: [mockProductImportValidationIssues[0]], duplicateAction: 'Create New Product', status: 'Warning', notes: 'Fitment fields are recommended for motor spares.' },
+  { rowId: 'PIM-ROW-0003', batchId: 'PIM-BATCH-0001', rowNumber: 3, rawData: { productName: 'Brake Pads Toyota GD6 Front', sku: 'BP-GD6-F', brand: 'Toyota', sellingPrice: '28', costPrice: '16', qty: '4' }, mappedProduct: { productName: 'Brake Pads Toyota GD6 Front', sku: 'BP-GD6-F', brand: 'Toyota', sellingPrice: 28, costPrice: 16, qty: 4 }, validationIssues: [mockProductImportValidationIssues[1]], duplicateProductId: 'STOCK-P-03', duplicateAction: 'Hold For Review', status: 'Duplicate' },
+  { rowId: 'PIM-ROW-0004', batchId: 'PIM-BATCH-0001', rowNumber: 4, rawData: { productName: 'Honda Fit GD1 Lower Arm Bush', sku: 'BUSH-GD1-LA', brand: 'Honda', make: 'Honda', model: 'Fit GD1', sellingPrice: '14', costPrice: '6', qty: '6', shelfLocation: 'B2-S1' }, mappedProduct: { productName: 'Honda Fit GD1 Lower Arm Bush', sku: 'BUSH-GD1-LA', brand: 'Honda', make: 'Honda', model: 'Fit GD1', sellingPrice: 14, costPrice: 6, qty: 6, shelfLocation: 'B2-S1', category: 'Suspension' }, validationIssues: [], duplicateAction: 'Create New Product', status: 'Valid' },
+  { rowId: 'PIM-ROW-0005', batchId: 'PIM-BATCH-0002', rowNumber: 1, rawData: { productName: 'M10 Galvanised Hex Bolt', sku: 'HEX-M10-GALV', category: 'Fasteners', unitOfMeasure: 'pcs', sellingPrice: '0.18', costPrice: '0.08', qty: '300' }, mappedProduct: { productName: 'M10 Galvanised Hex Bolt', sku: 'HEX-M10-GALV', category: 'Fasteners', unitOfMeasure: 'pcs', sellingPrice: 0.18, costPrice: 0.08, qty: 300 }, validationIssues: [], duplicateAction: 'Create New Product', status: 'Valid' },
+  { rowId: 'PIM-ROW-0006', batchId: 'PIM-BATCH-0002', rowNumber: 2, rawData: { sku: 'NO-NAME-001', sellingPrice: '4.5' }, mappedProduct: { sku: 'NO-NAME-001', sellingPrice: 4.5 }, validationIssues: [mockProductImportValidationIssues[2]], duplicateAction: 'Hold For Review', status: 'Error' },
+  { rowId: 'PIM-ROW-0007', batchId: 'PIM-BATCH-0002', rowNumber: 3, rawData: { productName: 'Nylon Wall Plug 6mm', barcode: '600000991188', category: 'Fasteners', sellingPrice: '1.2', costPrice: '0.4', qty: '50' }, mappedProduct: { productName: 'Nylon Wall Plug 6mm', barcode: '600000991188', category: 'Fasteners', sellingPrice: 1.2, costPrice: 0.4, qty: 50 }, validationIssues: [mockProductImportValidationIssues[3]], duplicateAction: 'Create New Product', status: 'Warning' },
+  { rowId: 'PIM-ROW-0008', batchId: 'PIM-BATCH-0003', rowNumber: 1, rawData: { productName: 'Mono Solar Panel 550W', sku: 'SOL-PANEL-550', brand: 'SunMax', wattage: '550W', voltage: '41V', panelType: 'Mono', sellingPrice: '115', costPrice: '82', qty: '8', supplierName: 'Harare Solar Wholesale' }, mappedProduct: { productName: 'Mono Solar Panel 550W', sku: 'SOL-PANEL-550', brand: 'SunMax', wattage: '550W', voltage: '41V', panelType: 'Mono', sellingPrice: 115, costPrice: 82, qty: 8, supplierName: 'Harare Solar Wholesale', productCategory: 'Solar Panels' }, validationIssues: [], duplicateAction: 'Create New Product', status: 'Pending' },
+  { rowId: 'PIM-ROW-0009', batchId: 'PIM-BATCH-0003', rowNumber: 2, rawData: { productName: 'Lithium Battery 5kWh Wall Mount', sku: 'SOL-BAT-5KWH', brand: 'PowerCell', batteryCapacity: '5kWh', voltage: '51.2V', sellingPrice: '940', costPrice: '720', qty: '3', supplierName: 'Harare Solar Wholesale' }, mappedProduct: { productName: 'Lithium Battery 5kWh Wall Mount', sku: 'SOL-BAT-5KWH', brand: 'PowerCell', batteryCapacity: '5kWh', voltage: '51.2V', sellingPrice: 940, costPrice: 720, qty: 3, supplierName: 'Harare Solar Wholesale', productCategory: 'Solar Batteries' }, validationIssues: [], duplicateAction: 'Create New Product', status: 'Pending' },
+  { rowId: 'PIM-ROW-0010', batchId: 'PIM-BATCH-0003', rowNumber: 3, rawData: { productName: 'Hybrid Inverter 5kW 48V', sku: 'SOL-INV-5KW', brand: 'VoltEdge', inverterType: 'Hybrid', voltage: '48V', sellingPrice: '560', costPrice: '410', qty: '4', supplierName: 'Harare Solar Wholesale' }, mappedProduct: { productName: 'Hybrid Inverter 5kW 48V', sku: 'SOL-INV-5KW', brand: 'VoltEdge', inverterType: 'Hybrid', voltage: '48V', sellingPrice: 560, costPrice: 410, qty: 4, supplierName: 'Harare Solar Wholesale', productCategory: 'Inverters' }, validationIssues: [], duplicateAction: 'Create New Product', status: 'Pending' }
+];
+
+export const mockProductImportColumnMappings: ProductImportColumnMapping[] = [
+  { mappingId: 'PIM-MAP-0001', batchId: 'PIM-BATCH-0001', sourceColumn: 'productName', targetField: 'productName', required: true, sectorSpecific: false, sampleValue: 'Toyota Hilux GD6 Mirror Right Chrome', status: 'Mapped' },
+  { mappingId: 'PIM-MAP-0002', batchId: 'PIM-BATCH-0001', sourceColumn: 'sku', targetField: 'sku', required: true, sectorSpecific: false, sampleValue: 'MIR-GD6-RC', status: 'Mapped' },
+  { mappingId: 'PIM-MAP-0003', batchId: 'PIM-BATCH-0001', sourceColumn: 'alu', targetField: 'alu', required: false, sectorSpecific: true, sampleValue: 'MIR-GD6-RC', status: 'Mapped' },
+  { mappingId: 'PIM-MAP-0004', batchId: 'PIM-BATCH-0001', sourceColumn: 'make', targetField: 'make', required: false, sectorSpecific: true, sampleValue: 'Toyota', status: 'Mapped' },
+  { mappingId: 'PIM-MAP-0005', batchId: 'PIM-BATCH-0001', sourceColumn: 'sellingPrice', targetField: 'sellingPrice', required: true, sectorSpecific: false, sampleValue: '68', status: 'Mapped' }
+];
+
+export const mockProductImportActivityEvents: ProductImportActivityEvent[] = [
+  { eventId: 'PIM-ACT-0001', batchId: 'PIM-BATCH-0001', eventType: 'PRODUCT_IMPORT_BATCH_CREATED', message: 'Product import batch PIM-2026-0001 created.', staffId: 'ST-BLESSING', staffName: 'Blessing Stock', createdAt: '2026-06-12T09:15:00Z' },
+  { eventId: 'PIM-ACT-0002', batchId: 'PIM-BATCH-0001', eventType: 'PRODUCT_IMPORT_FILE_PARSED_PLACEHOLDER', message: 'CSV placeholder parsed into import rows.', staffId: 'ST-BLESSING', staffName: 'Blessing Stock', createdAt: '2026-06-12T09:20:00Z' },
+  { eventId: 'PIM-ACT-0003', batchId: 'PIM-BATCH-0001', eventType: 'PRODUCT_IMPORT_COLUMNS_MAPPED', message: 'Import columns mapped to Product Master fields.', staffId: 'ST-BLESSING', staffName: 'Blessing Stock', createdAt: '2026-06-12T09:25:00Z' },
+  { eventId: 'PIM-ACT-0004', batchId: 'PIM-BATCH-0001', eventType: 'PRODUCT_IMPORT_VALIDATED', message: 'Import batch validated with duplicate rows held for review.', staffId: 'ST-BLESSING', staffName: 'Blessing Stock', createdAt: '2026-06-12T09:35:00Z' }
+];
+
+export const mockOpeningBalanceDraftsFromImport: OpeningBalanceDraftFromImport[] = [
+  { draftId: 'OB-IMP-0001', batchId: 'PIM-BATCH-0001', rowId: 'PIM-ROW-0001', rowNumber: 1, sku: 'MIR-GD6-RC', productName: 'Toyota Hilux GD6 Mirror Right Chrome', branchId: 'BR-HARARE', warehouseId: 'WH-HARARE-01', shelfLocation: 'A1-S4', importedQty: 2, unitCost: 34, valueEstimate: 68, status: 'Draft - Not Posted', createdAt: '2026-06-12T09:40:00Z', notes: 'Opening balance draft only. Stock not posted.' },
+  { draftId: 'OB-IMP-0002', batchId: 'PIM-BATCH-0002', rowId: 'PIM-ROW-0005', rowNumber: 1, sku: 'HEX-M10-GALV', productName: 'M10 Galvanised Hex Bolt', branchId: 'BR-HARARE', warehouseId: 'WH-HARARE-01', importedQty: 300, unitCost: 0.08, valueEstimate: 24, status: 'Draft - Not Posted', createdAt: '2026-06-12T10:12:00Z', notes: 'Hardware opening balance draft awaiting controlled posting.' },
+  { draftId: 'OB-IMP-0003', batchId: 'PIM-BATCH-0003', rowId: 'PIM-ROW-0008', rowNumber: 1, sku: 'SOL-PANEL-550', productName: 'Mono Solar Panel 550W', branchId: 'BR-HARARE', warehouseId: 'WH-HARARE-01', importedQty: 8, unitCost: 82, valueEstimate: 656, status: 'Draft - Not Posted', createdAt: '2026-06-12T10:35:00Z', notes: 'Solar panel opening balance draft. Stock not posted.' }
+];
 
 const healthStatusFromBalance = (balance: ProductStockBalance): StockHealthRow['stockHealthStatus'] => {
   if (balance.qtyAvailable <= 0) return 'Out Of Stock';
@@ -2034,6 +2102,288 @@ export const mockSyncActivityEvents: SyncActivityEvent[] = [
     message: 'Local draft of Delivery Completed created for DEL-001.',
     operator: 'Mike Delivery'
   }
+];
+
+export const mockOfflineSyncQueue: OfflineSyncQueueItem[] = [
+  {
+    queueId: 'SYNC-Q-0001',
+    vendorId: 'SCI-LOG-ZW',
+    branchId: 'BR-HARARE',
+    terminalId: 'POS-01',
+    staffId: 'ST-MARY',
+    staffName: 'Mary Cashier',
+    entityType: 'Sale',
+    entityId: 'SALE-OFF-0001',
+    entityNumber: 'RCT-OFF-0001',
+    operationType: 'CREATE_RECEIPT_PAYMENT',
+    payload: { receiptNumber: 'RCT-OFF-0001', total: 142.5, paymentMode: 'Cash', items: 3, offlineCompleted: true },
+    payloadHash: 'HASH-4E0D3A91',
+    localVersion: 1,
+    priority: 'High',
+    status: 'Ready To Sync',
+    retryCount: 0,
+    queuedAt: '2026-06-12T07:45:00Z',
+    notes: 'Sale receipt queued from POS-01. No backend sync in this build.'
+  },
+  {
+    queueId: 'SYNC-Q-0002',
+    vendorId: 'SCI-LOG-ZW',
+    branchId: 'BR-HARARE',
+    terminalId: 'POS-01',
+    staffId: 'ST-MARY',
+    staffName: 'Mary Cashier',
+    entityType: 'Delivery Request',
+    entityId: 'DEL-OFF-0002',
+    entityNumber: 'DEL-OFF-0002',
+    operationType: 'CREATE_DELIVERY_REQUEST',
+    payload: { receiptNumber: 'RCT-OFF-0001', customerName: 'Tapiwa Moyo', method: 'Vendor Delivery', whatsappDraftReady: true },
+    payloadHash: 'HASH-11892EAF',
+    localVersion: 1,
+    priority: 'Normal',
+    status: 'Queued',
+    retryCount: 0,
+    queuedAt: '2026-06-12T07:47:00Z',
+    notes: 'Delivery request queued locally. WhatsApp draft remains local.'
+  },
+  {
+    queueId: 'SYNC-Q-0003',
+    vendorId: 'SCI-LOG-ZW',
+    branchId: 'BR-HARARE',
+    terminalId: 'BACK-01',
+    staffId: 'ST-BLESSING',
+    staffName: 'Blessing Stock',
+    entityType: 'Stock Adjustment',
+    entityId: 'STA-OFF-0003',
+    entityNumber: 'STA-OFF-0003',
+    operationType: 'POST_STOCK_ADJUSTMENT',
+    payload: { sku: 'CLT-N16', qtyOut: 2, reason: 'Damaged stock found during offline count', balanceBefore: 4 },
+    payloadHash: 'HASH-7C12D9F0',
+    localVersion: 2,
+    remoteVersion: 3,
+    priority: 'Critical',
+    status: 'Conflict',
+    retryCount: 1,
+    lastError: 'Remote stock balance changed while terminal was offline.',
+    conflictId: 'SYNC-CF-0002',
+    queuedAt: '2026-06-12T08:05:00Z',
+    lastAttemptAt: '2026-06-12T08:20:00Z',
+    notes: 'Conflict due to Stock Quantity Conflict.'
+  },
+  {
+    queueId: 'SYNC-Q-0004',
+    vendorId: 'SCI-LOG-ZW',
+    branchId: 'BR-HARARE',
+    terminalId: 'POS-01',
+    staffId: 'ST-MARY',
+    staffName: 'Mary Cashier',
+    entityType: 'Customer Request',
+    entityId: 'CUST-OFF-0004',
+    entityNumber: 'PEND-CUST-0004',
+    operationType: 'CREATE_CUSTOMER_REQUEST',
+    payload: { customerName: 'Farai Sithole', phone: '+263771000001', source: 'Sales Terminal' },
+    payloadHash: 'HASH-451B9A3C',
+    localVersion: 1,
+    remoteVersion: 1,
+    priority: 'High',
+    status: 'Failed',
+    retryCount: 2,
+    lastError: 'Duplicate phone detected during placeholder validation.',
+    conflictId: 'SYNC-CF-0003',
+    queuedAt: '2026-06-12T08:22:00Z',
+    lastAttemptAt: '2026-06-12T08:44:00Z'
+  },
+  {
+    queueId: 'SYNC-Q-0005',
+    vendorId: 'SCI-LOG-ZW',
+    branchId: 'BR-HARARE',
+    terminalId: 'POS-01',
+    staffId: 'ST-MARY',
+    staffName: 'Mary Cashier',
+    entityType: 'BI Event',
+    entityId: 'BI-OFF-0005',
+    entityNumber: 'SALE_COMPLETED_LOCAL',
+    operationType: 'CREATE_BI_EVENT',
+    payload: { eventType: 'SALE_COMPLETED_LOCAL', receiptNumber: 'RCT-OFF-0001', severity: 'INFO' },
+    payloadHash: 'HASH-0AA88191',
+    localVersion: 1,
+    priority: 'Low',
+    status: 'Synced',
+    retryCount: 0,
+    queuedAt: '2026-06-12T08:30:00Z',
+    lastAttemptAt: '2026-06-12T08:35:00Z',
+    syncedAt: '2026-06-12T08:35:00Z',
+    notes: 'Synced placeholder only. No backend call was made.'
+  },
+  {
+    queueId: 'SYNC-Q-0006',
+    vendorId: 'SCI-LOG-ZW',
+    branchId: 'BR-HARARE',
+    terminalId: 'POS-01',
+    staffId: 'ST-MARY',
+    staffName: 'Mary Cashier',
+    entityType: 'Shift Session',
+    entityId: 'SHIFT-OFF-0006',
+    entityNumber: 'SHIFT-POS-01-20260612',
+    operationType: 'CLOSE_SHIFT',
+    payload: { shiftId: 'SHIFT-POS-01-20260612', expectedCash: 612.5, declaredCash: 612.5, closedOffline: true },
+    payloadHash: 'HASH-98ED2B15',
+    localVersion: 1,
+    priority: 'Critical',
+    status: 'Held For Review',
+    retryCount: 0,
+    conflictId: 'SYNC-CF-0004',
+    queuedAt: '2026-06-12T09:00:00Z',
+    notes: 'Shift close queued and held because remote state may already be closed.'
+  }
+];
+
+export const mockOfflineSyncBatches: OfflineSyncBatch[] = [
+  {
+    batchId: 'SYNC-B-0001',
+    vendorId: 'SCI-LOG-ZW',
+    branchId: 'BR-HARARE',
+    terminalId: 'POS-01',
+    createdByStaffId: 'ST-ADMIN',
+    createdByStaffName: 'Admin User',
+    itemCount: 3,
+    highPriorityCount: 1,
+    failedCount: 0,
+    conflictCount: 0,
+    status: 'Ready To Sync',
+    createdAt: '2026-06-12T08:40:00Z',
+    notes: 'Prepared locally for placeholder sync run.'
+  },
+  {
+    batchId: 'SYNC-B-0002',
+    vendorId: 'SCI-LOG-ZW',
+    branchId: 'BR-HARARE',
+    terminalId: 'BACK-01',
+    createdByStaffId: 'ST-BLESSING',
+    createdByStaffName: 'Blessing Stock',
+    itemCount: 2,
+    highPriorityCount: 2,
+    failedCount: 1,
+    conflictCount: 1,
+    status: 'Held For Review',
+    createdAt: '2026-06-12T09:05:00Z',
+    notes: 'Inventory and shift items require review before placeholder run.'
+  }
+];
+
+export const mockOfflineSyncConflicts: OfflineSyncConflict[] = [
+  {
+    conflictId: 'SYNC-CF-0001',
+    queueId: 'SYNC-Q-0001',
+    vendorId: 'SCI-LOG-ZW',
+    branchId: 'BR-HARARE',
+    terminalId: 'POS-01',
+    entityType: 'Receipt',
+    entityId: 'SALE-OFF-0001',
+    entityNumber: 'RCT-OFF-0001',
+    conflictType: 'Duplicate Receipt',
+    localPayload: { receiptNumber: 'RCT-OFF-0001', terminalId: 'POS-01', total: 142.5 },
+    remotePayload: { receiptNumber: 'RCT-OFF-0001', terminalId: 'POS-02', total: 88 },
+    localVersion: 1,
+    remoteVersion: 1,
+    detectedAt: '2026-06-12T08:05:00Z',
+    status: 'Conflict',
+    recommendedResolution: 'Manual Review Required',
+    riskLevel: 'Critical',
+    notes: 'Duplicate receipt number found in placeholder remote snapshot.'
+  },
+  {
+    conflictId: 'SYNC-CF-0002',
+    queueId: 'SYNC-Q-0003',
+    vendorId: 'SCI-LOG-ZW',
+    branchId: 'BR-HARARE',
+    terminalId: 'BACK-01',
+    entityType: 'Stock Adjustment',
+    entityId: 'STA-OFF-0003',
+    entityNumber: 'STA-OFF-0003',
+    conflictType: 'Stock Quantity Conflict',
+    localPayload: { sku: 'CLT-N16', qtyOut: 2, balanceBefore: 4 },
+    remotePayload: { sku: 'CLT-N16', qtyOnHand: 1, lastMovement: 'SALE RCT-0012' },
+    localVersion: 2,
+    remoteVersion: 3,
+    detectedAt: '2026-06-12T08:20:00Z',
+    status: 'Conflict',
+    recommendedResolution: 'Hold For Review',
+    riskLevel: 'High',
+    notes: 'Stock balance changed remotely before offline adjustment was reviewed.'
+  },
+  {
+    conflictId: 'SYNC-CF-0003',
+    queueId: 'SYNC-Q-0004',
+    vendorId: 'SCI-LOG-ZW',
+    branchId: 'BR-HARARE',
+    terminalId: 'POS-01',
+    entityType: 'Customer Request',
+    entityId: 'CUST-OFF-0004',
+    entityNumber: 'PEND-CUST-0004',
+    conflictType: 'Customer Duplicate',
+    localPayload: { customerName: 'Farai Sithole', phone: '+263771000001' },
+    remotePayload: { customerId: 'CUST-0001', customerName: 'Tapiwa Moyo', phone: '+263771000001' },
+    localVersion: 1,
+    remoteVersion: 1,
+    detectedAt: '2026-06-12T08:44:00Z',
+    status: 'Conflict',
+    recommendedResolution: 'Merge',
+    riskLevel: 'Medium',
+    notes: 'Duplicate phone conflict from customer request.'
+  },
+  {
+    conflictId: 'SYNC-CF-0004',
+    queueId: 'SYNC-Q-0006',
+    vendorId: 'SCI-LOG-ZW',
+    branchId: 'BR-HARARE',
+    terminalId: 'POS-01',
+    entityType: 'Shift Session',
+    entityId: 'SHIFT-OFF-0006',
+    entityNumber: 'SHIFT-POS-01-20260612',
+    conflictType: 'Shift Closed Remotely',
+    localPayload: { shiftId: 'SHIFT-POS-01-20260612', declaredCash: 612.5 },
+    remotePayload: { shiftId: 'SHIFT-POS-01-20260612', status: 'Closed', declaredCash: 610 },
+    localVersion: 1,
+    remoteVersion: 2,
+    detectedAt: '2026-06-12T09:00:00Z',
+    status: 'Held For Review',
+    recommendedResolution: 'Manual Review Required',
+    riskLevel: 'Critical',
+    notes: 'Remote shift close exists. Owner review required.'
+  }
+];
+
+export const mockOfflineSyncConflictDecisions: OfflineSyncConflictDecision[] = [
+  {
+    decisionId: 'SYNC-CD-0001',
+    conflictId: 'SYNC-CF-0003',
+    queueId: 'SYNC-Q-0004',
+    resolution: 'Hold For Review',
+    decidedByStaffId: 'ST-ADMIN',
+    decidedByStaffName: 'Admin User',
+    reason: 'Customer phone duplicate needs manual merge review.',
+    decidedAt: '2026-06-12T08:50:00Z'
+  }
+];
+
+export const mockOfflineSyncHealth: OfflineSyncHealth[] = [
+  { terminalId: 'POS-01', terminalName: 'POS-01 Harare Front Counter', branchId: 'BR-HARARE', branchName: 'Harare Main', networkStatus: 'Unstable', lastSyncAt: '2026-06-12T08:35:00Z', queueCount: 5, failedCount: 1, conflictCount: 3, localStorageStatus: 'Available', syncHealth: 'Warning' },
+  { terminalId: 'BACK-01', terminalName: 'BACK-01 Harare Back Office', branchId: 'BR-HARARE', branchName: 'Harare Main', networkStatus: 'Online', lastSyncAt: '2026-06-12T08:10:00Z', queueCount: 1, failedCount: 0, conflictCount: 1, localStorageStatus: 'Available', syncHealth: 'Critical' },
+  { terminalId: 'POS-02', terminalName: 'POS-02 Bulawayo Counter', branchId: 'BR-BYO', branchName: 'Bulawayo Branch', networkStatus: 'Offline', queueCount: 0, failedCount: 0, conflictCount: 0, localStorageStatus: 'Unknown', syncHealth: 'Offline' }
+];
+
+export const mockOfflineSyncActivityEvents: OfflineSyncActivityEvent[] = [
+  { eventId: 'SYNC-ACT-0001', eventType: 'OFFLINE_ACTION_QUEUED', queueId: 'SYNC-Q-0001', message: 'Offline sale receipt queued locally.', staffId: 'ST-MARY', staffName: 'Mary Cashier', terminalId: 'POS-01', branchId: 'BR-HARARE', createdAt: '2026-06-12T07:45:00Z' },
+  { eventId: 'SYNC-ACT-0002', eventType: 'SYNC_BATCH_CREATED', batchId: 'SYNC-B-0001', message: 'Local sync batch created from ready POS-01 items.', staffId: 'ST-ADMIN', staffName: 'Admin User', terminalId: 'POS-01', branchId: 'BR-HARARE', createdAt: '2026-06-12T08:40:00Z' },
+  { eventId: 'SYNC-ACT-0003', eventType: 'SYNC_CONFLICT_DETECTED', queueId: 'SYNC-Q-0003', conflictId: 'SYNC-CF-0002', message: 'Stock quantity conflict detected and displayed for review.', staffId: 'ST-BLESSING', staffName: 'Blessing Stock', terminalId: 'BACK-01', branchId: 'BR-HARARE', createdAt: '2026-06-12T08:20:00Z' },
+  { eventId: 'SYNC-ACT-0004', eventType: 'SYNC_ITEM_FAILED', queueId: 'SYNC-Q-0004', message: 'Customer request failed placeholder validation because duplicate phone was detected.', staffId: 'ST-MARY', staffName: 'Mary Cashier', terminalId: 'POS-01', branchId: 'BR-HARARE', createdAt: '2026-06-12T08:44:00Z' },
+  { eventId: 'SYNC-ACT-0005', eventType: 'LOCAL_SNAPSHOT_CREATED', message: 'Terminal local snapshot created for POS-01.', staffId: 'ST-ADMIN', staffName: 'Admin User', terminalId: 'POS-01', branchId: 'BR-HARARE', createdAt: '2026-06-12T09:05:00Z' }
+];
+
+export const mockLocalTerminalSnapshots: LocalTerminalSnapshot[] = [
+  { snapshotId: 'SNAP-POS-01-001', terminalId: 'POS-01', terminalName: 'POS-01 Harare Front Counter', branchId: 'BR-HARARE', branchName: 'Harare Main', staffId: 'ST-MARY', staffName: 'Mary Cashier', openShiftId: 'SHIFT-POS-01-20260612', localReceipts: 2, localCustomers: 1, localDeliveries: 1, localInventoryEvents: 0, localBIEvents: 4, lastSnapshotAt: '2026-06-12T09:05:00Z', storageEstimate: '148 KB' },
+  { snapshotId: 'SNAP-BACK-01-001', terminalId: 'BACK-01', terminalName: 'BACK-01 Harare Back Office', branchId: 'BR-HARARE', branchName: 'Harare Main', staffId: 'ST-BLESSING', staffName: 'Blessing Stock', openShiftId: 'SSC-BACK-01-20260611', localReceipts: 0, localCustomers: 0, localDeliveries: 0, localInventoryEvents: 3, localBIEvents: 2, lastSnapshotAt: '2026-06-12T08:55:00Z', storageEstimate: '96 KB' },
+  { snapshotId: 'SNAP-POS-02-001', terminalId: 'POS-02', terminalName: 'POS-02 Bulawayo Counter', branchId: 'BR-BYO', branchName: 'Bulawayo Branch', staffId: 'ST-TAWANDA', staffName: 'Tawanda Supervisor', localReceipts: 0, localCustomers: 0, localDeliveries: 0, localInventoryEvents: 0, localBIEvents: 1, lastSnapshotAt: '2026-06-12T07:30:00Z', storageEstimate: '28 KB' }
 ];
 
 export const mockOwnerSummary: OwnerSummary = {

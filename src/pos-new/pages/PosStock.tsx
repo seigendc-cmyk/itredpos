@@ -63,11 +63,23 @@ import {
   , TransferDelayRow
   , StockMovementAuditRow
   , ReorderRecommendationRow
+  , ProductImportBatch
+  , ProductImportFilterState
+  , ProductImportRow
+  , ProductImportColumnMapping
+  , IndustrialSectorMappingTemplate
+  , ProductImportActivityEvent
+  , ProductImportPreviewSummary
+  , IndustrialSectorCode
+  , ProductImportSource
+  , OpeningBalanceDraftFromImport
 } from '../types';
 import { mockProducts } from '../mock/mockPosData';
 import { canPerformAction } from '../utils/posPermissions';
 import { addLocalQueueItem } from '../utils/localQueueStore';
 import StockPanels from './StockPanels';
+import ProductImportForm from '../components/ProductImportForm';
+import RowActionMenu, { RowActionMenuItem } from '../components/RowActionMenu';
 import { normalizeProductNumericNumber } from '../utils/productNumberUtils';
 import { matchesFreeOrderSearch } from '../utils/searchUtils';
 import {
@@ -116,6 +128,26 @@ import {
   getSupplierPerformanceReport,
   getSupplierStockReport
 } from '../services/inventoryReportService';
+import {
+  approveImportBatch,
+  autoSuggestColumnMappings,
+  createProductImportBatch,
+  exportImportErrorsPlaceholder,
+  getIndustrialSectorTemplates,
+  getOpeningBalanceDrafts,
+  getProductImportActivityEvents,
+  getProductImportBatches,
+  getProductImportColumnMappings,
+  getProductImportRows,
+  importApprovedBatch,
+  parseCSVTextPlaceholder,
+  parseExcelUploadPlaceholder,
+  prepareImportPreview,
+  rejectImportBatch,
+  skipImportRow,
+  submitImportForApproval,
+  validateImportBatch
+} from '../services/productImportService';
 
 interface PosStockProps {
   products: Product[];
@@ -139,7 +171,7 @@ interface StockActivityEvent {
   message: string;
 }
 
-type StockTab = 'Stock List' | 'Product List' | 'Product Master' | 'Product Ledger' | 'Inventory Movements' | 'Stock Health' | 'Inventory Reports' | 'Goods Receiving' | 'Purchase Orders' | 'Supplier Returns' | 'Stock Adjustments' | 'Stocktake' | 'Stock Transfers';
+type StockTab = 'Stock List' | 'Product List' | 'Product Master' | 'Product Import Desk' | 'Product Ledger' | 'Inventory Movements' | 'Stock Health' | 'Inventory Reports' | 'Goods Receiving' | 'Purchase Orders' | 'Supplier Returns' | 'Stock Adjustments' | 'Stocktake' | 'Stock Transfers';
 
 // Interactive default mock products specified by user request dynamically generated from mockPosData
 const INDUSTRIAL_SECTORS = ['Motor Spares', 'Mining Supplies', 'Retail FMCG', 'Agriculture', 'Hardware'] as const;
@@ -222,6 +254,17 @@ export default function PosStock({
   
   // Simulated access role clearance override
   const [simulatedRole, setSimulatedRole] = useState<Role>(session?.role || 'Stock Controller');
+  const [productImportBatches, setProductImportBatches] = useState<ProductImportBatch[]>([]);
+  const [productImportRows, setProductImportRows] = useState<ProductImportRow[]>([]);
+  const [productImportMappings, setProductImportMappings] = useState<ProductImportColumnMapping[]>([]);
+  const [productImportTemplates, setProductImportTemplates] = useState<IndustrialSectorMappingTemplate[]>([]);
+  const [productImportActivity, setProductImportActivity] = useState<ProductImportActivityEvent[]>([]);
+  const [productImportPreview, setProductImportPreview] = useState<ProductImportPreviewSummary | null>(null);
+  const [productImportOpeningDrafts, setProductImportOpeningDrafts] = useState<OpeningBalanceDraftFromImport[]>([]);
+  const [productImportFilters, setProductImportFilters] = useState<ProductImportFilterState>({ industrialSectorCode: 'ALL', status: 'ALL', source: 'ALL' });
+  const [selectedImportBatchId, setSelectedImportBatchId] = useState<string>('');
+  const [productImportPopupOpen, setProductImportPopupOpen] = useState(false);
+  const [productImportNotice, setProductImportNotice] = useState('');
 
   // Shared Stock Approvals queue
   const [stockApprovals, setStockApprovals] = useState<ApprovalRequest[]>(() => {
@@ -257,6 +300,50 @@ export default function PosStock({
     if (role === 'Supervisor') {
       return type !== 'Stocktake Variance Approval';
     }
+    return false;
+  };
+
+  const selectedImportBatch = productImportBatches.find((batch) => batch.batchId === selectedImportBatchId) || productImportBatches[0] || null;
+
+  const loadProductImportDesk = async (filters = productImportFilters, batchId = selectedImportBatchId) => {
+    const [batchRows, templates, activityRows] = await Promise.all([
+      getProductImportBatches(filters),
+      getIndustrialSectorTemplates(),
+      getProductImportActivityEvents(filters)
+    ]);
+    const activeBatchId = batchId || batchRows[0]?.batchId || '';
+    const [rowsForBatch, mappingsForBatch, previewForBatch, openingDraftRows] = activeBatchId
+      ? await Promise.all([
+          getProductImportRows(activeBatchId),
+          getProductImportColumnMappings(activeBatchId),
+          prepareImportPreview(activeBatchId),
+          getOpeningBalanceDrafts(activeBatchId)
+        ])
+      : [[], [], null, []] as const;
+    setProductImportBatches(batchRows);
+    setProductImportTemplates(templates);
+    setProductImportActivity(activityRows);
+    setSelectedImportBatchId(activeBatchId);
+    setProductImportRows(rowsForBatch);
+    setProductImportMappings(mappingsForBatch);
+    setProductImportPreview(previewForBatch);
+    setProductImportOpeningDrafts(openingDraftRows);
+  };
+
+  useEffect(() => {
+    if (activeTab === 'Product Import Desk') {
+      void loadProductImportDesk();
+    }
+  }, [activeTab, productImportFilters.batchNumber, productImportFilters.industrialSectorCode, productImportFilters.status, productImportFilters.source, productImportFilters.uploadedBy, productImportFilters.dateFrom, productImportFilters.dateTo, productImportFilters.search]);
+
+  const showProductImportNotice = (message: string) => {
+    setProductImportNotice(message);
+    window.setTimeout(() => setProductImportNotice(''), 4500);
+  };
+
+  const requireProductImportPermission = (permission: 'productImport.create' | 'productImport.map' | 'productImport.validate' | 'productImport.approve' | 'productImport.import' | 'productImport.cancel' | 'productImport.export') => {
+    if (simulatedRole === 'Owner' || canPerformAction(simulatedRole, permission)) return true;
+    showProductImportNotice('You do not have permission to perform this action.');
     return false;
   };
 
@@ -323,6 +410,7 @@ export default function PosStock({
   const [selectedSupplier, setSelectedSupplier] = useState('ALL');
   const [selectedStatus, setSelectedStatus] = useState('ALL');
   const [productListSearch, setProductListSearch] = useState('');
+  const [productListNotice, setProductListNotice] = useState<string | null>(null);
   const [productLedgerProduct, setProductLedgerProduct] = useState<StockProduct | null>(null);
   const [productLedgerEntries, setProductLedgerEntries] = useState<InventoryMovement[]>([]);
   const [allInventoryMovements, setAllInventoryMovements] = useState<InventoryMovement[]>([]);
@@ -351,6 +439,8 @@ export default function PosStock({
   });
   const [stocktakePreselect, setStocktakePreselect] = useState<{ shelfLocation?: string; productIds?: string[] } | null>(null);
   const [stocktakePreselectToken, setStocktakePreselectToken] = useState(0);
+  const [openProductListMenuId, setOpenProductListMenuId] = useState<string | null>(null);
+  const [productListFieldsOpen, setProductListFieldsOpen] = useState(false);
   const [inventorySummary, setInventorySummary] = useState({
     totalSaleQtyOut: 0,
     totalReturnQtyIn: 0,
@@ -712,6 +802,43 @@ export default function PosStock({
     });
     setStocktakePreselectToken((token) => token + 1);
     setActiveTab('Stocktake');
+  };
+
+  const getProductListActionItems = (product: StockProduct): RowActionMenuItem[] => {
+    const role = simulatedRole || (session?.role as Role) || 'Owner';
+    const blocked = 'You do not have permission to perform this action.';
+    const items: RowActionMenuItem[] = [];
+    if (canPerformAction(role, 'productLedger.view')) {
+      items.push({ label: 'View Ledger', onClick: () => void openProductLedger(product) });
+    }
+    if (canPerformAction(role, 'productMaster.edit')) {
+      items.push({ label: 'Edit Product Draft', onClick: () => setProductListNotice(`Edit Product Draft placeholder opened for ${product.sku || product.code}.`) });
+    }
+    if (canPerformAction(role, 'stocktake.create') || canPerformAction(role, 'stocktake.count')) {
+      items.push({ label: 'Start Stocktake', onClick: () => openStocktakeForProduct(product) });
+    }
+    if (canPerformAction(role, 'stockAdjustments.create') || canPerformAction(role, 'inventory.adjust')) {
+      items.push({ label: 'Create Adjustment', onClick: () => triggerAdjustmentModal(product) });
+    }
+    if (canPerformAction(role, 'inventoryMovements.view')) {
+      items.push({ label: 'View Movements', onClick: () => {
+        setMovementSummaryFilters((current) => ({ ...current, productId: product.id, sku: product.sku || product.code }));
+        setActiveTab('Inventory Movements');
+      } });
+    }
+    if (canPerformAction(role, 'stockBalances.view')) {
+      items.push({ label: 'View Stock Balance', onClick: () => setActiveTab('Stock List') });
+    }
+    if (canPerformAction(role, 'stockTransfers.create') || canPerformAction(role, 'stockBalances.transfer')) {
+      items.push({ label: 'Transfer Stock', onClick: () => triggerTransferModal(product) });
+    }
+    if (canPerformAction(role, 'productMaster.block')) {
+      items.push({ label: 'Block Product Placeholder', danger: true, onClick: () => setProductListNotice(`Block Product placeholder queued for ${product.sku || product.code}.`) });
+    }
+    if (items.length === 0) {
+      items.push({ label: blocked, disabled: true });
+    }
+    return items;
   };
 
   const handleLedgerExport = async () => {
@@ -1306,7 +1433,7 @@ export default function PosStock({
 
       {/* 1B. SOLID TAB NAVIGATION SELECTORS */}
       <div className="industrial-toolbar">
-        {(['Stock List', 'Product List', 'Product Master', 'Product Ledger', 'Inventory Movements', 'Stock Health', 'Inventory Reports', 'Goods Receiving', 'Purchase Orders', 'Supplier Returns', 'Stock Adjustments', 'Stock Transfers', 'Stocktake'] as const).map((tab) => {
+        {(['Stock List', 'Product List', 'Product Master', 'Product Import Desk', 'Product Ledger', 'Inventory Movements', 'Stock Health', 'Inventory Reports', 'Goods Receiving', 'Purchase Orders', 'Supplier Returns', 'Stock Adjustments', 'Stock Transfers', 'Stocktake'] as const).map((tab) => {
           const isActive = activeTab === tab;
           return (
             <button
@@ -1325,7 +1452,63 @@ export default function PosStock({
         })}
       </div>
 
-      {activeTab === 'Inventory Movements' ? (
+      {activeTab === 'Product Import Desk' ? (
+        <ProductImportDeskPanel
+          batches={productImportBatches}
+          filters={productImportFilters}
+          setFilters={setProductImportFilters}
+          selectedBatch={selectedImportBatch}
+          notice={productImportNotice}
+          onOpenForm={(batchId) => {
+            setSelectedImportBatchId(batchId);
+            void loadProductImportDesk(productImportFilters, batchId).then(() => setProductImportPopupOpen(true));
+          }}
+          onNewBatch={() => {
+            setSelectedImportBatchId('');
+            setProductImportPopupOpen(true);
+          }}
+          onValidate={async (batchId) => {
+            if (!requireProductImportPermission('productImport.validate')) return;
+            await validateImportBatch(batchId);
+            showProductImportNotice('Import batch validated locally.');
+            await loadProductImportDesk(productImportFilters, batchId);
+          }}
+          onPreview={async (batchId) => {
+            setSelectedImportBatchId(batchId);
+            setProductImportPreview(await prepareImportPreview(batchId));
+            setProductImportPopupOpen(true);
+          }}
+          onSubmit={async (batchId) => {
+            if (!requireProductImportPermission('productImport.validate')) return;
+            await submitImportForApproval(batchId, staffName);
+            showProductImportNotice('Product import submitted for approval.');
+            await loadProductImportDesk(productImportFilters, batchId);
+          }}
+          onApprove={async (batchId) => {
+            if (!requireProductImportPermission('productImport.approve')) return;
+            await approveImportBatch(batchId, staffName, 'Approved from Product Import Desk.');
+            showProductImportNotice('Product import approved locally.');
+            await loadProductImportDesk(productImportFilters, batchId);
+          }}
+          onImport={async (batchId) => {
+            if (!requireProductImportPermission('productImport.import')) return;
+            await importApprovedBatch(batchId, staffName);
+            showProductImportNotice('Approved import created product drafts and opening balance drafts only. Stock was not posted.');
+            await loadProductImportDesk(productImportFilters, batchId);
+          }}
+          onExport={async (batchId) => {
+            if (!requireProductImportPermission('productImport.export')) return;
+            await exportImportErrorsPlaceholder(batchId);
+            showProductImportNotice('Import error export placeholder prepared.');
+          }}
+          onCancel={async (batchId) => {
+            if (!requireProductImportPermission('productImport.cancel')) return;
+            await rejectImportBatch(batchId, staffName, 'Cancelled/rejected from Product Import Desk.');
+            showProductImportNotice('Product import batch cancelled locally.');
+            await loadProductImportDesk(productImportFilters, batchId);
+          }}
+        />
+      ) : activeTab === 'Inventory Movements' ? (
         <div className="bg-white border border-[#b1b5c2] p-4 space-y-4">
           <div className="bg-[#1e222b] text-white p-4 flex justify-between items-start gap-4">
             <div>
@@ -1634,72 +1817,109 @@ export default function PosStock({
             </div>
           </div>
 
-          <div className="relative max-w-xl">
-            <Search className="absolute left-2.5 top-2.5 w-4 h-4 text-slate-400" />
-            <input
-              value={productListSearch}
-              onChange={(event) => handleProductSearchChange(event.target.value)}
-              placeholder="Example: GD6 brake front or Honda ball CBHO49"
-              className="w-full bg-white border border-[#b1b5c2] pl-8 pr-3 py-2 text-[11px] font-bold uppercase outline-none focus:border-orange-500"
-            />
+          <div className="flex flex-col md:flex-row md:items-start gap-3">
+            <div className="relative max-w-xl flex-1">
+              <Search className="absolute left-2.5 top-2.5 w-4 h-4 text-slate-400" />
+              <input
+                value={productListSearch}
+                onChange={(event) => handleProductSearchChange(event.target.value)}
+                placeholder="Example: GD6 brake front or Honda ball CBHO49"
+                className="w-full bg-white border border-[#b1b5c2] pl-8 pr-3 py-2 text-[11px] font-bold uppercase outline-none focus:border-orange-500"
+              />
+            </div>
+            <div className="relative">
+              <button
+                type="button"
+                onClick={() => setProductListFieldsOpen((current) => !current)}
+                className="px-3 py-2 bg-white border border-[#b1b5c2] hover:border-orange-500 text-[#1e222b] font-black uppercase text-[10px] rounded-none"
+              >
+                Fields
+              </button>
+              {productListFieldsOpen && (
+                <div className="absolute right-0 top-full mt-1 z-20 w-72 bg-white border border-[#1e222b] shadow-lg p-3 text-[10px] uppercase">
+                  <div className="font-black text-[#1e222b] mb-2">Visible by default</div>
+                  <div className="grid grid-cols-2 gap-1 text-slate-700">
+                    {['Product', 'Sector', 'Brand', 'Supplier', 'Branch', 'Warehouse', 'Shelf', 'Qty', 'Price', 'Stock Status', 'Risk'].map((field) => <span key={field} className="border border-[#d7dce5] px-2 py-1">{field}</span>)}
+                  </div>
+                  <div className="font-black text-[#1e222b] mt-3 mb-2">Available later</div>
+                  <div className="grid grid-cols-2 gap-1 text-slate-600">
+                    {['Category', 'Manufacturer', 'Barcode', 'ALU', 'Cost Price', 'Reorder Level', 'Last Movement'].map((field) => <span key={field} className="border border-[#d7dce5] px-2 py-1 bg-slate-50">{field}</span>)}
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
 
-          <div className="overflow-x-auto pos-custom-scroll">
-            <table className="w-full min-w-[1420px] text-[10.5px] text-left border-collapse">
+          {productListNotice && (
+            <div className="border border-orange-300 bg-orange-50 p-2 text-[10px] uppercase font-black text-orange-900 flex items-center justify-between gap-3">
+              <span>{productListNotice}</span>
+              <button type="button" onClick={() => setProductListNotice(null)} className="text-orange-800 font-black">CLEAR</button>
+            </div>
+          )}
+
+          <div className="inventory-product-table-wrap">
+            <table className="inventory-product-table">
+              <colgroup>
+                <col className="inventory-product-col-product" />
+                <col className="inventory-product-col-sector inventory-product-hide-md" />
+                <col className="inventory-product-col-brand inventory-product-hide-md" />
+                <col className="inventory-product-col-supplier inventory-product-hide-sm" />
+                <col className="inventory-product-col-location" />
+                <col className="inventory-product-col-warehouse inventory-product-hide-sm" />
+                <col className="inventory-product-col-shelf" />
+                <col className="inventory-product-col-qty" />
+                <col className="inventory-product-col-price" />
+                <col className="inventory-product-col-status" />
+                <col className="inventory-product-col-risk inventory-product-hide-sm" />
+                <col className="inventory-product-col-actions" />
+              </colgroup>
               <thead>
-                <tr className="bg-[#1e222b] text-white uppercase text-[8.5px] font-black h-9">
-                  <th className="py-2 px-3">Numeric No.</th>
-                  <th className="py-2 px-3">SKU</th>
-                  <th className="py-2 px-3">ALU</th>
-                  <th className="py-2 px-3">Product Name</th>
-                  <th className="py-2 px-3">Sector</th>
-                  <th className="py-2 px-3">Category</th>
-                  <th className="py-2 px-3">Brand</th>
-                  <th className="py-2 px-3">Manufacturer</th>
-                  <th className="py-2 px-3">Supplier</th>
-                  <th className="py-2 px-3">Branch</th>
-                  <th className="py-2 px-3">Warehouse</th>
-                  <th className="py-2 px-3">Shelf / Location</th>
-                  <th className="py-2 px-3 text-right">Qty On Hand</th>
-                  <th className="py-2 px-3 text-right">Selling Price</th>
-                  <th className="py-2 px-3 text-center">Stock Status</th>
-                  <th className="py-2 px-3 text-center">Risk</th>
-                  <th className="py-2 px-3 text-center">Action</th>
+                <tr>
+                  <th>Product</th>
+                  <th className="inventory-product-hide-md">Sector</th>
+                  <th className="inventory-product-hide-md">Brand</th>
+                  <th className="inventory-product-hide-sm">Supplier</th>
+                  <th>Branch</th>
+                  <th className="inventory-product-hide-sm">Warehouse</th>
+                  <th>Shelf</th>
+                  <th className="inventory-product-num">Qty</th>
+                  <th className="inventory-product-num">Selling Price</th>
+                  <th>Stock Status</th>
+                  <th className="inventory-product-hide-sm">Risk</th>
+                  <th className="inventory-product-actions-heading">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-200">
-                {productListRows.map((product) => (
+                {productListRows.map((product, index) => (
                   <tr
                     key={product.id}
                     onDoubleClick={() => void openProductLedger(product)}
                     className="hover:bg-orange-50/40 cursor-pointer"
                     title="Double-click to open product ledger"
                   >
-                    <td className="py-2 px-3 font-black text-orange-700 whitespace-nowrap">{product.productNumericNumber || '000000000'}</td>
-                    <td className="py-2 px-3 font-black text-[#1e222b] whitespace-nowrap">{product.sku || product.code}</td>
-                    <td className="py-2 px-3 font-bold text-slate-600 whitespace-nowrap">{product.alu || 'ALU-N/A'}</td>
-                    <td className="py-2 px-3 font-black uppercase max-w-[220px] truncate">{product.productName || product.name}</td>
-                    <td className="py-2 px-3 uppercase text-slate-600">{product.industrialSector || 'General'}</td>
-                    <td className="py-2 px-3 uppercase text-slate-600">{product.productCategory || product.category}</td>
-                    <td className="py-2 px-3 uppercase text-slate-600">{product.brand || 'N/A'}</td>
-                    <td className="py-2 px-3 uppercase text-slate-600">{product.manufacturer || 'N/A'}</td>
-                    <td className="py-2 px-3 uppercase text-slate-600">{product.supplierName || 'N/A'}</td>
-                    <td className="py-2 px-3 uppercase text-slate-600">{product.branch || 'Harare Main'}</td>
-                    <td className="py-2 px-3 uppercase text-slate-600">{product.warehouse || 'Main Warehouse'}</td>
-                    <td className="py-2 px-3 uppercase text-slate-600">{product.shelfLocation || product.binLocation || 'N/A'}</td>
-                    <td className="py-2 px-3 text-right font-black">{product.qtyOnHand ?? product.stock} {product.unitOfMeasure || product.unit}</td>
-                    <td className="py-2 px-3 text-right font-black">USD {(product.sellingPrice ?? product.price).toFixed(2)}</td>
-                    <td className="py-2 px-3 text-center">
-                      <span className="inline-block border border-[#b1b5c2] px-1.5 py-0.5 uppercase font-bold">{product.stockStatus || product.healthStatus || 'In Stock'}</span>
+                    <td title={product.productName || product.name}>
+                      <div className="inventory-product-cell-main">{product.productName || product.name}</div>
+                      <div className="inventory-product-cell-sub">{[product.sku || product.code, product.barcode, product.alu].filter(Boolean).join(' / ') || 'No identifier'}</div>
                     </td>
-                    <td className="py-2 px-3 text-center font-black uppercase">{product.riskLevel || 'Low'}</td>
-                    <td className="py-2 px-3">
-                      <div className="flex justify-center gap-1">
-                        <button type="button" onClick={() => void openProductLedger(product)} className="px-2 py-1 border border-[#b1b5c2] hover:border-orange-500 text-[9px] font-black uppercase">View Ledger</button>
-                        <button type="button" className="industrial-secondary-button text-[9px] min-h-[1.8rem] px-2 py-1">Edit Draft</button>
-                        <button type="button" onClick={() => openStocktakeForProduct(product)} className="px-2 py-1 border border-[#b1b5c2] hover:border-orange-500 text-[9px] font-black uppercase">Stocktake</button>
-                        <button type="button" onClick={() => triggerAdjustmentModal(product)} className="px-2 py-1 border border-[#b1b5c2] hover:border-orange-500 text-[9px] font-black uppercase">Adjustment</button>
-                      </div>
+                    <td className="inventory-product-hide-md" title={product.industrialSector || 'General'}>{product.industrialSector || 'General'}</td>
+                    <td className="inventory-product-hide-md" title={product.brand || 'N/A'}>{product.brand || 'N/A'}</td>
+                    <td className="inventory-product-hide-sm" title={product.supplierName || 'N/A'}>{product.supplierName || 'N/A'}</td>
+                    <td title={product.branch || 'Harare Main'}>{product.branch || 'Harare Main'}</td>
+                    <td className="inventory-product-hide-sm" title={product.warehouse || 'Main Warehouse'}>{product.warehouse || 'Main Warehouse'}</td>
+                    <td title={product.shelfLocation || product.binLocation || 'N/A'}>{product.shelfLocation || product.binLocation || 'N/A'}</td>
+                    <td className="inventory-product-num">{product.qtyOnHand ?? product.stock} {product.unitOfMeasure || product.unit}</td>
+                    <td className="inventory-product-num">USD {(product.sellingPrice ?? product.price).toFixed(2)}</td>
+                    <td>
+                      <span className="inventory-product-status">{product.stockStatus || product.healthStatus || 'In Stock'}</span>
+                    </td>
+                    <td className="inventory-product-hide-sm"><span className="inventory-product-risk">{product.riskLevel || 'Low'}</span></td>
+                    <td>
+                      <RowActionMenu
+                        open={openProductListMenuId === product.id}
+                        align={index > productListRows.length - 4 ? 'top' : 'bottom'}
+                        items={getProductListActionItems(product)}
+                        onOpenChange={(open) => setOpenProductListMenuId(open ? product.id : null)}
+                      />
                     </td>
                   </tr>
                 ))}
@@ -3059,8 +3279,255 @@ export default function PosStock({
         </>
       )}
 
+      {productImportPopupOpen && (
+        <ProductImportForm
+          batch={selectedImportBatch}
+          rows={productImportRows}
+          mappings={productImportMappings}
+          templates={productImportTemplates}
+          activity={productImportActivity}
+          openingBalanceDrafts={productImportOpeningDrafts}
+          preview={productImportPreview}
+          staffId={staffName}
+          staffName={staffName}
+          onClose={() => setProductImportPopupOpen(false)}
+          onCreateBatch={async (payload) => {
+            if (!requireProductImportPermission('productImport.create')) return;
+            const created = await createProductImportBatch({
+              vendorId: 'SCI-LOG-ZW',
+              branchId: activeBranch === 'Harare Main' ? 'BR-HARARE' : activeBranch,
+              warehouseId: 'WH-HARARE-01',
+              industrialSectorCode: payload.industrialSectorCode,
+              source: payload.source,
+              fileName: payload.fileName,
+              uploadedByStaffId: staffName,
+              uploadedByStaffName: staffName,
+              notes: payload.notes
+            });
+            setSelectedImportBatchId(created.batchId);
+            showProductImportNotice('Product import batch created locally.');
+            await loadProductImportDesk(productImportFilters, created.batchId);
+          }}
+          onParseCsv={async (batchId, csvText) => {
+            if (!requireProductImportPermission('productImport.create')) return;
+            await parseCSVTextPlaceholder(batchId, csvText);
+            showProductImportNotice('CSV paste parsed locally.');
+            await loadProductImportDesk(productImportFilters, batchId);
+          }}
+          onUploadPlaceholder={async (batchId, fileName) => {
+            await parseExcelUploadPlaceholder(batchId, { fileName });
+            showProductImportNotice('Excel parser will be connected later. CSV paste/import is available for build-development.');
+            await loadProductImportDesk(productImportFilters, batchId);
+          }}
+          onAutoMap={async (batchId, sectorCode) => {
+            if (!requireProductImportPermission('productImport.map')) return;
+            await autoSuggestColumnMappings(batchId, sectorCode);
+            showProductImportNotice('Column mappings suggested locally.');
+            await loadProductImportDesk(productImportFilters, batchId);
+          }}
+          onValidate={async (batchId) => {
+            if (!requireProductImportPermission('productImport.validate')) return;
+            await validateImportBatch(batchId);
+            showProductImportNotice('Import validation completed locally.');
+            await loadProductImportDesk(productImportFilters, batchId);
+          }}
+          onSubmitApproval={async (batchId) => {
+            if (!requireProductImportPermission('productImport.validate')) return;
+            await submitImportForApproval(batchId, staffName);
+            showProductImportNotice('Import approval request created locally.');
+            await loadProductImportDesk(productImportFilters, batchId);
+          }}
+          onApprove={async (batchId) => {
+            if (!requireProductImportPermission('productImport.approve')) return;
+            await approveImportBatch(batchId, staffName, 'Approved from Product Import popup.');
+            showProductImportNotice('Import batch approved locally.');
+            await loadProductImportDesk(productImportFilters, batchId);
+          }}
+          onImport={async (batchId) => {
+            if (!requireProductImportPermission('productImport.import')) return;
+            await importApprovedBatch(batchId, staffName);
+            showProductImportNotice('Product drafts and opening balance drafts created. Stock was not posted.');
+            await loadProductImportDesk(productImportFilters, batchId);
+          }}
+          onSkipRow={async (batchId, rowId) => {
+            await skipImportRow(batchId, rowId, 'Skipped from Product Import Desk.');
+            showProductImportNotice('Import row skipped locally.');
+            await loadProductImportDesk(productImportFilters, batchId);
+          }}
+          onExportErrors={async (batchId) => {
+            if (!requireProductImportPermission('productImport.export')) return;
+            await exportImportErrorsPlaceholder(batchId);
+            showProductImportNotice('Import errors export placeholder prepared.');
+          }}
+        />
+      )}
+
     </div>
   );
+}
+
+function ProductImportDeskPanel({
+  batches,
+  filters,
+  setFilters,
+  notice,
+  onOpenForm,
+  onNewBatch,
+  onValidate,
+  onPreview,
+  onSubmit,
+  onApprove,
+  onImport,
+  onExport,
+  onCancel
+}: {
+  batches: ProductImportBatch[];
+  filters: ProductImportFilterState;
+  setFilters: React.Dispatch<React.SetStateAction<ProductImportFilterState>>;
+  selectedBatch: ProductImportBatch | null;
+  notice: string;
+  onOpenForm: (batchId: string) => void;
+  onNewBatch: () => void;
+  onValidate: (batchId: string) => void;
+  onPreview: (batchId: string) => void;
+  onSubmit: (batchId: string) => void;
+  onApprove: (batchId: string) => void;
+  onImport: (batchId: string) => void;
+  onExport: (batchId: string) => void;
+  onCancel: (batchId: string) => void;
+}) {
+  const summary = {
+    importBatches: batches.length,
+    draftBatches: batches.filter((batch) => batch.status === 'Draft').length,
+    pendingMapping: batches.filter((batch) => batch.status === 'Mapping').length,
+    validationErrors: batches.reduce((sum, batch) => sum + batch.errorRows, 0),
+    duplicateRows: batches.reduce((sum, batch) => sum + batch.duplicateRows, 0),
+    readyForApproval: batches.filter((batch) => batch.status === 'Ready For Approval').length,
+    approved: batches.filter((batch) => batch.status === 'Approved').length,
+    imported: batches.filter((batch) => batch.status === 'Imported' || batch.status === 'Partially Imported').length,
+    productsCreated: batches.reduce((sum, batch) => sum + batch.importedRows, 0),
+    openingBalanceDrafts: batches.reduce((sum, batch) => sum + batch.validRows + batch.warningRows, 0)
+  };
+  const uploadedByOptions = Array.from(new Set(batches.map((batch) => batch.uploadedByStaffName)));
+  return (
+    <div className="bg-white border border-[#b1b5c2] p-4 space-y-4">
+      <div className="bg-[#1e222b] text-white p-4 flex flex-col md:flex-row justify-between gap-3">
+        <div>
+          <div className="text-[9px] text-orange-400 uppercase font-black">Product Import Desk</div>
+          <h2 className="text-sm font-black uppercase">Import products from Excel/CSV, map columns, validate sector fields, and create product drafts.</h2>
+          <p className="text-[10px] text-slate-300 uppercase mt-1">Product import does not directly post stock. Imported quantities become Opening Balance or Stock Adjustment drafts until posted.</p>
+        </div>
+        <button type="button" className="px-3 py-2 bg-orange-600 text-white border border-orange-700 font-black uppercase text-[9px]" onClick={onNewBatch}>New Import Batch</button>
+      </div>
+      {notice && <div className="border border-orange-200 bg-orange-50 text-orange-900 p-2 text-[10px] font-bold uppercase">{notice}</div>}
+      <div className="grid grid-cols-2 md:grid-cols-5 xl:grid-cols-10 gap-3">
+        {[
+          ['Import Batches', summary.importBatches],
+          ['Draft Batches', summary.draftBatches],
+          ['Pending Mapping', summary.pendingMapping],
+          ['Validation Errors', summary.validationErrors],
+          ['Duplicate Rows', summary.duplicateRows],
+          ['Ready For Approval', summary.readyForApproval],
+          ['Approved', summary.approved],
+          ['Imported', summary.imported],
+          ['Products Created', summary.productsCreated],
+          ['Opening Balance Drafts', summary.openingBalanceDrafts]
+        ].map(([label, value]) => <LedgerMetric key={label} label={String(label)} value={value} />)}
+      </div>
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-8 gap-3 bg-slate-50 border border-[#b1b5c2] p-3">
+        <ImportFilterInput label="Batch Number" value={filters.batchNumber || ''} onChange={(value) => setFilters((current) => ({ ...current, batchNumber: value }))} />
+        <ImportFilterSelect label="Industrial Sector" value={filters.industrialSectorCode || 'ALL'} onChange={(value) => setFilters((current) => ({ ...current, industrialSectorCode: value as ProductImportFilterState['industrialSectorCode'] }))} options={['ALL', 'MOTOR_SPARES', 'HARDWARE', 'GROCERY', 'AGRICULTURE', 'CLOTHING', 'FURNITURE', 'ELECTRONICS', 'LUBRICANTS', 'PHARMACY', 'BUILDING_MATERIALS', 'SOLAR_PRODUCTS', 'GENERAL_RETAIL', 'OTHER']} />
+        <ImportFilterSelect label="Status" value={filters.status || 'ALL'} onChange={(value) => setFilters((current) => ({ ...current, status: value as ProductImportFilterState['status'] }))} options={['ALL', 'Draft', 'Mapping', 'Validating', 'Validation Failed', 'Ready For Approval', 'Pending Approval', 'Approved', 'Imported', 'Partially Imported', 'Rejected', 'Cancelled']} />
+        <ImportFilterSelect label="Source" value={filters.source || 'ALL'} onChange={(value) => setFilters((current) => ({ ...current, source: value as ProductImportFilterState['source'] }))} options={['ALL', 'Excel Upload Placeholder', 'CSV Upload', 'Paste Table', 'Manual Batch', 'Supplier File', 'Offline Catalogue File']} />
+        <ImportFilterSelect label="Uploaded By" value={filters.uploadedBy || 'ALL'} onChange={(value) => setFilters((current) => ({ ...current, uploadedBy: value }))} options={['ALL', ...uploadedByOptions]} />
+        <ImportFilterInput label="Date From" type="date" value={filters.dateFrom || ''} onChange={(value) => setFilters((current) => ({ ...current, dateFrom: value }))} />
+        <ImportFilterInput label="Date To" type="date" value={filters.dateTo || ''} onChange={(value) => setFilters((current) => ({ ...current, dateTo: value }))} />
+        <ImportFilterInput label="Search File / Notes" value={filters.search || ''} onChange={(value) => setFilters((current) => ({ ...current, search: value }))} />
+      </div>
+      <div className="overflow-x-auto pos-custom-scroll">
+        <table className="w-full min-w-[1500px] text-[10.5px] text-left border-collapse">
+          <thead>
+            <tr className="bg-[#1e222b] text-white uppercase text-[8.5px] font-black h-9">
+              {['Batch No.', 'Date', 'Source', 'File Name', 'Industrial Sector', 'Branch', 'Warehouse', 'Rows', 'Valid', 'Warnings', 'Errors', 'Duplicates', 'Status', 'Uploaded By', 'Action'].map((header) => <th key={header} className="py-2 px-3">{header}</th>)}
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-gray-200">
+            {batches.length === 0 ? (
+              <tr><td colSpan={15} className="py-8 text-center text-slate-500 uppercase font-bold">No import batches match the current filters.</td></tr>
+            ) : batches.map((batch) => (
+              <tr key={batch.batchId} className="hover:bg-slate-50">
+                <td className="py-2 px-3 font-black">{batch.batchNumber}</td>
+                <td className="py-2 px-3">{batch.createdAt.slice(0, 10)}</td>
+                <td className="py-2 px-3">{batch.source}</td>
+                <td className="py-2 px-3">{batch.fileName || '-'}</td>
+                <td className="py-2 px-3">{batch.industrialSectorCode}</td>
+                <td className="py-2 px-3">{batch.branchId}</td>
+                <td className="py-2 px-3">{batch.warehouseId}</td>
+                <td className="py-2 px-3">{batch.totalRows}</td>
+                <td className="py-2 px-3">{batch.validRows}</td>
+                <td className="py-2 px-3">{batch.warningRows}</td>
+                <td className="py-2 px-3">{batch.errorRows}</td>
+                <td className="py-2 px-3">{batch.duplicateRows}</td>
+                <td className="py-2 px-3"><ImportBadge value={batch.status} /></td>
+                <td className="py-2 px-3">{batch.uploadedByStaffName}</td>
+                <td className="py-2 px-3">
+                  <div className="flex flex-wrap gap-1">
+                    <ImportAction label="View / Map" onClick={() => onOpenForm(batch.batchId)} />
+                    <ImportAction label="Validate" onClick={() => onValidate(batch.batchId)} />
+                    <ImportAction label="Preview Import" onClick={() => onPreview(batch.batchId)} />
+                    <ImportAction label="Submit for Approval" onClick={() => onSubmit(batch.batchId)} />
+                    <ImportAction label="Approve" onClick={() => onApprove(batch.batchId)} />
+                    <ImportAction label="Import Approved Batch" onClick={() => onImport(batch.batchId)} />
+                    <ImportAction label="Export Errors" onClick={() => onExport(batch.batchId)} />
+                    <ImportAction label="Cancel" danger onClick={() => onCancel(batch.batchId)} />
+                  </div>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+function ImportFilterInput({ label, value, onChange, type = 'text' }: { label: string; value: string; onChange: (value: string) => void; type?: string }) {
+  return (
+    <label className="space-y-1 block">
+      <span className="block text-[8px] font-black text-slate-500 uppercase">{label}</span>
+      <input
+        type={type}
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        className="w-full bg-white border border-[#b1b5c2] px-2 py-1.5 text-[10px] font-black uppercase outline-none focus:border-orange-500"
+      />
+    </label>
+  );
+}
+
+function ImportFilterSelect({ label, value, onChange, options }: { label: string; value: string; onChange: (value: string) => void; options: string[] }) {
+  return (
+    <label className="space-y-1 block">
+      <span className="block text-[8px] font-black text-slate-500 uppercase">{label}</span>
+      <select
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        className="w-full bg-white border border-[#b1b5c2] px-2 py-1.5 text-[10px] font-black uppercase outline-none focus:border-orange-500"
+      >
+        {options.map((option) => <option key={option} value={option}>{option}</option>)}
+      </select>
+    </label>
+  );
+}
+
+function ImportBadge({ value }: { value: string }) {
+  const danger = ['Validation Failed', 'Rejected', 'Cancelled'].includes(value);
+  const warn = ['Draft', 'Mapping', 'Ready For Approval', 'Pending Approval', 'Partially Imported'].includes(value);
+  return <span className={`px-2 py-1 border text-[9px] font-black uppercase whitespace-nowrap ${danger ? 'bg-rose-50 border-rose-400 text-rose-800' : warn ? 'bg-orange-50 border-orange-400 text-orange-800' : 'bg-emerald-50 border-emerald-400 text-emerald-800'}`}>{value}</span>;
+}
+
+function ImportAction({ label, onClick, danger }: { label: string; onClick: () => void; danger?: boolean }) {
+  return <button type="button" onClick={onClick} className={`px-2 py-1 border text-[8px] font-black uppercase ${danger ? 'bg-rose-50 border-rose-300 text-rose-800' : 'bg-white border-[#b1b5c2] text-[#1e222b] hover:border-orange-500'}`}>{label}</button>;
 }
 
 function LedgerMetric({ label, value }: { label: string; value: string | number }) {

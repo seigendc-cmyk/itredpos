@@ -1,857 +1,349 @@
-import React, { useState, useEffect } from 'react';
-import { 
-  Wifi, 
-  WifiOff, 
-  Search, 
-  Activity, 
-  CheckCircle, 
-  AlertTriangle, 
-  XCircle, 
-  Trash2, 
-  FileJson, 
-  RefreshCw, 
-  Eye, 
-  ShieldAlert, 
-  ArrowUpRight, 
-  Database,
-  Lock,
-  UserCheck
-} from 'lucide-react';
-import { 
-  PosSession, 
-  SyncQueueItem, 
-  SyncDomain, 
-  SyncStatus, 
-  SyncRisk, 
-  SyncConflict, 
-  SyncActivityEvent 
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { AlertTriangle, Download, Eye, RefreshCw, Search, Wifi, WifiOff } from 'lucide-react';
+import OfflineQueueItemForm from '../components/OfflineQueueItemForm';
+import SyncConflictForm from '../components/SyncConflictForm';
+import {
+  LocalTerminalSnapshot,
+  NetworkStatus,
+  OfflineSyncActivityEvent,
+  OfflineSyncBatch,
+  OfflineSyncConflict,
+  OfflineSyncConflictDecision,
+  OfflineSyncFilterState,
+  OfflineSyncHealth,
+  OfflineSyncQueueItem,
+  PosSession,
+  Role,
+  SyncConflictResolution,
+  SyncEntityType,
+  SyncPriority,
+  SyncQueueStatus
 } from '../types/posTypes';
-import { 
-  getLocalSyncQueue, 
-  runSyncCheck, 
-  syncReadyItems, 
-  flagSyncConflict, 
-  clearSyncedItems, 
-  exportQueuePlaceholder 
-} from '../services/syncService';
-import { 
-  mockSyncConflicts 
-} from '../mock/mockPosData';
-import { 
-  loadTerminalConnectivity, 
-  saveTerminalConnectivity,
-  loadLocalSyncActivity,
-  addLocalSyncActivity,
-  saveLocalQueue,
-  updateLocalQueueItem
-} from '../utils/localQueueStore';
+import {
+  cancelQueueItem,
+  clearSyncedItemsPlaceholder,
+  createSyncBatch,
+  detectSyncConflict,
+  exportSyncReportPlaceholder,
+  getNetworkStatus,
+  getOfflineSyncActivityEvents,
+  getOfflineSyncConflictDecisions,
+  getOfflineSyncHealth,
+  getOfflineSyncQueue,
+  getLocalTerminalSnapshots,
+  getSyncBatches,
+  getSyncConflicts,
+  holdConflictForReview,
+  markQueueItemSyncedPlaceholder,
+  prepareSyncBatch,
+  retryFailedItems,
+  retryQueueItem,
+  runSyncBatchPlaceholder,
+  setNetworkStatusPlaceholder,
+  updateQueueItem,
+  resolveSyncConflict
+} from '../services/offlineSyncService';
+import { getFirebaseEnvironmentSummary, getFirebaseHealthStatus, getFirebaseReadinessChecklist } from '../services/firebaseHealthService';
+import { formatSyncStatus, isRetryAllowed } from '../utils/offlineSyncUtils';
+import { canPerformAction } from '../utils/posPermissions';
 
 interface PosSyncDeskProps {
   session?: PosSession;
 }
 
+type Tab = 'Sync Overview' | 'Offline Queue' | 'Sync Batches' | 'Conflicts' | 'Terminal Health' | 'Local Snapshots' | 'Sync Activity';
+
+const tabs: Tab[] = ['Sync Overview', 'Offline Queue', 'Sync Batches', 'Conflicts', 'Terminal Health', 'Local Snapshots', 'Sync Activity'];
+const entityTypes: Array<'ALL' | SyncEntityType> = ['ALL', 'Sale', 'Receipt', 'Payment', 'Customer Request', 'Approval Request', 'Delivery Request', 'Inventory Movement', 'Purchase Order', 'Goods Receiving', 'Supplier Return', 'Stock Adjustment', 'Stocktake', 'Stock Transfer', 'Accounting Readiness', 'BI Event', 'Audit Event', 'Settings Change', 'Terminal Session', 'Shift Session'];
+const queueStatuses: Array<'ALL' | SyncQueueStatus> = ['ALL', 'Queued', 'Ready To Sync', 'Syncing', 'Synced', 'Failed', 'Conflict', 'Cancelled', 'Held For Review'];
+const priorities: Array<'ALL' | SyncPriority> = ['ALL', 'Low', 'Normal', 'High', 'Critical'];
+
 export default function PosSyncDesk({ session }: PosSyncDeskProps) {
-  // Central Session Variables
-  const activeBranch = session?.branch || 'Harare Main';
-  const staffName = session?.staffName || 'Admin Operator';
-  const vendorName = session?.vendor || 'SCI Logistics Ltd';
-  const terminalName = session?.terminal || 'Term-A';
-  const userRole = session?.role || 'Owner';
+  const role = (session?.role || 'Owner') as Role;
+  const staffId = session?.staffName || 'ST-ADMIN';
+  const staffName = session?.staffName || 'Admin User';
+  const [activeTab, setActiveTab] = useState<Tab>('Sync Overview');
+  const [networkStatus, setNetworkStatus] = useState<NetworkStatus>('Unknown');
+  const [queue, setQueue] = useState<OfflineSyncQueueItem[]>([]);
+  const [batches, setBatches] = useState<OfflineSyncBatch[]>([]);
+  const [conflicts, setConflicts] = useState<OfflineSyncConflict[]>([]);
+  const [decisions, setDecisions] = useState<OfflineSyncConflictDecision[]>([]);
+  const [health, setHealth] = useState<OfflineSyncHealth[]>([]);
+  const [snapshots, setSnapshots] = useState<LocalTerminalSnapshot[]>([]);
+  const [activity, setActivity] = useState<OfflineSyncActivityEvent[]>([]);
+  const [filters, setFilters] = useState<OfflineSyncFilterState>({ entityType: 'ALL', status: 'ALL', priority: 'ALL', conflictType: 'ALL' });
+  const [notice, setNotice] = useState('');
+  const [selectedQueueItem, setSelectedQueueItem] = useState<OfflineSyncQueueItem | null>(null);
+  const [selectedConflict, setSelectedConflict] = useState<OfflineSyncConflict | null>(null);
 
-  // State managers
-  const [queue, setQueue] = useState<SyncQueueItem[]>([]);
-  const [conflicts, setConflicts] = useState<SyncConflict[]>(mockSyncConflicts);
-  const [activities, setActivities] = useState<SyncActivityEvent[]>([]);
-  const [connectivity, setConnectivity] = useState<'ONLINE' | 'OFFLINE'>('ONLINE');
-  const [lastSyncTime, setLastSyncTime] = useState<string>('Today 14:20');
+  const canResolve = canPerformAction(role, 'sync.conflict.resolve') || role === 'Owner';
+  const canRun = canPerformAction(role, 'sync.batch.run') || role === 'Owner';
+  const canRetry = canPerformAction(role, 'sync.retry') || role === 'Owner';
+  const canExport = canPerformAction(role, 'sync.export') || role === 'Owner';
+  const cashierBlocked = (conflict: OfflineSyncConflict) => role === 'Cashier' && (conflict.riskLevel === 'High' || conflict.riskLevel === 'Critical');
 
-  // Search & Filter State
-  const [searchTerm, setSearchTerm] = useState('');
-  const [domainFilter, setDomainFilter] = useState<string>('ALL');
-  const [statusFilter, setStatusFilter] = useState<string>('ALL');
-  const [riskFilter, setRiskFilter] = useState<string>('ALL');
+  const load = async () => {
+    const [network, q, batchRows, conflictRows, decisionRows, healthRows, snapshotRows, activityRows] = await Promise.all([
+      getNetworkStatus(),
+      getOfflineSyncQueue(filters),
+      getSyncBatches(filters),
+      getSyncConflicts(filters),
+      getOfflineSyncConflictDecisions(),
+      getOfflineSyncHealth(filters),
+      getLocalTerminalSnapshots(filters),
+      getOfflineSyncActivityEvents(filters)
+    ]);
+    setNetworkStatus(network);
+    setQueue(q);
+    setBatches(batchRows);
+    setConflicts(conflictRows);
+    setDecisions(decisionRows);
+    setHealth(healthRows);
+    setSnapshots(snapshotRows);
+    setActivity(activityRows);
+  };
 
-  // Interactive View Overlay / Selected Item Details
-  const [activePayloadItem, setActivePayloadItem] = useState<SyncQueueItem | null>(null);
-
-  // Status Notification Feedback
-  const [feedback, setFeedback] = useState<{ type: 'success' | 'warning' | 'error'; message: string } | null>(null);
-
-  // Initial Loading
   useEffect(() => {
-    setConnectivity(loadTerminalConnectivity());
-    loadAllSyncData();
-  }, []);
+    void load();
+  }, [filters.entityType, filters.status, filters.priority, filters.branchId, filters.terminalId, filters.staffId, filters.dateFrom, filters.dateTo, filters.conflictType, filters.searchReference]);
 
-  const loadAllSyncData = async () => {
-    try {
-      const q = await getLocalSyncQueue();
-      const logs = loadLocalSyncActivity();
-      setQueue(q);
-      setActivities(logs);
-    } catch (e) {
-      console.error('Failed to bind Sync Desk storage buffers:', e);
-    }
+  const show = (message: string) => {
+    setNotice(message);
+    window.setTimeout(() => setNotice(''), 4500);
   };
 
-  const showFeedback = (type: 'success' | 'warning' | 'error', message: string) => {
-    setFeedback({ type, message });
-    setTimeout(() => setFeedback(null), 5000);
+  const summary = useMemo(() => {
+    const today = new Date().toISOString().slice(0, 10);
+    const activeHealth = health[0]?.syncHealth || 'Unknown';
+    return {
+      networkStatus,
+      queuedItems: queue.filter((item) => item.status === 'Queued').length,
+      readyToSync: queue.filter((item) => item.status === 'Ready To Sync').length,
+      failedItems: queue.filter((item) => item.status === 'Failed').length,
+      conflicts: queue.filter((item) => item.status === 'Conflict').length || conflicts.length,
+      syncedToday: queue.filter((item) => item.status === 'Synced' && item.syncedAt?.startsWith(today)).length,
+      heldForReview: queue.filter((item) => item.status === 'Held For Review').length,
+      criticalItems: queue.filter((item) => item.priority === 'Critical').length,
+      lastSync: queue.find((item) => item.syncedAt)?.syncedAt || health.find((row) => row.lastSyncAt)?.lastSyncAt || 'No sync today',
+      terminalHealth: activeHealth
+    };
+  }, [queue, conflicts, health, networkStatus]);
+
+  const blocked = () => show('You do not have permission to perform this action.');
+
+  const retry = async (queueId: string) => {
+    if (!canRetry) return blocked();
+    const item = queue.find((row) => row.queueId === queueId);
+    if (item && !isRetryAllowed(item)) return show(item.status === 'Synced' ? 'Synced item cannot be retried.' : 'Conflict item must be resolved before sync.');
+    await retryQueueItem(queueId, staffId);
+    show('Retry placeholder prepared.');
+    await load();
   };
 
-  // Connectivity Toggles
-  const handleToggleConnectivity = (status: 'ONLINE' | 'OFFLINE') => {
-    saveTerminalConnectivity(status);
-    setConnectivity(status);
-    
-    const eventType = status === 'OFFLINE' ? 'TERMINAL_OFFLINE_MODE_ENABLED' : 'TERMINAL_ONLINE_MODE_ENABLED';
-    const msg = status === 'OFFLINE' 
-      ? 'Terminal is OFFLINE. Operations are secured and cached inside LocalStorage SQLite drafts.' 
-      : 'Terminal is ONLINE. Queue connections established. Verification is active for master syncing.';
-
-    addLocalSyncActivity({
-      eventType,
-      message: msg,
-      operator: staffName
-    });
-
-    showFeedback(
-      status === 'OFFLINE' ? 'warning' : 'success', 
-      StatusOfflineWarning(status)
-    );
-    loadAllSyncData();
+  const markSynced = async (queueId: string) => {
+    if (!canRun) return blocked();
+    await markQueueItemSyncedPlaceholder(queueId, staffId);
+    show('Item marked synced placeholder. No backend call made.');
+    await load();
   };
 
-  const StatusOfflineWarning = (status: 'ONLINE' | 'OFFLINE') => {
-    return status === 'OFFLINE' 
-      ? 'Connectivity drop simulated. All upcoming actions will bypass remote APIs to write directly to buffer queue.'
-      : 'Connectivity recovered. Master APIs re-registered.';
+  const holdItem = async (queueId: string) => {
+    await updateQueueItem(queueId, { status: 'Held For Review', notes: 'Held for review from Sync Desk.' });
+    show('Queue item held for review.');
+    await load();
   };
 
-  // Permission Checks: PART 1
-  const isAllowedToManageAll = () => {
-    return userRole === 'Owner' || userRole === 'SysAdmin';
+  const cancelItem = async (queueId: string) => {
+    const reason = window.prompt('Reason required to cancel local queue item.');
+    if (!reason) return;
+    await cancelQueueItem(queueId, staffId, reason);
+    show('Queue item cancelled locally. Original audit trail remains.');
+    await load();
   };
 
-  const isAllowedToManageSync = () => {
-    return isAllowedToManageAll() || userRole === 'Manager' || userRole === 'Supervisor';
+  const detectConflict = async (item: OfflineSyncQueueItem) => {
+    await detectSyncConflict(item);
+    show('Conflict detected and displayed for review.');
+    await load();
   };
 
-  const canActionRow = (item: SyncQueueItem) => {
-    if (isAllowedToManageSync()) return true;
-    if (userRole === 'Cashier' && item.domain === 'Sales') return true;
-    if (userRole === 'Stock Controller' && item.domain === 'Stock') return true;
-    return false;
+  const resolveConflict = async (conflict: OfflineSyncConflict, resolution: SyncConflictResolution, reason: string) => {
+    if (!canResolve || cashierBlocked(conflict)) return blocked();
+    await resolveSyncConflict(conflict.conflictId, { resolution, staffId, staffName, reason });
+    show('Conflict decision recorded with staff, reason, and decision.');
+    setSelectedConflict(null);
+    await load();
   };
 
-  const isRestrictedWorkerLevel = () => {
-    return userRole === 'Cashier' || userRole === 'Stock Controller';
+  const runExport = async () => {
+    if (!canExport) return blocked();
+    await exportSyncReportPlaceholder(filters);
+    show('Sync report export placeholder prepared.');
+    await load();
   };
 
-  // Row Manipulation Handlers (Updates state and persistence)
-  const handleMarkReady = (itemId: string) => {
-    const updated = updateLocalQueueItem(itemId, { syncStatus: 'Ready' });
-    if (updated) {
-      addLocalSyncActivity({
-        eventType: 'LOCAL_QUEUE_ITEM_CREATED',
-        message: `Queue item override manually raised to READY state: [${itemId}]`,
-        operator: staffName
-      });
-      showFeedback('success', `Item ${itemId} offset status updated to READY.`);
-      loadAllSyncData();
-    }
-  };
-
-  const handleSimulateSync = (itemId: string) => {
-    if (connectivity === 'OFFLINE') {
-      showFeedback('error', `Cannot transmit record ${itemId} while Terminal is OFFLINE.`);
-      return;
-    }
-    const updated = updateLocalQueueItem(itemId, { syncStatus: 'Synced' });
-    if (updated) {
-      addLocalSyncActivity({
-        eventType: 'LOCAL_QUEUE_SYNCED',
-        message: `Direct row flush sync: Local record ${itemId} broadcasted to cloud endpoint.`,
-        operator: staffName
-      });
-      showFeedback('success', `Direct sync completed for item ${itemId}.`);
-      loadAllSyncData();
-    }
-  };
-
-  const handleFlagConflict = async (itemId: string) => {
-    const res = await flagSyncConflict(itemId, staffName);
-    if (res) {
-      showFeedback('warning', `Item ${itemId} flagged as Conflict. Dispatch log created.`);
-      loadAllSyncData();
-    }
-  };
-
-  const handleRemoveLocalDraft = (itemId: string) => {
-    const updated = queue.filter(q => q.id !== itemId);
-    saveLocalQueue(updated);
-
-    addLocalSyncActivity({
-      eventType: 'LOCAL_QUEUE_ITEM_CREATED',
-      message: `Manual database scrub: Removed local item ${itemId} from buffer queue.`,
-      operator: staffName
-    });
-    
-    showFeedback('success', `Draft record ${itemId} permanently dropped from buffer.`);
-    loadAllSyncData();
-  };
-
-  // PART 7: CENTRAL SYNC SIMULATIONS
-  const handleRunSyncCheck = async () => {
-    const updated = await runSyncCheck(staffName);
-    setQueue(updated);
-    showFeedback('success', 'Sync validation completed. Low-risk records are certified in ready state.');
-    loadAllSyncData();
-  };
-
-  const handleSyncReadyItems = async () => {
-    if (connectivity === 'OFFLINE') {
-      showFeedback('error', 'Sync aborted: Terminal is currently offline. Establish a connection first.');
-      return;
-    }
-
-    const updated = await syncReadyItems(staffName);
-    setQueue(updated);
-    setLastSyncTime(new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }));
-    showFeedback('success', 'Ready records have been pushed downstream to the master logistics database.');
-    loadAllSyncData();
-  };
-
-  const handleClearSyncedItems = async () => {
-    const updated = await clearSyncedItems(staffName);
-    setQueue(updated);
-    showFeedback('success', 'Local buffer scrubbed of all synchronized logs.');
-    loadAllSyncData();
-  };
-
-  const handleExportJSON = async () => {
-    const raw = await exportQueuePlaceholder(staffName);
-    showFeedback('success', 'Queue export compiled for offline ledger audit.');
-    loadAllSyncData();
-
-    // Trigger raw download
-    const blob = new Blob([raw], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `terminal_${terminalName}_sync_queue_draft.json`;
-    link.click();
-    URL.revokeObjectURL(url);
-  };
-
-  // Raw counts calculations: PART 3
-  const getCountsByDomain = (dom: SyncDomain) => {
-    return queue.filter(q => q.domain === dom && q.syncStatus !== 'Synced').length;
-  };
-
-  const pendingSalesCount = getCountsByDomain('Sales');
-  const pendingStockCount = getCountsByDomain('Stock');
-  const pendingCashCount = getCountsByDomain('Cash');
-  const pendingBiCount = getCountsByDomain('BI');
-  const pendingDeliveryCount = getCountsByDomain('Delivery');
-  
-  // Total risk or conflicts in list
-  const hasCriticalConflict = queue.some(q => q.syncStatus === 'Conflict' || q.risk === 'Critical');
-  const riskAssessment = hasCriticalConflict ? 'Review Required' : 'Minimal Risk';
-
-  // Search/Filters application
-  const filteredQueue = queue.filter(item => {
-    const sTerm = searchTerm.toLowerCase();
-    const matchesSearch = 
-      item.id.toLowerCase().includes(sTerm) ||
-      item.eventType.toLowerCase().includes(sTerm) ||
-      item.reference.toLowerCase().includes(sTerm) ||
-      item.createdBy.toLowerCase().includes(sTerm) ||
-      item.payload.toLowerCase().includes(sTerm);
-
-    const matchesDomain = domainFilter === 'ALL' || item.domain === domainFilter;
-    const matchesStatus = statusFilter === 'ALL' || item.syncStatus === statusFilter;
-    const matchesRisk = riskFilter === 'ALL' || item.risk === riskFilter;
-
-    return matchesSearch && matchesDomain && matchesStatus && matchesRisk;
-  });
+  const branchOptions = Array.from(new Set([...queue.map((item) => item.branchId), ...health.map((item) => item.branchId), ...snapshots.map((item) => item.branchId)]));
+  const terminalOptions = Array.from(new Set([...queue.map((item) => item.terminalId), ...health.map((item) => item.terminalId), ...snapshots.map((item) => item.terminalId)]));
+  const staffOptions = Array.from(new Set(queue.map((item) => item.staffId)));
+  const firebaseHealth = getFirebaseHealthStatus();
+  const firebaseSummary = getFirebaseEnvironmentSummary();
+  const firebaseChecklist = getFirebaseReadinessChecklist();
 
   return (
-    <div className="space-y-6 font-mono text-xs text-[#111827] select-none pb-12">
-      
-      {/* PART 2: PAGE HEADER */}
-      <div className="bg-white border-2 border-[#b1b5c2] p-5 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-        <div>
-          <div className="text-[9px] font-black text-orange-600 uppercase tracking-widest">SCI OFFLINE RECONNECT SYNC CONTROL</div>
-          <h1 className="text-sm font-black text-[#1e222b] uppercase flex items-center gap-2 mt-1">
-            <RefreshCw className="w-5 h-5 text-orange-500 animate-spin-slow" />
-            Sync Desk - Offline Terminal Queue & Sync Status
-          </h1>
-          
-          <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 mt-2 text-[10px] text-slate-500">
-            <span className="flex items-center gap-1">
-              <strong>Tenant Vendor:</strong> <span className="bg-slate-100 text-[#1e222b] font-bold px-1.5 py-0.2">{vendorName}</span>
-            </span>
-            <span className="flex items-center gap-1">
-              <strong>Branch:</strong> <span className="text-[#1e222b] font-bold">{activeBranch}</span>
-            </span>
-            <span className="flex items-center gap-1">
-              <strong>Terminal:</strong> <span className="bg-slate-100 text-[#1e222b] font-bold px-1">{terminalName}</span>
-            </span>
-            <span className="flex items-center gap-1">
-              <strong>Cashier Role:</strong> <span className="text-emerald-700 font-extrabold uppercase">{userRole} ({staffName})</span>
-            </span>
-            <span className="flex items-center gap-1">
-              <strong>Mode:</strong> <span className="bg-blue-50 text-blue-700 font-bold px-1">Build Development</span>
-            </span>
-          </div>
-        </div>
-
-        {/* Dynamic status badge right aligned */}
-        <div className="flex items-center gap-2">
-          {connectivity === 'ONLINE' ? (
-            <div className="flex items-center gap-2 px-3 py-1.5 bg-emerald-50 border-2 border-emerald-500/35">
-              <span className="w-2.5 h-2.5 rounded-none bg-emerald-600 animate-pulse"></span>
-              <span className="font-black text-emerald-800 uppercase text-[9px]">Status: Online</span>
-            </div>
-          ) : (
-            <div className="flex items-center gap-2 px-3 py-1.5 bg-rose-50 border-2 border-rose-500/35">
-              <span className="w-2.5 h-2.5 rounded-none bg-rose-600 animate-pulse"></span>
-              <span className="font-black text-rose-800 uppercase text-[9px]">Status: Offline</span>
-            </div>
-          )}
-        </div>
-      </div>
-
-      {/* FEEDBACK STATUS ALERTS */}
-      {feedback && (
-        <div className={`p-4 border-l-4 rounded-none h-auto flex items-start gap-3 transition-all duration-300 ${
-          feedback.type === 'success' 
-            ? 'bg-emerald-50 border-l-emerald-600 border border-[#b1b5c2] text-emerald-800' 
-            : feedback.type === 'warning' 
-            ? 'bg-amber-50 border-l-amber-500 border border-[#b1b5c2] text-amber-800'
-            : 'bg-rose-50 border-l-rose-600 border border-[#b1b5c2] text-rose-800'
-        }`}>
-          {feedback.type === 'success' && <CheckCircle className="w-5 h-5 text-emerald-600 shrink-0 mt-0.5" />}
-          {feedback.type === 'warning' && <AlertTriangle className="w-5 h-5 text-amber-500 shrink-0 mt-0.5" />}
-          {feedback.type === 'error' && <XCircle className="w-5 h-5 text-rose-600 shrink-0 mt-0.5" />}
+    <div className="space-y-5 text-[#111827] pb-10">
+      <header className="bg-white border-2 border-[#b1b5c2]">
+        <div className="bg-[#1e222b] text-white p-4 flex flex-col md:flex-row md:items-center md:justify-between gap-3">
           <div>
-            <span className="font-extrabold uppercase text-[10px] block mb-0.5">
-              Sync Desk System Alert ({feedback.type})
-            </span>
-            <p className="text-xs font-semibold">{feedback.message}</p>
-          </div>
-        </div>
-      )}
-
-      {/* OFFLINE MANUALLY CONTROL TOGGLES (PART 3 WARNING PANELS) */}
-      <div className="grid grid-cols-1 md:grid-cols-12 gap-5">
-        
-        {/* Toggle Panel Left */}
-        <div className="md:col-span-8 bg-white border-2 border-[#b1b5c2] p-4 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-          <div>
-            <span className="text-[10px] text-slate-500 font-extrabold block uppercase tracking-wider">Simulate Network Health</span>
-            <p className="text-[11px] font-semibold text-slate-700 mt-0.5">
-              Toggle terminal state to simulate disconnect behavior and local storage data-caching mechanisms.
-            </p>
+            <p className="text-[10px] text-orange-400 font-black uppercase">Offline-first placeholder sync control</p>
+            <h1 className="text-xl font-black uppercase">Sync Desk</h1>
+            <p className="text-[11px] text-slate-200 font-bold">Offline queue, sync batches, conflict resolution, and terminal sync health.</p>
           </div>
           <div className="flex gap-2">
-            <button
-              onClick={() => handleToggleConnectivity('ONLINE')}
-              className={`px-4 py-2 border-2 font-black uppercase text-[10px] tracking-wider rounded-none cursor-pointer flex items-center gap-1 transition-all ${
-                connectivity === 'ONLINE'
-                  ? 'bg-emerald-600 text-white border-emerald-700'
-                  : 'bg-white text-slate-500 border-slate-300'
-              }`}
-            >
-              <Wifi className="w-3.5 h-3.5" />
-              Simulate Online
-            </button>
-            <button
-              onClick={() => handleToggleConnectivity('OFFLINE')}
-              className={`px-4 py-2 border-2 font-black uppercase text-[10px] tracking-wider rounded-none cursor-pointer flex items-center gap-1 transition-all ${
-                connectivity === 'OFFLINE'
-                  ? 'bg-rose-600 text-white border-rose-700'
-                  : 'bg-white text-slate-500 border-slate-300'
-              }`}
-            >
-              <WifiOff className="w-3.5 h-3.5" />
-              Simulate Offline
-            </button>
+            {(['Online', 'Offline', 'Unstable'] as NetworkStatus[]).map((status) => <button key={status} className={`px-3 py-2 border text-[10px] font-black uppercase ${networkStatus === status ? 'bg-orange-600 border-orange-700 text-white' : 'bg-white text-[#1e222b] border-white'}`} onClick={async () => { await setNetworkStatusPlaceholder(status); show(`Network status set to ${status} placeholder.`); await load(); }}>{status === 'Online' ? <Wifi className="inline w-3 h-3 mr-1" /> : <WifiOff className="inline w-3 h-3 mr-1" />}{status}</button>)}
           </div>
         </div>
+        <div className="p-3 bg-orange-50 border-t border-orange-200 text-[11px] font-bold text-orange-950 flex gap-2"><AlertTriangle size={16} /> All sync actions in this build are local/mock placeholders. No Firebase, backend API, accounting post, cashbook post, or vendor console access is used.</div>
+      </header>
 
-        {/* Active Warning Indicators Panel Right */}
-        <div className="md:col-span-4 select-none">
-          {connectivity === 'OFFLINE' ? (
-            <div className="p-4 bg-orange-50 border-2 border-orange-400/80 text-orange-950 flex gap-2 h-full items-start">
-              <AlertTriangle className="w-5 h-5 text-orange-600 shrink-0 mt-0.5 animate-bounce" />
-              <div>
-                <span className="font-black text-[10px] uppercase block">Terminal is Offline</span>
-                <span className="text-[10px] leading-tight font-bold mt-0.5 block text-orange-900">
-                  New actions will be queued locally. Master endpoints bypassed.
-                </span>
-              </div>
-            </div>
-          ) : (
-            <div className="p-4 bg-emerald-50 border-2 border-emerald-400/80 text-emerald-950 flex gap-2 h-full items-start">
-              <CheckCircle className="w-5 h-5 text-emerald-600 shrink-0 mt-0.5" />
-              <div>
-                <span className="font-black text-[10px] uppercase block">Terminal is Online</span>
-                <span className="text-[10px] leading-tight font-bold mt-0.5 block text-emerald-900">
-                  Queue is connected and ready for sync simulation.
-                </span>
-              </div>
-            </div>
-          )}
-        </div>
-      </div>
+      {notice && <div className="bg-emerald-50 border-2 border-emerald-500 text-emerald-900 p-3 text-xs font-bold">{notice}</div>}
 
-      {/* PART 3: SYNC SUMMARY PANELS */}
-      <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-8 gap-3">
+      <section className="grid grid-cols-2 md:grid-cols-5 xl:grid-cols-10 gap-2">
         {[
-          { label: 'Terminal Connect', value: connectivity, comment: connectivity === 'ONLINE' ? 'Socket Active' : 'Cached SQLite', color: connectivity === 'ONLINE' ? 'border-l-emerald-600 bg-emerald-50/20' : 'border-l-rose-600 bg-rose-50/20' },
-          { label: 'Pending Sales', value: pendingSalesCount, comment: 'Ready for invoice ledger', color: 'border-l-orange-500 bg-orange-50/10' },
-          { label: 'Pending Stock', value: pendingStockCount, comment: 'Inventory variances', color: 'border-l-amber-500 bg-amber-50/10' },
-          { label: 'Pending Cash', value: pendingCashCount, comment: 'Safe drops & shifts', color: 'border-l-teal-600 bg-teal-50/10' },
-          { label: 'Pending BI Logs', value: pendingBiCount, comment: 'Compliance/Auditing', color: 'border-l-purple-500 bg-purple-50/10' },
-          { label: 'Pending Delivery', value: pendingDeliveryCount, comment: 'Closed proof of codes', color: 'border-l-blue-500 bg-blue-50/10' },
-          { label: 'Last Master Sync', value: lastSyncTime, comment: 'UTC network tick', color: 'border-l-[#1e222b] bg-slate-100' },
-          { label: 'Sync Risk', value: riskAssessment, comment: 'Data conflict risk', color: hasCriticalConflict ? 'border-l-red-600 text-rose-800 font-extrabold bg-red-50/10' : 'border-l-slate-400 text-slate-800' }
-        ].map(card => (
-          <div key={card.label} className={`bg-white border border-[#b1b5c2] border-l-4 ${card.color} p-3 flex flex-col justify-between h-[85px]`}>
-            <span className="text-[8.5px] font-black text-slate-500 uppercase tracking-tight block truncate" title={card.label}>
-              {card.label}
-            </span>
-            <span className="text-base font-black text-[#1e222b] leading-tight block truncate uppercase">
-              {card.value}
-            </span>
-            <span className="text-[8px] text-slate-400 block truncate leading-none uppercase">
-              {card.comment}
-            </span>
+          ['Network Status', summary.networkStatus], ['Queued Items', summary.queuedItems], ['Ready To Sync', summary.readyToSync], ['Failed Items', summary.failedItems],
+          ['Conflicts', summary.conflicts], ['Synced Today', summary.syncedToday], ['Held For Review', summary.heldForReview], ['Critical Items', summary.criticalItems],
+          ['Last Sync', summary.lastSync], ['Terminal Health', summary.terminalHealth]
+        ].map(([label, value]) => <div key={label} className="bg-white border border-[#b1b5c2] border-l-4 border-l-orange-600 p-3 min-h-20"><span className="text-[9px] text-slate-500 uppercase font-black">{label}</span><strong className="block text-sm text-[#1e222b] break-words">{value}</strong></div>)}
+      </section>
+
+      <section className="bg-white border-2 border-[#b1b5c2]">
+        <div className="bg-[#1e222b] text-white p-3 flex flex-col md:flex-row md:items-center md:justify-between gap-2">
+          <div>
+            <p className="text-[9px] text-orange-400 uppercase font-black">Firebase Readiness</p>
+            <h2 className="text-sm font-black uppercase">Future Firestore Integration Shell</h2>
           </div>
-        ))}
-      </div>
-
-      {/* MAIN TWO-COLUMN SPLIT */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-        
-        {/* LEFT COLUMN: FILTER CONTROLS & QUEUE TABLE (8 cols) */}
-        <div className="lg:col-span-8 space-y-6">
-
-          {/* TABLE FILTERS & CONTROLS */}
-          <div className="bg-white border-2 border-[#b1b5c2] p-4 space-y-3">
-            <div className="flex flex-col md:flex-row gap-4 items-center justify-between">
-              
-              {/* Search */}
-              <div className="relative w-full md:w-80">
-                <span className="absolute inset-y-0 left-0 flex items-center pl-3">
-                  <Search className="h-3.5 w-3.5 text-slate-400" />
-                </span>
-                <input
-                  type="text"
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                  className="w-full pl-9 pr-3 py-2 bg-slate-50 border border-[#b1b5c2] text-xs focus:bg-white text-[#1e222b]"
-                  placeholder="Filter queue elements..."
-                />
-              </div>
-
-              {/* Filters list */}
-              <div className="flex flex-wrap gap-2 w-full md:w-auto items-center justify-end">
-                
-                {/* Domain filter */}
-                <div>
-                  <select 
-                    value={domainFilter} 
-                    onChange={(e) => setDomainFilter(e.target.value)}
-                    className="px-2 py-1.5 bg-slate-50 border border-[#b1b5c2] font-semibold text-[10px]"
-                  >
-                    <option value="ALL">All Domains</option>
-                    <option value="Sales">Sales Only</option>
-                    <option value="Stock">Stock Only</option>
-                    <option value="Cash">Cash Only</option>
-                    <option value="BI">BI Only</option>
-                    <option value="Delivery">Delivery Only</option>
-                    <option value="CRM">CRM Only</option>
-                    <option value="Settings">Settings Only</option>
-                  </select>
-                </div>
-
-                {/* Status filter */}
-                <div>
-                  <select 
-                    value={statusFilter} 
-                    onChange={(e) => setStatusFilter(e.target.value)}
-                    className="px-2 py-1.5 bg-slate-50 border border-[#b1b5c2] font-semibold text-[10px]"
-                  >
-                    <option value="ALL">All Sync States</option>
-                    <option value="Pending">Pending</option>
-                    <option value="Ready">Ready</option>
-                    <option value="Synced">Synced</option>
-                    <option value="Conflict">Conflict</option>
-                    <option value="Failed">Failed</option>
-                  </select>
-                </div>
-
-                {/* Risk filter */}
-                <div>
-                  <select 
-                    value={riskFilter} 
-                    onChange={(e) => setRiskFilter(e.target.value)}
-                    className="px-2 py-1.5 bg-slate-50 border border-[#b1b5c2] font-semibold text-[10px]"
-                  >
-                    <option value="ALL">All Risk Levels</option>
-                    <option value="Low">Low Risk</option>
-                    <option value="Medium">Medium Risk</option>
-                    <option value="High">High Risk</option>
-                    <option value="Critical">Critical Risk</option>
-                  </select>
-                </div>
-
-              </div>
-            </div>
-          </div>
-
-          {/* QUEUE TABLE */}
-          <div className="bg-white border-2 border-[#b1b5c2] p-0 overflow-x-auto shadow-sm">
-            <div className="bg-[#1e222b] text-white p-3 font-extrabold flex items-center justify-between">
-              <span className="uppercase text-[9.5px]">LOCAL REGULATOR OFFLINE BUFFER (SQLITE REPLICA)</span>
-              <span className="text-[8px] bg-orange-600 text-white px-2 py-0.5 px-1 font-bold">
-                {filteredQueue.length} ITEMS MATCHED
-              </span>
-            </div>
-
-            {filteredQueue.length === 0 ? (
-              <div className="p-8 text-center text-slate-400 font-bold bg-slate-50">
-                No local transaction rows found matching constraints.
-              </div>
-            ) : (
-              <table className="w-full text-left border-collapse">
-                <thead>
-                  <tr className="bg-slate-100 border-b border-[#b1b5c2] font-black uppercase text-[8.5px] tracking-wider text-slate-500">
-                    <th className="p-3">ID</th>
-                    <th className="p-3">Domain</th>
-                    <th className="p-3">Event Type</th>
-                    <th className="p-3">Reference</th>
-                    <th className="p-3">Operator</th>
-                    <th className="p-3">Date/Time</th>
-                    <th className="p-3">Sync Status</th>
-                    <th className="p-3 text-center">Risk</th>
-                    <th className="p-3 text-right">Actions</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100">
-                  {filteredQueue.map((item) => {
-                    const statusColors = {
-                      Pending: 'bg-zinc-150 text-slate-800 border-slate-300',
-                      Ready: 'bg-orange-50 text-orange-700 border-orange-500/30 font-bold',
-                      Synced: 'bg-emerald-50 text-emerald-800 border-emerald-500/25',
-                      Conflict: 'bg-amber-50 text-amber-800 border-amber-600/30 font-bold',
-                      Failed: 'bg-rose-50 text-rose-800 border-rose-500/25'
-                    };
-
-                    const riskColors = {
-                      Low: 'bg-slate-100 text-slate-700 border-slate-200',
-                      Medium: 'bg-blue-50 text-blue-700 border-blue-200',
-                      High: 'bg-amber-50 text-amber-700 border-amber-300',
-                      Critical: 'bg-rose-100 text-rose-800 border-rose-400 font-extrabold'
-                    };
-
-                    const isActionable = canActionRow(item);
-
-                    return (
-                      <tr 
-                        key={item.id} 
-                        className={`hover:bg-slate-50/80 transition-all ${
-                          activePayloadItem?.id === item.id ? 'bg-orange-50/15' : ''
-                        }`}
-                      >
-                        <td className="p-3 font-extrabold text-[#1e222b]">{item.id}</td>
-                        <td className="p-3">
-                          <span className="font-extrabold bg-[#1e222b] text-white text-[8px] px-1.5 py-0.2 uppercase">
-                            {item.domain}
-                          </span>
-                        </td>
-                        <td className="p-3 font-semibold uppercase text-slate-800 text-[10px]" title={item.eventType}>
-                          {item.eventType}
-                        </td>
-                        <td className="p-3 text-slate-600 font-mono font-bold">{item.reference}</td>
-                        <td className="p-3 text-slate-500">{item.createdBy}</td>
-                        <td className="p-3 text-slate-400 select-all" title={item.createdAt}>
-                          {item.createdAt.includes('T') ? item.createdAt.slice(11, 16) : item.createdAt}
-                        </td>
-                        <td className="p-3">
-                          <span className={`px-2 py-0.5 border text-[9px] uppercase ${statusColors[item.syncStatus] || 'bg-slate-100 text-slate-600'}`}>
-                            {item.syncStatus}
-                          </span>
-                        </td>
-                        <td className="p-3 text-center">
-                          <span className={`px-2 py-0.3 border text-[8px] uppercase font-black tracking-tighter ${riskColors[item.risk] || 'bg-slate-100'}`}>
-                            {item.risk}
-                          </span>
-                        </td>
-                        <td className="p-3 text-right">
-                          <div className="flex items-center justify-end gap-1.5">
-                            
-                            {/* View Payload Action */}
-                            <button
-                              onClick={() => setActivePayloadItem(activePayloadItem?.id === item.id ? null : item)}
-                              className="p-1 bg-slate-100 hover:bg-slate-200 text-slate-600 cursor-pointer"
-                              title="Inspect RAW JSON payload"
-                            >
-                              <Eye className="w-3.5 h-3.5" />
-                            </button>
-
-                            {/* Conditional action row controls */}
-                            {isActionable ? (
-                              <>
-                                {/* Mark Ready */}
-                                {item.syncStatus === 'Pending' && (
-                                  <button
-                                    onClick={() => handleMarkReady(item.id)}
-                                    className="px-1.5 py-0.5 bg-white border border-[#b1b5c2] hover:bg-slate-100 text-[#1e222b] font-black uppercase text-[8px] cursor-pointer"
-                                    title="Authorize ready for sync connection"
-                                  >
-                                    Ready
-                                  </button>
-                                )}
-
-                                {/* Sync simulation single */}
-                                {item.syncStatus === 'Ready' && (
-                                  <button
-                                    onClick={() => handleSimulateSync(item.id)}
-                                    className="px-1.5 py-0.5 bg-orange-600 hover:bg-orange-700 text-white font-black uppercase text-[8px] cursor-pointer"
-                                    title="Push item to main DB"
-                                  >
-                                    Push
-                                  </button>
-                                )}
-
-                                {/* Flag Conflict simulation */}
-                                {(item.syncStatus === 'Pending' || item.syncStatus === 'Ready') && isAllowedToManageSync() && (
-                                  <button
-                                    onClick={() => handleFlagConflict(item.id)}
-                                    className="px-1.5 py-0.5 bg-amber-500 hover:bg-amber-600 text-white font-black uppercase text-[8px] cursor-pointer"
-                                    title="Flag duplicate state error"
-                                  >
-                                    Conflict
-                                  </button>
-                                )}
-
-                                {/* Delete Draft Option */}
-                                {isAllowedToManageAll() && (
-                                  <button
-                                    onClick={() => handleRemoveLocalDraft(item.id)}
-                                    className="p-1 bg-red-100 hover:bg-red-200 text-rose-700 cursor-pointer"
-                                    title="Erase row draft from buffer"
-                                  >
-                                    <Trash2 className="w-3.5 h-3.5" />
-                                  </button>
-                                )}
-                              </>
-                            ) : (
-                              <span className="text-[7.5px] font-semibold text-slate-400 uppercase italic">
-                                {isRestrictedWorkerLevel() ? `${userRole} Lock` : 'No Auth'}
-                              </span>
-                            )}
-
-                          </div>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            )}
-          </div>
-
-          {/* ACTIVE PAYLOAD VIEWER DRAWER (Charcoal terminal aesthetics) */}
-          {activePayloadItem && (
-            <div className="bg-[#1e222b] text-zinc-100 border-4 border-orange-500 p-5 font-mono text-[11px] space-y-3 shadow-md">
-              <div className="flex items-center justify-between border-b border-zinc-700 pb-2">
-                <span className="text-orange-400 font-extrabold text-[12px] flex items-center gap-1.5">
-                  <Database className="w-4 h-4" />
-                  RAW TRANSACTIONS JSON OFFSET: {activePayloadItem.id} ({activePayloadItem.domain})
-                </span>
-                <button
-                  onClick={() => setActivePayloadItem(null)}
-                  className="text-slate-400 hover:text-white font-black cursor-pointer uppercase text-[9px]"
-                >
-                  [Close Shield x]
-                </button>
-              </div>
-
-              <div className="p-3 bg-zinc-900 border border-zinc-800 h-auto overflow-y-auto max-h-56 text-[#a7f3d0]">
-                <pre className="whitespace-pre-wrap font-mono leading-relaxed select-all">
-                  {JSON.stringify(JSON.parse(activePayloadItem.payload), null, 2)}
-                </pre>
-              </div>
-
-              <div className="flex items-center justify-between text-[10px] text-zinc-400 font-bold pt-1.5">
-                <span>Created At: <strong className="text-zinc-200">{activePayloadItem.createdAt}</strong></span>
-                <span>Payload Size: <strong className="text-zinc-200">{activePayloadItem.payload.length} bytes</strong></span>
-              </div>
-            </div>
-          )}
-
-          {/* CONTROL SIMULATION TERMINAL BUTTONS Panel */}
-          <div className="bg-white border-2 border-[#b1b5c2] p-5">
-            <h3 className="text-xs font-black text-[#1e222b] uppercase tracking-wider mb-3">
-              INTEGRATION SIMULATOR ROUTINES (PART 7)
-            </h3>
-            
-            {isAllowedToManageSync() ? (
-              <div className="flex flex-wrap gap-2.5">
-                <button
-                  onClick={handleRunSyncCheck}
-                  className="px-4 py-2.5 bg-[#1e222b] hover:bg-zinc-800 text-white font-black uppercase text-[10px] tracking-wider rounded-none cursor-pointer flex items-center gap-1 border border-slate-700"
-                  title="Checks queue and moves Low risk items from Pending to Ready."
-                >
-                  Run Sync Check
-                </button>
-
-                <button
-                  onClick={handleSyncReadyItems}
-                  className="px-4 py-2.5 bg-orange-600 hover:bg-orange-700 text-white font-black uppercase text-[10px] tracking-wider rounded-none cursor-pointer flex items-center gap-1"
-                  title="Sends all Ready items to the master database."
-                >
-                  Sync Ready Items
-                </button>
-
-                <button
-                  onClick={handleClearSyncedItems}
-                  className="px-4 py-2.5 bg-slate-200 hover:bg-slate-300 text-slate-700 font-black uppercase text-[10px] tracking-wider rounded-none cursor-pointer"
-                  title="Saves storage by wiping records with Synced status."
-                >
-                  Clear Synced Items
-                </button>
-
-                <button
-                  onClick={handleExportJSON}
-                  className="px-4 py-2.5 bg-white border-2 border-[#b1b5c2] text-[#1e222b] hover:bg-slate-50 font-black uppercase text-[10px] tracking-wider rounded-none cursor-pointer flex items-center gap-1"
-                  title="Dumps the queue as JSON for inspection or backup."
-                >
-                  <FileJson className="w-3.5 h-3.5 text-orange-500" />
-                  Export Queue JSON
-                </button>
-              </div>
-            ) : (
-              <div className="bg-rose-50 border border-rose-200 p-3 flex items-center gap-2 text-rose-950 font-semibold text-[11px]">
-                <Lock className="w-4 h-4 text-rose-500 flex-shrink-0" />
-                <span>
-                  <strong>AUTHENTICATION RESTRAINT:</strong> Staff member level role <strong>{userRole}</strong> is restricted from executing central synchronization sequences. Please request Owner or Supervisor credentials to simulate master sync protocols.
-                </span>
-              </div>
-            )}
-          </div>
-
+          <span className={`px-2 py-1 border text-[9px] font-black uppercase ${firebaseHealth.configured ? 'bg-emerald-50 border-emerald-400 text-emerald-800' : 'bg-orange-50 border-orange-400 text-orange-900'}`}>
+            {firebaseHealth.configured ? 'Config Ready' : 'Config Missing'}
+          </span>
         </div>
-
-        {/* RIGHT COLUMN: ACTION FEED & CONFLICT WARNING PANELS (4 cols) */}
-        <div className="lg:col-span-4 space-y-6">
-
-          {/* PART 8: CONFLICT WARNINGS COMPONENT */}
-          <div className="bg-white border-2 border-[#b1b5c2] p-0 shadow-sm">
-            <div className="bg-[#1e222b] text-white p-3 font-extrabold flex items-center gap-2">
-              <ShieldAlert className="w-4 h-4 text-orange-500 animate-pulse" />
-              <span className="uppercase text-[9.5px]">SYNC CONFLICT REGISTER</span>
-            </div>
-            
-            <div className="p-4 space-y-3.5">
-              <p className="text-[10px] leading-relaxed text-slate-500 font-medium">
-                Below are simulated conflict layouts that occur when offline-modified records collide with state changes posted on other nodes.
-              </p>
-
-              <div className="space-y-3">
-                {conflicts.map((conf) => {
-                  const riskColors = {
-                    Low: 'bg-slate-100 text-slate-700',
-                    Medium: 'bg-blue-100 text-blue-800',
-                    High: 'bg-amber-100 text-amber-900 border-amber-300',
-                    Critical: 'bg-rose-100 text-rose-950 border-rose-300'
-                  };
-
-                  return (
-                    <div key={conf.id} className="p-3 bg-slate-50 border border-[#b1b5c2] space-y-1.5">
-                      <div className="flex items-center justify-between border-b border-slate-200 pb-1">
-                        <span className="font-extrabold text-[10px] text-slate-900 flex items-center gap-1.5 uppercase">
-                          <span className="w-1.5 h-1.5 rounded-none bg-orange-500"></span>
-                          {conf.conflictType}
-                        </span>
-                        <span className={`px-1.5 py-0.2 text-[8px] font-bold uppercase ${riskColors[conf.risk] || 'bg-slate-200'}`}>
-                          {conf.risk}
-                        </span>
-                      </div>
-                      
-                      <p className="text-[10px] text-slate-700 font-semibold leading-relaxed">
-                        {conf.description}
-                      </p>
-
-                      <div className="bg-white p-2 border border-slate-200 text-[8.5px] font-mono leading-relaxed">
-                        <strong className="text-orange-600 block uppercase font-bold text-[8px]">RECONCILIATION ROUTINE:</strong>
-                        <span className="text-slate-600">{conf.recommendedAction}</span>
-                      </div>
-                    </div>
-                  );
-                })}
+        <div className="p-3 space-y-3">
+          <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-6 gap-2">
+            {firebaseSummary.map(([label, value]) => <ReadinessMetric key={label} label={label} value={value} />)}
+          </div>
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+            <div className="border border-[#b1b5c2] p-3">
+              <div className="text-[9px] text-slate-500 uppercase font-black mb-2">Readiness Checklist</div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                {firebaseChecklist.map((item) => <div key={item.label} className="flex items-center justify-between gap-2 border border-[#d6d9e0] p-2 text-[10px] font-black uppercase"><span>{item.label}</span><Badge value={item.status} /></div>)}
               </div>
             </div>
-          </div>
-
-          {/* PART 11: SYNC ACTIVITY FEED */}
-          <div className="bg-white border-2 border-[#b1b5c2] p-0 shadow-sm">
-            <div className="bg-[#1e222b] text-white p-3 font-extrabold flex items-center gap-2">
-              <Activity className="w-4 h-4 text-orange-500" />
-              <span className="uppercase text-[9.5px]">SYNC ACTIVITY FEED</span>
-            </div>
-
-            <div className="p-4 space-y-3 max-h-96 overflow-y-auto divide-y divide-slate-100">
-              {activities.length === 0 ? (
-                <div className="text-center font-bold text-slate-400 py-6">
-                  No actions logged. Turn on simulator switches to populate.
-                </div>
-              ) : (
-                activities.map((act) => {
-                  const eventIcons = {
-                    TERMINAL_OFFLINE_MODE_ENABLED: '🚫',
-                    TERMINAL_ONLINE_MODE_ENABLED: '🌐',
-                    LOCAL_QUEUE_ITEM_CREATED: '📥',
-                    SYNC_CHECK_COMPLETED: '🔍',
-                    LOCAL_QUEUE_SYNCED: '🚀',
-                    SYNC_CONFLICT_FLAGGED: '⚠️',
-                    SYNCED_QUEUE_CLEARED: '🧼',
-                    OFFLINE_AUDIT_EXPORT_PREPARED: '💾'
-                  };
-
-                  return (
-                    <div key={act.id} className="pt-2.5 first:pt-0 pb-1 text-[10px] space-y-1">
-                      <div className="flex justify-between items-center text-[9px]">
-                        <span className="font-bold text-[#1e222b] bg-slate-100 px-1 py-0.2 uppercase font-black" title={act.eventType}>
-                          {eventIcons[act.eventType] || '⚙️'} {act.eventType.replace(/_/g, ' ')}
-                        </span>
-                        <span className="text-slate-400">
-                          {act.timestamp.includes('T') ? act.timestamp.slice(11, 19) : act.timestamp}
-                        </span>
-                      </div>
-                      <p className="text-slate-600 font-semibold leading-relaxed">
-                        {act.message}
-                      </p>
-                      <div className="flex items-center gap-1.5 text-[8.5px] text-slate-400 font-black uppercase">
-                        <UserCheck className="w-3.5 h-3.5 text-emerald-600" />
-                        <span>OPERATOR: {act.operator}</span>
-                      </div>
-                    </div>
-                  );
-                })
-              )}
+            <div className="border border-orange-200 bg-orange-50 p-3 text-[10px] text-orange-950 font-bold uppercase space-y-2">
+              <p>Firebase is configured for future integration. Current POS workflows still use mock/local services until data contracts and repositories are activated.</p>
+              {firebaseHealth.missingKeys.length > 0 && <p>Missing keys: {firebaseHealth.missingKeys.join(', ')}</p>}
+              {firebaseHealth.warnings.map((warning) => <p key={warning}>{warning}</p>)}
             </div>
           </div>
-
         </div>
+      </section>
 
-      </div>
+      <section className="bg-white border-2 border-[#b1b5c2] p-3">
+        <div className="grid grid-cols-2 md:grid-cols-5 xl:grid-cols-10 gap-2">
+          <Select label="Entity Type" value={filters.entityType || 'ALL'} options={entityTypes} onChange={(value) => setFilters({ ...filters, entityType: value as OfflineSyncFilterState['entityType'] })} />
+          <Select label="Status" value={filters.status || 'ALL'} options={queueStatuses} onChange={(value) => setFilters({ ...filters, status: value as OfflineSyncFilterState['status'] })} />
+          <Select label="Priority" value={filters.priority || 'ALL'} options={priorities} onChange={(value) => setFilters({ ...filters, priority: value as OfflineSyncFilterState['priority'] })} />
+          <Select label="Branch" value={filters.branchId || 'ALL'} options={['ALL', ...branchOptions]} onChange={(value) => setFilters({ ...filters, branchId: value })} />
+          <Select label="Terminal" value={filters.terminalId || 'ALL'} options={['ALL', ...terminalOptions]} onChange={(value) => setFilters({ ...filters, terminalId: value })} />
+          <Select label="Staff" value={filters.staffId || 'ALL'} options={['ALL', ...staffOptions]} onChange={(value) => setFilters({ ...filters, staffId: value })} />
+          <Input label="Date From" type="date" value={filters.dateFrom || ''} onChange={(value) => setFilters({ ...filters, dateFrom: value })} />
+          <Input label="Date To" type="date" value={filters.dateTo || ''} onChange={(value) => setFilters({ ...filters, dateTo: value })} />
+          <Select label="Conflict Type" value={filters.conflictType || 'ALL'} options={['ALL', 'Duplicate Receipt', 'Stock Quantity Conflict', 'Customer Duplicate', 'Shift Closed Remotely', 'Version Mismatch', 'Permission Conflict']} onChange={(value) => setFilters({ ...filters, conflictType: value as OfflineSyncFilterState['conflictType'] })} />
+          <label className="text-[9px] uppercase font-black text-slate-500">Search Reference<div className="relative"><Search className="absolute left-2 top-2.5 w-3 h-3 text-slate-400" /><input className="w-full pl-7 p-2 border border-[#b1b5c2] text-xs" value={filters.searchReference || ''} onChange={(event) => setFilters({ ...filters, searchReference: event.target.value })} /></div></label>
+        </div>
+      </section>
 
+      <nav className="flex flex-wrap gap-1">
+        {tabs.map((tab) => <button key={tab} className={`px-3 py-2 border text-[10px] font-black uppercase ${activeTab === tab ? 'bg-orange-600 text-white border-orange-700' : 'bg-white text-[#1e222b] border-[#b1b5c2]'}`} onClick={() => setActiveTab(tab)}>{tab}</button>)}
+      </nav>
+
+      {activeTab === 'Sync Overview' && <Overview queue={queue} conflicts={conflicts} health={health} onCreateBatch={async () => { await createSyncBatch(filters, staffId); show('Sync batch created locally.'); await load(); }} onExport={runExport} />}
+      {activeTab === 'Offline Queue' && <QueueTable queue={queue} onView={setSelectedQueueItem} onRetry={retry} onMarkSynced={markSynced} onDetectConflict={detectConflict} onHold={holdItem} onCancel={cancelItem} onPrepareBatch={async () => { await createSyncBatch(filters, staffId); show('Batch prepared from current filters.'); await load(); }} />}
+      {activeTab === 'Sync Batches' && <BatchTable batches={batches} canRun={canRun} onPrepare={async (id) => { await prepareSyncBatch(id); show('Batch prepared locally.'); await load(); }} onRun={async (id) => { if (!canRun) return blocked(); await runSyncBatchPlaceholder(id, staffId); show('Run Sync Placeholder completed locally.'); await load(); }} onRetryFailed={async () => { await retryFailedItems(filters, staffId); show('Failed items moved to retry placeholder.'); await load(); }} onExport={runExport} />}
+      {activeTab === 'Conflicts' && <ConflictTable conflicts={conflicts} onView={setSelectedConflict} onResolve={(conflict, resolution) => void resolveConflict(conflict, resolution, `${resolution} from Conflicts tab.`)} onHold={async (conflict) => { await holdConflictForReview(conflict.conflictId, staffId, 'Held from Conflicts tab.'); show('Conflict held for review.'); await load(); }} canResolve={(conflict) => canResolve && !cashierBlocked(conflict)} />}
+      {activeTab === 'Terminal Health' && <HealthTable rows={health} onSnapshot={(terminalId) => setActiveTab('Local Snapshots')} onBatch={async () => { await createSyncBatch(filters, staffId); show('Terminal batch created locally.'); await load(); }} onExport={runExport} />}
+      {activeTab === 'Local Snapshots' && <SnapshotTable rows={snapshots} onClear={async () => { await clearSyncedItemsPlaceholder(filters, staffId); show('Synced placeholder items cleared. Unsynced data preserved.'); await load(); }} onExport={runExport} />}
+      {activeTab === 'Sync Activity' && <ActivityTable rows={activity} />}
+
+      {selectedQueueItem && <OfflineQueueItemForm item={selectedQueueItem} conflict={conflicts.find((conflict) => conflict.conflictId === selectedQueueItem.conflictId)} activity={activity} onClose={() => setSelectedQueueItem(null)} onRetry={retry} onMarkSynced={markSynced} onDetectConflict={detectConflict} onHold={holdItem} onCancel={cancelItem} onPrepareExport={() => void runExport()} />}
+      {selectedConflict && <SyncConflictForm conflict={selectedConflict} decisions={decisions.filter((decision) => decision.conflictId === selectedConflict.conflictId)} activity={activity} onClose={() => setSelectedConflict(null)} onResolve={(resolution, reason) => void resolveConflict(selectedConflict, resolution, reason)} />}
     </div>
   );
+}
+
+function Overview({ queue, conflicts, health, onCreateBatch, onExport }: { queue: OfflineSyncQueueItem[]; conflicts: OfflineSyncConflict[]; health: OfflineSyncHealth[]; onCreateBatch: () => void; onExport: () => void }) {
+  return <section className="grid grid-cols-1 lg:grid-cols-3 gap-4"><Panel title="Pending Work"><p>{queue.filter((item) => item.status !== 'Synced' && item.status !== 'Cancelled').length} offline queue item(s) need sync, review, or placeholder action.</p><p>{conflicts.length} conflict record(s) are visible and will not be overwritten silently.</p></Panel><Panel title="Terminal Sync Health"><p>{health.map((row) => `${row.terminalId}: ${row.syncHealth}`).join(' | ')}</p></Panel><Panel title="Local Actions"><div className="flex gap-2 flex-wrap"><button className="sci-pos-button sci-pos-button--primary" onClick={onCreateBatch}><RefreshCw size={14} />Create Batch</button><button className="sci-pos-button sci-pos-button--secondary" onClick={onExport}><Download size={14} />Export Placeholder</button></div></Panel></section>;
+}
+
+function QueueTable(props: { queue: OfflineSyncQueueItem[]; onView: (item: OfflineSyncQueueItem) => void; onRetry: (id: string) => void; onMarkSynced: (id: string) => void; onDetectConflict: (item: OfflineSyncQueueItem) => void; onHold: (id: string) => void; onCancel: (id: string) => void; onPrepareBatch: () => void }) {
+  return <Table headers={['Queue ID', 'Entity', 'Reference', 'Operation', 'Branch', 'Terminal', 'Staff', 'Priority', 'Status', 'Retry', 'Queued At', 'Last Attempt', 'Action']}>{props.queue.map((item) => <tr key={item.queueId}><Td strong>{item.queueId}</Td><Td>{item.entityType}</Td><Td>{item.entityNumber || item.entityId}</Td><Td>{item.operationType}</Td><Td>{item.branchId}</Td><Td>{item.terminalId}</Td><Td>{item.staffName}</Td><Td><Badge value={item.priority} /></Td><Td><Badge value={formatSyncStatus(item.status)} /></Td><Td>{item.retryCount}</Td><Td>{dateLabel(item.queuedAt)}</Td><Td>{item.lastAttemptAt ? dateLabel(item.lastAttemptAt) : '-'}</Td><Td><div className="flex flex-wrap gap-1"><IconButton label="View Payload" onClick={() => props.onView(item)} /><Action label="Retry" onClick={() => props.onRetry(item.queueId)} /><Action label="Mark Synced Placeholder" onClick={() => props.onMarkSynced(item.queueId)} /><Action label="Detect Conflict" onClick={() => props.onDetectConflict(item)} /><Action label="Hold" onClick={() => props.onHold(item.queueId)} /><Action label="Cancel" danger onClick={() => props.onCancel(item.queueId)} /><Action label="Prepare Batch" onClick={props.onPrepareBatch} /></div></Td></tr>)}</Table>;
+}
+
+function BatchTable({ batches, canRun, onPrepare, onRun, onRetryFailed, onExport }: { batches: OfflineSyncBatch[]; canRun: boolean; onPrepare: (id: string) => void; onRun: (id: string) => void; onRetryFailed: () => void; onExport: () => void }) {
+  return <Table headers={['Batch ID', 'Date', 'Branch', 'Terminal', 'Created By', 'Items', 'High Priority', 'Failed', 'Conflicts', 'Status', 'Completed At', 'Action']}>{batches.map((batch) => <tr key={batch.batchId}><Td strong>{batch.batchId}</Td><Td>{dateLabel(batch.createdAt)}</Td><Td>{batch.branchId}</Td><Td>{batch.terminalId}</Td><Td>{batch.createdByStaffName}</Td><Td>{batch.itemCount}</Td><Td>{batch.highPriorityCount}</Td><Td>{batch.failedCount}</Td><Td>{batch.conflictCount}</Td><Td><Badge value={batch.status} /></Td><Td>{batch.completedAt ? dateLabel(batch.completedAt) : '-'}</Td><Td><div className="flex flex-wrap gap-1"><Action label="View Batch" onClick={() => undefined} /><Action label="Prepare Sync" onClick={() => onPrepare(batch.batchId)} /><Action label="Run Sync Placeholder" onClick={() => canRun && onRun(batch.batchId)} /><Action label="Retry Failed" onClick={onRetryFailed} /><Action label="Export Placeholder" onClick={onExport} /></div></Td></tr>)}</Table>;
+}
+
+function ConflictTable({ conflicts, onView, onResolve, onHold, canResolve }: { conflicts: OfflineSyncConflict[]; onView: (conflict: OfflineSyncConflict) => void; onResolve: (conflict: OfflineSyncConflict, resolution: SyncConflictResolution) => void; onHold: (conflict: OfflineSyncConflict) => void; canResolve: (conflict: OfflineSyncConflict) => boolean }) {
+  return <Table headers={['Conflict ID', 'Queue ID', 'Entity', 'Reference', 'Conflict Type', 'Branch', 'Terminal', 'Risk', 'Recommended Resolution', 'Status', 'Detected At', 'Action']}>{conflicts.map((conflict) => <tr key={conflict.conflictId}><Td strong>{conflict.conflictId}</Td><Td>{conflict.queueId}</Td><Td>{conflict.entityType}</Td><Td>{conflict.entityNumber || conflict.entityId}</Td><Td>{conflict.conflictType}</Td><Td>{conflict.branchId}</Td><Td>{conflict.terminalId}</Td><Td><Badge value={conflict.riskLevel} /></Td><Td>{conflict.recommendedResolution}</Td><Td><Badge value={conflict.status} /></Td><Td>{dateLabel(conflict.detectedAt)}</Td><Td><div className="flex flex-wrap gap-1"><IconButton label="View Conflict" onClick={() => onView(conflict)} /><Action label="Use Local Placeholder" onClick={() => canResolve(conflict) && onResolve(conflict, 'Use Local')} /><Action label="Use Remote Placeholder" onClick={() => canResolve(conflict) && onResolve(conflict, 'Use Remote')} /><Action label="Merge Placeholder" onClick={() => canResolve(conflict) && onResolve(conflict, 'Merge')} /><Action label="Retry" onClick={() => canResolve(conflict) && onResolve(conflict, 'Retry')} /><Action label="Hold For Review" onClick={() => onHold(conflict)} /><Action label="Cancel Local" danger onClick={() => canResolve(conflict) && onResolve(conflict, 'Cancel Local')} /></div></Td></tr>)}</Table>;
+}
+
+function HealthTable({ rows, onBatch, onExport }: { rows: OfflineSyncHealth[]; onSnapshot: (terminalId: string) => void; onBatch: () => void; onExport: () => void }) {
+  return <Table headers={['Terminal', 'Branch', 'Network Status', 'Last Sync', 'Queue Count', 'Failed Count', 'Conflict Count', 'Local Storage Status', 'Sync Health', 'Action']}>{rows.map((row) => <tr key={row.terminalId}><Td strong>{row.terminalName}</Td><Td>{row.branchName}</Td><Td>{row.networkStatus}</Td><Td>{row.lastSyncAt ? dateLabel(row.lastSyncAt) : '-'}</Td><Td>{row.queueCount}</Td><Td>{row.failedCount}</Td><Td>{row.conflictCount}</Td><Td>{row.localStorageStatus}</Td><Td><Badge value={row.syncHealth} /></Td><Td><div className="flex gap-1 flex-wrap"><Action label="View Snapshot" onClick={() => undefined} /><Action label="Prepare Sync Batch" onClick={onBatch} /><Action label="Export Placeholder" onClick={onExport} /></div></Td></tr>)}</Table>;
+}
+
+function SnapshotTable({ rows, onClear, onExport }: { rows: LocalTerminalSnapshot[]; onClear: () => void; onExport: () => void }) {
+  return <Table headers={['Terminal', 'Branch', 'Staff', 'Open Shift', 'Local Receipts', 'Local Customers', 'Local Deliveries', 'Local Inventory Events', 'Local BI Events', 'Last Snapshot', 'Storage Estimate', 'Action']}>{rows.map((row) => <tr key={row.snapshotId}><Td strong>{row.terminalName}</Td><Td>{row.branchName}</Td><Td>{row.staffName}</Td><Td>{row.openShiftId || '-'}</Td><Td>{row.localReceipts}</Td><Td>{row.localCustomers}</Td><Td>{row.localDeliveries}</Td><Td>{row.localInventoryEvents}</Td><Td>{row.localBIEvents}</Td><Td>{dateLabel(row.lastSnapshotAt)}</Td><Td>{row.storageEstimate}</Td><Td><div className="flex gap-1 flex-wrap"><Action label="View Snapshot" onClick={() => undefined} /><Action label="Export Placeholder" onClick={onExport} /><Action label="Clear Synced Placeholder" onClick={onClear} /></div></Td></tr>)}</Table>;
+}
+
+function ActivityTable({ rows }: { rows: OfflineSyncActivityEvent[] }) {
+  return <Table headers={['Date', 'Event', 'Queue', 'Batch', 'Conflict', 'Staff', 'Terminal', 'Message']}>{rows.map((row) => <tr key={row.eventId}><Td>{dateLabel(row.createdAt)}</Td><Td strong>{row.eventType.replace(/_/g, ' ')}</Td><Td>{row.queueId || '-'}</Td><Td>{row.batchId || '-'}</Td><Td>{row.conflictId || '-'}</Td><Td>{row.staffName || row.staffId || '-'}</Td><Td>{row.terminalId || '-'}</Td><Td>{row.message}</Td></tr>)}</Table>;
+}
+
+function Panel({ title, children }: { title: string; children: ReactNode }) {
+  return <section className="bg-white border-2 border-[#b1b5c2]"><div className="bg-[#1e222b] text-white p-3 text-[10px] font-black uppercase">{title}</div><div className="p-4 text-xs font-bold text-slate-700 space-y-2">{children}</div></section>;
+}
+
+function ReadinessMetric({ label, value }: { label: string; value: string }) {
+  return <div className="border border-[#b1b5c2] bg-slate-50 p-3 min-h-16"><span className="block text-[8.5px] text-slate-500 uppercase font-black">{label}</span><strong className="block mt-1 text-[11px] text-[#1e222b] uppercase break-words">{value}</strong></div>;
+}
+
+function Table({ headers, children }: { headers: string[]; children: ReactNode }) {
+  return <section className="bg-white border-2 border-[#b1b5c2] overflow-x-auto"><table className="w-full text-left text-[11px]"><thead className="bg-[#1e222b] text-white uppercase text-[9px]"><tr>{headers.map((header) => <th key={header} className="p-3 whitespace-nowrap">{header}</th>)}</tr></thead><tbody className="divide-y divide-[#d6d9e0]">{children}</tbody></table></section>;
+}
+
+function Td({ children, strong }: { children: ReactNode; strong?: boolean }) {
+  return <td className={`p-3 align-top ${strong ? 'font-black text-[#1e222b]' : 'font-semibold text-slate-700'}`}>{children}</td>;
+}
+
+function Badge({ value }: { value: string }) {
+  const danger = ['Critical', 'Failed', 'Conflict', 'Offline'].includes(value);
+  const warn = ['High', 'Held For Review', 'Warning', 'Unstable'].includes(value);
+  return <span className={`px-2 py-1 border text-[9px] font-black uppercase whitespace-nowrap ${danger ? 'bg-rose-50 border-rose-400 text-rose-800' : warn ? 'bg-orange-50 border-orange-400 text-orange-800' : 'bg-slate-50 border-slate-300 text-slate-800'}`}>{value}</span>;
+}
+
+function Action({ label, onClick, danger }: { label: string; onClick: () => void; danger?: boolean }) {
+  return <button className={`px-2 py-1 border text-[9px] font-black uppercase ${danger ? 'bg-rose-50 border-rose-400 text-rose-800' : 'bg-white border-[#b1b5c2] text-[#1e222b] hover:bg-orange-50'}`} onClick={onClick}>{label}</button>;
+}
+
+function IconButton({ label, onClick }: { label: string; onClick: () => void }) {
+  return <button className="p-1.5 border border-[#b1b5c2] bg-white hover:bg-orange-50" title={label} onClick={onClick}><Eye size={13} /></button>;
+}
+
+function Select({ label, value, options, onChange }: { label: string; value: string; options: string[]; onChange: (value: string) => void }) {
+  return <label className="text-[9px] uppercase font-black text-slate-500">{label}<select className="w-full p-2 border border-[#b1b5c2] text-xs bg-white" value={value} onChange={(event) => onChange(event.target.value)}>{options.map((option) => <option key={option} value={option}>{option}</option>)}</select></label>;
+}
+
+function Input({ label, value, type, onChange }: { label: string; value: string; type: string; onChange: (value: string) => void }) {
+  return <label className="text-[9px] uppercase font-black text-slate-500">{label}<input className="w-full p-2 border border-[#b1b5c2] text-xs" type={type} value={value} onChange={(event) => onChange(event.target.value)} /></label>;
+}
+
+function dateLabel(value: string): string {
+  return value ? value.replace('T', ' ').slice(0, 16) : '-';
 }

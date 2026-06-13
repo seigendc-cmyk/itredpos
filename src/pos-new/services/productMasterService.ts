@@ -23,6 +23,9 @@ import {
 
 const PRODUCT_MASTER_KEY = 'sci_pos_product_master_records';
 const PRODUCT_AUDIT_KEY = 'sci_pos_product_master_audit';
+const MANUAL_SUPPLIER_LINK_KEY = 'itred_pos_manual_product_supplier_links_v1';
+const MANUAL_PRICE_RECORD_KEY = 'itred_pos_manual_product_price_records_v1';
+const MANUAL_REORDER_RULE_KEY = 'itred_pos_manual_product_reorder_rules_v1';
 
 let memoryProducts: ProductMasterRecord[] = [...mockProductMasterRecords];
 
@@ -65,6 +68,17 @@ function recordProductAudit(productId: string, eventType: string, message: strin
     }, ...existing].slice(0, 200)));
   } catch {
     // localStorage may be unavailable in some test contexts.
+  }
+}
+
+function readManualRows<T>(key: string): T[] {
+  try {
+    const cached = localStorage.getItem(key);
+    if (!cached) return [];
+    const parsed = JSON.parse(cached);
+    return Array.isArray(parsed) ? parsed as T[] : [];
+  } catch {
+    return [];
   }
 }
 
@@ -247,15 +261,24 @@ export async function getProductLocationBalances(productId: string): Promise<Arr
 }
 
 export async function getProductSupplierLinks(productId: string): Promise<ProductSupplierLink[]> {
-  return mockProductSupplierLinks.filter((link) => link.productId === productId);
+  return [
+    ...mockProductSupplierLinks,
+    ...readManualRows<ProductSupplierLink>(MANUAL_SUPPLIER_LINK_KEY)
+  ].filter((link) => link.productId === productId);
 }
 
 export async function getProductPrices(productId: string): Promise<ProductPriceRecord[]> {
-  return mockProductPriceRecords.filter((price) => price.productId === productId);
+  return [
+    ...mockProductPriceRecords,
+    ...readManualRows<ProductPriceRecord>(MANUAL_PRICE_RECORD_KEY)
+  ].filter((price) => price.productId === productId);
 }
 
 export async function getProductReorderRules(productId: string): Promise<ProductReorderRule[]> {
-  return mockProductReorderRules.filter((rule) => rule.productId === productId);
+  return [
+    ...mockProductReorderRules,
+    ...readManualRows<ProductReorderRule>(MANUAL_REORDER_RULE_KEY)
+  ].filter((rule) => rule.productId === productId);
 }
 
 export async function getProductMasterAudit(productId: string): Promise<Array<{ id: string; productId: string; eventType: string; message: string; staffId: string; createdAt: string }>> {
