@@ -16,7 +16,16 @@ import {
   Shield, 
   AlertCircle,
   HelpCircle,
-  Download
+  Download,
+  Search,
+  Filter,
+  RotateCcw,
+  Pencil,
+  BarChart3,
+  History,
+  Activity,
+  Archive,
+  Ban
 } from 'lucide-react';
 import { 
   Product, 
@@ -97,6 +106,7 @@ import StocktakeForm from '../components/StocktakeForm';
 import StockTransferForm from '../components/StockTransferForm';
 import ProductMasterForm from '../components/ProductMasterForm';
 import ManualProductForm from '../components/ManualProductForm';
+import RowActionMenu, { RowActionMenuItem } from '../components/RowActionMenu';
 import {
   postGoodsReceivedMovement,
   postStockAdjustmentMovement,
@@ -236,6 +246,8 @@ import {
 } from '../services/stockBalanceService';
 import { getInventoryMovementsByProduct } from '../services/inventoryMovementService';
 import { canPerformAction } from '../utils/posPermissions';
+import { roleHasEffectivePermission } from '../auth/effectivePermissionService';
+import { matchesFreeOrderSearch } from '../utils/searchUtils';
 
 interface StockProduct extends Product {
   riskLevel?: 'Low' | 'Medium' | 'High' | 'Critical';
@@ -327,6 +339,9 @@ export default function StockPanels({
     locationType: 'ALL',
     stockStatus: 'ALL'
   });
+  const [productMasterSearch, setProductMasterSearch] = useState('');
+  const [productMasterFilterDrawerOpen, setProductMasterFilterDrawerOpen] = useState(false);
+  const [openProductMasterMenuId, setOpenProductMasterMenuId] = useState<string | null>(null);
   const [selectedProductMaster, setSelectedProductMaster] = useState<ProductMasterRecord | null>(null);
   const [selectedProductBalances, setSelectedProductBalances] = useState<ProductStockBalance[]>([]);
   const [selectedProductBarcodes, setSelectedProductBarcodes] = useState<ProductBarcodeRecord[]>([]);
@@ -378,6 +393,120 @@ export default function StockPanels({
     setManualOpeningBalanceDrafts(openingDrafts);
     setManualProductActivity(creationActivity);
   };
+
+  const visibleProductMasterRows = useMemo(() => productMasterRows.filter((product) => matchesFreeOrderSearch(product, productMasterSearch, [
+    'productCode',
+    'sku',
+    'barcode',
+    'alu',
+    'vendorSku',
+    'productNumericNumber',
+    'productName',
+    'description',
+    'shortDescription',
+    'brand',
+    'manufacturer',
+    'supplierName',
+    'supplierItemCode',
+    'industrialSector',
+    'productCategory',
+    'productSubCategory',
+    'category',
+    'make',
+    'model',
+    'partNumber',
+    'oemNumber',
+    (item) => item.preferredSupplierName,
+    (item) => item.sectorAttributes.sector,
+    (item) => item.sectorAttributes.brand,
+    (item) => item.sectorAttributes.manufacturer,
+    (item) => item.sectorAttributes.make,
+    (item) => item.sectorAttributes.model,
+    (item) => item.sectorAttributes.productCategory,
+    (item) => item.sectorAttributes.productSubCategory,
+    (item) => item.sectorAttributes.partNumber,
+    (item) => item.sectorAttributes.oemNumber,
+    (item) => item.tags?.join(' ')
+  ])), [productMasterRows, productMasterSearch]);
+
+  const canUseProductMasterPermission = (permissionKey: string) => roleHasEffectivePermission(String(simulatedRole), permissionKey);
+
+  const applyProductMasterFilters = async () => {
+    const nextFilters = { ...productMasterFilters, search: productMasterSearch };
+    setProductMasterFilters(nextFilters);
+    await refreshProductMaster(nextFilters);
+    setProductMasterFilterDrawerOpen(false);
+  };
+
+  const clearProductMasterFilters = async () => {
+    const clearedFilters: ProductMasterFilterState = {
+      status: 'ALL',
+      riskStatus: 'ALL',
+      locationType: 'ALL',
+      stockStatus: 'ALL'
+    };
+    setProductMasterSearch('');
+    setProductMasterFilters(clearedFilters);
+    await refreshProductMaster(clearedFilters);
+    setProductMasterFilterDrawerOpen(false);
+  };
+
+  const productMasterActionItems = (product: ProductMasterRecord): RowActionMenuItem[] => [
+    {
+      label: 'View Product',
+      icon: <Eye className="w-3.5 h-3.5" />,
+      disabled: !canUseProductMasterPermission('productMaster.view'),
+      onClick: () => openProductMaster(product)
+    },
+    {
+      label: 'Edit Product',
+      icon: <Pencil className="w-3.5 h-3.5" />,
+      disabled: !canUseProductMasterPermission('productMaster.edit'),
+      onClick: () => openProductMaster(product)
+    },
+    {
+      label: 'View Balances',
+      icon: <BarChart3 className="w-3.5 h-3.5" />,
+      disabled: !canUseProductMasterPermission('productMaster.view'),
+      onClick: () => openProductMaster(product)
+    },
+    {
+      label: 'View Ledger',
+      icon: <History className="w-3.5 h-3.5" />,
+      disabled: !canUseProductMasterPermission('productMaster.view'),
+      onClick: () => setProductMasterNotice(`Product Ledger can be opened filtered by ${product.sku}.`)
+    },
+    {
+      label: 'View Movements',
+      icon: <Activity className="w-3.5 h-3.5" />,
+      disabled: !canUseProductMasterPermission('productMaster.view'),
+      onClick: () => setProductMasterNotice(`Inventory Movements can be opened filtered by ${product.sku}.`)
+    },
+    {
+      label: 'Create Stock Adjustment',
+      icon: <Sliders className="w-3.5 h-3.5" />,
+      disabled: !canUseProductMasterPermission('stockAdjustment.create'),
+      onClick: () => setProductMasterNotice('Stock correction must be made from Stock Adjustments. Product Master does not edit quantities.')
+    },
+    {
+      label: 'Mark Inactive',
+      icon: <Archive className="w-3.5 h-3.5" />,
+      disabled: !canUseProductMasterPermission('productMaster.edit'),
+      danger: true,
+      onClick: () => {
+        void markProductInactive(product.productId, staffName, 'Marked inactive from Product Master table.').then(() => refreshProductMaster(productMasterFilters));
+      }
+    },
+    {
+      label: 'Block Product',
+      icon: <Ban className="w-3.5 h-3.5" />,
+      disabled: !canUseProductMasterPermission('productMaster.block'),
+      danger: true,
+      onClick: () => {
+        void blockProduct(product.productId, staffName, 'Blocked from Product Master table.').then(() => refreshProductMaster(productMasterFilters));
+      }
+    }
+  ];
 
   const openProductMaster = async (product: ProductMasterRecord) => {
     const [balances, barcodes, prices, suppliers, reorderRules, ledger, audit] = await Promise.all([
@@ -2663,92 +2792,121 @@ export default function StockPanels({
             <POMetric label="Reorder Required" value={stockBalanceSummary.reorderRequiredLocations || 0} />
           </div>
 
-          <div className="bg-[#f8fafc] border border-[#d7dce5] p-3 grid grid-cols-1 md:grid-cols-3 xl:grid-cols-8 gap-3">
-            <POFilterInput label="Search" value={productMasterFilters.search || ''} onChange={(value) => setProductMasterFilters((current) => ({ ...current, search: value }))} />
-            <POFilterInput label="SKU" value={productMasterFilters.sku || ''} onChange={(value) => setProductMasterFilters((current) => ({ ...current, sku: value }))} />
-            <POFilterInput label="Barcode" value={productMasterFilters.barcode || ''} onChange={(value) => setProductMasterFilters((current) => ({ ...current, barcode: value }))} />
-            <POFilterInput label="ALU" value={productMasterFilters.alu || ''} onChange={(value) => setProductMasterFilters((current) => ({ ...current, alu: value }))} />
-            <POFilterInput label="Product Name" value={productMasterFilters.productName || ''} onChange={(value) => setProductMasterFilters((current) => ({ ...current, productName: value }))} />
-            <POFilterInput label="Brand" value={productMasterFilters.brand || ''} onChange={(value) => setProductMasterFilters((current) => ({ ...current, brand: value }))} />
-            <POFilterInput label="Manufacturer" value={productMasterFilters.manufacturer || ''} onChange={(value) => setProductMasterFilters((current) => ({ ...current, manufacturer: value }))} />
-            <POFilterInput label="Supplier" value={productMasterFilters.supplier || ''} onChange={(value) => setProductMasterFilters((current) => ({ ...current, supplier: value }))} />
-            <POFilterInput label="Industrial Sector" value={productMasterFilters.industrialSector || ''} onChange={(value) => setProductMasterFilters((current) => ({ ...current, industrialSector: value }))} />
-            <POFilterInput label="Category" value={productMasterFilters.category || ''} onChange={(value) => setProductMasterFilters((current) => ({ ...current, category: value }))} />
-            <POFilterInput label="Subcategory" value={productMasterFilters.subCategory || ''} onChange={(value) => setProductMasterFilters((current) => ({ ...current, subCategory: value }))} />
-            <POFilterSelect label="Status" value={productMasterFilters.status || 'ALL'} onChange={(value) => setProductMasterFilters((current) => ({ ...current, status: value as ProductMasterFilterState['status'] }))} options={['ALL', 'Draft', 'Active', 'Blocked', 'Inactive', 'Discontinued', 'Pending Review']} />
-            <POFilterSelect label="Risk Status" value={productMasterFilters.riskStatus || 'ALL'} onChange={(value) => setProductMasterFilters((current) => ({ ...current, riskStatus: value as ProductMasterFilterState['riskStatus'] }))} options={['ALL', 'Normal', 'Low Stock', 'Out Of Stock', 'Overstocked', 'No Movement', 'Slow Moving', 'Fast Moving', 'Variance Risk', 'Blocked']} />
-            <POFilterInput label="Branch" value={productMasterFilters.branchId || ''} onChange={(value) => setProductMasterFilters((current) => ({ ...current, branchId: value }))} />
-            <POFilterInput label="Warehouse" value={productMasterFilters.warehouseId || ''} onChange={(value) => setProductMasterFilters((current) => ({ ...current, warehouseId: value }))} />
-            <POFilterSelect label="Location Type" value={productMasterFilters.locationType || 'ALL'} onChange={(value) => setProductMasterFilters((current) => ({ ...current, locationType: value as ProductMasterFilterState['locationType'] }))} options={['ALL', 'Main Warehouse', 'Branch Warehouse', 'Sales Floor', 'Back Store', 'Shelf', 'Damaged Holding', 'Return Holding', 'Supplier Return Preparation', 'In Transit', 'Quarantine', 'Other']} />
-            <button type="button" onClick={() => refreshProductMaster(productMasterFilters)} className="px-3 py-2 bg-orange-600 text-white border border-orange-700 font-black uppercase text-[9px] rounded-none self-end">Apply Filters</button>
+          <div className="product-master-toolbar">
+            <div className="product-master-search-row">
+              <div className="product-master-search-box">
+                <Search className="w-4 h-4 text-slate-500" />
+                <input
+                  value={productMasterSearch}
+                  onChange={(event) => setProductMasterSearch(event.target.value)}
+                  placeholder="Search products by name, SKU, barcode, ALU, brand, supplier, sector, category, make, model, or part number..."
+                  className="product-master-search-input"
+                />
+              </div>
+              <button type="button" onClick={() => setProductMasterFilterDrawerOpen(true)} className="product-master-filter-button">
+                <Filter className="w-4 h-4" />
+                Filters
+              </button>
+              <button type="button" onClick={() => void applyProductMasterFilters()} className="product-master-apply-button">
+                Apply
+              </button>
+            </div>
           </div>
 
-          <div className="overflow-x-auto border border-[#b1b5c2]">
-            <table className="w-full text-xs">
-              <thead className="bg-[#252a31] text-white">
-                <tr>
-                  {['SKU', 'Product Name', 'Brand', 'Sector', 'Category', 'Supplier', 'Total Available', 'Total On Hand', 'Damaged', 'In Transit', 'Reorder Level', 'Risk', 'Status', 'Action'].map((header) => (
-                    <th key={header} className="p-2 text-left text-[9px] uppercase font-black">{header}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {productMasterRows.map((product) => {
+          {productMasterFilterDrawerOpen && (
+            <div className="product-master-drawer-backdrop" onClick={() => setProductMasterFilterDrawerOpen(false)}>
+              <aside className="product-master-drawer" onClick={(event) => event.stopPropagation()} aria-label="Product Master filters">
+                <div className="product-master-drawer-header">
+                  <div>
+                    <h3>Advanced Filters</h3>
+                    <p>Filter Product Master records without expanding the main list.</p>
+                  </div>
+                  <button type="button" onClick={() => setProductMasterFilterDrawerOpen(false)} aria-label="Close Product Master filters">
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+                <div className="product-master-drawer-body">
+                  <POFilterInput label="SKU" value={productMasterFilters.sku || ''} onChange={(value) => setProductMasterFilters((current) => ({ ...current, sku: value }))} />
+                  <POFilterInput label="Barcode" value={productMasterFilters.barcode || ''} onChange={(value) => setProductMasterFilters((current) => ({ ...current, barcode: value }))} />
+                  <POFilterInput label="ALU" value={productMasterFilters.alu || ''} onChange={(value) => setProductMasterFilters((current) => ({ ...current, alu: value }))} />
+                  <POFilterInput label="Product Name" value={productMasterFilters.productName || ''} onChange={(value) => setProductMasterFilters((current) => ({ ...current, productName: value }))} />
+                  <POFilterInput label="Brand" value={productMasterFilters.brand || ''} onChange={(value) => setProductMasterFilters((current) => ({ ...current, brand: value }))} />
+                  <POFilterInput label="Manufacturer" value={productMasterFilters.manufacturer || ''} onChange={(value) => setProductMasterFilters((current) => ({ ...current, manufacturer: value }))} />
+                  <POFilterInput label="Supplier" value={productMasterFilters.supplier || ''} onChange={(value) => setProductMasterFilters((current) => ({ ...current, supplier: value }))} />
+                  <POFilterInput label="Industrial Sector" value={productMasterFilters.industrialSector || ''} onChange={(value) => setProductMasterFilters((current) => ({ ...current, industrialSector: value }))} />
+                  <POFilterInput label="Category" value={productMasterFilters.category || ''} onChange={(value) => setProductMasterFilters((current) => ({ ...current, category: value }))} />
+                  <POFilterInput label="Subcategory" value={productMasterFilters.subCategory || ''} onChange={(value) => setProductMasterFilters((current) => ({ ...current, subCategory: value }))} />
+                  <POFilterSelect label="Status" value={productMasterFilters.status || 'ALL'} onChange={(value) => setProductMasterFilters((current) => ({ ...current, status: value as ProductMasterFilterState['status'] }))} options={['ALL', 'Draft', 'Active', 'Blocked', 'Inactive', 'Discontinued', 'Pending Review']} />
+                  <POFilterSelect label="Risk Status" value={productMasterFilters.riskStatus || 'ALL'} onChange={(value) => setProductMasterFilters((current) => ({ ...current, riskStatus: value as ProductMasterFilterState['riskStatus'] }))} options={['ALL', 'Normal', 'Low Stock', 'Out Of Stock', 'Overstocked', 'No Movement', 'Slow Moving', 'Fast Moving', 'Variance Risk', 'Blocked']} />
+                  <POFilterInput label="Branch" value={productMasterFilters.branchId || ''} onChange={(value) => setProductMasterFilters((current) => ({ ...current, branchId: value }))} />
+                  <POFilterInput label="Warehouse" value={productMasterFilters.warehouseId || ''} onChange={(value) => setProductMasterFilters((current) => ({ ...current, warehouseId: value }))} />
+                  <POFilterSelect label="Location Type" value={productMasterFilters.locationType || 'ALL'} onChange={(value) => setProductMasterFilters((current) => ({ ...current, locationType: value as ProductMasterFilterState['locationType'] }))} options={['ALL', 'Main Warehouse', 'Branch Warehouse', 'Sales Floor', 'Back Store', 'Shelf', 'Damaged Holding', 'Return Holding', 'Supplier Return Preparation', 'In Transit', 'Quarantine', 'Other']} />
+                </div>
+                <div className="product-master-drawer-actions">
+                  <button type="button" onClick={() => void applyProductMasterFilters()} className="product-master-apply-button">Apply Filters</button>
+                  <button type="button" onClick={() => void clearProductMasterFilters()} className="product-master-filter-button"><RotateCcw className="w-4 h-4" /> Clear Filters</button>
+                  <button type="button" onClick={() => setProductMasterFilterDrawerOpen(false)} className="product-master-filter-button">Close</button>
+                </div>
+              </aside>
+            </div>
+          )}
+
+          <div className="product-master-card">
+            <div className="product-master-table-scroll">
+              <table className="product-master-table">
+                <thead>
+                  <tr>
+                    {['Product', 'Brand', 'Sector', 'Category', 'Supplier', 'Available', 'On Hand', 'Damaged', 'In Transit', 'Reorder', 'Risk', 'Status', 'Action'].map((header) => (
+                      <th key={header} className={['Sector', 'Supplier', 'Damaged', 'In Transit'].includes(header) ? 'product-master-hide-md' : ['Brand', 'Category', 'Reorder'].includes(header) ? 'product-master-hide-sm' : ''}>{header}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {visibleProductMasterRows.map((product, rowIndex) => {
                   const rowBalances = allProductBalances.filter((balance) => balance.productId === product.productId);
                   const available = rowBalances.reduce((sum, balance) => sum + balance.qtyAvailable, 0);
                   const onHand = rowBalances.reduce((sum, balance) => sum + balance.qtyOnHand, 0);
                   const damaged = rowBalances.reduce((sum, balance) => sum + balance.qtyDamaged, 0);
                   const inTransit = rowBalances.reduce((sum, balance) => sum + balance.qtyInTransit, 0);
                   const reorderLevel = rowBalances.reduce((sum, balance) => sum + balance.reorderLevel, 0);
+                  const metaLine = [product.sku, product.barcode, product.alu].filter(Boolean).join(' / ');
                   return (
-                    <tr key={product.productId} onDoubleClick={() => openProductMaster(product)} className="border-t border-[#e5e7eb] hover:bg-orange-50">
-                      <td className="p-2 font-black text-[#111827]">{product.sku}</td>
-                      <td className="p-2 font-semibold">{product.productName}</td>
-                      <td className="p-2">{product.brand || product.sectorAttributes.brand || '-'}</td>
-                      <td className="p-2">{product.industrialSector || product.sectorAttributes.sector}</td>
-                      <td className="p-2">{product.productCategory || product.category}</td>
-                      <td className="p-2">{product.supplierName || product.preferredSupplierName || '-'}</td>
-                      <td className="p-2">{available}</td>
-                      <td className="p-2">{onHand}</td>
-                      <td className="p-2">{damaged}</td>
-                      <td className="p-2">{inTransit}</td>
-                      <td className="p-2">{reorderLevel || product.reorderLevel || 0}</td>
-                      <td className="p-2"><span className={`px-2 py-1 border text-[8px] font-black uppercase ${product.riskStatus === 'Normal' || product.riskStatus === 'None' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-orange-50 text-orange-800 border-orange-200'}`}>{product.riskStatus}</span></td>
-                      <td className="p-2"><span className={`px-2 py-1 border text-[8px] font-black uppercase ${productMasterStatusClass(product.productStatus || product.status)}`}>{product.productStatus || product.status}</span></td>
-                      <td className="p-2">
-                        <div className="flex flex-wrap gap-1">
-                          <POAction label="View Product" primary onClick={() => openProductMaster(product)} />
-                          <POAction label="Edit Product" onClick={() => openProductMaster(product)} />
-                          <POAction label="View Balances" onClick={() => openProductMaster(product)} />
-                          <POAction label="View Ledger" onClick={() => setProductMasterNotice(`Product Ledger can be opened filtered by ${product.sku}.`)} />
-                          <POAction label="View Movements" onClick={() => setProductMasterNotice(`Inventory Movements can be opened filtered by ${product.sku}.`)} />
-                          <POAction label="Create Stock Adjustment" onClick={() => setProductMasterNotice('Stock correction must be made from Stock Adjustments. Product Master does not edit quantities.')} />
-                          <POAction label="Mark Inactive" onClick={() => {
-                            if (!canPerformAction(simulatedRole, 'productMaster.edit')) {
-                              setProductMasterNotice(blockedPermissionMessage);
-                              return;
-                            }
-                            void markProductInactive(product.productId, staffName, 'Marked inactive from Product Master table.').then(() => refreshProductMaster(productMasterFilters));
-                          }} />
-                          <POAction label="Block Product" onClick={() => {
-                            if (!canPerformAction(simulatedRole, 'productMaster.block')) {
-                              setProductMasterNotice(blockedPermissionMessage);
-                              return;
-                            }
-                            void blockProduct(product.productId, staffName, 'Blocked from Product Master table.').then(() => refreshProductMaster(productMasterFilters));
-                          }} />
-                        </div>
+                    <tr key={product.productId} onDoubleClick={() => openProductMaster(product)}>
+                      <td className="product-master-product-cell">
+                        <span>{product.productName}</span>
+                        <small>{metaLine || product.productCode}</small>
+                      </td>
+                      <td className="product-master-hide-sm">{product.brand || product.sectorAttributes.brand || '-'}</td>
+                      <td className="product-master-hide-md">{product.industrialSector || product.sectorAttributes.sector}</td>
+                      <td className="product-master-hide-sm">{product.productCategory || product.category}</td>
+                      <td className="product-master-hide-md">{product.supplierName || product.preferredSupplierName || '-'}</td>
+                      <td className="product-master-number">{available}</td>
+                      <td className="product-master-number">{onHand}</td>
+                      <td className="product-master-number product-master-hide-md">{damaged}</td>
+                      <td className="product-master-number product-master-hide-md">{inTransit}</td>
+                      <td className="product-master-number product-master-hide-sm">{reorderLevel || product.reorderLevel || 0}</td>
+                      <td><span className={`product-master-badge ${product.riskStatus === 'Normal' || product.riskStatus === 'None' ? 'product-master-badge--ok' : 'product-master-badge--warn'}`}>{product.riskStatus}</span></td>
+                      <td><span className={`product-master-badge ${productMasterStatusClass(product.productStatus || product.status)}`}>{product.productStatus || product.status}</span></td>
+                      <td className="product-master-action-cell">
+                        <RowActionMenu
+                          ariaLabel={`Actions for ${product.productName}`}
+                          open={openProductMasterMenuId === product.productId}
+                          align={rowIndex > Math.max(visibleProductMasterRows.length - 4, 0) ? 'top' : 'bottom'}
+                          items={productMasterActionItems(product)}
+                          onOpenChange={(open) => setOpenProductMasterMenuId(open ? product.productId : null)}
+                        />
                       </td>
                     </tr>
                   );
                 })}
-                {productMasterRows.length === 0 && (
+                {visibleProductMasterRows.length === 0 && (
                   <tr>
-                    <td className="p-4 text-slate-600 font-semibold" colSpan={14}>No product master rows match the current filters.</td>
+                    <td className="product-master-empty" colSpan={13}>No product master rows match the current filters.</td>
                   </tr>
                 )}
-              </tbody>
-            </table>
+                </tbody>
+              </table>
+            </div>
           </div>
 
           <div className="border border-[#b1b5c2] bg-white">

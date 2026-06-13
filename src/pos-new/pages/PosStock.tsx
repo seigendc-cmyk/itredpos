@@ -81,6 +81,7 @@ import ProductImportForm from '../components/ProductImportForm';
 import RowActionMenu, { RowActionMenuItem } from '../components/RowActionMenu';
 import { normalizeProductNumericNumber } from '../utils/productNumberUtils';
 import { matchesFreeOrderSearch } from '../utils/searchUtils';
+import { roleHasEffectivePermission } from '../auth/effectivePermissionService';
 import {
   exportProductLedgerPlaceholder,
   filterLedgerMovements,
@@ -694,13 +695,34 @@ export default function PosStock({
       'brand',
       'manufacturer',
       'supplierName',
+      (item) => textMeta(item, 'supplier'),
+      (item) => textMeta(item, 'supplierItemCode'),
+      (item) => textMeta(item, 'preferredSupplierName'),
       'shelfLocation',
       'binLocation',
       'serialNumber',
       'industrialSector',
+      (item) => textMeta(item, 'sector'),
       'productCategory',
       'productSubCategory',
-      'category'
+      'category',
+      (item) => textMeta(item, 'subcategory'),
+      (item) => textMeta(item, 'branchName'),
+      (item) => textMeta(item, 'branch'),
+      (item) => textMeta(item, 'branchId'),
+      (item) => textMeta(item, 'warehouseName'),
+      (item) => textMeta(item, 'warehouse'),
+      (item) => textMeta(item, 'warehouseId'),
+      (item) => textMeta(item, 'make'),
+      (item) => textMeta(item, 'model'),
+      (item) => textMeta(item, 'yearFrom'),
+      (item) => textMeta(item, 'yearTo'),
+      (item) => textMeta(item, 'side'),
+      (item) => textMeta(item, 'partNumber'),
+      (item) => textMeta(item, 'oemNumber'),
+      (item) => textMeta(item, 'tags'),
+      (item) => textMeta(item, 'description'),
+      (item) => textMeta(item, 'vendorSku')
     ]));
   }, [localStock, productListSearch]);
 
@@ -848,34 +870,26 @@ export default function PosStock({
   const getProductListActionItems = (product: StockProduct): RowActionMenuItem[] => {
     const role = simulatedRole || (session?.role as Role) || 'Owner';
     const blocked = 'You do not have permission to perform this action.';
+    const canUse = (permissionKey: string) => roleHasEffectivePermission(String(role), permissionKey);
     const items: RowActionMenuItem[] = [
       { label: 'View Item Detail', icon: <Package className="w-3.5 h-3.5" />, onClick: () => openPartSpectralPopup(product) }
     ];
-    if (canPerformAction(role, 'productLedger.view')) {
+    if (canUse('productMaster.view')) {
       items.push({ label: 'View Ledger', icon: <History className="w-3.5 h-3.5" />, onClick: () => void openProductLedger(product) });
     }
-    if (canPerformAction(role, 'productMaster.edit')) {
-      items.push({ label: 'Edit Product Draft', icon: <Settings className="w-3.5 h-3.5" />, onClick: () => setProductListNotice(`Edit Product Draft placeholder opened for ${product.sku || product.code}.`) });
+    if (canUse('stockAdjustment.create')) {
+      items.push({ label: 'Adjust Stock', icon: <Sliders className="w-3.5 h-3.5" />, onClick: () => triggerAdjustmentModal(product) });
     }
-    if (canPerformAction(role, 'stocktake.create') || canPerformAction(role, 'stocktake.count')) {
+    if (canUse('stocktake.create')) {
       items.push({ label: 'Start Stocktake', icon: <ClipboardList className="w-3.5 h-3.5" />, onClick: () => openStocktakeForProduct(product) });
     }
-    if (canPerformAction(role, 'stockAdjustments.create') || canPerformAction(role, 'inventory.adjust')) {
-      items.push({ label: 'Create Adjustment', icon: <Sliders className="w-3.5 h-3.5" />, onClick: () => triggerAdjustmentModal(product) });
+    if (canUse('stockTransfer.create')) {
+      items.push({ label: 'Transfer / Route', icon: <ArrowRightLeft className="w-3.5 h-3.5" />, onClick: () => triggerTransferModal(product) });
     }
-    if (canPerformAction(role, 'inventoryMovements.view')) {
-      items.push({ label: 'View Movements', icon: <Activity className="w-3.5 h-3.5" />, onClick: () => {
-        setMovementSummaryFilters((current) => ({ ...current, productId: product.id, sku: product.sku || product.code }));
-        setActiveTab('Inventory Movements');
-      } });
+    if (canUse('productMaster.edit')) {
+      items.push({ label: 'Edit Product', icon: <Settings className="w-3.5 h-3.5" />, onClick: () => setProductListNotice(`Edit Product placeholder opened for ${product.sku || product.code}.`) });
     }
-    if (canPerformAction(role, 'stockBalances.view')) {
-      items.push({ label: 'View Stock Balance', icon: <Warehouse className="w-3.5 h-3.5" />, onClick: () => setActiveTab('Stock List') });
-    }
-    if (canPerformAction(role, 'stockTransfers.create') || canPerformAction(role, 'stockBalances.transfer')) {
-      items.push({ label: 'Transfer Stock', icon: <ArrowRightLeft className="w-3.5 h-3.5" />, onClick: () => triggerTransferModal(product) });
-    }
-    if (canPerformAction(role, 'productMaster.block')) {
+    if (canUse('productMaster.block')) {
       items.push({ label: 'Block Product Placeholder', icon: <Shield className="w-3.5 h-3.5" />, danger: true, onClick: () => setProductListNotice(`Block Product placeholder queued for ${product.sku || product.code}.`) });
     }
     if (items.length === 0) {
@@ -886,23 +900,26 @@ export default function PosStock({
 
   const getStockListActionItems = (product: StockProduct): RowActionMenuItem[] => {
     const role = simulatedRole || (session?.role as Role) || 'Owner';
+    const canUse = (permissionKey: string) => roleHasEffectivePermission(String(role), permissionKey);
     const items: RowActionMenuItem[] = [
       { label: 'View Item Detail', icon: <Package className="w-3.5 h-3.5" />, onClick: () => openPartSpectralPopup(product) },
       { label: 'View Ledger', icon: <History className="w-3.5 h-3.5" />, onClick: () => void openProductLedger(product) }
     ];
-    if (canPerformAction(role, 'stockAdjustments.create') || canPerformAction(role, 'inventory.adjust')) {
+    if (canUse('stockAdjustment.create')) {
       items.push({ label: 'Adjust Stock', icon: <Sliders className="w-3.5 h-3.5" />, onClick: () => triggerAdjustmentModal(product) });
     }
-    if (canPerformAction(role, 'stocktake.create') || canPerformAction(role, 'stocktake.count')) {
+    if (canUse('stocktake.create')) {
       items.push({ label: 'Start Stocktake', icon: <ClipboardList className="w-3.5 h-3.5" />, onClick: () => triggerStocktakeModal(product) });
     }
-    if (canPerformAction(role, 'stockTransfers.create') || canPerformAction(role, 'stockBalances.transfer')) {
+    if (canUse('stockTransfer.create')) {
       items.push({ label: 'Transfer / Route', icon: <ArrowRightLeft className="w-3.5 h-3.5" />, onClick: () => triggerTransferModal(product) });
     }
-    if (canPerformAction(role, 'productMaster.edit')) {
+    if (canUse('productMaster.edit')) {
       items.push({ label: 'Edit Product', icon: <Settings className="w-3.5 h-3.5" />, onClick: () => setProductListNotice(`Edit Product placeholder opened for ${product.sku || product.code}.`) });
     }
-    items.push({ label: 'Block Product Placeholder', icon: <Shield className="w-3.5 h-3.5" />, danger: true, onClick: () => setProductListNotice(`Block Product placeholder queued for ${product.sku || product.code}.`) });
+    if (canUse('productMaster.block')) {
+      items.push({ label: 'Block Product Placeholder', icon: <Shield className="w-3.5 h-3.5" />, danger: true, onClick: () => setProductListNotice(`Block Product placeholder queued for ${product.sku || product.code}.`) });
+    }
     return items;
   };
 
@@ -1939,6 +1956,10 @@ export default function PosStock({
             </div>
           )}
 
+          <div className="text-[10px] uppercase font-black text-slate-700">
+            Matches in local system: {productListRows.length} SKU entities
+          </div>
+
           <div className="inventory-product-table-wrap">
             <table className="inventory-product-table">
               <colgroup>
@@ -2005,6 +2026,11 @@ export default function PosStock({
                     </td>
                   </tr>
                 ))}
+                {productListRows.length === 0 && (
+                  <tr>
+                    <td className="inventory-product-empty" colSpan={12}>No products matched your search.</td>
+                  </tr>
+                )}
               </tbody>
             </table>
           </div>

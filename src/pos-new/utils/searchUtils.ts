@@ -1,8 +1,13 @@
 export function normalizeSearchText(value: unknown): string {
   return String(value ?? '')
     .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
     .trim()
     .replace(/\s+/g, ' ');
+}
+
+export function tokenizeSearchQuery(query: string): string[] {
+  return normalizeSearchText(query).split(' ').filter(Boolean);
 }
 
 export function matchesFreeOrderSearch<TRecord>(
@@ -10,7 +15,7 @@ export function matchesFreeOrderSearch<TRecord>(
   query: string,
   searchableFields: Array<keyof TRecord | ((item: TRecord) => unknown)>
 ): boolean {
-  const words = normalizeSearchText(query).split(' ').filter(Boolean);
+  const words = tokenizeSearchQuery(query);
   if (words.length === 0) return true;
 
   const combined = searchableFields
@@ -19,6 +24,7 @@ export function matchesFreeOrderSearch<TRecord>(
       return record[field];
     })
     .map(normalizeSearchText)
+    .flatMap((value) => [value, value.replace(/\s+/g, '')])
     .join(' ');
 
   return words.every((word) => combined.includes(word));
