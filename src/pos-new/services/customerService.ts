@@ -6,11 +6,14 @@ import {
 } from '../mock/mockPosData';
 import {
   CustomerActivityEvent,
+  CustomerCreditStatus,
   CustomerFilterState,
   CustomerNote,
   CustomerPurchaseHistoryRow,
   CustomerRecord,
+  CustomerSource,
   CustomerSummary,
+  CustomerType,
   Role
 } from '../types';
 import { createOperationalApproval } from './approvalService';
@@ -20,6 +23,25 @@ const CUSTOMER_HISTORY_KEY = 'itred_pos_customer_purchase_history_v1';
 const CUSTOMER_NOTES_KEY = 'itred_pos_customer_notes_v1';
 const CUSTOMER_ACTIVITY_KEY = 'itred_pos_customer_activity_v1';
 const VENDOR_ID = 'SCI-LOG-ZW';
+
+export interface CustomerCreatePayload {
+  customerName: string;
+  customerType: CustomerType;
+  phone?: string;
+  whatsapp?: string;
+  email?: string;
+  taxNumber?: string;
+  billingAddress?: string;
+  deliveryAddress?: string;
+  cityTown?: string;
+  district?: string;
+  suburb?: string;
+  source?: CustomerSource;
+  creditStatus?: CustomerCreditStatus;
+  creditLimit?: number;
+  currentBalance?: number;
+  notes?: string;
+}
 
 function readList<T>(key: string, fallback: T[]): T[] {
   if (typeof localStorage === 'undefined') return fallback;
@@ -61,14 +83,23 @@ function matchesSearch(customer: CustomerRecord, query?: string): boolean {
   const search = normalize(query);
   if (!search) return true;
   const haystack = [
+    customer.customerId,
+    customer.customerCode,
     customer.customerName,
+    customer.customerType,
     customer.phone,
     customer.whatsapp,
     customer.email,
     customer.taxNumber,
+    customer.billingAddress,
+    customer.deliveryAddress,
     customer.cityTown,
+    customer.district,
     customer.suburb,
-    customer.customerCode
+    customer.source,
+    customer.status,
+    customer.creditStatus,
+    customer.notes
   ].join(' ').toLowerCase();
   return search.split(/\s+/).every((word) => haystack.includes(word));
 }
@@ -124,6 +155,66 @@ export async function getCustomerSummary(filters: CustomerFilterState = {}): Pro
   };
 }
 
+function nextCustomerCode(customers: CustomerRecord[]): string {
+  const highest = customers.reduce((max, customer) => {
+    const match = customer.customerCode.match(/CUST-(\d+)/);
+    return match ? Math.max(max, Number(match[1])) : max;
+  }, 0);
+  return `CUST-${String(highest + 1).padStart(4, '0')}`;
+}
+
+export function validateCustomerPayload(payload: Partial<CustomerCreatePayload>): string[] {
+  const errors: string[] = [];
+  if (!payload.customerName?.trim()) errors.push('Customer name is required.');
+  if (!payload.customerType) errors.push('Customer type is required.');
+  const hasContact = Boolean(payload.phone?.trim() || payload.whatsapp?.trim() || payload.email?.trim());
+  if (!hasContact) errors.push('At least one contact method is required.');
+  if (payload.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(payload.email.trim())) errors.push('Email address is invalid.');
+  if (payload.creditLimit !== undefined && Number.isNaN(Number(payload.creditLimit))) errors.push('Credit limit must be a number.');
+  return errors;
+}
+
+export async function createCustomer(payload: CustomerCreatePayload, staffId: string): Promise<CustomerRecord> {
+  const errors = validateCustomerPayload(payload);
+  if (errors.length) throw new Error(errors.join(' '));
+  const customers = readList<CustomerRecord>(CUSTOMER_KEY, mockCustomers);
+  const timestamp = nowIso();
+  const customer: CustomerRecord = {
+    customerId: makeId('CUST'),
+    vendorId: VENDOR_ID,
+    customerCode: nextCustomerCode(customers),
+    customerName: payload.customerName.trim(),
+    customerType: payload.customerType,
+    phone: payload.phone?.trim() || '',
+    whatsapp: payload.whatsapp?.trim() || payload.phone?.trim() || '',
+    email: payload.email?.trim() || '',
+    taxNumber: payload.taxNumber?.trim() || '',
+    billingAddress: payload.billingAddress?.trim() || '',
+    deliveryAddress: payload.deliveryAddress?.trim() || payload.billingAddress?.trim() || '',
+    cityTown: payload.cityTown?.trim() || 'Harare',
+    district: payload.district?.trim() || 'Harare',
+    suburb: payload.suburb?.trim() || '',
+    source: payload.source || 'Sales Terminal',
+    status: 'Active',
+    creditStatus: payload.creditStatus || 'Cash Only',
+    creditLimit: payload.creditLimit,
+    currentBalance: payload.currentBalance || 0,
+    notes: payload.notes?.trim() || '',
+    createdByStaffId: staffId,
+    approvedByStaffId: staffId,
+    createdAt: timestamp,
+    updatedAt: timestamp
+  };
+  saveList(CUSTOMER_KEY, [customer, ...customers]);
+  await recordCustomerActivity({
+    customerId: customer.customerId,
+    eventType: 'CUSTOMER_CREATED',
+    user: staffId,
+    notes: 'Customer created directly in Customer Centre.'
+  });
+  return customer;
+}
+
 export async function createCustomerRequest(payload: {
   customerName: string;
   phone?: string;
@@ -140,7 +231,7 @@ export async function createCustomerRequest(payload: {
   requestedByStaffId: string;
   requestedByStaffName: string;
   requestedByRole: Role;
-}): Promise<CustomerRecord> {
+}, staffId = payload.requestedByStaffName): Promise<CustomerRecord> {
   const customers = readList<CustomerRecord>(CUSTOMER_KEY, mockCustomers);
   const timestamp = nowIso();
   const duplicate = customers.find((customer) =>
@@ -175,7 +266,7 @@ export async function createCustomerRequest(payload: {
   await recordCustomerActivity({
     customerId: customer.customerId,
     eventType: 'CUSTOMER_CREATED_PENDING',
-    user: payload.requestedByStaffName,
+    user: staffId,
     notes: duplicate ? `Duplicate warning placeholder: possible match ${duplicate.customerCode}.` : 'Customer request created and sent for approval.'
   });
   await createOperationalApproval({
@@ -226,8 +317,20 @@ export async function suspendCustomer(customerId: string, staffId: string, notes
   return patchCustomer(customerId, { status: 'Suspended' }, 'CUSTOMER_SUSPENDED', staffId, notes || 'Customer suspended.');
 }
 
+export async function reactivateCustomer(customerId: string, staffId: string, notes = ''): Promise<CustomerRecord | null> {
+  return patchCustomer(customerId, { status: 'Active' }, 'CUSTOMER_REACTIVATED', staffId, notes || 'Customer reactivated.');
+}
+
+export async function updateCustomer(customerId: string, patch: Partial<CustomerRecord>, staffId = 'Admin User', notes = ''): Promise<CustomerRecord | null> {
+  return patchCustomer(customerId, patch, 'CUSTOMER_UPDATED', staffId, notes || 'Customer record updated.');
+}
+
+export async function markCustomerCreditReview(customerId: string, staffId: string, notes = ''): Promise<CustomerRecord | null> {
+  return patchCustomer(customerId, { creditStatus: 'Credit Review Required' }, 'CUSTOMER_CREDIT_REVIEW_REQUIRED', staffId, notes || 'Customer marked for credit review.');
+}
+
 export async function updateCustomerPlaceholder(customerId: string, patch: Partial<CustomerRecord>): Promise<CustomerRecord | null> {
-  return patchCustomer(customerId, patch);
+  return updateCustomer(customerId, patch);
 }
 
 export async function getCustomerPurchaseHistory(customerId: string): Promise<CustomerPurchaseHistoryRow[]> {
@@ -246,8 +349,10 @@ export async function addCustomerNote(customerId: string, staffId: string, note:
   return getCustomerNotes(customerId);
 }
 
-export async function getCustomerActivityEvents(customerId: string): Promise<CustomerActivityEvent[]> {
-  return readList<CustomerActivityEvent>(CUSTOMER_ACTIVITY_KEY, mockCustomerActivityEvents).filter((event) => event.customerId === customerId);
+export async function getCustomerActivityEvents(filter: string | { customerId?: string } = {}): Promise<CustomerActivityEvent[]> {
+  const customerId = typeof filter === 'string' ? filter : filter.customerId;
+  const events = readList<CustomerActivityEvent>(CUSTOMER_ACTIVITY_KEY, mockCustomerActivityEvents);
+  return customerId ? events.filter((event) => event.customerId === customerId) : events;
 }
 
 export async function recordCustomerSelectedForSale(customerId: string, staffId: string): Promise<CustomerActivityEvent[]> {

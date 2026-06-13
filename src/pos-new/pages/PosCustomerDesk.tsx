@@ -1,6 +1,24 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
-import { Check, FileText, History, MessageSquare, Search, UserCheck, X } from 'lucide-react';
+import {
+  Check,
+  Edit3,
+  Eye,
+  FileDown,
+  FileText,
+  History,
+  MessageCircle,
+  MessageSquare,
+  Plus,
+  RotateCcw,
+  Search,
+  ShieldAlert,
+  UserCheck,
+  UserPlus,
+  X
+} from 'lucide-react';
+import NewCustomerModal from '../components/NewCustomerModal';
+import RowActionMenu, { RowActionMenuItem } from '../components/RowActionMenu';
 import {
   CustomerActivityEvent,
   CustomerCreditStatus,
@@ -18,18 +36,24 @@ import {
 import {
   addCustomerNote,
   approveCustomer,
+  createCustomer,
+  createCustomerRequest,
   exportCustomerListPlaceholder,
   getCustomerActivityEvents,
   getCustomerNotes,
   getCustomerPurchaseHistory,
   getCustomerSummary,
   getCustomers,
+  markCustomerCreditReview,
   markCustomerDuplicate,
+  reactivateCustomer,
   recordCustomerSelectedForSale,
   rejectCustomer,
-  suspendCustomer
+  suspendCustomer,
+  updateCustomer,
+  type CustomerCreatePayload
 } from '../services/customerService';
-import { hasPermission } from '../utils/posPermissions';
+import { hasPermission, type PermissionKey } from '../utils/posPermissions';
 
 interface PosCustomerDeskProps {
   session: PosSession;
@@ -63,20 +87,41 @@ function eventTitle(value: CustomerActivityEvent['eventType']): string {
   return value.toLowerCase().split('_').map((word) => word.charAt(0).toUpperCase() + word.slice(1)).join(' ');
 }
 
+function customerContact(customer: CustomerRecord): string {
+  return customer.whatsapp || customer.phone || customer.email || 'No contact';
+}
+
+function exportCsv(filename: string, rows: string[][]) {
+  const content = rows.map((row) => row.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(',')).join('\n');
+  const blob = new Blob([content], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  link.click();
+  URL.revokeObjectURL(url);
+}
+
 export default function PosCustomerDesk({ session, onNavigate }: PosCustomerDeskProps) {
   const roleName = session.role as Role;
   const [activeTab, setActiveTab] = useState<CustomerTab>('Customer List');
   const [customers, setCustomers] = useState<CustomerRecord[]>([]);
   const [summary, setSummary] = useState<CustomerSummary | null>(null);
   const [filters, setFilters] = useState<CustomerFilterState>({ status: 'All', customerType: 'All', creditStatus: 'All', source: 'All' });
+  const [filtersOpen, setFiltersOpen] = useState(false);
   const [selectedCustomerId, setSelectedCustomerId] = useState('CUST-WALKIN');
   const [history, setHistory] = useState<CustomerPurchaseHistoryRow[]>([]);
   const [notes, setNotes] = useState<CustomerNote[]>([]);
   const [activity, setActivity] = useState<CustomerActivityEvent[]>([]);
   const [noteText, setNoteText] = useState('');
+  const [quickNoteCustomer, setQuickNoteCustomer] = useState<CustomerRecord | null>(null);
+  const [quickNoteText, setQuickNoteText] = useState('');
   const [notice, setNotice] = useState('');
+  const [newCustomerOpen, setNewCustomerOpen] = useState(false);
+  const [editCustomer, setEditCustomer] = useState<CustomerRecord | null>(null);
 
   const selectedCustomer = customers.find((customer) => customer.customerId === selectedCustomerId) || customers[0] || null;
+  const canCreateDirect = hasPermission(roleName, 'customers.createDirect');
 
   const loadCustomers = async () => {
     const [rows, nextSummary] = await Promise.all([getCustomers(filters), getCustomerSummary(filters)]);
@@ -108,74 +153,198 @@ export default function PosCustomerDesk({ session, onNavigate }: PosCustomerDesk
     customer.status === 'Pending Approval' || customer.status === 'Duplicate' || customer.status === 'Rejected'
   ), [customers]);
 
-  const handleProfile = (customer: CustomerRecord) => {
-    setSelectedCustomerId(customer.customerId);
-    setActiveTab('Customer Profile');
-  };
-
-  const requirePermission = (permission: 'customers.approve' | 'customers.createRequest' | 'approvals.view'): boolean => {
+  const requirePermission = (permission: PermissionKey): boolean => {
     if (hasPermission(roleName, permission)) return true;
     setNotice(permissionBlockedMessage);
     return false;
   };
 
-  const refreshAfterAction = async (message: string) => {
+  const refreshAfterAction = async (message: string, customerId = selectedCustomerId) => {
     setNotice(message);
     await loadCustomers();
-    if (selectedCustomerId) await loadSelectedDetails(selectedCustomerId);
+    if (customerId) await loadSelectedDetails(customerId);
+  };
+
+  const handleProfile = (customer: CustomerRecord) => {
+    setSelectedCustomerId(customer.customerId);
+    setActiveTab('Customer Profile');
+  };
+
+  const handleSubmitCustomer = async (payload: CustomerCreatePayload, useInSale: boolean) => {
+    if (editCustomer) {
+      if (!requirePermission('customers.edit')) return;
+      const updated = await updateCustomer(editCustomer.customerId, payload, session.staffName, 'Customer edited from Customer Centre.');
+      if (updated) setSelectedCustomerId(updated.customerId);
+      setEditCustomer(null);
+      await refreshAfterAction('Customer updated.', editCustomer.customerId);
+      return;
+    }
+    if (!requirePermission('customers.createDirect')) return;
+    const customer = await createCustomer(payload, session.staffName);
+    setSelectedCustomerId(customer.customerId);
+    if (useInSale) await handleUseInSale(customer, false);
+    await refreshAfterAction(useInSale ? 'Customer created and selected for sale.' : 'Customer created.', customer.customerId);
   };
 
   const handleApprove = async (customer: CustomerRecord) => {
-    if (!requirePermission('customers.approve')) return;
+    if (!requirePermission('customers.requests.approve')) return;
     await approveCustomer(customer.customerId, session.staffName, 'Approved from Customer Centre.');
-    await refreshAfterAction('Customer approved.');
+    await refreshAfterAction('Customer approved.', customer.customerId);
   };
 
   const handleReject = async (customer: CustomerRecord) => {
-    if (!requirePermission('customers.approve')) return;
+    if (!requirePermission('customers.requests.approve')) return;
     await rejectCustomer(customer.customerId, session.staffName, 'Rejected from Customer Centre.');
-    await refreshAfterAction('Customer rejected.');
+    await refreshAfterAction('Customer rejected.', customer.customerId);
   };
 
   const handleDuplicate = async (customer: CustomerRecord) => {
-    if (!requirePermission('customers.approve')) return;
+    if (!requirePermission('customers.requests.approve')) return;
     await markCustomerDuplicate(customer.customerId, 'Duplicate Review Placeholder', session.staffName, 'Duplicate warning placeholder confirmed.');
-    await refreshAfterAction('Customer marked duplicate.');
+    await refreshAfterAction('Customer marked duplicate.', customer.customerId);
   };
 
   const handleSuspend = async (customer: CustomerRecord) => {
-    if (!requirePermission('customers.approve')) return;
+    if (!requirePermission('customers.suspend')) return;
     await suspendCustomer(customer.customerId, session.staffName, 'Suspended from Customer Centre.');
-    await refreshAfterAction('Customer suspended.');
+    await refreshAfterAction('Customer suspended.', customer.customerId);
+  };
+
+  const handleReactivate = async (customer: CustomerRecord) => {
+    if (!requirePermission('customers.reactivate')) return;
+    await reactivateCustomer(customer.customerId, session.staffName, 'Reactivated from Customer Centre.');
+    await refreshAfterAction('Customer reactivated.', customer.customerId);
+  };
+
+  const handleCreditReview = async (customer: CustomerRecord) => {
+    if (!requirePermission('customers.creditReview')) return;
+    await markCustomerCreditReview(customer.customerId, session.staffName, 'Marked for credit review from Customer Centre.');
+    await refreshAfterAction('Customer marked for credit review.', customer.customerId);
   };
 
   const handleAddNote = async () => {
     if (!selectedCustomer || !noteText.trim()) return;
+    if (!requirePermission('customers.notes.create')) return;
     await addCustomerNote(selectedCustomer.customerId, session.staffName, noteText.trim(), roleName);
     setNoteText('');
-    await refreshAfterAction('Customer note saved.');
+    await refreshAfterAction('Customer note saved.', selectedCustomer.customerId);
   };
 
-  const handleSelectForSale = (customer: CustomerRecord) => {
+  const handleQuickNote = async () => {
+    if (!quickNoteCustomer || !quickNoteText.trim()) return;
+    if (!requirePermission('customers.notes.create')) return;
+    await addCustomerNote(quickNoteCustomer.customerId, session.staffName, quickNoteText.trim(), roleName);
+    setQuickNoteCustomer(null);
+    setQuickNoteText('');
+    await refreshAfterAction('Customer note saved.', quickNoteCustomer.customerId);
+  };
+
+  const handleUseInSale = async (customer: CustomerRecord, showNotice = true) => {
+    if (!requirePermission('customers.useInSale')) return;
     setSelectedCustomerId(customer.customerId);
-    void recordCustomerSelectedForSale(customer.customerId, session.staffName);
-    setNotice(`${customer.customerName} selected for sale placeholder.`);
+    await recordCustomerSelectedForSale(customer.customerId, session.staffName);
+    try {
+      sessionStorage.setItem('itred_pos_selected_customer_for_sale_v1', JSON.stringify({
+        customerId: customer.customerId,
+        customerCode: customer.customerCode,
+        customerName: customer.customerName,
+        selectedAt: new Date().toISOString()
+      }));
+    } catch {
+      // Session storage is optional in local-only builds.
+    }
+    if (showNotice) setNotice(`${customer.customerName} selected for sale.`);
+  };
+
+  const handleWhatsApp = (customer: CustomerRecord) => {
+    if (!requirePermission('customers.whatsappMessage')) return;
+    const rawNumber = customer.whatsapp || customer.phone;
+    if (!rawNumber) {
+      setNotice('No WhatsApp or phone number is available for this customer.');
+      return;
+    }
+    const phone = rawNumber.replace(/[^\d]/g, '');
+    window.open(`https://wa.me/${phone}`, '_blank', 'noopener,noreferrer');
+  };
+
+  const handleCreateRequest = async (customer: CustomerRecord) => {
+    if (!requirePermission('customers.requests.create')) return;
+    await createCustomerRequest({
+      customerName: customer.customerName,
+      phone: customer.phone,
+      whatsapp: customer.whatsapp,
+      email: customer.email,
+      taxNumber: customer.taxNumber,
+      billingAddress: customer.billingAddress,
+      deliveryAddress: customer.deliveryAddress,
+      cityTown: customer.cityTown,
+      district: customer.district,
+      suburb: customer.suburb,
+      notes: `Request created from customer row ${customer.customerCode}.`,
+      source: customer.source,
+      requestedByStaffId: session.staffName,
+      requestedByStaffName: session.staffName,
+      requestedByRole: roleName
+    }, session.staffName);
+    await refreshAfterAction('Customer request created.', customer.customerId);
+  };
+
+  const handleExportRow = (customer: CustomerRecord) => {
+    if (!requirePermission('customers.export')) return;
+    exportCsv(`${customer.customerCode}.csv`, [
+      ['Customer Code', 'Customer Name', 'Type', 'Phone', 'WhatsApp', 'Email', 'Source', 'Status', 'Credit Status'],
+      [customer.customerCode, customer.customerName, customer.customerType, customer.phone, customer.whatsapp, customer.email, customer.source, customer.status, customer.creditStatus]
+    ]);
+    setNotice('Customer row exported.');
   };
 
   const handleExport = async () => {
+    if (!requirePermission('customers.export')) return;
     setNotice(await exportCustomerListPlaceholder(filters));
   };
 
+  const customerActionItems = (customer: CustomerRecord): RowActionMenuItem[] => [
+    { label: 'View Customer', icon: <Eye size={15} />, onClick: () => handleProfile(customer), disabled: !hasPermission(roleName, 'customers.view') },
+    { label: 'Edit Customer', icon: <Edit3 size={15} />, onClick: () => setEditCustomer(customer), disabled: !hasPermission(roleName, 'customers.edit') },
+    { label: 'Use in Sale', icon: <UserCheck size={15} />, onClick: () => void handleUseInSale(customer), disabled: !hasPermission(roleName, 'customers.useInSale') },
+    { label: 'View Purchase History', icon: <History size={15} />, onClick: () => { setSelectedCustomerId(customer.customerId); setActiveTab('Purchase History'); }, disabled: !hasPermission(roleName, 'customers.purchaseHistory.view') },
+    { label: 'View Notes', icon: <MessageSquare size={15} />, onClick: () => { setSelectedCustomerId(customer.customerId); setActiveTab('Customer Notes'); }, disabled: !hasPermission(roleName, 'customers.notes.view') },
+    { label: 'Add Note', icon: <Plus size={15} />, onClick: () => setQuickNoteCustomer(customer), disabled: !hasPermission(roleName, 'customers.notes.create') },
+    { label: 'WhatsApp Message', icon: <MessageCircle size={15} />, onClick: () => handleWhatsApp(customer), disabled: !hasPermission(roleName, 'customers.whatsappMessage') },
+    { label: 'Create Customer Request', icon: <FileText size={15} />, onClick: () => void handleCreateRequest(customer), disabled: !hasPermission(roleName, 'customers.requests.create') },
+    { label: 'Mark Credit Review', icon: <ShieldAlert size={15} />, onClick: () => void handleCreditReview(customer), disabled: !hasPermission(roleName, 'customers.creditReview') },
+    customer.status === 'Suspended'
+      ? { label: 'Reactivate', icon: <RotateCcw size={15} />, onClick: () => void handleReactivate(customer), disabled: !hasPermission(roleName, 'customers.reactivate') }
+      : { label: 'Suspend', icon: <X size={15} />, onClick: () => void handleSuspend(customer), disabled: !hasPermission(roleName, 'customers.suspend'), danger: true },
+    { label: 'Export Row', icon: <FileDown size={15} />, onClick: () => handleExportRow(customer), disabled: !hasPermission(roleName, 'customers.export') }
+  ];
+
+  const requestActionItems = (customer: CustomerRecord): RowActionMenuItem[] => [
+    { label: 'View Request', icon: <Eye size={15} />, onClick: () => handleProfile(customer), disabled: !hasPermission(roleName, 'customers.view') },
+    { label: 'Approve', icon: <Check size={15} />, onClick: () => void handleApprove(customer), disabled: !hasPermission(roleName, 'customers.requests.approve') },
+    { label: 'Reject', icon: <X size={15} />, onClick: () => void handleReject(customer), disabled: !hasPermission(roleName, 'customers.requests.approve'), danger: true },
+    { label: 'Convert to Customer', icon: <UserPlus size={15} />, onClick: () => void handleApprove(customer), disabled: !hasPermission(roleName, 'customers.requests.approve') },
+    { label: 'Assign Reviewer', icon: <UserCheck size={15} />, onClick: () => setNotice(`${session.staffName} assigned as reviewer for ${customer.customerName}.`), disabled: !hasPermission(roleName, 'customers.requests.approve') },
+    { label: 'Mark Duplicate', icon: <ShieldAlert size={15} />, onClick: () => void handleDuplicate(customer), disabled: !hasPermission(roleName, 'customers.requests.approve') }
+  ];
+
   return (
-    <div className="space-y-5 industrial-font-sans">
-      <header className="sci-page-header sci-page-header--compact">
+    <div className="space-y-5 industrial-font-sans pos-customer-centre">
+      <header className="sci-page-header sci-page-header--compact pos-customer-hero">
         <div>
           <p className="sci-pos-eyebrow">Customer Centre</p>
           <h1>Customer Centre</h1>
-          <p>Customer Records, Approval Requests, Purchase History, and Service Notes</p>
+          <p>Customer records, requests, purchase history, notes, and local activity.</p>
         </div>
         <div className="sci-page-header__actions">
-          <button type="button" className="sci-pos-button sci-pos-button--secondary" onClick={handleExport}>Export Placeholder</button>
+          {canCreateDirect && (
+            <button type="button" className="sci-pos-button sci-pos-button--primary" onClick={() => setNewCustomerOpen(true)}>
+              <UserPlus size={16} />New Customer
+            </button>
+          )}
+          <button type="button" className="sci-pos-button sci-pos-button--secondary" onClick={handleExport}>
+            <FileDown size={16} />Export
+          </button>
         </div>
       </header>
 
@@ -184,12 +353,12 @@ export default function PosCustomerDesk({ session, onNavigate }: PosCustomerDesk
       <section className="pos-customer-summary-grid">
         {[
           ['Total Customers', summary?.totalCustomers || 0],
-          ['Active Customers', summary?.activeCustomers || 0],
-          ['Pending Approval', summary?.pendingApproval || 0],
-          ['Duplicate Review', summary?.duplicateReview || 0],
+          ['Active', summary?.activeCustomers || 0],
+          ['Pending', summary?.pendingApproval || 0],
+          ['Duplicates', summary?.duplicateReview || 0],
           ['Suspended', summary?.suspended || 0],
-          ['WhatsApp Leads', summary?.whatsAppLeads || 0],
-          ['Repeat Customers', summary?.repeatCustomers || 0],
+          ['WhatsApp', summary?.whatsAppLeads || 0],
+          ['Repeat', summary?.repeatCustomers || 0],
           ['Credit Review', summary?.creditReview || 0]
         ].map(([label, value]) => (
           <div key={label}>
@@ -199,16 +368,20 @@ export default function PosCustomerDesk({ session, onNavigate }: PosCustomerDesk
         ))}
       </section>
 
-      <section className="sci-pos-card">
+      <section className="sci-pos-card pos-customer-filter-card">
         <div className="sci-pos-card__bar">
           <div>
             <p className="sci-pos-eyebrow">Filters</p>
             <h2>Customer Filters</h2>
           </div>
-          <Search size={18} aria-hidden="true" />
+          <button type="button" className="sci-pos-button sci-pos-button--secondary" onClick={() => setFiltersOpen((value) => !value)}>
+            <Search size={16} />{filtersOpen ? 'Hide Filters' : 'More Filters'}
+          </button>
         </div>
-        <div className="pos-customer-filter-grid">
+        <div className="pos-customer-filter-primary">
           <FilterInput label="Search" value={filters.search || ''} onChange={(value) => setFilters({ ...filters, search: value })} />
+        </div>
+        <div className={`pos-customer-filter-grid ${filtersOpen ? 'pos-customer-filter-grid--open' : ''}`}>
           <FilterSelect label="Customer Type" value={filters.customerType || 'All'} options={customerTypes} onChange={(value) => setFilters({ ...filters, customerType: value as CustomerFilterState['customerType'] })} />
           <FilterSelect label="Status" value={filters.status || 'All'} options={customerStatuses} onChange={(value) => setFilters({ ...filters, status: value as CustomerFilterState['status'] })} />
           <FilterSelect label="Credit Status" value={filters.creditStatus || 'All'} options={creditStatuses} onChange={(value) => setFilters({ ...filters, creditStatus: value as CustomerFilterState['creditStatus'] })} />
@@ -221,7 +394,7 @@ export default function PosCustomerDesk({ session, onNavigate }: PosCustomerDesk
         </div>
       </section>
 
-      <div className="pos-shift-tabs" role="tablist" aria-label="Customer Centre sections">
+      <div className="pos-shift-tabs pos-customer-tabs" role="tablist" aria-label="Customer Centre sections">
         {tabs.map((tab) => (
           <button key={tab} type="button" className={`pos-shift-tab ${activeTab === tab ? 'pos-shift-tab--active' : ''}`} onClick={() => setActiveTab(tab)}>
             {tab}
@@ -230,76 +403,78 @@ export default function PosCustomerDesk({ session, onNavigate }: PosCustomerDesk
       </div>
 
       {activeTab === 'Customer List' && (
-        <CustomerTable
-          customers={customers}
-          onProfile={handleProfile}
-          onSelect={handleSelectForSale}
-          onNote={(customer) => { setSelectedCustomerId(customer.customerId); setActiveTab('Customer Notes'); }}
-          onSuspend={handleSuspend}
-        />
+        <CustomerTable customers={customers} actionItems={customerActionItems} onProfile={handleProfile} />
       )}
 
       {activeTab === 'Customer Requests' && (
-        <section className="sci-pos-card">
-          <div className="sci-pos-card__bar"><div><p className="sci-pos-eyebrow">Approval Requests</p><h2>Customer Requests</h2></div><UserCheck size={18} /></div>
-          <div className="sci-pos-table-wrap">
-            <table className="sci-pos-table">
-              <thead><tr>{['Request ID', 'Customer Name', 'Phone', 'WhatsApp', 'Source', 'Requested By', 'Requested At', 'Duplicate Risk', 'Status', 'Action'].map((heading) => <th key={heading}>{heading}</th>)}</tr></thead>
-              <tbody>
-                {requests.map((customer) => (
-                  <tr key={customer.customerId}>
-                    <td>{customer.customerCode.startsWith('PEND') || customer.customerCode.startsWith('DUP') ? customer.customerCode : customer.customerId}</td>
-                    <td>{customer.customerName}</td>
-                    <td>{customer.phone}</td>
-                    <td>{customer.whatsapp}</td>
-                    <td>{customer.source}</td>
-                    <td>{customer.createdByStaffId}</td>
-                    <td>{dateLabel(customer.createdAt)}</td>
-                    <td>{customer.status === 'Duplicate' ? 'High' : 'Low'}</td>
-                    <td><span className={`sci-status-pill ${statusClass(customer.status)}`}>{customer.status}</span></td>
-                    <td><div className="pos-approval-actions">
-                      <button type="button" className="sci-pos-button sci-pos-button--secondary" onClick={() => handleProfile(customer)}>View</button>
-                      <button type="button" className="sci-pos-button sci-pos-button--primary" onClick={() => handleApprove(customer)}><Check size={15} />Approve</button>
-                      <button type="button" className="sci-pos-button sci-pos-button--danger" onClick={() => handleReject(customer)}><X size={15} />Reject</button>
-                      <button type="button" className="sci-pos-button sci-pos-button--secondary" onClick={() => handleDuplicate(customer)}>Mark Duplicate</button>
-                      <button type="button" className="sci-pos-button sci-pos-button--secondary" onClick={() => { requirePermission('approvals.view'); onNavigate?.('APPROVALS'); }}>Open Approval</button>
-                    </div></td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </section>
+        <RequestTable requests={requests} actionItems={requestActionItems} />
       )}
 
-      {activeTab === 'Customer Profile' && selectedCustomer && (
-        <CustomerProfile customer={selectedCustomer} onApprove={handleApprove} onReject={handleReject} onDuplicate={handleDuplicate} onSuspend={handleSuspend} onNote={() => setActiveTab('Customer Notes')} onSelect={handleSelectForSale} />
+      {activeTab === 'Customer Profile' && (
+        selectedCustomer
+          ? <CustomerProfile customer={selectedCustomer} actionItems={customerActionItems(selectedCustomer)} />
+          : <EmptyState title="No Customer Selected" message="Select a customer row to view the profile." />
       )}
 
       {activeTab === 'Purchase History' && (
-        <SimpleTable title="Purchase History" icon={<History size={18} />} headings={['Receipt No.', 'Date', 'Branch', 'Cashier', 'Items', 'Total', 'Payment Method', 'Delivery Status', 'Return Status', 'Action']}>
-          {history.map((row) => <tr key={row.id}><td>{row.receiptNo}</td><td>{dateLabel(row.date)}</td><td>{row.branch}</td><td>{row.cashier}</td><td>{row.items}</td><td>{money(row.total)}</td><td>{row.paymentMethod}</td><td>{row.deliveryStatus}</td><td>{row.returnStatus}</td><td><button className="sci-pos-button sci-pos-button--secondary" type="button">Open CAT Form Placeholder</button><button className="sci-pos-button sci-pos-button--secondary" type="button">View Receipt Placeholder</button></td></tr>)}
-        </SimpleTable>
+        selectedCustomer
+          ? <SimpleTable title={`Purchase History - ${selectedCustomer.customerName}`} icon={<History size={18} />} headings={['Receipt No.', 'Date', 'Branch', 'Cashier', 'Items', 'Total', 'Payment', 'Delivery', 'Return']}>
+              {history.map((row) => <tr key={row.id}><td>{row.receiptNo}</td><td>{dateLabel(row.date)}</td><td>{row.branch}</td><td>{row.cashier}</td><td>{row.items}</td><td>{money(row.total)}</td><td>{row.paymentMethod}</td><td>{row.deliveryStatus}</td><td>{row.returnStatus}</td></tr>)}
+              {history.length === 0 && <EmptyTableRow colSpan={9} label="No purchase history found." />}
+            </SimpleTable>
+          : <EmptyState title="No Customer Selected" message="Select a customer to view purchase history." />
       )}
 
       {activeTab === 'Customer Notes' && (
-        <section className="sci-pos-card">
-          <div className="sci-pos-card__bar"><div><p className="sci-pos-eyebrow">Service Notes</p><h2>Customer Notes</h2></div><MessageSquare size={18} /></div>
-          <div className="pos-customer-note-form"><textarea rows={3} value={noteText} onChange={(event) => setNoteText(event.target.value)} placeholder="Note text" /><button type="button" className="sci-pos-button sci-pos-button--primary" onClick={handleAddNote}>Save Note</button></div>
-          <div className="sci-pos-table-wrap"><table className="sci-pos-table"><thead><tr>{['Date / Time', 'Note', 'Added By', 'Role', 'Related Record', 'Action'].map((heading) => <th key={heading}>{heading}</th>)}</tr></thead><tbody>{notes.map((note) => <tr key={note.id}><td>{dateLabel(note.dateTime)}</td><td>{note.note}</td><td>{note.addedBy}</td><td>{note.role}</td><td>{note.relatedRecord || 'None'}</td><td><button type="button" className="sci-pos-button sci-pos-button--secondary">View</button></td></tr>)}</tbody></table></div>
-        </section>
+        selectedCustomer
+          ? <section className="sci-pos-card">
+              <div className="sci-pos-card__bar"><div><p className="sci-pos-eyebrow">Service Notes</p><h2>{selectedCustomer.customerName}</h2></div><MessageSquare size={18} /></div>
+              {hasPermission(roleName, 'customers.notes.create') && (
+                <div className="pos-customer-note-form"><textarea rows={3} value={noteText} onChange={(event) => setNoteText(event.target.value)} placeholder="Note text" /><button type="button" className="sci-pos-button sci-pos-button--primary" onClick={handleAddNote}>Save Note</button></div>
+              )}
+              <div className="sci-pos-table-wrap"><table className="sci-pos-table"><thead><tr>{['Date / Time', 'Note', 'Added By', 'Role', 'Related Record'].map((heading) => <th key={heading}>{heading}</th>)}</tr></thead><tbody>{notes.map((note) => <tr key={note.id}><td>{dateLabel(note.dateTime)}</td><td>{note.note}</td><td>{note.addedBy}</td><td>{note.role}</td><td>{note.relatedRecord || 'None'}</td></tr>)}{notes.length === 0 && <EmptyTableRow colSpan={5} label="No notes found." />}</tbody></table></div>
+            </section>
+          : <EmptyState title="No Customer Selected" message="Select a customer to view notes." />
       )}
 
       {activeTab === 'Customer Activity' && (
-        <SimpleTable title="Customer Activity" icon={<FileText size={18} />} headings={['Date / Time', 'Event', 'User', 'Notes']}>
-          {activity.map((event) => <tr key={event.id}><td>{dateLabel(event.dateTime)}</td><td>{eventTitle(event.eventType)}</td><td>{event.user}</td><td>{event.notes}</td></tr>)}
-        </SimpleTable>
+        selectedCustomer
+          ? <SimpleTable title={`Customer Activity - ${selectedCustomer.customerName}`} icon={<FileText size={18} />} headings={['Date / Time', 'Event', 'User', 'Notes']}>
+              {activity.map((event) => <tr key={event.id}><td>{dateLabel(event.dateTime)}</td><td>{eventTitle(event.eventType)}</td><td>{event.user}</td><td>{event.notes}</td></tr>)}
+              {activity.length === 0 && <EmptyTableRow colSpan={4} label="No activity found." />}
+            </SimpleTable>
+          : <EmptyState title="No Customer Selected" message="Select a customer to view activity." />
+      )}
+
+      <NewCustomerModal
+        open={newCustomerOpen || Boolean(editCustomer)}
+        initialCustomer={editCustomer}
+        canSaveAndUse={hasPermission(roleName, 'customers.useInSale')}
+        onClose={() => { setNewCustomerOpen(false); setEditCustomer(null); }}
+        onSubmit={handleSubmitCustomer}
+      />
+
+      {quickNoteCustomer && (
+        <div className="pos-modal-backdrop" role="presentation">
+          <section className="pos-quick-note-modal" role="dialog" aria-modal="true" aria-labelledby="quick-note-title">
+            <div className="pos-new-customer-modal__header">
+              <div><p className="sci-pos-eyebrow">Add Note</p><h2 id="quick-note-title">{quickNoteCustomer.customerName}</h2></div>
+              <button type="button" className="sci-pos-icon-button" aria-label="Close note modal" onClick={() => setQuickNoteCustomer(null)}><X size={18} /></button>
+            </div>
+            <textarea rows={4} value={quickNoteText} onChange={(event) => setQuickNoteText(event.target.value)} placeholder="Note text" />
+            <div className="pos-new-customer-modal__actions">
+              <button type="button" className="sci-pos-button sci-pos-button--secondary" onClick={() => setQuickNoteCustomer(null)}>Cancel</button>
+              <button type="button" className="sci-pos-button sci-pos-button--primary" onClick={() => void handleQuickNote()}>Save Note</button>
+            </div>
+          </section>
+        </div>
       )}
     </div>
   );
 }
 
-function CustomerTable({ customers, onProfile, onSelect, onNote, onSuspend }: { customers: CustomerRecord[]; onProfile: (customer: CustomerRecord) => void; onSelect: (customer: CustomerRecord) => void; onNote: (customer: CustomerRecord) => void; onSuspend: (customer: CustomerRecord) => void }) {
+function CustomerTable({ customers, actionItems, onProfile }: { customers: CustomerRecord[]; actionItems: (customer: CustomerRecord) => RowActionMenuItem[]; onProfile: (customer: CustomerRecord) => void }) {
+  const [openMenuId, setOpenMenuId] = useState('');
   const lastPurchaseByCustomer = new Map<string, string>([
     ['CUST-TAPIWA', '2026-06-09'],
     ['CUST-RUDO', '2026-06-09'],
@@ -307,22 +482,86 @@ function CustomerTable({ customers, onProfile, onSelect, onNote, onSuspend }: { 
     ['CUST-APEX-FLEET', '2026-06-09']
   ]);
   return (
-    <section className="sci-pos-card">
-      <div className="sci-pos-card__bar"><div><p className="sci-pos-eyebrow">Records</p><h2>Customer List</h2></div></div>
-      <div className="sci-pos-table-wrap"><table className="sci-pos-table"><thead><tr>{['Customer Code', 'Customer Name', 'Type', 'Phone', 'WhatsApp', 'City / Town', 'Suburb', 'Source', 'Status', 'Credit Status', 'Last Purchase', 'Action'].map((heading) => <th key={heading}>{heading}</th>)}</tr></thead><tbody>
-        {customers.map((customer) => <tr key={customer.customerId} onDoubleClick={() => onProfile(customer)}><td className="sci-pos-table__strong">{customer.customerCode}</td><td>{customer.customerName}</td><td>{customer.customerType}</td><td>{customer.phone || 'None'}</td><td>{customer.whatsapp || 'None'}</td><td>{customer.cityTown}</td><td>{customer.suburb}</td><td>{customer.source}</td><td><span className={`sci-status-pill ${statusClass(customer.status)}`}>{customer.status}</span></td><td>{customer.creditStatus}</td><td>{lastPurchaseByCustomer.get(customer.customerId) || 'No purchase'}</td><td><div className="pos-approval-actions"><button type="button" className="sci-pos-button sci-pos-button--secondary" onClick={() => onProfile(customer)}>View Profile</button><button type="button" className="sci-pos-button sci-pos-button--secondary" onClick={() => onSelect(customer)}>Select for Sale Placeholder</button><button type="button" className="sci-pos-button sci-pos-button--secondary" onClick={() => onNote(customer)}>Add Note</button><button type="button" className="sci-pos-button sci-pos-button--secondary" onClick={() => onSuspend(customer)}>Suspend Placeholder</button></div></td></tr>)}
-      </tbody></table></div>
+    <section className="sci-pos-card pos-customer-list-card">
+      <div className="sci-pos-card__bar"><div><p className="sci-pos-eyebrow">Records</p><h2>Customer List</h2></div><span>{customers.length} records</span></div>
+      <div className="pos-customer-list-scroll">
+        <table className="sci-pos-table pos-customer-table">
+          <thead><tr>{['Code', 'Customer', 'Type', 'Contact', 'Location', 'Source', 'Status', 'Credit', 'Last Purchase', ''].map((heading) => <th key={heading}>{heading}</th>)}</tr></thead>
+          <tbody>
+            {customers.map((customer) => (
+              <tr key={customer.customerId} onDoubleClick={() => onProfile(customer)}>
+                <td className="sci-pos-table__strong">{customer.customerCode}</td>
+                <td><strong>{customer.customerName}</strong><span>{customer.email || 'No email'}</span></td>
+                <td>{customer.customerType}</td>
+                <td>{customerContact(customer)}</td>
+                <td>{customer.cityTown}{customer.suburb ? `, ${customer.suburb}` : ''}</td>
+                <td>{customer.source}</td>
+                <td><span className={`sci-status-pill ${statusClass(customer.status)}`}>{customer.status}</span></td>
+                <td>{customer.creditStatus}</td>
+                <td>{lastPurchaseByCustomer.get(customer.customerId) || 'No purchase'}</td>
+                <td className="pos-customer-row-actions"><RowActionMenu ariaLabel={`Actions for ${customer.customerName}`} open={openMenuId === customer.customerId} items={actionItems(customer)} onOpenChange={(open) => setOpenMenuId(open ? customer.customerId : '')} /></td>
+              </tr>
+            ))}
+            {customers.length === 0 && <EmptyTableRow colSpan={10} label="No customers match the current filters." />}
+          </tbody>
+        </table>
+      </div>
     </section>
   );
 }
 
-function CustomerProfile({ customer, onApprove, onReject, onDuplicate, onSuspend, onNote, onSelect }: { customer: CustomerRecord; onApprove: (customer: CustomerRecord) => void; onReject: (customer: CustomerRecord) => void; onDuplicate: (customer: CustomerRecord) => void; onSuspend: (customer: CustomerRecord) => void; onNote: () => void; onSelect: (customer: CustomerRecord) => void }) {
-  const rows = [['Customer Name', customer.customerName], ['Customer Code', customer.customerCode], ['Customer Type', customer.customerType], ['Phone', customer.phone], ['WhatsApp', customer.whatsapp], ['Email', customer.email], ['Tax Number', customer.taxNumber || 'None'], ['Billing Address', customer.billingAddress], ['Delivery Address', customer.deliveryAddress], ['City / Town', customer.cityTown], ['District', customer.district], ['Suburb', customer.suburb], ['Source', customer.source], ['Status', customer.status], ['Credit Status', customer.creditStatus], ['Credit Limit Placeholder', money(customer.creditLimit)], ['Current Balance Placeholder', money(customer.currentBalance)], ['Created By', customer.createdByStaffId], ['Approved By', customer.approvedByStaffId || 'Pending'], ['Created At', dateLabel(customer.createdAt)]];
-  return <section className="sci-pos-card"><div className="sci-pos-card__bar"><div><p className="sci-pos-eyebrow">Profile</p><h2>Customer Profile</h2></div></div><div className="pos-customer-profile-grid">{rows.map(([label, value]) => <div key={label}><span>{label}</span><strong>{value}</strong></div>)}</div><div className="pos-control-actions"><button type="button" className="sci-pos-button sci-pos-button--secondary">Edit Draft Placeholder</button><button type="button" className="sci-pos-button sci-pos-button--primary" onClick={() => onApprove(customer)}>Approve Customer</button><button type="button" className="sci-pos-button sci-pos-button--danger" onClick={() => onReject(customer)}>Reject Customer</button><button type="button" className="sci-pos-button sci-pos-button--secondary" onClick={() => onDuplicate(customer)}>Mark Duplicate</button><button type="button" className="sci-pos-button sci-pos-button--secondary" onClick={() => onSuspend(customer)}>Suspend Customer</button><button type="button" className="sci-pos-button sci-pos-button--secondary" onClick={onNote}>Add Note</button><button type="button" className="sci-pos-button sci-pos-button--secondary" onClick={() => onSelect(customer)}>Select for Sale Placeholder</button></div></section>;
+function RequestTable({ requests, actionItems }: { requests: CustomerRecord[]; actionItems: (customer: CustomerRecord) => RowActionMenuItem[] }) {
+  const [openMenuId, setOpenMenuId] = useState('');
+  return (
+    <section className="sci-pos-card pos-customer-list-card">
+      <div className="sci-pos-card__bar"><div><p className="sci-pos-eyebrow">Approval Requests</p><h2>Customer Requests</h2></div><UserCheck size={18} /></div>
+      <div className="pos-customer-list-scroll">
+        <table className="sci-pos-table pos-customer-table">
+          <thead><tr>{['Request', 'Customer', 'Phone', 'WhatsApp', 'Source', 'Requested By', 'Requested At', 'Risk', 'Status', ''].map((heading) => <th key={heading}>{heading}</th>)}</tr></thead>
+          <tbody>
+            {requests.map((customer) => (
+              <tr key={customer.customerId}>
+                <td className="sci-pos-table__strong">{customer.customerCode}</td>
+                <td>{customer.customerName}</td>
+                <td>{customer.phone || 'None'}</td>
+                <td>{customer.whatsapp || 'None'}</td>
+                <td>{customer.source}</td>
+                <td>{customer.createdByStaffId}</td>
+                <td>{dateLabel(customer.createdAt)}</td>
+                <td>{customer.status === 'Duplicate' ? 'High' : 'Low'}</td>
+                <td><span className={`sci-status-pill ${statusClass(customer.status)}`}>{customer.status}</span></td>
+                <td className="pos-customer-row-actions"><RowActionMenu ariaLabel={`Request actions for ${customer.customerName}`} open={openMenuId === customer.customerId} items={actionItems(customer)} onOpenChange={(open) => setOpenMenuId(open ? customer.customerId : '')} /></td>
+              </tr>
+            ))}
+            {requests.length === 0 && <EmptyTableRow colSpan={10} label="No customer requests found." />}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  );
+}
+
+function CustomerProfile({ customer, actionItems }: { customer: CustomerRecord; actionItems: RowActionMenuItem[] }) {
+  const [open, setOpen] = useState(false);
+  const rows = [['Customer Name', customer.customerName], ['Customer Code', customer.customerCode], ['Customer Type', customer.customerType], ['Phone', customer.phone || 'None'], ['WhatsApp', customer.whatsapp || 'None'], ['Email', customer.email || 'None'], ['Tax Number', customer.taxNumber || 'None'], ['Billing Address', customer.billingAddress || 'None'], ['Delivery Address', customer.deliveryAddress || 'None'], ['City / Town', customer.cityTown], ['District', customer.district], ['Suburb', customer.suburb || 'None'], ['Source', customer.source], ['Status', customer.status], ['Credit Status', customer.creditStatus], ['Credit Limit', money(customer.creditLimit)], ['Current Balance', money(customer.currentBalance)], ['Created By', customer.createdByStaffId], ['Approved By', customer.approvedByStaffId || 'Pending'], ['Created At', dateLabel(customer.createdAt)]];
+  return (
+    <section className="sci-pos-card">
+      <div className="sci-pos-card__bar"><div><p className="sci-pos-eyebrow">Profile</p><h2>Customer Profile</h2></div><RowActionMenu ariaLabel={`Actions for ${customer.customerName}`} open={open} items={actionItems} onOpenChange={setOpen} /></div>
+      <div className="pos-customer-profile-grid">{rows.map(([label, value]) => <div key={label}><span>{label}</span><strong>{value}</strong></div>)}</div>
+    </section>
+  );
 }
 
 function SimpleTable({ title, icon, headings, children }: { title: string; icon: ReactNode; headings: string[]; children: ReactNode }) {
   return <section className="sci-pos-card"><div className="sci-pos-card__bar"><div><p className="sci-pos-eyebrow">Customer</p><h2>{title}</h2></div>{icon}</div><div className="sci-pos-table-wrap"><table className="sci-pos-table"><thead><tr>{headings.map((heading) => <th key={heading}>{heading}</th>)}</tr></thead><tbody>{children}</tbody></table></div></section>;
+}
+
+function EmptyState({ title, message }: { title: string; message: string }) {
+  return <section className="sci-pos-card pos-customer-empty"><p className="sci-pos-eyebrow">{title}</p><h2>{message}</h2></section>;
+}
+
+function EmptyTableRow({ colSpan, label }: { colSpan: number; label: string }) {
+  return <tr><td colSpan={colSpan} className="pos-customer-empty-cell">{label}</td></tr>;
 }
 
 function FilterInput({ label, value, onChange, type = 'text' }: { label: string; value: string; onChange: (value: string) => void; type?: string }) {

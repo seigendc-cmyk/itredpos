@@ -51,8 +51,21 @@ export type PermissionKey =
   | 'cashDrawer.assign'
   | 'cashDrawer.release'
   | 'customers.createRequest'
+  | 'customers.createDirect'
   | 'customers.view'
+  | 'customers.edit'
+  | 'customers.suspend'
+  | 'customers.reactivate'
+  | 'customers.notes.view'
+  | 'customers.notes.create'
+  | 'customers.purchaseHistory.view'
   | 'customers.creditView'
+  | 'customers.creditReview'
+  | 'customers.export'
+  | 'customers.whatsappMessage'
+  | 'customers.useInSale'
+  | 'customers.requests.create'
+  | 'customers.requests.approve'
   | 'customers.approve'
   | 'inventory.view'
   | 'inventory.import'
@@ -264,8 +277,21 @@ const ALL_PERMISSIONS: PermissionKey[] = [
   'cashDrawer.assign',
   'cashDrawer.release',
   'customers.createRequest',
+  'customers.createDirect',
   'customers.view',
+  'customers.edit',
+  'customers.suspend',
+  'customers.reactivate',
+  'customers.notes.view',
+  'customers.notes.create',
+  'customers.purchaseHistory.view',
   'customers.creditView',
+  'customers.creditReview',
+  'customers.export',
+  'customers.whatsappMessage',
+  'customers.useInSale',
+  'customers.requests.create',
+  'customers.requests.approve',
   'customers.approve',
   'inventory.view',
   'inventory.import',
@@ -444,7 +470,9 @@ const ROLE_PERMISSIONS: Record<Role, PermissionKey[]> = {
     'shift.view', 'shift.open', 'shift.close', 'shift.forceClose', 'shift.eodReport.view', 'shift.eodReport.print', 'shift.recovery.restore', 'shift.override',
     'cashDrawer.assign', 'cashDrawer.release',
     'payment.capture',
-    'customers.view', 'customers.createRequest', 'customers.creditView', 'customers.approve',
+    'customers.view', 'customers.createRequest', 'customers.createDirect', 'customers.edit', 'customers.suspend', 'customers.reactivate',
+    'customers.notes.view', 'customers.notes.create', 'customers.purchaseHistory.view', 'customers.creditView', 'customers.creditReview',
+    'customers.export', 'customers.whatsappMessage', 'customers.useInSale', 'customers.requests.create', 'customers.requests.approve', 'customers.approve',
     'inventory.view', 'inventory.import', 'inventory.approveImport', 'inventory.adjust', 'inventory.approveAdjustment',
     'productMaster.view', 'productMaster.create', 'productMaster.edit', 'productMaster.activate', 'productMaster.block', 'productMaster.export',
     'openingBalance.view', 'openingBalance.create', 'openingBalance.approve', 'openingBalance.post', 'openingBalance.cancel',
@@ -481,7 +509,8 @@ const ROLE_PERMISSIONS: Record<Role, PermissionKey[]> = {
     'shift.view', 'shift.open', 'shift.close', 'shift.eodReport.view', 'terminal.readinessCheck', 'terminal.history.view', 'shift.recovery.restore',
     'cashDrawer.assign', 'cashDrawer.release',
     'payment.capture',
-    'customers.view', 'customers.createRequest', 'customers.creditView',
+    'customers.view', 'customers.createRequest', 'customers.createDirect', 'customers.edit', 'customers.notes.view', 'customers.notes.create',
+    'customers.useInSale', 'customers.requests.create', 'customers.creditView',
     'inventory.view',
     'productMaster.view', 'productMaster.create', 'productMaster.edit',
     'openingBalance.view', 'openingBalance.create',
@@ -512,7 +541,7 @@ const ROLE_PERMISSIONS: Record<Role, PermissionKey[]> = {
     'returns.request', 'creditNotes.request',
     'shift.view', 'shift.open', 'shift.close', 'terminal.history.view', 'shift.recovery.restore',
     'payment.capture',
-    'customers.view', 'customers.createRequest',
+    'customers.view', 'customers.createRequest', 'customers.createDirect', 'customers.useInSale', 'customers.requests.create',
     'delivery.view', 'delivery.create',
     'tasks.view',
     'sync.view', 'sync.queue.view', 'sync.conflict.view'
@@ -542,6 +571,7 @@ const ROLE_PERMISSIONS: Record<Role, PermissionKey[]> = {
   ],
   'Delivery Staff': [
     'delivery.view', 'delivery.track', 'delivery.verifyCode', 'delivery.complete', 'delivery.cashReview',
+    'customers.view',
     'tasks.view',
     'sync.view', 'sync.run', 'sync.queue.view', 'sync.retry'
   ]
