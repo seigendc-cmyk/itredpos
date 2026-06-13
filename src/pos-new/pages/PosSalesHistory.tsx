@@ -1,21 +1,70 @@
-import { Eye, FileText, RotateCcw, Search, Undo2 } from 'lucide-react';
+import {
+  CopyPlus,
+  Download,
+  Eye,
+  FileText,
+  MessageCircle,
+  Printer,
+  ReceiptText,
+  RotateCcw,
+  Search,
+  ShieldCheck,
+  Truck,
+  WalletCards,
+  X
+} from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
-import { mockReceiptRecords } from '../mock/mockPosData';
-import { DeliveryRequest, PosSession, ReceiptRecord, Role } from '../types';
+import RowActionMenu, { RowActionMenuItem } from '../components/RowActionMenu';
+import ReceiptOutputModal from '../components/ReceiptOutputModal';
+import ReceiptPrintDocument from '../components/ReceiptPrintDocument';
+import { mockReceiptLines, mockReceiptPayments, mockReceiptRecords } from '../mock/mockPosData';
 import { getDeliveryRequests } from '../services/deliveryService';
-import { hasPermission } from '../utils/posPermissions';
+import { formatReceiptCurrency, prepareReceiptWhatsAppMessage } from '../services/receiptService';
+import { DeliveryRequest, PosSession, ReceiptLine, ReceiptPrintPreview, ReceiptRecord, Role } from '../types';
+import { hasPermission, PermissionKey } from '../utils/posPermissions';
+import { matchesFreeOrderSearch } from '../utils/searchUtils';
 
 interface PosSalesHistoryProps {
   session: PosSession;
   onNavigate?: (page: string) => void;
 }
 
+type DetailModal = 'CAT' | 'Payment' | 'Delivery' | 'CreditNote' | null;
+type ReturnAction = 'Draft' | 'Approval';
+
 const paymentMethods = ['All', 'Cash', 'EcoCash', 'Swipe', 'Bank Transfer', 'Split Payment'];
 const deliveryStatuses = ['All', 'Out for Delivery', 'Assigned', 'Waiting Collection', 'Pending Assignment', 'Failed', 'Not Linked'];
 const returnStatuses = ['All', 'Completed', 'Refunded', 'Partially Refunded', 'Voided', 'Fiscal Pending'];
 
+function makeReceiptPreview(receipt: ReceiptRecord): ReceiptPrintPreview {
+  const lines = mockReceiptLines.filter((line) => line.receiptNumber === receipt.receiptNumber);
+  const payments = mockReceiptPayments.filter((payment) => payment.receiptNumber === receipt.receiptNumber);
+  return {
+    receipt,
+    lines,
+    payments,
+    taxSummary: {
+      receiptNumber: receipt.receiptNumber,
+      vatMode: receipt.businessDetails.vatRegistered ? 'Inclusive' : 'Not VAT Registered',
+      vatRate: receipt.subtotal > 0 ? Number(((receipt.vatTotal / receipt.subtotal) * 100).toFixed(2)) : 0,
+      taxableAmount: receipt.subtotal,
+      vatAmount: receipt.vatTotal,
+      nonTaxableAmount: 0,
+      taxLabel: receipt.businessDetails.vatRegistered ? 'VAT' : 'No VAT'
+    },
+    format: '80mm',
+    isReprint: receipt.reprintCount > 0
+  };
+}
+
+function receiptLines(receipt: ReceiptRecord): ReceiptLine[] {
+  return mockReceiptLines.filter((line) => line.receiptNumber === receipt.receiptNumber);
+}
+
 export default function PosSalesHistory({ session, onNavigate }: PosSalesHistoryProps) {
+  const role = session.role as Role;
   const [filters, setFilters] = useState({
+    search: '',
     dateFrom: '',
     dateTo: '',
     receiptNumber: '',
@@ -29,6 +78,22 @@ export default function PosSalesHistory({ session, onNavigate }: PosSalesHistory
   });
   const [notice, setNotice] = useState<string | null>(null);
   const [deliveries, setDeliveries] = useState<DeliveryRequest[]>([]);
+  const [openMenuReceipt, setOpenMenuReceipt] = useState<string | null>(null);
+  const [receiptOutputPreview, setReceiptOutputPreview] = useState<ReceiptPrintPreview | null>(null);
+  const [printPreview, setPrintPreview] = useState<ReceiptPrintPreview | null>(null);
+  const [printInstruction, setPrintInstruction] = useState('');
+  const [detailReceipt, setDetailReceipt] = useState<ReceiptRecord | null>(null);
+  const [detailModal, setDetailModal] = useState<DetailModal>(null);
+  const [returnReceipt, setReturnReceipt] = useState<ReceiptRecord | null>(null);
+  const [returnQuantities, setReturnQuantities] = useState<Record<string, number>>({});
+  const [returnReason, setReturnReason] = useState('Customer return request');
+  const [returnNotes, setReturnNotes] = useState('');
+  const [returnRestock, setReturnRestock] = useState(false);
+  const [returnCondition, setReturnCondition] = useState('Good');
+  const [reviewedReceipts, setReviewedReceipts] = useState<Set<string>>(new Set());
+  const [whatsAppReceipt, setWhatsAppReceipt] = useState<ReceiptRecord | null>(null);
+  const [whatsAppPhone, setWhatsAppPhone] = useState('');
+  const [, setActivityEvents] = useState<string[]>([]);
 
   useEffect(() => {
     getDeliveryRequests({}).then(setDeliveries).catch(() => setDeliveries([]));
@@ -38,11 +103,19 @@ export default function PosSalesHistory({ session, onNavigate }: PosSalesHistory
     return new Map(deliveries.map((delivery) => [delivery.receiptNumber, delivery]));
   }, [deliveries]);
 
+  const can = (permission: PermissionKey) => hasPermission(role, permission);
+
+  const recordEvent = (eventType: string, message: string) => {
+    setActivityEvents((current) => [`${new Date().toLocaleTimeString()} ${eventType}: ${message}`, ...current].slice(0, 20));
+  };
+
   const rows = useMemo(() => {
     return mockReceiptRecords.filter((receipt) => {
-      const deliveryStatus = deliveryByReceipt.get(receipt.receiptNumber)?.deliveryStatus || 'Not Linked';
+      const delivery = deliveryByReceipt.get(receipt.receiptNumber);
+      const deliveryStatus = delivery?.deliveryStatus || 'Not Linked';
       const receiptDate = receipt.businessDate || receipt.dateTime.slice(0, 10);
-      return (
+      const lines = receiptLines(receipt);
+      const baseMatches = (
         (!filters.dateFrom || receiptDate >= filters.dateFrom) &&
         (!filters.dateTo || receiptDate <= filters.dateTo) &&
         receipt.receiptNumber.toLowerCase().includes(filters.receiptNumber.toLowerCase()) &&
@@ -54,51 +127,178 @@ export default function PosSalesHistory({ session, onNavigate }: PosSalesHistory
         (filters.deliveryStatus === 'All' || deliveryStatus === filters.deliveryStatus) &&
         (filters.returnStatus === 'All' || receipt.status === filters.returnStatus)
       );
+      if (!baseMatches) return false;
+      if (!filters.search.trim()) return true;
+      return matchesFreeOrderSearch({
+        ...receipt,
+        phone: receipt.customer.customerPhone || receipt.customer.customerWhatsApp || '',
+        deliveryStatus,
+        deliveryMethod: delivery?.deliveryMethod || 'No Delivery',
+        itemNames: lines.map((line) => line.productName).join(' '),
+        skus: lines.map((line) => line.sku).join(' '),
+        taxAmount: receipt.vatTotal,
+        totalAmount: receipt.grandTotal
+      }, filters.search, [
+        'receiptNumber',
+        'businessDate',
+        'cashier',
+        'branch',
+        'terminal',
+        'paymentMode',
+        'status',
+        'phone',
+        'deliveryStatus',
+        'deliveryMethod',
+        'itemNames',
+        'skus',
+        'taxAmount',
+        'totalAmount',
+        (row) => row.customer.customerName
+      ]);
     });
   }, [deliveryByReceipt, filters]);
 
-  const handleAction = (permission: Parameters<typeof hasPermission>[1], label: string, receipt?: ReceiptRecord, delivery?: DeliveryRequest) => {
-    if (!hasPermission(session.role as Role, permission)) {
-      setNotice('You do not have permission to perform this action.');
-      return;
-    }
-    if (label === 'CAT Form' && receipt) {
-      const customer = receipt.customer.customerId
-        ? `${receipt.customer.customerName} (${receipt.customer.customerId}) | Phone: ${receipt.customer.customerPhone || 'No phone'} | Tax: ${receipt.customer.customerTaxNo || 'No tax number'} | Address: ${receipt.customer.deliveryAddress || receipt.customer.customerAddress || 'No address'}`
-        : `Walk-in Customer | Phone: ${receipt.customer.customerPhone || 'No phone captured'} | Tax: ${receipt.customer.customerTaxNo || 'No tax number'}`;
-      const deliveryDetails = delivery
-        ? ` Delivery tab: ${delivery.deliveryNumber} | ${delivery.deliveryMethod} | ${delivery.deliveryAddress} | Provider/Driver: ${delivery.providerName || delivery.driverName || 'Pending'} | Status: ${delivery.deliveryStatus} | Tracking: ${delivery.trackingStatus} | Code: ${delivery.confirmationStatus} | Cash: ${delivery.cashStatus} | Cash To Collect: USD ${delivery.cashToCollect.toFixed(2)} | Delivered: ${delivery.deliveredAt || 'Pending'} | Failure: ${delivery.failureReason || 'None'}.`
-        : ' Delivery tab: Walk-in / no linked delivery request.';
-      setNotice(`CAT Form Customer tab placeholder: ${customer}.${deliveryDetails}`);
-      return;
-    }
-    setNotice(`${label} is a build-development placeholder.`);
+  const requirePermission = (permission: PermissionKey, action: string): boolean => {
+    if (can(permission)) return true;
+    setNotice(`Permission required for ${action}.`);
+    return false;
   };
 
+  const openReceipt = (receipt: ReceiptRecord) => {
+    if (!requirePermission('sales.viewHistory', 'View Receipt')) return;
+    setReceiptOutputPreview(makeReceiptPreview(receipt));
+    setNotice(`${receipt.receiptNumber} opened read-only.`);
+    recordEvent('SALES_HISTORY_RECEIPT_VIEWED', `${receipt.receiptNumber} opened.`);
+  };
+
+  const openDetail = (receipt: ReceiptRecord, modal: DetailModal) => {
+    setDetailReceipt(receipt);
+    setDetailModal(modal);
+  };
+
+  const startPrint = (receipt: ReceiptRecord, pdf = false) => {
+    if (!requirePermission(pdf ? 'receipt.pdf' : 'sales.reprintReceipt', pdf ? 'Save Receipt as PDF' : 'Print Receipt')) return;
+    setPrintPreview(makeReceiptPreview(receipt));
+    setPrintInstruction(pdf ? 'Choose "Save as PDF" in your device print dialog.' : '');
+    setNotice(pdf ? 'Choose "Save as PDF" in your device print dialog.' : `${receipt.receiptNumber} print view prepared.`);
+    recordEvent(pdf ? 'SALES_HISTORY_RECEIPT_PDF_PREPARED' : 'SALES_HISTORY_RECEIPT_PRINTED', `${receipt.receiptNumber} print path prepared.`);
+    window.setTimeout(() => window.print(), 80);
+  };
+
+  const openWhatsApp = (receipt: ReceiptRecord, phone?: string) => {
+    if (!requirePermission('receipt.whatsappShare', 'Send Receipt via WhatsApp')) return;
+    const targetPhone = (phone || receipt.customer.customerWhatsApp || receipt.customer.customerPhone || '').replace(/[^\d]/g, '');
+    if (!targetPhone) {
+      setWhatsAppReceipt(receipt);
+      setWhatsAppPhone('');
+      return;
+    }
+    window.open(`https://wa.me/${targetPhone}?text=${encodeURIComponent(prepareReceiptWhatsAppMessage(receipt, targetPhone))}`, '_blank', 'noopener,noreferrer');
+    setNotice(`WhatsApp share prepared for ${receipt.receiptNumber}.`);
+    recordEvent('SALES_HISTORY_RECEIPT_WHATSAPP_PREPARED', `${receipt.receiptNumber} WhatsApp link prepared.`);
+    setWhatsAppReceipt(null);
+  };
+
+  const startReturn = (receipt: ReceiptRecord) => {
+    if (!requirePermission('sales.return', 'Sales Return')) return;
+    setReturnReceipt(receipt);
+    setReturnQuantities({});
+    setReturnReason('Customer return request');
+    setReturnNotes('');
+    setReturnRestock(false);
+    setReturnCondition('Good');
+    recordEvent('SALES_RETURN_STARTED', `${receipt.receiptNumber} return started.`);
+  };
+
+  const finishReturn = (action: ReturnAction) => {
+    if (!returnReceipt) return;
+    const selectedTotal = Object.keys(returnQuantities).reduce((sum, lineId) => sum + (returnQuantities[lineId] || 0), 0);
+    if (selectedTotal <= 0) {
+      setNotice('Select at least one return quantity.');
+      return;
+    }
+    setNotice(action === 'Draft'
+      ? `Return draft created locally for ${returnReceipt.receiptNumber}.`
+      : `Return submitted for approval locally for ${returnReceipt.receiptNumber}.`);
+    recordEvent('SALES_RETURN_DRAFT_CREATED', `${returnReceipt.receiptNumber} return ${action.toLowerCase()} created.`);
+    setReturnReceipt(null);
+  };
+
+  const createCreditNote = (receipt: ReceiptRecord) => {
+    if (!requirePermission('sales.creditNote', 'Create Credit Note')) return;
+    openDetail(receipt, 'CreditNote');
+    setNotice(`Credit note draft created locally for ${receipt.receiptNumber}.`);
+    recordEvent('CREDIT_NOTE_DRAFT_CREATED', `${receipt.receiptNumber} credit note draft created.`);
+  };
+
+  const duplicateReceipt = (receipt: ReceiptRecord) => {
+    if (!requirePermission('sales.duplicateReceipt', 'Duplicate as New Sale')) return;
+    if (!window.confirm(`Duplicate ${receipt.receiptNumber} into a new local sale draft?`)) return;
+    setNotice(`${receipt.receiptNumber} duplicated into a local new-sale draft. Original receipt was not changed.`);
+    recordEvent('SALES_RECEIPT_DUPLICATED_TO_CART', `${receipt.receiptNumber} duplicated locally.`);
+  };
+
+  const markReviewed = (receipt: ReceiptRecord) => {
+    if (!requirePermission('audit.view', 'Mark Reviewed')) return;
+    setReviewedReceipts((current) => new Set(current).add(receipt.receiptNumber));
+    setNotice(`${receipt.receiptNumber} marked reviewed locally.`);
+    recordEvent('SALES_HISTORY_ROW_REVIEWED', `${receipt.receiptNumber} reviewed.`);
+  };
+
+  const exportRow = (receipt: ReceiptRecord) => {
+    if (!requirePermission('reports.export', 'Export Row')) return;
+    const csv = [
+      ['Receipt', 'Date', 'Customer', 'Cashier', 'Terminal', 'Payment', 'Tax', 'Total', 'Status'].join(','),
+      [receipt.receiptNumber, receipt.dateTime, receipt.customer.customerName, receipt.cashier, receipt.terminal, receipt.paymentMode, receipt.vatTotal, receipt.grandTotal, receipt.status].map((value) => `"${String(value).replace(/"/g, '""')}"`).join(',')
+    ].join('\n');
+    const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `${receipt.receiptNumber}-sales-history-row.csv`;
+    link.click();
+    URL.revokeObjectURL(url);
+    setNotice(`${receipt.receiptNumber} CSV row exported locally.`);
+    recordEvent('SALES_HISTORY_ROW_EXPORTED', `${receipt.receiptNumber} exported.`);
+  };
+
+  const menuItemsFor = (receipt: ReceiptRecord, delivery?: DeliveryRequest): RowActionMenuItem[] => [
+    { label: 'View Receipt', icon: <Eye size={14} />, onClick: () => openReceipt(receipt), disabled: !can('sales.viewHistory') },
+    { label: 'Open CAT Form', icon: <FileText size={14} />, onClick: () => { openDetail(receipt, 'CAT'); recordEvent('SALES_HISTORY_CAT_OPENED', `${receipt.receiptNumber} CAT opened.`); }, disabled: !can('sales.viewHistory') },
+    { label: 'Print Receipt', icon: <Printer size={14} />, onClick: () => startPrint(receipt), disabled: !can('sales.reprintReceipt') },
+    { label: 'Save Receipt as PDF', icon: <Download size={14} />, onClick: () => startPrint(receipt, true), disabled: !can('receipt.pdf') },
+    { label: 'Send Receipt via WhatsApp', icon: <MessageCircle size={14} />, onClick: () => openWhatsApp(receipt), disabled: !can('receipt.whatsappShare') },
+    { label: 'Sales Return', icon: <RotateCcw size={14} />, onClick: () => startReturn(receipt), disabled: !can('sales.return') },
+    { label: 'Create Credit Note', icon: <FileText size={14} />, onClick: () => createCreditNote(receipt), disabled: !can('sales.creditNote') },
+    { label: 'Duplicate as New Sale', icon: <CopyPlus size={14} />, onClick: () => duplicateReceipt(receipt), disabled: !can('sales.duplicateReceipt') },
+    { label: 'View Payment Detail', icon: <WalletCards size={14} />, onClick: () => openDetail(receipt, 'Payment'), disabled: !can('sales.paymentDetail.view') },
+    { label: 'View Delivery Detail', icon: <Truck size={14} />, onClick: () => openDetail(receipt, 'Delivery'), disabled: !can('delivery.view') || !delivery },
+    { label: 'Mark Reviewed', icon: <ShieldCheck size={14} />, onClick: () => markReviewed(receipt), disabled: !can('audit.view') },
+    { label: 'Export Row', icon: <Download size={14} />, onClick: () => exportRow(receipt), disabled: !can('reports.export') }
+  ];
+
   return (
-    <div className="space-y-5 text-xs industrial-font-sans">
-      <div className="bg-white border border-[#b1b5c2] p-4 flex flex-col lg:flex-row lg:items-end justify-between gap-3">
+    <div className="sales-history-page industrial-font-sans">
+      <div className="sales-history-hero">
         <div>
-          <div className="text-[10px] text-orange-600 font-black uppercase tracking-wider flex items-center gap-2">
+          <div className="sales-history-kicker">
             <Search className="w-4 h-4" />
             iTred Commerce POS
           </div>
-          <h2 className="text-xl font-black text-[#1e222b] uppercase mt-1">Sales History</h2>
-          <p className="text-[11px] text-slate-600 font-bold uppercase mt-1">
-            Receipt Search, Review, Returns, Credit Notes, and Transaction Audit
-          </p>
+          <h2>Sales History</h2>
+          <p>Receipt Search, Review, Returns, Credit Notes, and Transaction Audit</p>
         </div>
-        <div className="text-[10px] text-slate-500 font-bold uppercase">Mode: Build Development</div>
+        <div className="sales-history-mode">Mode: Build Development</div>
       </div>
 
       {notice && (
-        <div className="bg-orange-50 border border-orange-300 text-orange-900 px-3 py-2 font-bold uppercase">
+        <div className="sales-history-notice" role="status">
           {notice}
         </div>
       )}
 
-      <div className="bg-white border border-[#b1b5c2] p-4">
-        <div className="grid grid-cols-1 md:grid-cols-3 xl:grid-cols-5 gap-3">
+      <div className="sales-history-filter-card">
+        <div className="sales-history-filter-grid">
+          <HistoryField label="Any Order Search" value={filters.search} onChange={(value) => setFilters({ ...filters, search: value })} />
           <HistoryField label="Date From" type="date" value={filters.dateFrom} onChange={(value) => setFilters({ ...filters, dateFrom: value })} />
           <HistoryField label="Date To" type="date" value={filters.dateTo} onChange={(value) => setFilters({ ...filters, dateTo: value })} />
           <HistoryField label="Receipt Number" value={filters.receiptNumber} onChange={(value) => setFilters({ ...filters, receiptNumber: value })} />
@@ -112,99 +312,263 @@ export default function PosSalesHistory({ session, onNavigate }: PosSalesHistory
         </div>
       </div>
 
-      <div className="bg-white border border-[#b1b5c2] overflow-x-auto">
-        <table className="w-full min-w-[1100px] text-left">
-          <thead className="bg-[#1e222b] text-white">
-            <tr>
-              {['Receipt', 'Date', 'Customer', 'Cashier', 'Branch', 'Terminal', 'Payment', 'Delivery Method', 'Delivery Status', 'Cash Status', 'Code Status', 'Receipt Status', 'Total', 'Action'].map((heading) => (
-                <th key={heading} className="px-3 py-2 text-[10px] uppercase font-black">{heading}</th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((receipt) => (
-              <HistoryRow
-                key={receipt.id}
-                receipt={receipt}
-                delivery={deliveryByReceipt.get(receipt.receiptNumber)}
-                onAction={handleAction}
-                onOpenCustomerCentre={() => onNavigate?.('CUSTOMER_CENTRE')}
-                onOpenDelivery={() => onNavigate?.('DELIVERY')}
-              />
-            ))}
-          </tbody>
-        </table>
-      </div>
+      <section className="sales-history-card">
+        <div className="sales-history-card-header">
+          <strong>{rows.length} receipt(s)</strong>
+          <button type="button" className="sci-pos-button sci-pos-button--secondary" onClick={() => onNavigate?.('SALES')}>
+            Sales Returns Desk
+          </button>
+        </div>
+        <div className="sales-history-table-scroll pos-custom-scroll">
+          <table className="sales-history-table">
+            <thead>
+              <tr>
+                {['Receipt No.', 'Date/Time', 'Customer', 'Cashier', 'Terminal', 'Items', 'Payment', 'Tax', 'Total', 'Status', 'Action'].map((heading) => (
+                  <th key={heading}>{heading}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((receipt) => {
+                const delivery = deliveryByReceipt.get(receipt.receiptNumber);
+                const lines = receiptLines(receipt);
+                return (
+                  <tr key={receipt.id} className={reviewedReceipts.has(receipt.receiptNumber) ? 'sales-history-reviewed-row' : undefined}>
+                    <td><strong title={receipt.receiptNumber}>{receipt.receiptNumber}</strong></td>
+                    <td title={new Date(receipt.dateTime).toLocaleString()}>{new Date(receipt.dateTime).toLocaleString()}</td>
+                    <td title={`${receipt.customer.customerName} ${receipt.customer.customerPhone || ''}`}>{receipt.customer.customerName}<span>{receipt.customer.customerPhone || 'No phone'}</span></td>
+                    <td title={receipt.cashier}>{receipt.cashier}</td>
+                    <td title={`${receipt.terminal} | ${receipt.branch}`}>{receipt.terminal}<span>{receipt.branch}</span></td>
+                    <td title={lines.map((line) => `${line.sku} ${line.productName}`).join(', ')}>{lines.length} line(s)<span>{lines[0]?.sku || '-'}</span></td>
+                    <td title={receipt.paymentMode}>{receipt.paymentMode}<span>{delivery?.cashStatus || 'Payment captured'}</span></td>
+                    <td>{formatReceiptCurrency(receipt.vatTotal)}</td>
+                    <td><strong>{formatReceiptCurrency(receipt.grandTotal)}</strong></td>
+                    <td title={`${receipt.status} | ${delivery?.deliveryStatus || 'Not Linked'}`}>{receipt.status}<span>{delivery?.deliveryStatus || 'Not Linked'}</span></td>
+                    <td>
+                      <RowActionMenu
+                        ariaLabel={`Sales history actions for ${receipt.receiptNumber}`}
+                        open={openMenuReceipt === receipt.receiptNumber}
+                        onOpenChange={(open) => {
+                          setOpenMenuReceipt(open ? receipt.receiptNumber : null);
+                          if (open) recordEvent('SALES_HISTORY_ACTION_MENU_OPENED', `${receipt.receiptNumber} action menu opened.`);
+                        }}
+                        items={menuItemsFor(receipt, delivery)}
+                      />
+                    </td>
+                  </tr>
+                );
+              })}
+              {rows.length === 0 && (
+                <tr><td colSpan={11} className="sales-history-empty">No receipts match the selected filters.</td></tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      {printPreview && <ReceiptPrintDocument preview={printPreview} instruction={printInstruction} />}
+      <ReceiptOutputModal
+        preview={receiptOutputPreview}
+        canPrint={can('sales.reprintReceipt')}
+        canPdf={can('receipt.pdf')}
+        canWhatsApp={can('receipt.whatsappShare')}
+        onClose={() => setReceiptOutputPreview(null)}
+        onOpenSalesHistory={() => setReceiptOutputPreview(null)}
+        onActivity={recordEvent}
+      />
+      <DetailModalView
+        modal={detailModal}
+        receipt={detailReceipt}
+        delivery={detailReceipt ? deliveryByReceipt.get(detailReceipt.receiptNumber) : undefined}
+        onClose={() => { setDetailModal(null); setDetailReceipt(null); }}
+      />
+      <ReturnModal
+        receipt={returnReceipt}
+        quantities={returnQuantities}
+        reason={returnReason}
+        notes={returnNotes}
+        restock={returnRestock}
+        condition={returnCondition}
+        onQuantityChange={(lineId, value) => setReturnQuantities((current) => ({ ...current, [lineId]: value }))}
+        onReasonChange={setReturnReason}
+        onNotesChange={setReturnNotes}
+        onRestockChange={setReturnRestock}
+        onConditionChange={setReturnCondition}
+        onCreateDraft={() => finishReturn('Draft')}
+        onSubmitApproval={() => finishReturn('Approval')}
+        onClose={() => setReturnReceipt(null)}
+      />
+      {whatsAppReceipt && (
+        <div className="sales-history-modal-backdrop" onClick={() => setWhatsAppReceipt(null)}>
+          <section className="sales-history-modal sales-history-modal--sm" onClick={(event) => event.stopPropagation()}>
+            <ModalHeader title="WhatsApp Number" subtitle={whatsAppReceipt.receiptNumber} onClose={() => setWhatsAppReceipt(null)} />
+            <div className="sales-history-modal-body">
+              <HistoryField label="WhatsApp Number" value={whatsAppPhone} onChange={setWhatsAppPhone} />
+            </div>
+            <footer className="sales-history-modal-actions">
+              <button type="button" className="sci-pos-button sci-pos-button--primary" onClick={() => openWhatsApp(whatsAppReceipt, whatsAppPhone)}>Open WhatsApp</button>
+              <button type="button" className="sci-pos-button sci-pos-button--secondary" onClick={() => setWhatsAppReceipt(null)}>Cancel</button>
+            </footer>
+          </section>
+        </div>
+      )}
     </div>
   );
 }
 
-function HistoryRow({
-  receipt,
-  delivery,
-  onAction,
-  onOpenCustomerCentre,
-  onOpenDelivery
-}: {
-  key?: string;
-  receipt: ReceiptRecord;
-  delivery?: DeliveryRequest;
-  onAction: (permission: Parameters<typeof hasPermission>[1], label: string, receipt?: ReceiptRecord, delivery?: DeliveryRequest) => void;
-  onOpenCustomerCentre: () => void;
-  onOpenDelivery: () => void;
-}) {
+function DetailModalView({ modal, receipt, delivery, onClose }: { modal: DetailModal; receipt: ReceiptRecord | null; delivery?: DeliveryRequest; onClose: () => void }) {
+  if (!modal || !receipt) return null;
+  const lines = receiptLines(receipt);
+  const payments = mockReceiptPayments.filter((payment) => payment.receiptNumber === receipt.receiptNumber);
+  const title = modal === 'CAT' ? 'CAT Form Audit' : modal === 'Payment' ? 'Payment Detail' : modal === 'Delivery' ? 'Delivery Detail' : 'Credit Note Review';
   return (
-    <tr className="border-t border-[#d6d9e0] text-[11px] text-slate-700">
-      <td className="px-3 py-2 font-black text-[#1e222b]">{receipt.receiptNumber}</td>
-      <td className="px-3 py-2">{receipt.businessDate}</td>
-      <td className="px-3 py-2">{receipt.customer.customerName}</td>
-      <td className="px-3 py-2">{receipt.cashier}</td>
-      <td className="px-3 py-2">{receipt.branch}</td>
-      <td className="px-3 py-2">{receipt.terminal}</td>
-      <td className="px-3 py-2">{receipt.paymentMode}</td>
-      <td className="px-3 py-2">{delivery?.deliveryMethod || 'No Delivery'}</td>
-      <td className="px-3 py-2">{delivery?.deliveryStatus || 'Not Linked'}</td>
-      <td className="px-3 py-2">{delivery?.cashStatus || 'Not Required'}</td>
-      <td className="px-3 py-2">{delivery?.confirmationStatus || 'Code Pending'}</td>
-      <td className="px-3 py-2">{receipt.status}</td>
-      <td className="px-3 py-2 font-black">USD {receipt.grandTotal.toFixed(2)}</td>
-      <td className="px-3 py-2">
-        <div className="flex flex-wrap gap-1.5">
-          <HistoryButton icon={Eye} label="View Receipt" onClick={() => onAction('sales.viewHistory', 'View Receipt', receipt)} />
-          <HistoryButton icon={Eye} label="Open Delivery" onClick={onOpenDelivery} />
-          <HistoryButton icon={FileText} label="Open CAT Form Placeholder" onClick={() => onAction('sales.viewHistory', 'CAT Form', receipt, delivery)} />
-          <HistoryButton icon={Eye} label="Open Customer Centre" onClick={onOpenCustomerCentre} />
-          <HistoryButton icon={RotateCcw} label="Request Return Placeholder" onClick={() => onAction('returns.request', 'Return Request', receipt)} />
-          <HistoryButton icon={Undo2} label="Request Credit Note Placeholder" onClick={() => onAction('creditNotes.request', 'Credit Note Request', receipt)} />
+    <div className="sales-history-modal-backdrop" onClick={onClose}>
+      <section className="sales-history-modal" onClick={(event) => event.stopPropagation()}>
+        <ModalHeader title={title} subtitle={receipt.receiptNumber} onClose={onClose} />
+        <div className="sales-history-modal-body">
+          <div className="sales-history-detail-grid">
+            <Detail label="Customer" value={receipt.customer.customerName} />
+            <Detail label="Date / Time" value={new Date(receipt.dateTime).toLocaleString()} />
+            <Detail label="Cashier" value={receipt.cashier} />
+            <Detail label="Terminal" value={receipt.terminal} />
+            <Detail label="Subtotal" value={formatReceiptCurrency(receipt.subtotal)} />
+            <Detail label="VAT / Tax" value={formatReceiptCurrency(receipt.vatTotal)} />
+            <Detail label="Discount" value={formatReceiptCurrency(receipt.discountTotal)} />
+            <Detail label="Total" value={formatReceiptCurrency(receipt.grandTotal)} />
+            <Detail label="Receipt Status" value={receipt.status} />
+            <Detail label="Fiscal Placeholder" value={receipt.fiscalReferencePlaceholder || 'Not prepared'} />
+            <Detail label="Delivery" value={delivery ? `${delivery.deliveryMethod} | ${delivery.deliveryStatus}` : 'No linked delivery'} />
+            <Detail label="Delivery Address" value={delivery?.deliveryAddress || receipt.customer.deliveryAddress || 'No address'} />
+          </div>
+          <div className="sales-history-modal-table-wrap">
+            <table className="sales-history-modal-table">
+              <thead><tr><th>SKU</th><th>Item</th><th>Qty</th><th>Line Total</th></tr></thead>
+              <tbody>{lines.map((line) => <tr key={line.id}><td>{line.sku}</td><td>{line.productName}</td><td>{line.quantity}</td><td>{formatReceiptCurrency(line.lineTotal)}</td></tr>)}</tbody>
+            </table>
+          </div>
+          <div className="sales-history-detail-grid">
+            {payments.map((payment) => (
+              <div key={payment.id}>
+                <span>{payment.paymentMode}</span>
+                <strong>{formatReceiptCurrency(payment.amount)} | {payment.reference || 'No reference'} | {payment.confirmed ? 'Confirmed' : 'Pending'}</strong>
+              </div>
+            ))}
+          </div>
+          {modal === 'CreditNote' && <div className="sales-history-local-note">Credit note draft is local/mock only. No accounting, cashbook, or refund posting was created.</div>}
+          {modal === 'CAT' && <div className="sales-history-local-note">CAT audit view is read-only and combines receipt, tax, payment, inventory line, delivery, and local audit placeholders.</div>}
         </div>
-      </td>
-    </tr>
+        <footer className="sales-history-modal-actions">
+          <button type="button" className="sci-pos-button sci-pos-button--primary" onClick={onClose}>Close</button>
+        </footer>
+      </section>
+    </div>
   );
 }
 
-function HistoryButton({ icon: Icon, label, onClick }: { icon: typeof Eye; label: string; onClick: () => void }) {
+function ReturnModal({
+  receipt,
+  quantities,
+  reason,
+  notes,
+  restock,
+  condition,
+  onQuantityChange,
+  onReasonChange,
+  onNotesChange,
+  onRestockChange,
+  onConditionChange,
+  onCreateDraft,
+  onSubmitApproval,
+  onClose
+}: {
+  receipt: ReceiptRecord | null;
+  quantities: Record<string, number>;
+  reason: string;
+  notes: string;
+  restock: boolean;
+  condition: string;
+  onQuantityChange: (lineId: string, value: number) => void;
+  onReasonChange: (value: string) => void;
+  onNotesChange: (value: string) => void;
+  onRestockChange: (value: boolean) => void;
+  onConditionChange: (value: string) => void;
+  onCreateDraft: () => void;
+  onSubmitApproval: () => void;
+  onClose: () => void;
+}) {
+  if (!receipt) return null;
+  const lines = receiptLines(receipt);
   return (
-    <button type="button" onClick={onClick} className="border border-[#b1b5c2] bg-white hover:bg-orange-50 px-2 py-1 text-[9px] font-black uppercase flex items-center gap-1">
-      <Icon className="w-3 h-3 text-orange-600" />
-      {label}
-    </button>
+    <div className="sales-history-modal-backdrop" onClick={onClose}>
+      <section className="sales-history-modal" onClick={(event) => event.stopPropagation()}>
+        <ModalHeader title="Sales Return" subtitle={`${receipt.receiptNumber} | ${receipt.customer.customerName}`} onClose={onClose} />
+        <div className="sales-history-modal-body">
+          <div className="sales-history-detail-grid">
+            <Detail label="Receipt Number" value={receipt.receiptNumber} />
+            <Detail label="Sale Date" value={new Date(receipt.dateTime).toLocaleString()} />
+            <Detail label="Customer" value={receipt.customer.customerName} />
+            <Detail label="Refund Method" value="Placeholder - no refund API" />
+          </div>
+          <div className="sales-history-modal-table-wrap">
+            <table className="sales-history-modal-table">
+              <thead><tr><th>Select Line</th><th>Sold Qty</th><th>Return Qty</th><th>Reason</th></tr></thead>
+              <tbody>{lines.map((line) => {
+                const qty = quantities[line.id] || 0;
+                return (
+                  <tr key={line.id}>
+                    <td>{line.sku}<span>{line.productName}</span></td>
+                    <td>{line.quantity}</td>
+                    <td><input type="number" min={0} max={line.quantity} value={qty} onChange={(event) => onQuantityChange(line.id, Math.min(line.quantity, Math.max(0, Number(event.target.value) || 0)))} /></td>
+                    <td>{reason}</td>
+                  </tr>
+                );
+              })}</tbody>
+            </table>
+          </div>
+          <div className="sales-history-return-form">
+            <HistoryField label="Reason" value={reason} onChange={onReasonChange} />
+            <HistorySelect label="Condition" value={condition} options={['Good', 'Damaged', 'Opened', 'Wrong Item', 'Other']} onChange={onConditionChange} />
+            <label className="sales-history-checkbox"><input type="checkbox" checked={restock} onChange={(event) => onRestockChange(event.target.checked)} /> Restock if approved</label>
+            <label><span>Notes</span><textarea rows={3} value={notes} onChange={(event) => onNotesChange(event.target.value)} /></label>
+          </div>
+        </div>
+        <footer className="sales-history-modal-actions">
+          <button type="button" className="sci-pos-button sci-pos-button--primary" onClick={onCreateDraft}>Create Return Draft</button>
+          <button type="button" className="sci-pos-button sci-pos-button--secondary" onClick={onSubmitApproval}>Submit Return for Approval</button>
+          <button type="button" className="sci-pos-button sci-pos-button--secondary" onClick={onClose}>Cancel</button>
+        </footer>
+      </section>
+    </div>
   );
+}
+
+function ModalHeader({ title, subtitle, onClose }: { title: string; subtitle: string; onClose: () => void }) {
+  return (
+    <header className="sales-history-modal-header">
+      <div><h3>{title}</h3><span>{subtitle}</span></div>
+      <button type="button" className="sci-pos-icon-button" onClick={onClose} aria-label="Close modal"><X size={16} /></button>
+    </header>
+  );
+}
+
+function Detail({ label, value }: { label: string; value: string }) {
+  return <div><span>{label}</span><strong>{value}</strong></div>;
 }
 
 function HistoryField({ label, value, onChange, type = 'text' }: { label: string; value: string; onChange: (value: string) => void; type?: string }) {
   return (
-    <label className="space-y-1">
-      <span className="block text-[9px] text-slate-500 font-black uppercase">{label}</span>
-      <input type={type} value={value} onChange={(event) => onChange(event.target.value)} className="w-full border border-[#b1b5c2] px-2.5 py-2 text-[11px] font-bold" />
+    <label className="sales-history-field">
+      <span>{label}</span>
+      <input type={type} value={value} onChange={(event) => onChange(event.target.value)} />
     </label>
   );
 }
 
 function HistorySelect({ label, value, options, onChange }: { label: string; value: string; options: string[]; onChange: (value: string) => void }) {
   return (
-    <label className="space-y-1">
-      <span className="block text-[9px] text-slate-500 font-black uppercase">{label}</span>
-      <select value={value} onChange={(event) => onChange(event.target.value)} className="w-full border border-[#b1b5c2] px-2.5 py-2 text-[11px] font-bold">
+    <label className="sales-history-field">
+      <span>{label}</span>
+      <select value={value} onChange={(event) => onChange(event.target.value)}>
         {options.map((option) => <option key={option} value={option}>{option}</option>)}
       </select>
     </label>

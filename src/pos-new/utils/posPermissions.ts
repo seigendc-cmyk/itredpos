@@ -18,6 +18,10 @@ export type PermissionKey =
   | 'sales.reprintReceipt'
   | 'receipt.pdf'
   | 'receipt.whatsappShare'
+  | 'sales.return'
+  | 'sales.creditNote'
+  | 'sales.duplicateReceipt'
+  | 'sales.paymentDetail.view'
   | 'sales.creditRedeem'
   | 'sales.loyalty'
   | 'sales.accountSale'
@@ -141,6 +145,8 @@ export type PermissionKey =
   | 'delivery.cashReview'
   | 'delivery.providerManage'
   | 'delivery.export'
+  | 'audit.view'
+  | 'audit.export'
   | 'tasks.view'
   | 'tasks.assign'
   | 'tasks.close'
@@ -225,6 +231,10 @@ const ALL_PERMISSIONS: PermissionKey[] = [
   'sales.reprintReceipt',
   'receipt.pdf',
   'receipt.whatsappShare',
+  'sales.return',
+  'sales.creditNote',
+  'sales.duplicateReceipt',
+  'sales.paymentDetail.view',
   'sales.creditRedeem',
   'sales.loyalty',
   'sales.accountSale',
@@ -348,6 +358,8 @@ const ALL_PERMISSIONS: PermissionKey[] = [
   'delivery.cashReview',
   'delivery.providerManage',
   'delivery.export',
+  'audit.view',
+  'audit.export',
   'tasks.view',
   'tasks.assign',
   'tasks.close',
@@ -423,6 +435,7 @@ const ROLE_PERMISSIONS: Record<Role, PermissionKey[]> = {
   SysAdmin: ALL_PERMISSIONS,
   Manager: [
     'sales.open', 'sales.create', 'sales.complete', 'sales.hold', 'sales.viewHistory', 'sales.discount', 'sales.priceOverride', 'sales.void', 'sales.reprintReceipt', 'receipt.pdf', 'receipt.whatsappShare',
+    'sales.return', 'sales.creditNote', 'sales.duplicateReceipt', 'sales.paymentDetail.view',
     'sales.creditRedeem', 'sales.loyalty', 'sales.accountSale',
     'sales.profitSnapshot.view', 'sales.profitSnapshot.generate', 'sales.profitSnapshot.export', 'sales.profitSnapshot.print',
     'sales.miscellaneous.create', 'sales.miscellaneous.review', 'sales.miscellaneous.approve',
@@ -446,6 +459,7 @@ const ROLE_PERMISSIONS: Record<Role, PermissionKey[]> = {
     'stockTransfers.view', 'stockTransfers.create', 'stockTransfers.edit', 'stockTransfers.approve', 'stockTransfers.dispatch', 'stockTransfers.receive', 'stockTransfers.postReceipt', 'stockTransfers.cancel', 'stockTransfers.closeOutstanding', 'stockTransfers.export',
     'ideliver.createProvider', 'delivery.broadcast', 'delivery.review',
     'delivery.view', 'delivery.create', 'delivery.assign', 'delivery.track', 'delivery.verifyCode', 'delivery.complete', 'delivery.cancel', 'delivery.cashReview', 'delivery.providerManage', 'delivery.export',
+    'audit.view', 'audit.export',
     'tasks.view', 'tasks.assign', 'tasks.close',
     'approvals.view', 'approvals.approve', 'approvals.reject',
     'reports.view', 'reports.export',
@@ -460,6 +474,7 @@ const ROLE_PERMISSIONS: Record<Role, PermissionKey[]> = {
   ],
   Supervisor: [
     'sales.open', 'sales.create', 'sales.complete', 'sales.hold', 'sales.viewHistory', 'sales.discount', 'sales.priceOverride', 'sales.void', 'sales.reprintReceipt', 'receipt.whatsappShare',
+    'sales.return', 'sales.paymentDetail.view',
     'sales.loyalty',
     'sales.miscellaneous.create', 'sales.miscellaneous.review',
     'returns.request', 'returns.approve', 'creditNotes.request',
@@ -492,6 +507,7 @@ const ROLE_PERMISSIONS: Record<Role, PermissionKey[]> = {
   ],
   Cashier: [
     'sales.open', 'sales.create', 'sales.complete', 'sales.hold', 'sales.viewHistory', 'sales.reprintReceipt', 'receipt.whatsappShare',
+    'sales.paymentDetail.view',
     'sales.miscellaneous.create',
     'returns.request', 'creditNotes.request',
     'shift.view', 'shift.open', 'shift.close', 'terminal.history.view', 'shift.recovery.restore',
