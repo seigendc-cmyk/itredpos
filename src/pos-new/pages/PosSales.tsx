@@ -899,7 +899,7 @@ export default function PosSales({
   };
 
   return (
-    <div className="space-y-6 sales-terminal-shell">
+    <div className="sales-terminal-shell">
       <header className="sci-page-header sci-page-header--compact sales-terminal-page-header">
         <div>
           <p className="sci-pos-eyebrow">iTred Commerce POS - Vendor Commerce Terminal</p>
@@ -954,7 +954,7 @@ export default function PosSales({
         </div>
       )}
 
-      <div className="pos-sales-layout">
+      <div className="pos-sales-layout sales-terminal-workspace">
         <ProductSearchCard
           products={localProducts}
           branchName={branchName}
