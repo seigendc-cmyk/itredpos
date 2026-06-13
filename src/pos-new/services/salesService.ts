@@ -27,7 +27,7 @@ export interface HeldSaleRecord {
   heldBy: string;
   heldAt: string;
   note?: string;
-  status: 'Held' | 'Resumed' | 'Cancelled Placeholder';
+  status: 'Held' | 'Resumed' | 'Cancelled';
   paymentMethod: SalesPaymentMethod;
   paymentAmount?: string;
   paymentReference?: string;
@@ -97,8 +97,8 @@ export async function markHeldSaleResumed(heldSaleId: string, staffId: string): 
 export async function cancelHeldSalePlaceholder(heldSaleId: string, staffId: string, reason: string): Promise<HeldSaleRecord[]> {
   return saveHeldSales(readHeldSales().map((sale) => sale.id === heldSaleId ? {
     ...sale,
-    status: 'Cancelled Placeholder',
-    note: [sale.note, `${reason || 'Cancelled placeholder'} by ${staffId}`].filter(Boolean).join(' | ')
+    status: 'Cancelled',
+    note: [sale.note, `${reason || 'Cancelled'} by ${staffId}`].filter(Boolean).join(' | ')
   } : sale));
 }
 

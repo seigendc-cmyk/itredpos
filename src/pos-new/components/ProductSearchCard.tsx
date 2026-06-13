@@ -10,6 +10,7 @@ interface ProductSearchCardProps {
   onAddProduct: (product: Product) => void;
   onBlockedProduct?: (product: Product) => void;
   onBlockedStockAttempt?: (product: Product) => void;
+  onActivity?: (eventType: string, message: string) => void;
 }
 
 type StockFilter = 'ALL' | 'IN_STOCK' | 'LOW_STOCK' | 'OUT_OF_STOCK';
@@ -152,7 +153,8 @@ export default function ProductSearchCard({
   warehouseName = 'Main Warehouse',
   onAddProduct,
   onBlockedProduct,
-  onBlockedStockAttempt
+  onBlockedStockAttempt,
+  onActivity
 }: ProductSearchCardProps) {
   const [query, setQuery] = useState('');
   const [category, setCategory] = useState('ALL');
@@ -280,6 +282,7 @@ export default function ProductSearchCard({
     const safeFields = nextFields.length > 0 ? nextFields : defaultVisibleFields;
     setVisibleFieldsState(safeFields);
     savePreference(VISIBLE_FIELDS_KEY, safeFields);
+    onActivity?.('SALES_PRODUCT_FIELDS_UPDATED', `Product fields updated: ${safeFields.join(', ')}.`);
   };
 
   const toggleField = (field: ProductFieldKey) => {
@@ -321,6 +324,7 @@ export default function ProductSearchCard({
   const applyFilterCabinet = () => {
     setFilterCabinetOpen(false);
     setMessage('Product filters applied.');
+    onActivity?.('SALES_PRODUCT_FILTERS_APPLIED', `${filteredProducts.length} product result(s) after filters.`);
   };
 
   const renderFieldValue = (product: Product, field: ProductFieldConfig) => {

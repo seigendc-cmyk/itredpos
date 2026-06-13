@@ -1,30 +1,30 @@
 import {
+  AlertTriangle,
   Banknote,
   Calculator,
+  CheckCircle2,
+  ClipboardList,
   CreditCard,
-  FileText,
   MoreVertical,
-  Minus,
   PauseCircle,
-  Plus,
   ReceiptText,
   ShoppingCart,
-  Trash2,
   Truck,
   UserRound,
   XCircle
 } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { CartItem, CustomerRecord, VATMode } from '../types';
+import FloatingCartItemsCard from './FloatingCartItemsCard';
 
 export type SalesPaymentMethod =
   | 'Cash'
-  | 'EcoCash Placeholder'
-  | 'Innbucks Placeholder'
-  | 'Mukuru Placeholder'
-  | 'ZIPIT Placeholder'
+  | 'EcoCash'
+  | 'Innbucks'
+  | 'Mukuru'
+  | 'ZIPIT'
   | 'Bank Transfer'
-  | 'Card Placeholder'
+  | 'Card'
   | 'Credit / Account'
   | 'Mixed Payment'
   | 'Already Paid'
@@ -43,6 +43,51 @@ export type SalesCustomerMode =
   | 'Walk-in Customer'
   | 'Existing Customer'
   | 'New Customer Request';
+
+type CartToolPanel =
+  | 'discount'
+  | 'credit'
+  | 'loyalty'
+  | 'account'
+  | 'void'
+  | 'clear'
+  | 'notes'
+  | 'hold'
+  | null;
+
+export interface SalesDiscountPayload {
+  scope: 'Cart' | 'Line';
+  productId?: string;
+  type: 'Percentage' | 'Fixed Amount';
+  value: number;
+  reason: string;
+  notes?: string;
+}
+
+export interface SalesCreditRedemptionPayload {
+  amount: number;
+  reference: string;
+  notes?: string;
+}
+
+export interface SalesLoyaltyRedemptionPayload {
+  points: number;
+  value: number;
+  notes?: string;
+}
+
+export interface SalesCartNotesPayload {
+  internalNote: string;
+  receiptNote: string;
+  deliveryNote: string;
+}
+
+export type SalesWorkspaceClearMode = 'Search Only' | 'Cart and Draft' | 'Entire Workspace';
+
+export interface SalesVoidCartPayload {
+  reason: string;
+  keepCustomer: boolean;
+}
 
 export interface SalesPaymentLine {
   id: string;
@@ -90,8 +135,23 @@ interface SalesCartCardProps {
   vatMode: VATMode;
   vatRate: string;
   totals: SalesCartTotals;
+  cartDiscountAmount: number;
+  creditRedemptionAmount: number;
+  loyaltyRedemptionAmount: number;
+  cartInternalNote: string;
+  receiptNote: string;
+  cartDeliveryNote: string;
+  availableCredit: number;
+  availableLoyaltyPoints: number;
   canComplete: boolean;
   canReceivePayment: boolean;
+  canApplyDiscount: boolean;
+  canRedeemCredit: boolean;
+  canUseLoyalty: boolean;
+  canUseAccountSale: boolean;
+  canVoidCart: boolean;
+  canReprintReceipt: boolean;
+  canHoldSale: boolean;
   disableCompleteReason: string;
   onCustomerModeChange: (value: SalesCustomerMode) => void;
   onCustomerNameChange: (value: string) => void;
@@ -102,9 +162,24 @@ interface SalesCartCardProps {
   onCustomerNotesChange: (value: string) => void;
   onExistingCustomerSelect?: (customerId: string) => void;
   onSaveCustomerRequest: () => void;
+  onQuantitySet: (productId: string, quantity: number) => void;
   onQuantityChange: (productId: string, delta: number) => void;
   onRemoveItem: (productId: string) => void;
   onApplyLineDiscount: (productId: string) => void;
+  onCartNotice?: (message: string) => void;
+  onApplyCartDiscount: (payload: SalesDiscountPayload) => void;
+  onRedeemCredit: (payload: SalesCreditRedemptionPayload) => void;
+  onRedeemLoyalty: (payload: SalesLoyaltyRedemptionPayload) => void;
+  onApplyAccountPayment: () => void;
+  onVoidCart: (payload: SalesVoidCartPayload) => void;
+  onReprintLastReceipt: () => void;
+  onClearWorkspace: (mode: SalesWorkspaceClearMode) => void;
+  onSaveCartNotes: (payload: SalesCartNotesPayload) => void;
+  onPrepareIDeliverRequest: () => void;
+  onGenerateDeliveryCode: () => void;
+  onPrepareDeliveryWhatsApp: () => void;
+  onCustomerDetailsSaved: () => void;
+  onDeliveryDetailsSaved: () => void;
   onPaymentMethodChange: (value: SalesPaymentMethod) => void;
   onPaymentAmountChange: (value: string) => void;
   onPaymentReferenceChange: (value: string) => void;
@@ -127,12 +202,12 @@ interface SalesCartCardProps {
 
 const paymentMethods: SalesPaymentMethod[] = [
   'Cash',
-  'EcoCash Placeholder',
-  'Innbucks Placeholder',
-  'Mukuru Placeholder',
-  'ZIPIT Placeholder',
+  'EcoCash',
+  'Innbucks',
+  'Mukuru',
+  'ZIPIT',
   'Bank Transfer',
-  'Card Placeholder',
+  'Card',
   'Credit / Account',
   'Mixed Payment',
   'Already Paid',
@@ -151,12 +226,12 @@ const deliveryPaymentModes: SalesDeliveryPaymentMode[] = ['Already Paid', 'Cash 
 
 const paymentLabels: Record<SalesPaymentMethod, string> = {
   Cash: 'Cash',
-  'EcoCash Placeholder': 'EcoCash Placeholder',
-  'Innbucks Placeholder': 'Innbucks Placeholder',
-  'Mukuru Placeholder': 'Mukuru Placeholder',
-  'ZIPIT Placeholder': 'ZIPIT Placeholder',
+  EcoCash: 'EcoCash',
+  Innbucks: 'Innbucks',
+  Mukuru: 'Mukuru',
+  ZIPIT: 'ZIPIT',
   'Bank Transfer': 'Bank Transfer',
-  'Card Placeholder': 'Card Placeholder',
+  Card: 'Card',
   'Credit / Account': 'Credit / Account',
   'Mixed Payment': 'Mixed Payment',
   'Already Paid': 'Already Paid',
@@ -165,18 +240,6 @@ const paymentLabels: Record<SalesPaymentMethod, string> = {
 
 function money(value: number): string {
   return `USD ${value.toFixed(2)}`;
-}
-
-function unitPrice(item: CartItem): number {
-  return item.overriddenPrice ?? item.product.sellingPrice ?? item.product.price;
-}
-
-function lineDiscountAmount(item: CartItem): number {
-  return unitPrice(item) * item.quantity * (item.discount / 100);
-}
-
-function lineTotal(item: CartItem): number {
-  return unitPrice(item) * item.quantity - lineDiscountAmount(item);
 }
 
 export default function SalesCartCard({
@@ -207,8 +270,23 @@ export default function SalesCartCard({
   vatMode,
   vatRate,
   totals,
+  cartDiscountAmount,
+  creditRedemptionAmount,
+  loyaltyRedemptionAmount,
+  cartInternalNote,
+  receiptNote,
+  cartDeliveryNote,
+  availableCredit,
+  availableLoyaltyPoints,
   canComplete,
   canReceivePayment,
+  canApplyDiscount,
+  canRedeemCredit,
+  canUseLoyalty,
+  canUseAccountSale,
+  canVoidCart,
+  canReprintReceipt,
+  canHoldSale,
   disableCompleteReason,
   onCustomerModeChange,
   onCustomerNameChange,
@@ -219,9 +297,24 @@ export default function SalesCartCard({
   onCustomerNotesChange,
   onExistingCustomerSelect,
   onSaveCustomerRequest,
+  onQuantitySet,
   onQuantityChange,
   onRemoveItem,
   onApplyLineDiscount,
+  onCartNotice,
+  onApplyCartDiscount,
+  onRedeemCredit,
+  onRedeemLoyalty,
+  onApplyAccountPayment,
+  onVoidCart,
+  onReprintLastReceipt,
+  onClearWorkspace,
+  onSaveCartNotes,
+  onPrepareIDeliverRequest,
+  onGenerateDeliveryCode,
+  onPrepareDeliveryWhatsApp,
+  onCustomerDetailsSaved,
+  onDeliveryDetailsSaved,
   onPaymentMethodChange,
   onPaymentAmountChange,
   onPaymentReferenceChange,
@@ -247,6 +340,28 @@ export default function SalesCartCard({
   const [taxDrawerOpen, setTaxDrawerOpen] = useState(false);
   const [paymentDrawerOpen, setPaymentDrawerOpen] = useState(false);
   const [cartToolsOpen, setCartToolsOpen] = useState(false);
+  const [cartItemsOpen, setCartItemsOpen] = useState(false);
+  const [activeToolPanel, setActiveToolPanel] = useState<CartToolPanel>(null);
+  const [discountScope, setDiscountScope] = useState<'Cart' | 'Line'>('Cart');
+  const [discountProductId, setDiscountProductId] = useState('');
+  const [discountType, setDiscountType] = useState<'Percentage' | 'Fixed Amount'>('Percentage');
+  const [discountValue, setDiscountValue] = useState('5');
+  const [discountReason, setDiscountReason] = useState('');
+  const [discountNotes, setDiscountNotes] = useState('');
+  const [creditAmount, setCreditAmount] = useState('');
+  const [creditReference, setCreditReference] = useState('');
+  const [creditNotes, setCreditNotes] = useState('');
+  const [loyaltyPoints, setLoyaltyPoints] = useState('');
+  const [loyaltyNotes, setLoyaltyNotes] = useState('');
+  const [draftInternalNote, setDraftInternalNote] = useState(cartInternalNote);
+  const [draftReceiptNote, setDraftReceiptNote] = useState(receiptNote);
+  const [draftDeliveryNote, setDraftDeliveryNote] = useState(cartDeliveryNote);
+  const [voidReason, setVoidReason] = useState('');
+  const [voidKeepCustomer, setVoidKeepCustomer] = useState(true);
+  const [voidConfirmed, setVoidConfirmed] = useState(false);
+  const [clearMode, setClearMode] = useState<SalesWorkspaceClearMode>('Search Only');
+  const [holdReason, setHoldReason] = useState('');
+  const [holdExpiry, setHoldExpiry] = useState('');
   const filteredExistingCustomers = useMemo(() => {
     const query = customerSearch.trim().toLowerCase();
     return existingCustomers.filter((customer) => {
@@ -266,11 +381,100 @@ export default function SalesCartCard({
   }, [customerSearch, existingCustomers]);
   const selectedCustomer = existingCustomers.find((customer) => customer.customerId === selectedCustomerId);
   const itemCount = cart.reduce((sum, item) => sum + item.quantity, 0);
+  const lastCartItem = cart[cart.length - 1];
   const paymentStatus = totals.paymentReceived <= 0
     ? 'No payment captured'
     : totals.balanceDue > 0
       ? 'Partial payment'
       : 'Paid';
+  const knownCustomerSelected = customerMode !== 'Walk-in Customer' && Boolean(customerName.trim());
+  const loyaltyRedemptionValue = Math.min(Number(loyaltyPoints) || 0, availableLoyaltyPoints) * 0.01;
+
+  const openToolPanel = (panel: CartToolPanel) => {
+    setCartToolsOpen(false);
+    if (panel === 'notes') {
+      setDraftInternalNote(cartInternalNote);
+      setDraftReceiptNote(receiptNote);
+      setDraftDeliveryNote(cartDeliveryNote);
+    }
+    setActiveToolPanel(panel);
+  };
+
+  const submitDiscount = () => {
+    if (!canApplyDiscount) {
+      onCartNotice?.('You do not have permission to apply discounts.');
+      return;
+    }
+    const value = Math.max(0, Number(discountValue) || 0);
+    if (value <= 0) {
+      onCartNotice?.('Enter a discount value above zero.');
+      return;
+    }
+    onApplyCartDiscount({
+      scope: discountScope,
+      productId: discountScope === 'Line' ? discountProductId : undefined,
+      type: discountType,
+      value,
+      reason: discountReason.trim() || 'Local sale discount',
+      notes: discountNotes.trim() || undefined
+    });
+    setActiveToolPanel(null);
+  };
+
+  const submitCredit = () => {
+    if (!knownCustomerSelected) {
+      onCartNotice?.('Select a customer before redeeming credit.');
+      return;
+    }
+    if (!canRedeemCredit) {
+      onCartNotice?.('You do not have permission to redeem customer credit.');
+      return;
+    }
+    const amount = Math.max(0, Number(creditAmount) || 0);
+    if (amount <= 0) {
+      onCartNotice?.('Enter a credit redemption amount above zero.');
+      return;
+    }
+    onRedeemCredit({ amount, reference: creditReference.trim() || `CR-${Date.now().toString().slice(-6)}`, notes: creditNotes.trim() || undefined });
+    setActiveToolPanel(null);
+  };
+
+  const submitLoyalty = () => {
+    if (!knownCustomerSelected) {
+      onCartNotice?.('Select a customer before redeeming loyalty rewards.');
+      return;
+    }
+    if (!canUseLoyalty) {
+      onCartNotice?.('You do not have permission to redeem loyalty rewards.');
+      return;
+    }
+    const points = Math.max(0, Math.floor(Number(loyaltyPoints) || 0));
+    if (points <= 0) {
+      onCartNotice?.('Enter loyalty points above zero.');
+      return;
+    }
+    onRedeemLoyalty({ points, value: loyaltyRedemptionValue, notes: loyaltyNotes.trim() || undefined });
+    setActiveToolPanel(null);
+  };
+
+  const submitVoidCart = () => {
+    if (!canVoidCart) {
+      onCartNotice?.('You do not have permission to void the cart.');
+      return;
+    }
+    if (cart.length === 0) {
+      onCartNotice?.('Cart is already empty.');
+      return;
+    }
+    if (!voidConfirmed || !voidReason.trim()) {
+      onCartNotice?.('Enter a void reason and confirm the action.');
+      return;
+    }
+    onVoidCart({ reason: voidReason.trim(), keepCustomer: voidKeepCustomer });
+    setVoidConfirmed(false);
+    setVoidReason('');
+    setActiveToolPanel(null);
+  };
 
   return (
     <section className="sci-pos-card pos-cart-card sales-cart-shell" aria-labelledby="cart-title">
@@ -284,6 +488,11 @@ export default function SalesCartCard({
             <ReceiptText size={16} aria-hidden="true" />
             Draft Receipt
           </div>
+          <button type="button" className="sales-cart-items-trigger" onClick={() => setCartItemsOpen(true)}>
+            <ShoppingCart size={16} aria-hidden="true" />
+            Cart Items
+            <span>{itemCount}</span>
+          </button>
           <div className="sales-cart-tools-host">
             <button type="button" className="sci-pos-icon-button" onClick={() => setCartToolsOpen((current) => !current)} aria-label="Cart tools" aria-expanded={cartToolsOpen}>
               <MoreVertical size={16} aria-hidden="true" />
@@ -293,12 +502,15 @@ export default function SalesCartCard({
                 <button type="button" className="sales-menu-dismiss-layer" aria-label="Close cart tools" onClick={() => setCartToolsOpen(false)} />
                 <div className="sales-cart-tools-menu">
                   <strong>Cart Tools</strong>
-                  <button type="button" onClick={() => setCartToolsOpen(false)}>Apply Discount Placeholder</button>
-                  <button type="button" onClick={() => setCartToolsOpen(false)}>Redeem Credit Placeholder</button>
-                  <button type="button" onClick={() => setCartToolsOpen(false)}>Loyalty Placeholder</button>
-                  <button type="button" onClick={() => setCartToolsOpen(false)}>Customer Account Placeholder</button>
-                  <button type="button" onClick={() => setCartToolsOpen(false)}>Void Cart Placeholder</button>
-                  <button type="button" onClick={() => setCartToolsOpen(false)}>Reprint Last Receipt Placeholder</button>
+                  <button type="button" disabled={!canApplyDiscount} onClick={() => openToolPanel('discount')}>Apply Discount</button>
+                  <button type="button" disabled={!canRedeemCredit} onClick={() => openToolPanel('credit')}>Redeem Credit</button>
+                  <button type="button" disabled={!canUseLoyalty} onClick={() => openToolPanel('loyalty')}>Loyalty / Rewards</button>
+                  <button type="button" disabled={!canUseAccountSale} onClick={() => openToolPanel('account')}>Customer Account</button>
+                  <button type="button" disabled={!canVoidCart} onClick={() => openToolPanel('void')}>Void Cart</button>
+                  <button type="button" disabled={!canReprintReceipt} onClick={() => { setCartToolsOpen(false); onReprintLastReceipt(); }}>Reprint Last Receipt</button>
+                  <button type="button" onClick={() => openToolPanel('clear')}>Clear Workspace</button>
+                  <button type="button" onClick={() => openToolPanel('notes')}>Cart Notes</button>
+                  <button type="button" disabled={!canHoldSale || cart.length === 0} onClick={() => openToolPanel('hold')}>Suspend / Hold Sale</button>
                 </div>
               </>
             )}
@@ -321,37 +533,13 @@ export default function SalesCartCard({
             </div>
             <span>{itemCount} item(s)</span>
           </div>
-          <div className="pos-cart-items">
-            {cart.map((item) => (
-              <div key={item.product.id} className="pos-cart-line">
-                <div className="pos-cart-line__product">
-                  <strong title={item.product.productName || item.product.name}>{item.product.productName || item.product.name}</strong>
-                  <span className="sales-sku">{item.product.sku || item.product.code}</span>
-                </div>
-                <div className="pos-cart-line__controls">
-                  <div className="pos-qty-stepper">
-                    <button type="button" onClick={() => onQuantityChange(item.product.id, -1)} disabled={item.quantity <= 1} aria-label="Decrease quantity">
-                      <Minus size={14} aria-hidden="true" />
-                    </button>
-                    <span>{item.quantity}</span>
-                    <button type="button" onClick={() => onQuantityChange(item.product.id, 1)} aria-label="Increase quantity">
-                      <Plus size={14} aria-hidden="true" />
-                    </button>
-                  </div>
-                  <span className="pos-cart-line__metric">Unit {money(unitPrice(item))}</span>
-                  <button type="button" className="sci-pos-link-button" onClick={() => onApplyLineDiscount(item.product.id)}>
-                    {item.discount > 0 ? `Discount ${item.discount}%` : 'Apply Discount'}
-                  </button>
-                  <strong className="pos-cart-line__total">{money(lineTotal(item))}</strong>
-                  <button type="button" className="cart-icon-cta pos-cart-remove" onClick={() => onRemoveItem(item.product.id)} title="Remove item" aria-label="Remove item">
-                    <Trash2 size={16} aria-hidden="true" />
-                  </button>
-                </div>
-              </div>
-            ))}
-            {cart.length === 0 && (
-              <div className="industrial-empty-state">Cart is empty. Add products from the product search card.</div>
-            )}
+          <div className="sales-cart-items-summary">
+            <span>Items <strong>{itemCount}</strong></span>
+            <span>Subtotal <strong>{money(totals.subtotal)}</strong></span>
+            <span>Last Added <strong>{lastCartItem ? `${lastCartItem.product.productName || lastCartItem.product.name} x${lastCartItem.quantity}` : 'None'}</strong></span>
+            <button type="button" className="sci-pos-button sci-pos-button--secondary" onClick={() => setCartItemsOpen(true)} disabled={cart.length === 0}>
+              View / Edit Cart Items
+            </button>
           </div>
         </section>
 
@@ -427,6 +615,8 @@ export default function SalesCartCard({
       <footer className="sales-cart-footer" aria-label="Checkout Totals">
         <div className="sales-cart-footer-totals">
           <span>Subtotal <strong>{money(totals.subtotal)}</strong></span>
+          <span>Discount <strong>{money(totals.discountTotal)}</strong></span>
+          <span>Credit / Loyalty <strong>{money(creditRedemptionAmount + loyaltyRedemptionAmount)}</strong></span>
           <span>Tax <strong>{vatMode === 'Not VAT Registered' ? 'None' : money(totals.taxTotal)}</strong></span>
           <span>Delivery <strong>{money(totals.deliveryFee)}</strong></span>
           <span>Paid <strong>{money(totals.paymentReceived)}</strong></span>
@@ -444,6 +634,114 @@ export default function SalesCartCard({
           </button>
         </div>
       </footer>
+      <FloatingCartItemsCard
+        open={cartItemsOpen}
+        cart={cart}
+        subtotal={totals.subtotal}
+        onClose={() => setCartItemsOpen(false)}
+        onQuantitySet={onQuantitySet}
+        onQuantityChange={onQuantityChange}
+        onRemoveItem={onRemoveItem}
+        onApplyLineDiscount={onApplyLineDiscount}
+        onHoldSale={onHoldSale}
+        onNotice={onCartNotice}
+      />
+      {activeToolPanel && (
+        <div className="sales-drawer-backdrop" onClick={() => setActiveToolPanel(null)}>
+          <aside className="sales-drawer sales-tool-drawer" onClick={(event) => event.stopPropagation()} aria-label="Cart tool">
+            <div className="sales-drawer-header">
+              <div>
+                <p className="sci-pos-eyebrow">Cart Tools</p>
+                <h3>{activeToolPanel === 'discount' ? 'Apply Discount' : activeToolPanel === 'credit' ? 'Redeem Credit' : activeToolPanel === 'loyalty' ? 'Loyalty / Rewards' : activeToolPanel === 'account' ? 'Customer Account' : activeToolPanel === 'void' ? 'Void Cart' : activeToolPanel === 'clear' ? 'Clear Workspace' : activeToolPanel === 'hold' ? 'Suspend / Hold Sale' : 'Cart Notes'}</h3>
+              </div>
+              <button type="button" className="sci-pos-icon-button" onClick={() => setActiveToolPanel(null)} aria-label="Close cart tool"><XCircle size={16} aria-hidden="true" /></button>
+            </div>
+            <div className="sales-drawer-body">
+              {activeToolPanel === 'discount' && (
+                <section className="sales-drawer-section">
+                  <div className="sales-tool-summary"><AlertTriangle size={16} /><span>High discounts are flagged locally for manager review.</span></div>
+                  <label>Discount Scope<select value={discountScope} onChange={(event) => setDiscountScope(event.target.value as 'Cart' | 'Line')}><option value="Cart">Whole Cart</option><option value="Line">Selected Line</option></select></label>
+                  {discountScope === 'Line' && <label>Cart Line<select value={discountProductId} onChange={(event) => setDiscountProductId(event.target.value)}><option value="">Select line</option>{cart.map((item) => <option key={item.product.id} value={item.product.id}>{item.product.productName || item.product.name}</option>)}</select></label>}
+                  <label>Discount Type<select value={discountType} onChange={(event) => setDiscountType(event.target.value as 'Percentage' | 'Fixed Amount')}><option value="Percentage">Percentage</option><option value="Fixed Amount">Fixed Amount</option></select></label>
+                  <label>Discount Value<input type="number" min="0" value={discountValue} onChange={(event) => setDiscountValue(event.target.value)} /></label>
+                  <label>Reason<input value={discountReason} onChange={(event) => setDiscountReason(event.target.value)} placeholder="Damaged pack, customer retention, manager approved..." /></label>
+                  <label>Notes<textarea rows={3} value={discountNotes} onChange={(event) => setDiscountNotes(event.target.value)} /></label>
+                  <div className="sales-tool-summary"><CheckCircle2 size={16} /><span>Current cart discount: <strong>{money(cartDiscountAmount)}</strong></span></div>
+                </section>
+              )}
+              {activeToolPanel === 'credit' && (
+                <section className="sales-drawer-section">
+                  <div className="pos-placeholder-card"><strong>{customerName || 'No customer selected'}</strong><span>Available local credit: {money(availableCredit)}</span><span>Current redemption: {money(creditRedemptionAmount)}</span></div>
+                  <label>Redeem Amount<input type="number" min="0" value={creditAmount} onChange={(event) => setCreditAmount(event.target.value)} /></label>
+                  <label>Credit Note / Reference<input value={creditReference} onChange={(event) => setCreditReference(event.target.value)} placeholder="Credit note or manager reference" /></label>
+                  <label>Notes<textarea rows={3} value={creditNotes} onChange={(event) => setCreditNotes(event.target.value)} /></label>
+                </section>
+              )}
+              {activeToolPanel === 'loyalty' && (
+                <section className="sales-drawer-section">
+                  <div className="pos-placeholder-card"><strong>{customerName || 'No customer selected'}</strong><span>Available points: {availableLoyaltyPoints}</span><span>Estimated earned points: {Math.floor(totals.grandTotal)}</span><span>Redemption value: {money(loyaltyRedemptionValue)}</span></div>
+                  <label>Points to Redeem<input type="number" min="0" value={loyaltyPoints} onChange={(event) => setLoyaltyPoints(event.target.value)} /></label>
+                  <label>Notes<textarea rows={3} value={loyaltyNotes} onChange={(event) => setLoyaltyNotes(event.target.value)} /></label>
+                </section>
+              )}
+              {activeToolPanel === 'account' && (
+                <section className="sales-drawer-section">
+                  <div className="sales-account-grid">
+                    <div><span>Customer</span><strong>{customerName || 'No customer selected'}</strong></div>
+                    <div><span>Phone</span><strong>{customerPhone || customerWhatsApp || '-'}</strong></div>
+                    <div><span>Account Status</span><strong>{knownCustomerSelected ? 'Local Active' : 'Select customer'}</strong></div>
+                    <div><span>Credit Limit</span><strong>{money(availableCredit + 250)}</strong></div>
+                    <div><span>Available Credit</span><strong>{money(availableCredit)}</strong></div>
+                    <div><span>Outstanding Balance</span><strong>{money(Math.max(0, 250 - availableCredit))}</strong></div>
+                    <div><span>Last Purchase</span><strong>Local recent sale</strong></div>
+                  </div>
+                  <label>Account Note<textarea rows={3} value={customerNotes} onChange={(event) => onCustomerNotesChange(event.target.value)} /></label>
+                </section>
+              )}
+              {activeToolPanel === 'void' && (
+                <section className="sales-drawer-section">
+                  <div className="sales-tool-summary sales-tool-summary--danger"><AlertTriangle size={16} /><span>Void clears the active local cart and draft reductions. Completed receipts are not deleted.</span></div>
+                  <label>Reason<textarea rows={3} value={voidReason} onChange={(event) => setVoidReason(event.target.value)} /></label>
+                  <label className="sales-profit-check"><input type="checkbox" checked={voidKeepCustomer} onChange={(event) => setVoidKeepCustomer(event.target.checked)} /> Keep customer details</label>
+                  <label className="sales-profit-check"><input type="checkbox" checked={voidConfirmed} onChange={(event) => setVoidConfirmed(event.target.checked)} /> Confirm void cart</label>
+                </section>
+              )}
+              {activeToolPanel === 'clear' && (
+                <section className="sales-drawer-section">
+                  <label>Clear Mode<select value={clearMode} onChange={(event) => setClearMode(event.target.value as SalesWorkspaceClearMode)}><option value="Search Only">Clear Search Only</option><option value="Cart and Draft">Clear Cart and Draft</option><option value="Entire Workspace">Clear Entire Workspace</option></select></label>
+                  <div className="pos-placeholder-card">Completed receipts and held sale history are retained.</div>
+                </section>
+              )}
+              {activeToolPanel === 'notes' && (
+                <section className="sales-drawer-section">
+                  <label>Internal Sale Note<textarea rows={3} value={draftInternalNote} onChange={(event) => setDraftInternalNote(event.target.value)} /></label>
+                  <label>Receipt Note<textarea rows={3} value={draftReceiptNote} onChange={(event) => setDraftReceiptNote(event.target.value)} /></label>
+                  <label>Delivery Note Handoff<textarea rows={3} value={draftDeliveryNote} onChange={(event) => setDraftDeliveryNote(event.target.value)} /></label>
+                </section>
+              )}
+              {activeToolPanel === 'hold' && (
+                <section className="sales-drawer-section">
+                  <div className="sales-tool-summary"><ClipboardList size={16} /><span>{itemCount} item(s), {money(totals.grandTotal)} held by {cashierName}</span></div>
+                  <label>Reason / Note<textarea rows={3} value={holdReason} onChange={(event) => setHoldReason(event.target.value)} /></label>
+                  <label>Hold Expiry<input type="datetime-local" value={holdExpiry} onChange={(event) => setHoldExpiry(event.target.value)} /></label>
+                </section>
+              )}
+            </div>
+            <div className="sales-drawer-actions">
+              {activeToolPanel === 'discount' && <button type="button" className="sci-pos-button sci-pos-button--primary" onClick={submitDiscount}>Apply Discount</button>}
+              {activeToolPanel === 'credit' && <button type="button" className="sci-pos-button sci-pos-button--primary" onClick={submitCredit}>Redeem Credit</button>}
+              {activeToolPanel === 'loyalty' && <button type="button" className="sci-pos-button sci-pos-button--primary" onClick={submitLoyalty}>Redeem Rewards</button>}
+              {activeToolPanel === 'account' && <button type="button" className="sci-pos-button sci-pos-button--primary" disabled={!canUseAccountSale || !knownCustomerSelected} onClick={() => { onApplyAccountPayment(); setActiveToolPanel(null); }}>Apply Account Payment Method</button>}
+              {activeToolPanel === 'account' && <button type="button" className="sci-pos-button sci-pos-button--secondary" onClick={() => onCartNotice?.('Customer Centre opened from sale context locally.')}>Open Customer Centre</button>}
+              {activeToolPanel === 'void' && <button type="button" className="sci-pos-button sci-pos-button--primary" onClick={submitVoidCart}>Void Cart</button>}
+              {activeToolPanel === 'clear' && <button type="button" className="sci-pos-button sci-pos-button--primary" onClick={() => { onClearWorkspace(clearMode); setActiveToolPanel(null); }}>Clear Workspace</button>}
+              {activeToolPanel === 'notes' && <button type="button" className="sci-pos-button sci-pos-button--primary" onClick={() => { onSaveCartNotes({ internalNote: draftInternalNote, receiptNote: draftReceiptNote, deliveryNote: draftDeliveryNote }); setActiveToolPanel(null); }}>Save Notes</button>}
+              {activeToolPanel === 'hold' && <button type="button" className="sci-pos-button sci-pos-button--primary" disabled={!canHoldSale || cart.length === 0} onClick={() => { onPaymentReferenceChange(holdExpiry ? `${holdReason || 'Held sale'} | Expiry ${holdExpiry}` : holdReason); onHoldSale(); setActiveToolPanel(null); }}>Hold Sale</button>}
+              <button type="button" className="sci-pos-button sci-pos-button--secondary" onClick={() => setActiveToolPanel(null)}>Close</button>
+            </div>
+          </aside>
+        </div>
+      )}
       {taxDrawerOpen && (
         <div className="sales-drawer-backdrop" onClick={() => setTaxDrawerOpen(false)}>
           <aside className="sales-drawer" onClick={(event) => event.stopPropagation()} aria-label="Tax Details">
@@ -458,7 +756,7 @@ export default function SalesCartCard({
                 <div className="pos-tax-status"><span>VAT Amount</span><strong>{money(totals.taxTotal)}</strong></div>
                 <div className="pos-tax-status"><span>VAT Registered Status</span><strong>{vatMode === 'Not VAT Registered' ? 'VAT not charged.' : 'VAT Registered'}</strong></div>
                 <div className="pos-tax-status"><span>Tax Number</span><strong>{customerTaxNumber || 'No customer tax number'}</strong></div>
-                <label>Tax Notes Placeholder<textarea rows={3} placeholder="Tax notes placeholder. No tax posting rules are changed." /></label>
+                <label>Tax Notes<textarea rows={3} placeholder="Tax notes. No tax posting rules are changed." /></label>
               </section>
             </div>
             <div className="sales-drawer-actions">
@@ -480,11 +778,11 @@ export default function SalesCartCard({
                 <label>Payment Method<select value={paymentMethod} onChange={(event) => onPaymentMethodChange(event.target.value as SalesPaymentMethod)}>{paymentMethods.map((method) => <option key={method} value={method}>{paymentLabels[method]}</option>)}</select></label>
                 <label>Payment Amount<input type="number" min="0" value={paymentAmount} onChange={(event) => onPaymentAmountChange(event.target.value)} /></label>
                 <label>Payment Notes<input value={paymentReference} onChange={(event) => onPaymentReferenceChange(event.target.value)} placeholder="Add payment reference, mobile money confirmation, bank note, or cashier note..." /></label>
-                <label>Reference Number / Confirmation Code Placeholder<input value={paymentReference} onChange={(event) => onPaymentReferenceChange(event.target.value)} placeholder="Reference or confirmation code" /></label>
+                <label>Reference Number / Confirmation Code<input value={paymentReference} onChange={(event) => onPaymentReferenceChange(event.target.value)} placeholder="Reference or confirmation code" /></label>
                 <div className="sales-payment-placeholder-grid">
-                  <div><span>Split Payment Placeholder</span><strong>{paymentMethod === 'Mixed Payment' ? 'Selected' : 'Available'}</strong></div>
-                  <div><span>Cash Tendered Placeholder</span><strong>{money(Number(paymentAmount) || 0)}</strong></div>
-                  <div><span>Change Due Placeholder</span><strong>{money(totals.changeDue)}</strong></div>
+                  <div><span>Split Payment</span><strong>{paymentMethod === 'Mixed Payment' ? 'Selected' : 'Available'}</strong></div>
+                  <div><span>Cash Tendered</span><strong>{money(Number(paymentAmount) || 0)}</strong></div>
+                  <div><span>Change Due</span><strong>{money(totals.changeDue)}</strong></div>
                 </div>
                 <div className="pos-payment-lines">
                   {payments.length === 0 ? (
@@ -522,7 +820,7 @@ export default function SalesCartCard({
                 <label>Customer Type<select value={customerMode} onChange={(event) => onCustomerModeChange(event.target.value as SalesCustomerMode)}><option value="Walk-in Customer">Walk-in Customer</option><option value="Existing Customer">Existing Customer</option><option value="New Customer Request">New Customer Request</option></select></label>
                 {customerMode === 'Existing Customer' && (
                   <>
-                    <label>Existing Customer Lookup Placeholder<input value={customerSearch} onChange={(event) => setCustomerSearch(event.target.value)} placeholder="Search name, phone, WhatsApp, tax no." /></label>
+                <label>Existing Customer Lookup<input value={customerSearch} onChange={(event) => setCustomerSearch(event.target.value)} placeholder="Search name, phone, WhatsApp, tax no." /></label>
                     <label>Existing Customer<select value={selectedCustomerId} onChange={(event) => onExistingCustomerSelect?.(event.target.value)}><option value="">Select active customer</option>{filteredExistingCustomers.map((customer) => <option key={customer.customerId} value={customer.customerId}>{customer.customerName} - {customer.customerCode}</option>)}</select></label>
                     {selectedCustomer && <div className="pos-placeholder-card"><strong>{selectedCustomer.customerName}</strong><span>Tax: {selectedCustomer.taxNumber || 'No tax number'} | Credit: {selectedCustomer.creditStatus}</span><span>Billing: {selectedCustomer.billingAddress || 'No billing address'}</span><span>Delivery: {selectedCustomer.deliveryAddress || 'No delivery address'}</span></div>}
                   </>
@@ -530,15 +828,15 @@ export default function SalesCartCard({
                 <label>Customer Name<input value={customerName} onChange={(event) => onCustomerNameChange(event.target.value)} placeholder="Walk-in Customer" /></label>
                 <label>Phone<input value={customerPhone} onChange={(event) => onCustomerPhoneChange(event.target.value)} placeholder="+263" /></label>
                 <label>WhatsApp<input value={customerWhatsApp} onChange={(event) => onCustomerWhatsAppChange(event.target.value)} placeholder="+263" /></label>
-                <label>Address<input value={customerAddress} onChange={(event) => onCustomerAddressChange(event.target.value)} placeholder="Customer address placeholder" /></label>
-                <label>Tax Number<input value={customerTaxNumber} onChange={(event) => onCustomerTaxNumberChange(event.target.value)} placeholder="Tax number placeholder" /></label>
+                <label>Address<input value={customerAddress} onChange={(event) => onCustomerAddressChange(event.target.value)} placeholder="Customer address" /></label>
+                <label>Tax Number<input value={customerTaxNumber} onChange={(event) => onCustomerTaxNumberChange(event.target.value)} placeholder="Tax number" /></label>
                 <label>Customer Notes<textarea value={customerNotes} onChange={(event) => onCustomerNotesChange(event.target.value)} placeholder="Customer notes" rows={3} /></label>
-                <div className="pos-placeholder-card">New Customer Request Placeholder remains local until saved.</div>
+                <div className="pos-placeholder-card">New customer request is saved locally and queued when offline sync is active.</div>
               </section>
             </div>
             <div className="sales-drawer-actions">
-              <button type="button" className="sci-pos-button sci-pos-button--primary" onClick={() => setCustomerDrawerOpen(false)}>Save Customer Details</button>
-              <button type="button" className="sci-pos-button sci-pos-button--secondary" onClick={onSaveCustomerRequest}>New Customer Request Placeholder</button>
+              <button type="button" className="sci-pos-button sci-pos-button--primary" onClick={() => { onCustomerDetailsSaved(); setCustomerDrawerOpen(false); }}>Save Customer Details</button>
+              <button type="button" className="sci-pos-button sci-pos-button--secondary" onClick={onSaveCustomerRequest}>Create New Customer Request</button>
               <button type="button" className="sci-pos-button sci-pos-button--secondary" onClick={() => { onCustomerModeChange('Walk-in Customer'); setCustomerDrawerOpen(false); }}>Clear Customer</button>
               <button type="button" className="sci-pos-button sci-pos-button--secondary" onClick={() => setCustomerDrawerOpen(false)}>Close</button>
             </div>
@@ -561,12 +859,14 @@ export default function SalesCartCard({
                 <label>Delivery Address<input value={deliveryAddress} onChange={(event) => onDeliveryAddressChange(event.target.value)} placeholder="Delivery address" /></label>
                 <label>WhatsApp<input value={deliveryWhatsApp} onChange={(event) => onDeliveryWhatsAppChange(event.target.value)} placeholder="+263" /></label>
                 <label>Delivery Notes<textarea value={deliveryNotes} onChange={(event) => onDeliveryNotesChange(event.target.value)} placeholder="Delivery notes" rows={3} /></label>
-                <div className="pos-placeholder-card">iDeliver Broadcast Placeholder and Fulfilment Code Placeholder stay local until sale completion.</div>
+                <div className="pos-placeholder-card">Delivery, iDeliver broadcast, fulfilment code, and WhatsApp message drafts stay local until sale completion.</div>
               </section>
             </div>
             <div className="sales-drawer-actions">
-              <button type="button" className="sci-pos-button sci-pos-button--primary" onClick={() => setDeliveryDrawerOpen(false)}>Save Delivery Details</button>
-              <button type="button" className="sci-pos-button sci-pos-button--secondary" onClick={() => setDeliveryDrawerOpen(false)}>Prepare iDeliver Request Placeholder</button>
+              <button type="button" className="sci-pos-button sci-pos-button--primary" onClick={() => { onDeliveryDetailsSaved(); setDeliveryDrawerOpen(false); }}>Save Delivery Details</button>
+              <button type="button" className="sci-pos-button sci-pos-button--secondary" onClick={onPrepareIDeliverRequest}>Prepare iDeliver Request</button>
+              <button type="button" className="sci-pos-button sci-pos-button--secondary" onClick={onGenerateDeliveryCode}>Generate Fulfilment Code</button>
+              <button type="button" className="sci-pos-button sci-pos-button--secondary" onClick={onPrepareDeliveryWhatsApp}>Prepare WhatsApp Message</button>
               <button type="button" className="sci-pos-button sci-pos-button--secondary" onClick={() => { onDeliveryModeChange('No Delivery'); onDeliveryFeeChange('0'); onDeliveryAddressChange(''); onDeliveryWhatsAppChange(''); onDeliveryNotesChange(''); setDeliveryDrawerOpen(false); }}>Clear Delivery</button>
               <button type="button" className="sci-pos-button sci-pos-button--secondary" onClick={() => setDeliveryDrawerOpen(false)}>Close</button>
             </div>

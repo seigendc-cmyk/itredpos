@@ -653,6 +653,61 @@ export interface SalePayment {
   reference?: string;
 }
 
+export type SalesProfitPeriod = 'Today' | 'Current Shift' | 'This Week' | 'This Month' | 'Custom';
+
+export type SalesProfitSnapshotStatus = 'Ready' | 'Empty' | 'Restricted' | 'Generated' | 'Error';
+
+export interface SalesProfitSnapshotFilter {
+  period: SalesProfitPeriod;
+  dateFrom?: string;
+  dateTo?: string;
+  branchId?: string;
+  terminalId?: string;
+  cashierStaffId?: string;
+  includeHeldSales?: boolean;
+  includeReturns?: boolean;
+  includeDeliveryFees?: boolean;
+  includeOpex?: boolean;
+}
+
+export interface SalesProfitSnapshotMetric {
+  label: string;
+  value: number | string;
+  tone?: 'Neutral' | 'Good' | 'Warning' | 'Danger';
+}
+
+export interface SalesProfitSnapshotPayload {
+  snapshotId: string;
+  generatedAt: string;
+  generatedBy: string;
+  period: SalesProfitPeriod;
+  dateFrom?: string;
+  dateTo?: string;
+  branchName: string;
+  terminalName: string;
+  cashierName: string;
+  grossSalesRevenue: number;
+  returnsValue: number;
+  netSalesRevenue: number;
+  cogs: number;
+  grossProfit: number;
+  opex: number;
+  netDrawerProfit: number;
+  salesCount: number;
+  itemCount: number;
+  averageGrossMargin: number;
+  notes: string;
+  status: SalesProfitSnapshotStatus;
+}
+
+export interface SalesProfitSnapshotActivityEvent {
+  eventId: string;
+  eventType: 'SALES_PROFIT_SNAPSHOT_GENERATED' | 'SALES_PROFIT_SNAPSHOT_PRINT_PLACEHOLDER' | 'SALES_PROFIT_SNAPSHOT_EXPORT_PLACEHOLDER' | 'SALES_PROFIT_SNAPSHOT_RESTRICTED';
+  message: string;
+  staffId?: string;
+  createdAt: string;
+}
+
 export interface Sale {
   id: string;
   invoiceNo: string;

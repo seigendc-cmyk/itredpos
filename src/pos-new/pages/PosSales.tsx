@@ -1,16 +1,22 @@
-import React, { useEffect, useMemo, useState } from 'react';
-import { ArrowRight, Clock, FileText, History, Menu, Printer, RotateCcw, ShieldCheck, X } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
+import { History, Menu, Printer, RotateCcw, ShieldCheck, X } from 'lucide-react';
 import ProductSearchCard from '../components/ProductSearchCard';
 import SalesCartCard, {
   DeliveryMode,
+  SalesCartNotesPayload,
+  SalesCreditRedemptionPayload,
   SalesDeliveryPaymentMode,
   SalesDeliveryPriority,
+  SalesDiscountPayload,
   SalesCustomerMode,
   SalesPaymentLine,
-  SalesPaymentMethod
+  SalesPaymentMethod,
+  SalesVoidCartPayload,
+  SalesWorkspaceClearMode
 } from '../components/SalesCartCard';
 import ReceiptPreview80mm from '../components/ReceiptPreview80mm';
 import SalesReceiptReviewModal from '../components/SalesReceiptReviewModal';
+import SalesProfitSnapshotCard from '../components/SalesProfitSnapshotCard';
 import { mockProducts, mockRecentSales } from '../mock/mockPosData';
 import { createAccountingPostingPlaceholder } from '../services/accountingService';
 import { biEventService } from '../services/biEventService';
@@ -65,7 +71,7 @@ type SalesWorkspaceDrawer = 'recentReceipts' | 'heldSales' | 'activityFeed' | nu
 
 const DEFAULT_PRODUCTS = mockProducts;
 const VENDOR_ID = 'SCI-LOG-ZW';
-const paymentReferenceRequired = new Set<SalesPaymentMethod>(['EcoCash Placeholder', 'Innbucks Placeholder', 'Mukuru Placeholder', 'ZIPIT Placeholder', 'Bank Transfer', 'Card Placeholder']);
+const paymentReferenceRequired = new Set<SalesPaymentMethod>(['EcoCash', 'Innbucks', 'Mukuru', 'ZIPIT', 'Bank Transfer', 'Card']);
 
 function money(value: number): string {
   return `USD ${value.toFixed(2)}`;
@@ -93,7 +99,7 @@ function branchIdFromName(branchName: string): string {
 
 function receiptPaymentMode(method: SalesPaymentMethod): PaymentMode {
   if (method === 'Credit / Account') return 'Credit Sale';
-  if (method === 'Card Placeholder') return 'CARD';
+  if (method === 'Card') return 'CARD';
   if (method === 'Mixed Payment') return 'Split Payment';
   if (method === 'Already Paid' || method === 'No Payment Due') return 'Cash';
   return method;
@@ -152,6 +158,14 @@ export default function PosSales({
   const [deliveryPaymentMode, setDeliveryPaymentMode] = useState<SalesDeliveryPaymentMode>('Already Paid');
   const [vatMode, setVatMode] = useState<VATMode>('Inclusive');
   const [vatRate, setVatRate] = useState('15');
+  const [cartDiscountAmount, setCartDiscountAmount] = useState(0);
+  const [creditRedemptionAmount, setCreditRedemptionAmount] = useState(0);
+  const [loyaltyRedemptionAmount, setLoyaltyRedemptionAmount] = useState(0);
+  const [cartInternalNote, setCartInternalNote] = useState('');
+  const [receiptNote, setReceiptNote] = useState('');
+  const [cartDeliveryNote, setCartDeliveryNote] = useState('');
+  const [deliveryFulfilmentCode, setDeliveryFulfilmentCode] = useState('');
+  const [deliveryDraftMessage, setDeliveryDraftMessage] = useState('');
   const [heldSales, setHeldSales] = useState<HeldSaleRecord[]>([]);
   const [recentSales, setRecentSales] = useState<Sale[]>(mockRecentSales.slice(0, 5));
   const [auditEvents, setAuditEvents] = useState<SalesAuditEvent[]>([]);
@@ -161,6 +175,7 @@ export default function PosSales({
   const [preparedReceiptPreview, setPreparedReceiptPreview] = useState<ReceiptPrintPreview | null>(null);
   const [workspaceMenuOpen, setWorkspaceMenuOpen] = useState(false);
   const [workspaceDrawer, setWorkspaceDrawer] = useState<SalesWorkspaceDrawer>(null);
+  const [profitSnapshotOpen, setProfitSnapshotOpen] = useState(false);
   const [heldSaleSearch, setHeldSaleSearch] = useState('');
   const [recentReceiptSearch, setRecentReceiptSearch] = useState('');
   const [activitySearch, setActivitySearch] = useState('');
@@ -199,12 +214,14 @@ export default function PosSales({
   }, 0), [cart]);
   const parsedDeliveryFee = Math.max(0, Number(deliveryFee) || 0);
   const parsedVatRate = Math.max(0, Number(vatRate) || 0);
+  const taxableSubtotal = Math.max(0, subtotal - cartDiscountAmount);
   const taxTotal = useMemo(() => {
     if (vatMode === 'Not VAT Registered') return 0;
-    if (vatMode === 'Exclusive') return calculateVATExclusive(subtotal, parsedVatRate).vatAmount;
-    return calculateVATInclusive(subtotal, parsedVatRate).vatAmount;
-  }, [parsedVatRate, subtotal, vatMode]);
-  const grandTotal = vatMode === 'Exclusive' ? subtotal + taxTotal + parsedDeliveryFee : subtotal + parsedDeliveryFee;
+    if (vatMode === 'Exclusive') return calculateVATExclusive(taxableSubtotal, parsedVatRate).vatAmount;
+    return calculateVATInclusive(taxableSubtotal, parsedVatRate).vatAmount;
+  }, [parsedVatRate, taxableSubtotal, vatMode]);
+  const grandTotalBeforeCredit = vatMode === 'Exclusive' ? taxableSubtotal + taxTotal + parsedDeliveryFee : taxableSubtotal + parsedDeliveryFee;
+  const grandTotal = Math.max(0, grandTotalBeforeCredit - creditRedemptionAmount - loyaltyRedemptionAmount);
   const paymentReceived = payments.reduce((sum, payment) => sum + payment.amount, 0);
   const changeDue = Math.max(0, paymentReceived - grandTotal);
   const balanceDue = Math.max(0, grandTotal - paymentReceived);
@@ -212,6 +229,10 @@ export default function PosSales({
     payments.some((payment) => ['Credit / Account', 'Already Paid', 'No Payment Due'].includes(payment.method));
   const canComplete = cart.length > 0 && (creditSaleAllowed || paymentReceived >= grandTotal);
   const canCompleteWithPermission = canComplete && canPerformAction(roleName, 'sales.complete');
+  const canViewProfitSnapshot = canPerformAction(roleName, 'sales.profitSnapshot.view');
+  const canGenerateProfitSnapshot = canPerformAction(roleName, 'sales.profitSnapshot.generate');
+  const canExportProfitSnapshot = canPerformAction(roleName, 'sales.profitSnapshot.export');
+  const canPrintProfitSnapshot = canPerformAction(roleName, 'sales.profitSnapshot.print');
   const disableCompleteReason = cart.length === 0
     ? 'Cart is empty.'
     : !canPerformAction(roleName, 'sales.complete')
@@ -244,7 +265,29 @@ export default function PosSales({
       SALE_COMPLETED: 'Sale Completed',
       RECEIPT_DRAFTED: 'Receipt Drafted',
       SALE_BLOCKED_SHIFT_OR_TERMINAL: 'Sale Blocked: Terminal or Shift',
-      CUSTOMER_SELECTED_FOR_SALE: 'Customer Selected for Sale'
+      CUSTOMER_SELECTED_FOR_SALE: 'Customer Selected for Sale',
+      SALES_DISCOUNT_APPLIED: 'Discount Applied',
+      CUSTOMER_CREDIT_REDEEMED_LOCAL: 'Customer Credit Redeemed',
+      LOYALTY_POINTS_REDEEMED_LOCAL: 'Loyalty Redeemed',
+      LOYALTY_POINTS_EARNED_ESTIMATE: 'Loyalty Earned Estimate',
+      CUSTOMER_ACCOUNT_VIEWED_FROM_SALE: 'Customer Account Viewed',
+      SALE_CART_VOIDED: 'Cart Voided',
+      SALES_WORKSPACE_CLEARED: 'Workspace Cleared',
+      SALE_CART_NOTE_UPDATED: 'Cart Notes Updated',
+      RECEIPT_REPRINT_PREPARED: 'Receipt Reprint Prepared',
+      RECEIPT_DUPLICATED_TO_NEW_CART: 'Receipt Duplicated',
+      PAYMENT_LINE_ADDED: 'Payment Added',
+      PAYMENT_LINE_REMOVED: 'Payment Removed',
+      PAYMENT_DRAFT_CLEARED: 'Payment Draft Cleared',
+      CUSTOMER_DETAILS_UPDATED: 'Customer Details Updated',
+      NEW_CUSTOMER_REQUEST_CREATED_FROM_SALE: 'New Customer Request',
+      DELIVERY_DETAILS_UPDATED: 'Delivery Details Updated',
+      IDELIVER_REQUEST_PREPARED_LOCAL: 'iDeliver Request Prepared',
+      DELIVERY_CODE_GENERATED: 'Delivery Code Generated',
+      WHATSAPP_DELIVERY_MESSAGE_PREPARED: 'WhatsApp Message Prepared',
+      SALES_PRODUCT_FILTERS_APPLIED: 'Product Filters Applied',
+      SALES_PRODUCT_FIELDS_UPDATED: 'Product Fields Updated',
+      CAT_FORM_OPENED_LOCAL: 'CAT Form Opened'
     };
     return titles[eventType] || eventType.toLowerCase().split('_').map((word) => word.charAt(0).toUpperCase() + word.slice(1)).join(' ');
   };
@@ -269,6 +312,14 @@ export default function PosSales({
     setCustomerAddress('');
     setCustomerTaxNumber('');
     setCustomerNotes('');
+    setCartDiscountAmount(0);
+    setCreditRedemptionAmount(0);
+    setLoyaltyRedemptionAmount(0);
+    setCartInternalNote('');
+    setReceiptNote('');
+    setCartDeliveryNote('');
+    setDeliveryFulfilmentCode('');
+    setDeliveryDraftMessage('');
   };
 
   const filteredRecentSales = useMemo(() => recentSales.filter((sale) => matchesFreeOrderSearch(sale, recentReceiptSearch, [
@@ -300,6 +351,16 @@ export default function PosSales({
     'message',
     'time'
   ])), [activitySearch, auditEvents]);
+
+  const selectedCustomer = activeCustomers.find((customer) => customer.customerId === selectedCustomerId);
+  const availableCustomerCredit = customerMode === 'Walk-in Customer' ? 0 : Math.max(25, 300 - Math.abs(selectedCustomer?.currentBalance || 0));
+  const availableLoyaltyPoints = customerMode === 'Walk-in Customer' ? 0 : Math.max(100, Math.floor((selectedCustomer?.currentBalance || 0) + customerName.length * 18));
+
+  const resetSaleReductions = () => {
+    setCartDiscountAmount(0);
+    setCreditRedemptionAmount(0);
+    setLoyaltyRedemptionAmount(0);
+  };
 
   const handleRemoveItem = (productId: string) => {
     const removedItem = cart.find((item) => item.product.id === productId);
@@ -362,7 +423,7 @@ export default function PosSales({
       requestedByStaffName: staffName,
       requestedByRole: roleName
     });
-    logEvent('CUSTOMER_CREATED_PENDING', `${created.customerName} customer request saved locally.`);
+    logEvent('NEW_CUSTOMER_REQUEST_CREATED_FROM_SALE', `${created.customerName} customer request saved locally.`);
     const network = await getNetworkStatus();
     if (network === 'Offline' || network === 'Unstable') {
       await enqueueOfflineAction({
@@ -451,16 +512,105 @@ export default function PosSales({
     }));
   };
 
+  const handleQuantitySet = (productId: string, quantity: number) => {
+    const requestedQuantity = Math.max(1, Math.floor(quantity || 1));
+    setCart((current) => current.map((item) => {
+      if (item.product.id !== productId) return item;
+      const availableStock = productStock(localProducts.find((product) => product.id === productId) || item.product);
+      if (requestedQuantity > availableStock) {
+        setStatusMessage('Cannot set quantity above available stock.');
+        return item;
+      }
+      return { ...item, quantity: requestedQuantity };
+    }));
+  };
+
   const handleApplyLineDiscount = (productId: string) => {
     if (!canPerformAction(roleName, 'sales.discount')) {
       setStatusMessage('Current role cannot apply line discounts.');
       return;
     }
     setCart((current) => current.map((item) => item.product.id === productId ? { ...item, discount: item.discount > 0 ? 0 : 5 } : item));
-    logEvent('DISCOUNT_APPLIED', 'Line discount placeholder updated.');
+    logEvent('SALES_DISCOUNT_APPLIED', 'Line discount updated locally.');
+  };
+
+  const handleApplyCartDiscount = (payload: SalesDiscountPayload) => {
+    if (!canPerformAction(roleName, 'sales.discount')) {
+      setStatusMessage('You do not have permission to apply discounts.');
+      return;
+    }
+    if (payload.scope === 'Line' && payload.productId) {
+      setCart((current) => current.map((item) => {
+        if (item.product.id !== payload.productId) return item;
+        const lineBase = (item.overriddenPrice ?? productPrice(item.product)) * item.quantity;
+        const discountPercent = payload.type === 'Percentage'
+          ? Math.min(100, payload.value)
+          : Math.min(100, (Math.min(payload.value, lineBase) / Math.max(lineBase, 1)) * 100);
+        return { ...item, discount: Number(discountPercent.toFixed(2)) };
+      }));
+    } else {
+      const nextDiscount = payload.type === 'Percentage'
+        ? subtotal * (Math.min(100, payload.value) / 100)
+        : payload.value;
+      setCartDiscountAmount(Math.min(subtotal, Math.max(0, nextDiscount)));
+    }
+    const highDiscount = payload.type === 'Percentage' ? payload.value >= 15 : payload.value >= subtotal * 0.15;
+    setStatusMessage(highDiscount ? 'Discount applied locally. Manager approval warning recorded.' : 'Discount applied locally.');
+    logEvent('SALES_DISCOUNT_APPLIED', `${payload.scope} discount applied. Reason: ${payload.reason}.`);
+  };
+
+  const handleRedeemCredit = (payload: SalesCreditRedemptionPayload) => {
+    if (!canPerformAction(roleName, 'sales.creditRedeem') && !canPerformAction(roleName, 'customers.creditView')) {
+      setStatusMessage('You do not have permission to redeem customer credit.');
+      return;
+    }
+    if (customerMode === 'Walk-in Customer') {
+      setStatusMessage('Select a customer before redeeming credit.');
+      return;
+    }
+    const maxRedeem = Math.min(availableCustomerCredit, grandTotalBeforeCredit);
+    const amount = Math.min(maxRedeem, Math.max(0, payload.amount));
+    setCreditRedemptionAmount(amount);
+    setStatusMessage(`Customer credit redeemed locally for ${money(amount)}.`);
+    logEvent('CUSTOMER_CREDIT_REDEEMED_LOCAL', `${money(amount)} redeemed with reference ${payload.reference}.`);
+  };
+
+  const handleRedeemLoyalty = (payload: SalesLoyaltyRedemptionPayload) => {
+    if (!canPerformAction(roleName, 'sales.loyalty')) {
+      setStatusMessage('You do not have permission to redeem loyalty rewards.');
+      return;
+    }
+    if (customerMode === 'Walk-in Customer') {
+      setStatusMessage('Select a customer before redeeming loyalty rewards.');
+      return;
+    }
+    const points = Math.min(availableLoyaltyPoints, Math.max(0, payload.points));
+    const amount = Math.min(grandTotalBeforeCredit, payload.value || points * 0.01);
+    setLoyaltyRedemptionAmount(amount);
+    setStatusMessage(`Loyalty rewards redeemed locally for ${money(amount)}.`);
+    logEvent('LOYALTY_POINTS_REDEEMED_LOCAL', `${points} point(s) redeemed.`);
+    logEvent('LOYALTY_POINTS_EARNED_ESTIMATE', `${Math.floor(grandTotal)} point(s) estimated from this sale.`);
+  };
+
+  const handleApplyAccountPayment = () => {
+    if (!canPerformAction(roleName, 'sales.accountSale') && !canPerformAction(roleName, 'customers.creditView')) {
+      setStatusMessage('You do not have permission to apply account sale payment.');
+      return;
+    }
+    if (customerMode === 'Walk-in Customer') {
+      setStatusMessage('Select a customer before applying account payment.');
+      return;
+    }
+    setPaymentMethod('Credit / Account');
+    setStatusMessage('Customer account payment method applied locally.');
+    logEvent('CUSTOMER_ACCOUNT_VIEWED_FROM_SALE', `${customerName} account viewed and applied to sale.`);
   };
 
   const handleAddPayment = () => {
+    if (!canPerformAction(roleName, 'payment.capture') && !canPerformAction(roleName, 'sales.complete')) {
+      setStatusMessage('You do not have permission to capture payment.');
+      return;
+    }
     const amount = Number(paymentAmount);
     if (!Number.isFinite(amount) || amount <= 0) {
       setStatusMessage('Enter a payment amount above zero.');
@@ -478,7 +628,7 @@ export default function PosSales({
     }, ...current]);
     setPaymentAmount('');
     setPaymentReference('');
-    logEvent('PAYMENT_METHOD_SELECTED', `${paymentMethod} payment added for ${money(amount)}.`);
+    logEvent('PAYMENT_LINE_ADDED', `${paymentMethod} payment added for ${money(amount)}.`);
   };
 
   const validateSale = (): string | null => {
@@ -559,7 +709,7 @@ export default function PosSales({
       })),
       subtotal,
       tax: taxTotal,
-      discount: lineDiscountTotal,
+      discount: lineDiscountTotal + cartDiscountAmount + creditRedemptionAmount + loyaltyRedemptionAmount,
       total: grandTotal,
       paymentMethod: salePaymentMethod(payments[0]?.method || paymentMethod),
       cashReceived: paymentReceived,
@@ -795,7 +945,14 @@ export default function PosSales({
   };
 
   const handleHoldSale = async () => {
-    if (cart.length === 0) return;
+    if (!canPerformAction(roleName, 'sales.hold')) {
+      setStatusMessage('You do not have permission to hold sales.');
+      return;
+    }
+    if (cart.length === 0) {
+      setStatusMessage('Cart is empty.');
+      return;
+    }
     const hold = await holdCurrentSale({
       customerMode,
       selectedCustomerId,
@@ -871,7 +1028,7 @@ export default function PosSales({
   const handleCancelHeldSale = async (heldSale: HeldSaleRecord) => {
     await cancelHeldSalePlaceholder(heldSale.id, staffName, 'Cancelled from Held Sales drawer');
     setHeldSales(await getHeldSales());
-    setStatusMessage(`Cancel held sale placeholder recorded for ${heldSale.heldSaleNumber}.`);
+    setStatusMessage(`Held sale cancelled locally for ${heldSale.heldSaleNumber}.`);
   };
 
   const handleOpenReceiptReview = (sale: Sale) => {
@@ -891,6 +1048,148 @@ export default function PosSales({
     clearCartState();
     setStatusMessage('Sale cancelled.');
     logEvent('SALE_CANCELLED', 'Current sale was cancelled and cart cleared.');
+  };
+
+  const handleVoidCart = (payload: SalesVoidCartPayload) => {
+    if (!canPerformAction(roleName, 'sales.void')) {
+      setStatusMessage('You do not have permission to void the cart.');
+      return;
+    }
+    if (cart.length === 0) {
+      setStatusMessage('Cart is already empty.');
+      return;
+    }
+    const keepCustomer = payload.keepCustomer;
+    const preservedCustomer = { customerMode, selectedCustomerId, customerName, customerPhone, customerWhatsApp, customerAddress, customerTaxNumber, customerNotes };
+    clearCartState();
+    if (keepCustomer) {
+      setCustomerMode(preservedCustomer.customerMode);
+      setSelectedCustomerId(preservedCustomer.selectedCustomerId);
+      setCustomerName(preservedCustomer.customerName);
+      setCustomerPhone(preservedCustomer.customerPhone);
+      setCustomerWhatsApp(preservedCustomer.customerWhatsApp);
+      setCustomerAddress(preservedCustomer.customerAddress);
+      setCustomerTaxNumber(preservedCustomer.customerTaxNumber);
+      setCustomerNotes(preservedCustomer.customerNotes);
+    }
+    setStatusMessage('Cart voided locally.');
+    logEvent('SALE_CART_VOIDED', `Cart voided. Reason: ${payload.reason}.`);
+  };
+
+  const handleClearWorkspace = (mode: SalesWorkspaceClearMode) => {
+    if (mode === 'Search Only') {
+      setHeldSaleSearch('');
+      setRecentReceiptSearch('');
+      setActivitySearch('');
+    }
+    if (mode === 'Cart and Draft' || mode === 'Entire Workspace') {
+      clearCartState();
+    }
+    if (mode === 'Entire Workspace') {
+      setHeldSaleSearch('');
+      setRecentReceiptSearch('');
+      setActivitySearch('');
+      setWorkspaceDrawer(null);
+      setWorkspaceMenuOpen(false);
+      setReceiptPreview(null);
+      setReceiptReviewSale(null);
+      setPreparedReceiptPreview(null);
+    }
+    setStatusMessage(`${mode} cleared locally.`);
+    logEvent('SALES_WORKSPACE_CLEARED', `${mode} cleared from Sales Terminal.`);
+  };
+
+  const handleSaveCartNotes = (payload: SalesCartNotesPayload) => {
+    setCartInternalNote(payload.internalNote);
+    setReceiptNote(payload.receiptNote);
+    setCartDeliveryNote(payload.deliveryNote);
+    if (payload.deliveryNote) setDeliveryNotes(payload.deliveryNote);
+    setStatusMessage('Cart notes saved locally.');
+    logEvent('SALE_CART_NOTE_UPDATED', payload.internalNote || payload.receiptNote || payload.deliveryNote || 'Cart notes cleared.');
+  };
+
+  const handleReprintSale = (sale: Sale) => {
+    if (!canPerformAction(roleName, 'sales.reprintReceipt')) {
+      setStatusMessage('You do not have permission to reprint receipts.');
+      return;
+    }
+    setReceiptReviewSale(sale);
+    setStatusMessage(`Reprint prepared for ${sale.invoiceNo}. Use browser print from the receipt preview.`);
+    logEvent('RECEIPT_REPRINT_PREPARED', `${sale.invoiceNo} prepared for reprint.`);
+  };
+
+  const handleReprintLastReceipt = () => {
+    const lastReceipt = recentSales.find((sale) => String(sale.status).toUpperCase() === 'COMPLETED') || recentSales[0];
+    if (!lastReceipt) {
+      setStatusMessage('No recent receipt available for reprint.');
+      return;
+    }
+    handleReprintSale(lastReceipt);
+  };
+
+  const handleDuplicateSaleToCart = (sale: Sale) => {
+    if (!canPerformAction(roleName, 'sales.open')) {
+      setStatusMessage('You do not have permission to duplicate this receipt.');
+      return;
+    }
+    const confirmed = window.confirm(`Duplicate ${sale.invoiceNo} into a new editable cart? Stock will not change until the new sale is completed.`);
+    if (!confirmed) return;
+    const nextCart: CartItem[] = sale.items.map((item) => {
+      const product = localProducts.find((row) => row.id === item.productId || productSku(row) === item.code) || {
+        id: item.productId,
+        code: item.code,
+        name: item.name,
+        category: 'Duplicated Receipt',
+        price: item.price,
+        cost: item.price * 0.62,
+        stock: item.quantity,
+        availableStock: item.quantity,
+        minStock: 0,
+        unit: 'EA',
+        sku: item.code,
+        productName: item.name,
+        sellingPrice: item.price
+      };
+      return { product, quantity: item.quantity, discount: 0, overriddenPrice: item.price };
+    });
+    setCart(nextCart);
+    setCustomerName(sale.customerName || 'Walk-in Customer');
+    setPaymentMethod('Cash');
+    setPayments([]);
+    resetSaleReductions();
+    setWorkspaceDrawer(null);
+    setReceiptReviewSale(null);
+    setStatusMessage(`${sale.invoiceNo} duplicated into a new cart.`);
+    logEvent('RECEIPT_DUPLICATED_TO_NEW_CART', `${sale.invoiceNo} duplicated into active cart.`);
+  };
+
+  const handlePrepareIDeliverRequest = () => {
+    if (!canPerformAction(roleName, 'delivery.create') && !canPerformAction(roleName, 'delivery.broadcast')) {
+      setStatusMessage('You do not have permission to prepare delivery requests.');
+      return;
+    }
+    setDeliveryMode('iDeliver Service');
+    const code = deliveryFulfilmentCode || `${Math.floor(100000 + Math.random() * 900000)}`;
+    setDeliveryFulfilmentCode(code);
+    setStatusMessage(`Local iDeliver request prepared. Fulfilment code ${code}.`);
+    logEvent('IDELIVER_REQUEST_PREPARED_LOCAL', `iDeliver draft prepared for ${customerName}.`);
+  };
+
+  const handleGenerateDeliveryCode = () => {
+    const code = `${Math.floor(100000 + Math.random() * 900000)}`;
+    setDeliveryFulfilmentCode(code);
+    setStatusMessage(`Fulfilment code generated locally: ${code}.`);
+    logEvent('DELIVERY_CODE_GENERATED', `Fulfilment code ${code} generated locally.`);
+  };
+
+  const handlePrepareDeliveryWhatsApp = () => {
+    const code = deliveryFulfilmentCode || `${Math.floor(100000 + Math.random() * 900000)}`;
+    setDeliveryFulfilmentCode(code);
+    const message = `Hi ${customerName || 'Customer'}, your ${deliveryMode} order from ${branchName} is being prepared. Fulfilment code: ${code}. Total: ${money(grandTotal)}.`;
+    setDeliveryDraftMessage(message);
+    setDeliveryNotes([deliveryNotes, message].filter(Boolean).join('\n'));
+    setStatusMessage('WhatsApp delivery message prepared locally.');
+    logEvent('WHATSAPP_DELIVERY_MESSAGE_PREPARED', message);
   };
 
   const openWorkspaceDrawer = (drawer: SalesWorkspaceDrawer) => {
@@ -920,9 +1219,12 @@ export default function PosSales({
                   <button type="button" onClick={() => openWorkspaceDrawer('recentReceipts')}>Recent Receipts</button>
                   <button type="button" onClick={() => openWorkspaceDrawer('heldSales')}>Held Sales</button>
                   <button type="button" onClick={() => openWorkspaceDrawer('activityFeed')}>Sales Activity Feed</button>
-                  <button type="button" onClick={() => { setPreparedReceiptPreview(preparedReceiptPreview); setStatusMessage('Draft Receipt placeholder is ready in the checkout workspace.'); setWorkspaceMenuOpen(false); }}>Draft Receipt</button>
+                  {canViewProfitSnapshot && (
+                    <button type="button" onClick={() => { setProfitSnapshotOpen(true); setWorkspaceMenuOpen(false); }}>Sales Profit Snapshot</button>
+                  )}
+                  <button type="button" onClick={() => { setStatusMessage(`Draft receipt prepared locally. Items: ${cart.length}, total: ${money(grandTotal)}${receiptNote ? `, note: ${receiptNote}` : ''}.`); logEvent('RECEIPT_DRAFTED', 'Draft receipt prepared from active cart.'); setWorkspaceMenuOpen(false); }}>Draft Receipt</button>
                   <button type="button" onClick={() => { onNavigate('SALES_HISTORY'); setWorkspaceMenuOpen(false); }}>Open Sales History</button>
-                  <button type="button" onClick={() => { setStatusMessage('Clear Workspace placeholder prepared. Use Cancel Sale to clear an active cart.'); setWorkspaceMenuOpen(false); }}>Clear Workspace Placeholder</button>
+                  <button type="button" onClick={() => { handleClearWorkspace('Entire Workspace'); setWorkspaceMenuOpen(false); }}>Clear Workspace</button>
                 </div>
               </>
             )}
@@ -962,6 +1264,7 @@ export default function PosSales({
           onAddProduct={handleAddProduct}
           onBlockedProduct={handleBlockedProduct}
           onBlockedStockAttempt={handleBlockedProduct}
+          onActivity={logEvent}
         />
         <SalesCartCard
           cart={cart}
@@ -992,7 +1295,7 @@ export default function PosSales({
           vatRate={vatRate}
           totals={{
             subtotal,
-            discountTotal: lineDiscountTotal,
+            discountTotal: lineDiscountTotal + cartDiscountAmount,
             taxTotal,
             deliveryFee: parsedDeliveryFee,
             grandTotal,
@@ -1000,8 +1303,23 @@ export default function PosSales({
             changeDue,
             balanceDue
           }}
+          cartDiscountAmount={cartDiscountAmount}
+          creditRedemptionAmount={creditRedemptionAmount}
+          loyaltyRedemptionAmount={loyaltyRedemptionAmount}
+          cartInternalNote={cartInternalNote}
+          receiptNote={receiptNote}
+          cartDeliveryNote={cartDeliveryNote}
+          availableCredit={availableCustomerCredit}
+          availableLoyaltyPoints={availableLoyaltyPoints}
           canComplete={canCompleteWithPermission}
-          canReceivePayment={canPerformAction(roleName, 'sales.complete')}
+          canReceivePayment={canPerformAction(roleName, 'payment.capture') || canPerformAction(roleName, 'sales.complete')}
+          canApplyDiscount={canPerformAction(roleName, 'sales.discount')}
+          canRedeemCredit={canPerformAction(roleName, 'sales.creditRedeem') || canPerformAction(roleName, 'customers.creditView')}
+          canUseLoyalty={canPerformAction(roleName, 'sales.loyalty')}
+          canUseAccountSale={canPerformAction(roleName, 'sales.accountSale') || canPerformAction(roleName, 'customers.creditView')}
+          canVoidCart={canPerformAction(roleName, 'sales.void')}
+          canReprintReceipt={canPerformAction(roleName, 'sales.reprintReceipt')}
+          canHoldSale={canPerformAction(roleName, 'sales.hold')}
           disableCompleteReason={disableCompleteReason}
           onCustomerModeChange={handleCustomerModeChange}
           onCustomerNameChange={setCustomerName}
@@ -1012,18 +1330,35 @@ export default function PosSales({
           onCustomerNotesChange={setCustomerNotes}
           onExistingCustomerSelect={handleExistingCustomerSelect}
           onSaveCustomerRequest={handleSaveCustomerRequest}
+          onQuantitySet={handleQuantitySet}
           onQuantityChange={handleQuantityChange}
           onRemoveItem={handleRemoveItem}
           onApplyLineDiscount={handleApplyLineDiscount}
+          onCartNotice={setStatusMessage}
+          onApplyCartDiscount={handleApplyCartDiscount}
+          onRedeemCredit={handleRedeemCredit}
+          onRedeemLoyalty={handleRedeemLoyalty}
+          onApplyAccountPayment={handleApplyAccountPayment}
+          onVoidCart={handleVoidCart}
+          onReprintLastReceipt={handleReprintLastReceipt}
+          onClearWorkspace={handleClearWorkspace}
+          onSaveCartNotes={handleSaveCartNotes}
+          onPrepareIDeliverRequest={handlePrepareIDeliverRequest}
+          onGenerateDeliveryCode={handleGenerateDeliveryCode}
+          onPrepareDeliveryWhatsApp={handlePrepareDeliveryWhatsApp}
           onPaymentMethodChange={setPaymentMethod}
           onPaymentAmountChange={setPaymentAmount}
           onPaymentReferenceChange={setPaymentReference}
           onAddPayment={handleAddPayment}
-          onRemovePayment={(paymentId) => setPayments((current) => current.filter((payment) => payment.id !== paymentId))}
+          onRemovePayment={(paymentId) => {
+            setPayments((current) => current.filter((payment) => payment.id !== paymentId));
+            logEvent('PAYMENT_LINE_REMOVED', 'Payment line removed locally.');
+          }}
           onClearPayments={() => {
             setPayments([]);
             setPaymentAmount('');
             setPaymentReference('');
+            logEvent('PAYMENT_DRAFT_CLEARED', 'Payment draft cleared locally.');
           }}
           onDeliveryModeChange={setDeliveryMode}
           onDeliveryAddressChange={setDeliveryAddress}
@@ -1032,6 +1367,14 @@ export default function PosSales({
           onDeliveryFeeChange={setDeliveryFee}
           onDeliveryPriorityChange={setDeliveryPriority}
           onDeliveryPaymentModeChange={setDeliveryPaymentMode}
+          onCustomerDetailsSaved={() => {
+            setStatusMessage('Customer details saved to current cart draft.');
+            logEvent('CUSTOMER_DETAILS_UPDATED', `${customerName || 'Customer'} details updated locally.`);
+          }}
+          onDeliveryDetailsSaved={() => {
+            setStatusMessage('Delivery details saved to current cart draft.');
+            logEvent('DELIVERY_DETAILS_UPDATED', `${deliveryMode} details saved locally.`);
+          }}
           onVatModeChange={setVatMode}
           onVatRateChange={setVatRate}
           onCompleteSale={handleCompleteSale}
@@ -1078,9 +1421,9 @@ export default function PosSales({
                       <small>{sale.status}</small>
                       <div className="pos-recent-receipt__actions">
                         <button type="button" className="sci-pos-link-button" onClick={() => handleOpenReceiptReview(sale)}>View Receipt</button>
-                        <button type="button" className="sci-pos-link-button" onClick={() => setStatusMessage(`CAT Form placeholder opened for ${sale.invoiceNo}.`)}>Open CAT Form</button>
-                        <button type="button" className="sci-pos-link-button" onClick={() => setStatusMessage(`Reprint placeholder prepared for ${sale.invoiceNo}.`)}>Reprint Placeholder</button>
-                        <button type="button" className="sci-pos-link-button" disabled={!canPerformAction(roleName, 'sales.open')} onClick={() => setStatusMessage(`Duplicate as New Sale placeholder prepared for ${sale.invoiceNo}.`)}>Duplicate as New Sale Placeholder</button>
+                        <button type="button" className="sci-pos-link-button" onClick={() => { setStatusMessage(`CAT form opened locally for ${sale.invoiceNo}.`); logEvent('CAT_FORM_OPENED_LOCAL', `${sale.invoiceNo} CAT form opened locally.`); }}>Open CAT Form</button>
+                        <button type="button" className="sci-pos-link-button" onClick={() => handleReprintSale(sale)}>Reprint</button>
+                        <button type="button" className="sci-pos-link-button" disabled={!canPerformAction(roleName, 'sales.open')} onClick={() => handleDuplicateSaleToCart(sale)}>Duplicate as New Sale</button>
                       </div>
                     </article>
                   ))}
@@ -1099,7 +1442,7 @@ export default function PosSales({
                       <div className="pos-recent-receipt__actions">
                         <button type="button" className="sci-pos-link-button" disabled={heldSale.status !== 'Held'} onClick={() => { void handleResumeHeldSale(heldSale); setWorkspaceDrawer(null); }}><RotateCcw size={14} aria-hidden="true" /> Reopen Sale</button>
                         <button type="button" className="sci-pos-link-button" onClick={() => setStatusMessage(`${heldSale.heldSaleNumber}: ${heldSale.note || 'No details note captured.'}`)}>View Details</button>
-                        <button type="button" className="sci-pos-link-button" disabled={heldSale.status !== 'Held'} onClick={() => { void handleCancelHeldSale(heldSale); }}>Cancel Held Sale Placeholder</button>
+                        <button type="button" className="sci-pos-link-button" disabled={heldSale.status !== 'Held'} onClick={() => { void handleCancelHeldSale(heldSale); }}>Cancel Held Sale</button>
                       </div>
                     </article>
                   ))}
@@ -1129,9 +1472,24 @@ export default function PosSales({
       <SalesReceiptReviewModal
         sale={receiptReviewSale}
         onClose={() => setReceiptReviewSale(null)}
-        onReprint={(sale) => setStatusMessage(`Reprint placeholder prepared for ${sale.invoiceNo}.`)}
-        onCatForm={(sale) => setStatusMessage(`CAT Form placeholder opened for ${sale.invoiceNo}.`)}
-        onDuplicate={(sale) => setStatusMessage(canPerformAction(roleName, 'sales.open') ? `Duplicate as New Sale placeholder prepared for ${sale.invoiceNo}.` : 'You do not have permission to duplicate this receipt.')}
+        onReprint={handleReprintSale}
+        onCatForm={(sale) => { setStatusMessage(`CAT form opened locally for ${sale.invoiceNo}.`); logEvent('CAT_FORM_OPENED_LOCAL', `${sale.invoiceNo} CAT form opened locally.`); }}
+        onDuplicate={handleDuplicateSaleToCart}
+      />
+      <SalesProfitSnapshotCard
+        open={profitSnapshotOpen}
+        allowed={canViewProfitSnapshot}
+        canGenerate={canGenerateProfitSnapshot}
+        canExport={canExportProfitSnapshot}
+        canPrint={canPrintProfitSnapshot}
+        sales={recentSales}
+        products={localProducts}
+        generatedBy={staffName}
+        branchName={branchName}
+        terminalName={terminalName}
+        cashierName={staffName}
+        onClose={() => setProfitSnapshotOpen(false)}
+        onNotice={setStatusMessage}
       />
     </div>
   );

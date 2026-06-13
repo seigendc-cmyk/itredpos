@@ -7,13 +7,22 @@ import { PosPageId, Role } from '../types';
 export const OWNER_BUILD_DEVELOPMENT_FULL_ACCESS = true;
 
 export type PermissionKey =
+  | 'sales.open'
   | 'sales.create'
   | 'sales.complete'
+  | 'sales.hold'
   | 'sales.viewHistory'
   | 'sales.discount'
   | 'sales.priceOverride'
   | 'sales.void'
   | 'sales.reprintReceipt'
+  | 'sales.creditRedeem'
+  | 'sales.loyalty'
+  | 'sales.accountSale'
+  | 'sales.profitSnapshot.view'
+  | 'sales.profitSnapshot.generate'
+  | 'sales.profitSnapshot.export'
+  | 'sales.profitSnapshot.print'
   | 'returns.request'
   | 'returns.approve'
   | 'creditNotes.request'
@@ -24,6 +33,7 @@ export type PermissionKey =
   | 'shift.close'
   | 'shift.forceClose'
   | 'customers.createRequest'
+  | 'customers.view'
   | 'customers.approve'
   | 'inventory.view'
   | 'inventory.import'
@@ -123,6 +133,7 @@ export type PermissionKey =
   | 'approvals.approve'
   | 'approvals.reject'
   | 'hardware.configure'
+  | 'payment.capture'
   | 'reports.view'
   | 'reports.export'
   | 'accounting.view'
@@ -175,13 +186,22 @@ export type PosAction =
   | 'OWNER_FINANCIAL_EXPORT';
 
 const ALL_PERMISSIONS: PermissionKey[] = [
+  'sales.open',
   'sales.create',
   'sales.complete',
+  'sales.hold',
   'sales.viewHistory',
   'sales.discount',
   'sales.priceOverride',
   'sales.void',
   'sales.reprintReceipt',
+  'sales.creditRedeem',
+  'sales.loyalty',
+  'sales.accountSale',
+  'sales.profitSnapshot.view',
+  'sales.profitSnapshot.generate',
+  'sales.profitSnapshot.export',
+  'sales.profitSnapshot.print',
   'returns.request',
   'returns.approve',
   'creditNotes.request',
@@ -192,6 +212,7 @@ const ALL_PERMISSIONS: PermissionKey[] = [
   'shift.close',
   'shift.forceClose',
   'customers.createRequest',
+  'customers.view',
   'customers.approve',
   'inventory.view',
   'inventory.import',
@@ -291,6 +312,7 @@ const ALL_PERMISSIONS: PermissionKey[] = [
   'approvals.approve',
   'approvals.reject',
   'hardware.configure',
+  'payment.capture',
   'reports.view',
   'reports.export',
   'accounting.view',
@@ -344,10 +366,13 @@ const ROLE_PERMISSIONS: Record<Role, PermissionKey[]> = {
   Owner: ALL_PERMISSIONS,
   SysAdmin: ALL_PERMISSIONS,
   Manager: [
-    'sales.create', 'sales.complete', 'sales.viewHistory', 'sales.discount', 'sales.priceOverride', 'sales.void', 'sales.reprintReceipt',
+    'sales.open', 'sales.create', 'sales.complete', 'sales.hold', 'sales.viewHistory', 'sales.discount', 'sales.priceOverride', 'sales.void', 'sales.reprintReceipt',
+    'sales.creditRedeem', 'sales.loyalty', 'sales.accountSale',
+    'sales.profitSnapshot.view', 'sales.profitSnapshot.generate', 'sales.profitSnapshot.export', 'sales.profitSnapshot.print',
     'returns.request', 'returns.approve', 'creditNotes.request', 'creditNotes.approve',
     'terminal.activate', 'terminal.deactivate', 'shift.open', 'shift.close', 'shift.forceClose',
-    'customers.createRequest', 'customers.approve',
+    'payment.capture',
+    'customers.view', 'customers.createRequest', 'customers.approve',
     'inventory.view', 'inventory.import', 'inventory.approveImport', 'inventory.adjust', 'inventory.approveAdjustment',
     'productMaster.view', 'productMaster.create', 'productMaster.edit', 'productMaster.activate', 'productMaster.block', 'productMaster.export',
     'openingBalance.view', 'openingBalance.create', 'openingBalance.approve', 'openingBalance.post', 'openingBalance.cancel',
@@ -373,10 +398,12 @@ const ROLE_PERMISSIONS: Record<Role, PermissionKey[]> = {
     'productImport.view', 'productImport.create', 'productImport.map', 'productImport.validate', 'productImport.approve', 'productImport.import', 'productImport.export'
   ],
   Supervisor: [
-    'sales.create', 'sales.complete', 'sales.viewHistory', 'sales.discount', 'sales.priceOverride', 'sales.void', 'sales.reprintReceipt',
+    'sales.open', 'sales.create', 'sales.complete', 'sales.hold', 'sales.viewHistory', 'sales.discount', 'sales.priceOverride', 'sales.void', 'sales.reprintReceipt',
+    'sales.loyalty',
     'returns.request', 'returns.approve', 'creditNotes.request',
     'shift.open', 'shift.close',
-    'customers.createRequest',
+    'payment.capture',
+    'customers.view', 'customers.createRequest',
     'inventory.view',
     'productMaster.view', 'productMaster.create', 'productMaster.edit',
     'openingBalance.view', 'openingBalance.create',
@@ -401,10 +428,11 @@ const ROLE_PERMISSIONS: Record<Role, PermissionKey[]> = {
     'productImport.view', 'productImport.create', 'productImport.map', 'productImport.validate', 'productImport.export'
   ],
   Cashier: [
-    'sales.create', 'sales.complete', 'sales.viewHistory', 'sales.reprintReceipt',
+    'sales.open', 'sales.create', 'sales.complete', 'sales.hold', 'sales.viewHistory', 'sales.reprintReceipt',
     'returns.request', 'creditNotes.request',
     'shift.open', 'shift.close',
-    'customers.createRequest',
+    'payment.capture',
+    'customers.view', 'customers.createRequest',
     'delivery.view', 'delivery.create',
     'tasks.view',
     'sync.view', 'sync.queue.view', 'sync.conflict.view'

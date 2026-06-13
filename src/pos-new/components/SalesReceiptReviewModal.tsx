@@ -65,13 +65,13 @@ export default function SalesReceiptReviewModal({ sale, onClose, onReprint, onCa
           {activeTab === 'Customer' && <div className="sales-review-grid"><div><span>Customer</span><strong>{sale.customerName || 'Walk-in Customer'}</strong></div></div>}
           {activeTab === 'Payment' && <div className="sales-review-grid"><div><span>Payment Method</span><strong>{sale.paymentMethod}</strong></div><div><span>Cash Received</span><strong>{money(sale.cashReceived || 0)}</strong></div><div><span>Change</span><strong>{money(sale.changeGiven || 0)}</strong></div></div>}
           {activeTab === 'Tax' && <div className="sales-review-grid"><div><span>Subtotal</span><strong>{money(sale.subtotal)}</strong></div><div><span>Discount</span><strong>{money(sale.discount)}</strong></div><div><span>Tax</span><strong>{money(sale.tax)}</strong></div><div><span>Total</span><strong>{money(sale.total)}</strong></div></div>}
-          {activeTab === 'Delivery' && <div className="sales-review-grid"><div><span>Delivery</span><strong>Read-only placeholder</strong></div><div><span>Mutation</span><strong>No delivery changes from receipt review.</strong></div></div>}
+          {activeTab === 'Delivery' && <div className="sales-review-grid"><div><span>Delivery</span><strong>Read-only local receipt detail</strong></div><div><span>Mutation</span><strong>No delivery changes from receipt review.</strong></div></div>}
           {activeTab === 'Audit' && <div className="sales-review-grid"><div><span>Review Mode</span><strong>Read-only</strong></div><div><span>Stock</span><strong>No stock changes</strong></div><div><span>Payment</span><strong>No payment changes</strong></div><div><span>Receipt</span><strong>No receipt mutation</strong></div></div>}
         </div>
         <div className="sales-drawer-actions">
-          <button type="button" className="sci-pos-button sci-pos-button--secondary" onClick={() => onReprint(sale)}><Printer size={16} aria-hidden="true" /> Reprint Placeholder</button>
+          <button type="button" className="sci-pos-button sci-pos-button--secondary" onClick={() => onReprint(sale)}><Printer size={16} aria-hidden="true" /> Reprint</button>
           <button type="button" className="sci-pos-button sci-pos-button--secondary" onClick={() => onCatForm(sale)}><FileText size={16} aria-hidden="true" /> Open CAT Form</button>
-          <button type="button" className="sci-pos-button sci-pos-button--secondary" onClick={() => onDuplicate(sale)}><CopyPlus size={16} aria-hidden="true" /> Duplicate as New Sale Placeholder</button>
+          <button type="button" className="sci-pos-button sci-pos-button--secondary" onClick={() => onDuplicate(sale)}><CopyPlus size={16} aria-hidden="true" /> Duplicate as New Sale</button>
           <button type="button" className="sci-pos-button sci-pos-button--primary" onClick={onClose}>Close</button>
         </div>
       </section>
