@@ -13,18 +13,21 @@ import {
   ShieldAlert,
   Sliders
 } from 'lucide-react';
+import BIAssignAdviceModal, { BIAssignAdvicePayload } from '../components/BIAssignAdviceModal';
 import BIAdviceDetailModal from '../components/BIAdviceDetailModal';
 import BIAdviceFlowPanel from '../components/BIAdviceFlowPanel';
 import BIShelfStocktakeAssignmentModal from '../components/BIShelfStocktakeAssignmentModal';
 import {
   assignBIAdvice,
   createBIAdviceActionPoint,
+  createBIAdviceTaskFromAdvice,
   generateBIAdviceFromTriggerLogs,
   generateReorderBlockWarnings,
   generateShelfStocktakeAssignmentsForMonth,
   getBIAdviceActivityEvents,
   getBIAdviceRecords,
   getBIShelfStocktakeAssignments,
+  recordBIAdviceActivityEvent,
   resolveBIAdvice,
   dismissBIAdvice,
   escalateBIAdvice,
@@ -359,6 +362,7 @@ export default function PosBIDesk({
   const [shelfAssignments, setShelfAssignments] = useState<BIShelfStocktakeAssignment[]>([]);
   const [selectedAdvice, setSelectedAdvice] = useState<BIAdviceRecord | null>(null);
   const [selectedShelfAssignment, setSelectedShelfAssignment] = useState<BIShelfStocktakeAssignment | null>(null);
+  const [assignAdviceTarget, setAssignAdviceTarget] = useState<BIAdviceRecord | null>(null);
   const [activityFeed, setActivityFeed] = useState<ActivityLogItem[]>([
     { id: 'BIA-1', timestamp: '16:05:22', message: 'Rule evaluated: SALE_BLOCKED_ZERO_STOCK (Gate: Blocked transaction output)', type: 'INFO' },
     { id: 'BIA-2', timestamp: '15:45:11', message: 'Supervisor review opened for cash variance: USD -5.00 on register 01', type: 'WARNING' },
@@ -499,7 +503,14 @@ export default function PosBIDesk({
     setSelectedAdvice(advice);
     const assignment = shelfAssignments.find((item) => item.createdFromBIAdviceId === advice.adviceId) || null;
     setSelectedShelfAssignment(assignment);
+    recordBIAdviceActivityEvent({ eventType: 'BI_ADVICE_DETAIL_OPENED', adviceId: advice.adviceId, staffId: staffName, message: `${advice.adviceNumber} detail opened.` });
+    addActivity(`BI_ADVICE_DETAIL_OPENED: ${advice.adviceNumber}.`, 'INFO');
     setAdviceActivity(await getBIAdviceActivityEvents({ adviceId: advice.adviceId }));
+  };
+
+  const handleAdviceActionMenuOpen = (advice: BIAdviceRecord) => {
+    recordBIAdviceActivityEvent({ eventType: 'BI_ADVICE_ACTION_MENU_OPENED', adviceId: advice.adviceId, staffId: staffName, message: `${advice.adviceNumber} action menu opened.` });
+    addActivity(`BI_ADVICE_ACTION_MENU_OPENED: ${advice.adviceNumber}.`, 'INFO');
   };
 
   const handleCreateTaskFromAdvice = async (advice: BIAdviceRecord) => {
@@ -507,52 +518,69 @@ export default function PosBIDesk({
       addActivity('Create Task from BI advice blocked by permission.', 'WARNING');
       return;
     }
-    await createBIAdviceActionPoint({
-      adviceId: advice.adviceId,
-      actionType: 'Create Task',
-      label: 'Create Task',
-      description: `Local task placeholder created from ${advice.adviceNumber}.`,
-      assignedToRole: advice.assignedToRole,
-      dueDate: advice.dueDate
-    });
-    addActivity(`BI_TASK_CREATED_FROM_ADVICE: ${advice.adviceNumber} task placeholder created.`, 'ACTION');
+    const task = await createBIAdviceTaskFromAdvice(advice);
+    addActivity(`BI_TASK_CREATED_FROM_ADVICE: ${task.taskId} created from ${advice.adviceNumber}.`, 'ACTION');
     await loadAdvice(adviceFilters);
+    if (selectedAdvice?.adviceId === advice.adviceId) {
+      setSelectedAdvice(await getBIAdviceRecords({ search: advice.adviceNumber }).then((records) => records.find((record) => record.adviceId === advice.adviceId) || advice));
+      setAdviceActivity(await getBIAdviceActivityEvents({ adviceId: advice.adviceId }));
+    }
   };
 
-  const handleAssignAdvice = async (advice: BIAdviceRecord) => {
+  const handleAssignAdvice = (advice: BIAdviceRecord) => {
     if (!canAssignAdvice) {
       addActivity('BI advice assignment blocked by permission.', 'WARNING');
       return;
     }
-    const assigned = await assignBIAdvice(advice.adviceId, {
-      assignedToStaffName: advice.assignedToStaffName || staffName,
-      assignedToStaffId: advice.assignedToStaffId || staffName.toUpperCase().replace(/[^A-Z0-9]+/g, '-'),
-      assignedToRole: advice.assignedToRole || 'Manager',
-      assignedDesk: advice.assignedDesk || 'BI Desk',
-      dueDate: advice.dueDate || new Date(Date.now() + 86400000).toISOString().slice(0, 10),
-      note: 'Assigned locally from BI Advice Flow.'
+    setAssignAdviceTarget(advice);
+  };
+
+  const handleSubmitAdviceAssignment = async (payload: BIAssignAdvicePayload) => {
+    if (!assignAdviceTarget) return;
+    const assigned = await assignBIAdvice(assignAdviceTarget.adviceId, {
+      assignedToStaffName: payload.assignedToStaffName,
+      assignedToStaffId: payload.assignedToStaffId,
+      assignedToRole: payload.assignedToRole,
+      assignedDesk: payload.assignedDesk,
+      dueDate: payload.dueDate,
+      note: payload.note
     });
     if (assigned) await routeBIAdviceToDesk(assigned);
-    addActivity(`BI_ADVICE_ASSIGNED: ${advice.adviceNumber} assigned.`, 'ACTION');
+    addActivity(`BI_ADVICE_ASSIGNED: ${assignAdviceTarget.adviceNumber} assigned.`, 'ACTION');
+    setAssignAdviceTarget(null);
     await loadAdvice(adviceFilters);
+    if (selectedAdvice?.adviceId === assignAdviceTarget.adviceId && assigned) {
+      setSelectedAdvice(assigned);
+      setAdviceActivity(await getBIAdviceActivityEvents({ adviceId: assignAdviceTarget.adviceId }));
+    }
   };
 
   const handleStartStocktakeAdvice = async (advice: BIAdviceRecord) => {
+    if (!canAssignShelfStocktake) {
+      addActivity('Start Stocktake from BI advice blocked by permission.', 'WARNING');
+      return;
+    }
     const assignment = shelfAssignments.find((item) => item.createdFromBIAdviceId === advice.adviceId) || null;
     if (assignment) {
       setSelectedShelfAssignment(assignment);
       setSelectedAdvice(advice);
+      await updateBIAdviceStatus(advice.adviceId, 'In Progress', staffName, 'Shelf stocktake assignment started.');
+      recordBIAdviceActivityEvent({ eventType: 'BI_SHELF_STOCKTAKE_STARTED_FROM_ADVICE', adviceId: advice.adviceId, staffId: staffName, message: `${advice.adviceNumber} shelf stocktake assignment started.` });
+      addActivity(`BI_SHELF_STOCKTAKE_STARTED_FROM_ADVICE: ${advice.adviceNumber}.`, 'ACTION');
+      await loadAdvice(adviceFilters);
       return;
     }
     await createBIAdviceActionPoint({
       adviceId: advice.adviceId,
       actionType: 'Start Stocktake',
       label: 'Start Stocktake',
-      description: 'Stocktake session prepared for this shelf.',
+      description: advice.shelfLocation ? `Stocktake session started for ${advice.shelfLocation}.` : 'Product stocktake review session prepared locally.',
       assignedToRole: advice.assignedToRole || 'Stock Controller',
       dueDate: advice.dueDate
     });
-    addActivity(`BI_ACTION_POINT_CREATED: Stocktake session prepared for ${advice.adviceNumber}.`, 'ACTION');
+    await updateBIAdviceStatus(advice.adviceId, 'In Progress', staffName, 'Stocktake assignment started.');
+    recordBIAdviceActivityEvent({ eventType: 'BI_SHELF_STOCKTAKE_STARTED_FROM_ADVICE', adviceId: advice.adviceId, staffId: staffName, message: `${advice.adviceNumber} stocktake assignment started.` });
+    addActivity(`BI_SHELF_STOCKTAKE_STARTED_FROM_ADVICE: Stocktake assignment started for ${advice.adviceNumber}.`, 'ACTION');
     await loadAdvice(adviceFilters);
   };
 
@@ -561,7 +589,11 @@ export default function PosBIDesk({
       addActivity('BI advice resolve blocked by permission.', 'WARNING');
       return;
     }
-    await resolveBIAdvice(advice.adviceId, staffName, 'Resolved locally from BI Advice Flow.');
+    const resolutionType = window.prompt('Resolution Type: Reviewed, Stocktake Completed, Reorder Block Confirmed, Task Completed, False Alarm, Other', 'Reviewed');
+    if (resolutionType === null) return;
+    const note = window.prompt('Resolution Note', `${resolutionType}: reviewed locally.`);
+    if (note === null || !note.trim()) return;
+    await resolveBIAdvice(advice.adviceId, staffName, `${resolutionType || 'Reviewed'} - ${note.trim()}`);
     addActivity(`BI_ADVICE_RESOLVED: ${advice.adviceNumber}.`, 'SUCCESS');
     await loadAdvice(adviceFilters);
   };
@@ -571,7 +603,9 @@ export default function PosBIDesk({
       addActivity('BI advice dismiss blocked by permission.', 'WARNING');
       return;
     }
-    await dismissBIAdvice(advice.adviceId, staffName, 'Dismissed locally after review.');
+    const reason = window.prompt('Dismiss Reason', 'Dismissed after local review.');
+    if (reason === null || !reason.trim()) return;
+    await dismissBIAdvice(advice.adviceId, staffName, reason.trim());
     addActivity(`BI_ADVICE_DISMISSED: ${advice.adviceNumber}.`, 'INFO');
     await loadAdvice(adviceFilters);
   };
@@ -581,8 +615,21 @@ export default function PosBIDesk({
       addActivity('BI advice escalation blocked by permission.', 'WARNING');
       return;
     }
-    const escalated = await escalateBIAdvice(advice.adviceId, staffName, 'Escalated to Owner for deterministic rule review.');
-    if (escalated) await routeBIAdviceToDesk({ ...escalated, assignedDesk: 'Owner Desk', assignedToRole: 'Owner' });
+    const reason = window.prompt('Escalation Reason', 'Escalated for manager or owner review.');
+    if (reason === null || !reason.trim()) return;
+    const target = window.prompt('Escalate To: Owner, Manager, Approvals Desk, Cash Control, Stock Desk, Delivery Desk', 'Owner') || 'Owner';
+    const roleByTarget: Record<string, { role: string; desk: string }> = {
+      Owner: { role: 'Owner', desk: 'Owner Desk' },
+      Manager: { role: 'Manager', desk: 'Manager Desk' },
+      'Approvals Desk': { role: 'Manager', desk: 'Approvals Desk' },
+      'Cash Control': { role: 'Manager', desk: 'Cash Control' },
+      'Stock Desk': { role: 'Stock Controller', desk: 'Stock Desk' },
+      'Delivery Desk': { role: 'Delivery Staff', desk: 'Delivery Desk' }
+    };
+    const route = roleByTarget[target] || roleByTarget.Owner;
+    const assigned = await assignBIAdvice(advice.adviceId, { assignedToRole: route.role, assignedDesk: route.desk, note: `Escalation target: ${target}.` });
+    const escalated = await escalateBIAdvice(advice.adviceId, staffName, reason.trim());
+    if (escalated) await routeBIAdviceToDesk({ ...(assigned || escalated), assignedDesk: route.desk, assignedToRole: route.role });
     addActivity(`BI_ADVICE_ESCALATED: ${advice.adviceNumber}.`, 'WARNING');
     await loadAdvice(adviceFilters);
   };
@@ -875,6 +922,7 @@ export default function PosBIDesk({
             onResolve={handleResolveAdvice}
             onDismiss={handleDismissAdvice}
             onEscalate={handleEscalateAdvice}
+            onActionMenuOpen={handleAdviceActionMenuOpen}
             canView={canViewAdvice}
           />
         </section>
@@ -965,6 +1013,12 @@ export default function PosBIDesk({
         onMarkInProgress={() => void handleShelfStatus('In Progress')}
         onMarkCompleted={() => void handleShelfStatus('Completed')}
         onClose={() => setSelectedShelfAssignment(null)}
+      />
+      <BIAssignAdviceModal
+        advice={assignAdviceTarget}
+        currentStaffName={staffName}
+        onAssign={(payload) => void handleSubmitAdviceAssignment(payload)}
+        onCancel={() => setAssignAdviceTarget(null)}
       />
     </div>
   );

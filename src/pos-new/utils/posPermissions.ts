@@ -32,6 +32,7 @@ export type PermissionKey =
   | 'creditNotes.approve'
   | 'terminal.activate'
   | 'terminal.deactivate'
+  | 'terminal.readinessCheck'
   | 'terminal.history.view'
   | 'shift.view'
   | 'shift.open'
@@ -235,6 +236,7 @@ const ALL_PERMISSIONS: PermissionKey[] = [
   'creditNotes.approve',
   'terminal.activate',
   'terminal.deactivate',
+  'terminal.readinessCheck',
   'terminal.history.view',
   'shift.view',
   'shift.open',
@@ -419,7 +421,7 @@ const ROLE_PERMISSIONS: Record<Role, PermissionKey[]> = {
     'sales.profitSnapshot.view', 'sales.profitSnapshot.generate', 'sales.profitSnapshot.export', 'sales.profitSnapshot.print',
     'sales.miscellaneous.create', 'sales.miscellaneous.review', 'sales.miscellaneous.approve',
     'returns.request', 'returns.approve', 'creditNotes.request', 'creditNotes.approve',
-    'terminal.activate', 'terminal.deactivate', 'terminal.history.view',
+    'terminal.activate', 'terminal.deactivate', 'terminal.readinessCheck', 'terminal.history.view',
     'shift.view', 'shift.open', 'shift.close', 'shift.forceClose', 'shift.eodReport.view', 'shift.eodReport.print', 'shift.recovery.restore', 'shift.override',
     'cashDrawer.assign', 'cashDrawer.release',
     'payment.capture',
@@ -455,7 +457,7 @@ const ROLE_PERMISSIONS: Record<Role, PermissionKey[]> = {
     'sales.loyalty',
     'sales.miscellaneous.create', 'sales.miscellaneous.review',
     'returns.request', 'returns.approve', 'creditNotes.request',
-    'shift.view', 'shift.open', 'shift.close', 'shift.eodReport.view', 'terminal.history.view', 'shift.recovery.restore',
+    'shift.view', 'shift.open', 'shift.close', 'shift.eodReport.view', 'terminal.readinessCheck', 'terminal.history.view', 'shift.recovery.restore',
     'cashDrawer.assign', 'cashDrawer.release',
     'payment.capture',
     'customers.view', 'customers.createRequest',

@@ -1,4 +1,5 @@
-import { Search } from 'lucide-react';
+import { MoreVertical, Search } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
 import type { BIAdviceCategory, BIAdviceFilterState, BIAdvicePriority, BIAdviceRecord, BIAdviceStatus } from '../types';
 
 interface BIAdviceFlowPanelProps {
@@ -16,6 +17,7 @@ interface BIAdviceFlowPanelProps {
   onResolve: (advice: BIAdviceRecord) => void;
   onDismiss: (advice: BIAdviceRecord) => void;
   onEscalate: (advice: BIAdviceRecord) => void;
+  onActionMenuOpen?: (advice: BIAdviceRecord) => void;
   canView: boolean;
 }
 
@@ -36,6 +38,17 @@ function summary(records: BIAdviceRecord[]) {
   };
 }
 
+function supportsStocktake(advice: BIAdviceRecord): boolean {
+  return Boolean(
+    advice.category === 'Shelf Stocktake' ||
+    advice.category === 'Stock Health' ||
+    advice.category === 'Inventory Risk' ||
+    advice.shelfLocation ||
+    advice.productName ||
+    advice.recommendedAction === 'Start Stocktake'
+  );
+}
+
 export default function BIAdviceFlowPanel({
   records,
   filters,
@@ -51,15 +64,64 @@ export default function BIAdviceFlowPanel({
   onResolve,
   onDismiss,
   onEscalate,
+  onActionMenuOpen,
   canView
 }: BIAdviceFlowPanelProps) {
   const totals = summary(records);
+  const [openMenuId, setOpenMenuId] = useState<string | null>(null);
+  const [menuPosition, setMenuPosition] = useState<{ top: number; left: number } | null>(null);
+  const menuRef = useRef<HTMLDivElement | null>(null);
+
+  const setFilter = (patch: BIAdviceFilterState) => onFiltersChange({ ...filters, ...patch });
+  const openAdvice = records.find((advice) => advice.adviceId === openMenuId) || null;
+
+  const closeMenu = () => {
+    setOpenMenuId(null);
+    setMenuPosition(null);
+  };
+
+  const toggleMenu = (advice: BIAdviceRecord, button: HTMLButtonElement) => {
+    if (openMenuId === advice.adviceId) {
+      closeMenu();
+      return;
+    }
+    const rect = button.getBoundingClientRect();
+    const menuWidth = 230;
+    setMenuPosition({
+      top: Math.min(rect.bottom + 6, window.innerHeight - 320),
+      left: Math.max(8, Math.min(rect.right - menuWidth, window.innerWidth - menuWidth - 8))
+    });
+    setOpenMenuId(advice.adviceId);
+    onActionMenuOpen?.(advice);
+  };
+
+  const runMenuAction = (action: () => void) => {
+    action();
+    closeMenu();
+  };
+
+  useEffect(() => {
+    if (!openMenuId) return undefined;
+    const handlePointerDown = (event: MouseEvent) => {
+      if (menuRef.current?.contains(event.target as Node)) return;
+      const target = event.target as HTMLElement;
+      if (target.closest('.bi-advice-action-menu-trigger')) return;
+      closeMenu();
+    };
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') closeMenu();
+    };
+    document.addEventListener('mousedown', handlePointerDown);
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('mousedown', handlePointerDown);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [openMenuId]);
 
   if (!canView) {
     return <div className="sci-pos-alert sci-pos-alert--danger">You do not have permission to view this BI advice.</div>;
   }
-
-  const setFilter = (patch: BIAdviceFilterState) => onFiltersChange({ ...filters, ...patch });
 
   return (
     <section className="bi-advice-flow-panel">
@@ -102,55 +164,76 @@ export default function BIAdviceFlowPanel({
         <button type="button" className="sci-pos-button sci-pos-button--secondary" onClick={onRefresh}>Refresh</button>
       </div>
 
-      <div className="bi-advice-table-scroll">
-        <table className="bi-trigger-table bi-advice-table">
-          <thead>
-            <tr>
-              <th>Advice No.</th>
-              <th>Category</th>
-              <th>Priority</th>
-              <th>Narrative</th>
-              <th>Product / SKU</th>
-              <th>Shelf</th>
-              <th>Assigned To</th>
-              <th>Due Date</th>
-              <th>Status</th>
-              <th>Action</th>
-            </tr>
-          </thead>
-          <tbody>
-            {records.map((advice) => (
-              <tr key={advice.adviceId}>
-                <td>{advice.adviceNumber}</td>
-                <td>{advice.category}</td>
-                <td><span className={`bi-risk-badge bi-risk-badge--${advice.priority.toLowerCase()}`}>{advice.priority}</span></td>
-                <td>{advice.narrative}</td>
-                <td>{[advice.productName, advice.sku].filter(Boolean).join(' / ') || 'Not linked'}</td>
-                <td>{advice.shelfLocation || 'N/A'}</td>
-                <td>{advice.assignedToStaffName || advice.assignedToRole || advice.assignedDesk || 'Unassigned'}</td>
-                <td>{advice.dueDate || 'No due date'}</td>
-                <td>{advice.status}</td>
-                <td>
-                  <div className="bi-advice-row-actions">
-                    <button type="button" onClick={() => onViewAdvice(advice)} title="Open Advice">Open Advice</button>
-                    <button type="button" onClick={() => onCreateTask(advice)} title="Create Task">Create Task</button>
-                    <button type="button" onClick={() => onAssignStaff(advice)} title="Assign Staff">Assign Staff</button>
-                    <button type="button" onClick={() => onStartStocktake(advice)} title="Start Stocktake">Start Stocktake</button>
-                    <button type="button" onClick={() => onResolve(advice)} title="Resolve">Resolve</button>
-                    <button type="button" onClick={() => onDismiss(advice)} title="Dismiss">Dismiss</button>
-                    <button type="button" onClick={() => onEscalate(advice)} title="Escalate">Escalate</button>
-                  </div>
-                </td>
-              </tr>
-            ))}
-            {records.length === 0 && (
+      <div className="bi-advice-table-card">
+        <div className="bi-advice-table-scroll">
+          <table className="bi-trigger-table bi-advice-table">
+            <thead>
               <tr>
-                <td colSpan={10} className="sci-pos-empty-cell">No BI advice matched your search.</td>
+                <th>Advice No.</th>
+                <th>Category</th>
+                <th>Priority</th>
+                <th>Narrative</th>
+                <th>Product / SKU</th>
+                <th>Shelf</th>
+                <th>Assigned To</th>
+                <th>Due Date</th>
+                <th>Status</th>
+                <th>Action</th>
               </tr>
-            )}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {records.map((advice) => (
+                <tr key={advice.adviceId}>
+                  <td>{advice.adviceNumber}</td>
+                  <td>{advice.category}</td>
+                  <td><span className={`bi-risk-badge bi-risk-badge--${advice.priority.toLowerCase()}`}>{advice.priority}</span></td>
+                  <td>{advice.narrative}</td>
+                  <td>{[advice.productName, advice.sku].filter(Boolean).join(' / ') || 'Not linked'}</td>
+                  <td>{advice.shelfLocation || 'N/A'}</td>
+                  <td>{advice.assignedToStaffName || advice.assignedToRole || advice.assignedDesk || 'Unassigned'}</td>
+                  <td>{advice.dueDate || 'No due date'}</td>
+                  <td>{advice.status}</td>
+                  <td>
+                    <button
+                      type="button"
+                      className="bi-advice-action-menu-trigger"
+                      onClick={(event) => toggleMenu(advice, event.currentTarget)}
+                      aria-label="BI advice actions"
+                      aria-expanded={openMenuId === advice.adviceId}
+                      title="BI advice actions"
+                    >
+                      <MoreVertical size={17} aria-hidden="true" />
+                    </button>
+                  </td>
+                </tr>
+              ))}
+              {records.length === 0 && (
+                <tr>
+                  <td colSpan={10} className="sci-pos-empty-cell">No BI advice matched your search.</td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
       </div>
+      {openAdvice && menuPosition && (
+        <div
+          ref={menuRef}
+          className="bi-advice-action-menu-portal"
+          style={{ top: menuPosition.top, left: menuPosition.left }}
+          role="menu"
+        >
+          <button type="button" className="bi-advice-action-menu-item" onClick={() => runMenuAction(() => onViewAdvice(openAdvice))}>Open Advice</button>
+          <button type="button" className="bi-advice-action-menu-item" onClick={() => runMenuAction(() => onCreateTask(openAdvice))}>Create Task</button>
+          <button type="button" className="bi-advice-action-menu-item" onClick={() => runMenuAction(() => onAssignStaff(openAdvice))}>Assign Staff</button>
+          {supportsStocktake(openAdvice) && (
+            <button type="button" className="bi-advice-action-menu-item" onClick={() => runMenuAction(() => onStartStocktake(openAdvice))}>Start Stocktake</button>
+          )}
+          <button type="button" className="bi-advice-action-menu-item" onClick={() => runMenuAction(() => onResolve(openAdvice))}>Resolve</button>
+          <button type="button" className="bi-advice-action-menu-item" onClick={() => runMenuAction(() => onDismiss(openAdvice))}>Dismiss</button>
+          <button type="button" className="bi-advice-action-menu-item" onClick={() => runMenuAction(() => onEscalate(openAdvice))}>Escalate</button>
+        </div>
+      )}
     </section>
   );
 }

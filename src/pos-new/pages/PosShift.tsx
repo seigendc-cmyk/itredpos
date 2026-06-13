@@ -47,6 +47,7 @@ import {
   getTerminalLifecycle,
   lockTerminal,
   logTerminalControlEvent,
+  openShift,
   requestTerminalActivation,
   requestTerminalReactivation,
   runTerminalControlCheck,
@@ -135,6 +136,10 @@ function eventTitle(value: string): string {
     CASH_DRAWER_ASSIGNED: 'Cash Drawer Assigned',
     CASH_DRAWER_RELEASED: 'Cash Drawer Released',
     TERMINAL_HISTORY_OPENED: 'Terminal History Opened',
+    TERMINAL_ACTIVATION_GUIDE_OPENED: 'Terminal Activation Guide Opened',
+    TERMINAL_READINESS_CHECK_RUN: 'Terminal Readiness Check Run',
+    TERMINAL_ACTIVATED: 'Terminal Activated',
+    TERMINAL_SHIFT_OPEN_FLOW_STARTED: 'Terminal Shift Open Flow Started',
     SHIFT_RECOVERY_STATE_SAVED: 'Shift Recovery Saved',
     SHIFT_RECOVERY_STATE_FOUND: 'Shift Recovery Found',
     SHIFT_RECOVERY_STATE_RESTORED: 'Shift Recovery Restored',
@@ -491,18 +496,44 @@ export default function PosShift({
     void logTerminalControlEvent({ vendorId: VENDOR_ID, branchId, terminalId, staffId, staffName, eventType: 'TERMINAL_ACTIVATION_MENU_OPENED', message: 'Terminal activation action menu opened.', severity: 'INFO' });
   };
 
+  const handleOpenTerminalActivationGuide = async (target: 'activation' | 'shift' | 'drawer') => {
+    setActiveSection('Terminal Activation');
+    await logTerminalControlEvent({ vendorId: VENDOR_ID, branchId, terminalId, staffId, staffName, eventType: 'TERMINAL_ACTIVATION_GUIDE_OPENED', message: `Terminal activation guide CTA opened ${target}.`, severity: 'INFO' });
+    if (target === 'shift') {
+      await logTerminalControlEvent({ vendorId: VENDOR_ID, branchId, terminalId, staffId, staffName, eventType: 'TERMINAL_SHIFT_OPEN_FLOW_STARTED', message: 'Open Shift flow started from terminal activation guide.', severity: 'INFO' });
+      openActionModal('open');
+      return;
+    }
+    if (target === 'drawer') {
+      openActionModal('drawer');
+      return;
+    }
+    setStatusMessage('Terminal Activation guide opened.');
+  };
+
   const handleTerminalMenuAction = async (requestId: string, action: string) => {
     const request = activationRequests.find((item) => item.id === requestId);
     setOpenTerminalActionMenuId(null);
     if (!request) return;
     if (action === 'Activate Terminal') {
       await handleApproveActivation(request.id);
+      await logTerminalControlEvent({ vendorId: VENDOR_ID, branchId, terminalId: request.terminalId, staffId, staffName, eventType: 'TERMINAL_ACTIVATED', message: `${request.terminalId} activated from terminal activation menu.`, severity: 'INFO' });
       setStatusMessage('Terminal activated successfully.');
       return;
     }
+    if (action === 'Deactivate Terminal') {
+      if (!requirePermission('terminal.deactivate')) return;
+      await deactivateTerminal({ vendorId: VENDOR_ID, branchId, terminalId: request.terminalId, staffName }, 'Deactivated from terminal activation menu.');
+      setStatusMessage(`${request.terminalId} deactivated locally.`);
+      await loadControlData();
+      return;
+    }
     if (action === 'Run Readiness Check') {
+      if (!requirePermission('terminal.readinessCheck')) return;
       const check = await runTerminalControlCheck({ vendorId: VENDOR_ID, branchId, terminalId: request.terminalId, terminalName: request.terminalName, staffId, staffName, role: roleName, requiresCashDrawer: true });
+      await logTerminalControlEvent({ vendorId: VENDOR_ID, branchId, terminalId: request.terminalId, staffId, staffName, eventType: 'TERMINAL_READINESS_CHECK_RUN', message: check.message, severity: check.allowed ? 'INFO' : 'WARNING' });
       setStatusMessage(`Readiness: ${check.message}`);
+      setReadiness(check);
       return;
     }
     if (action === 'Assign Drawer') {
@@ -510,7 +541,13 @@ export default function PosShift({
       return;
     }
     if (action === 'Open Shift') {
+      await logTerminalControlEvent({ vendorId: VENDOR_ID, branchId, terminalId, staffId, staffName, eventType: 'TERMINAL_SHIFT_OPEN_FLOW_STARTED', message: 'Open Shift flow started from terminal activation menu.', severity: 'INFO' });
       openActionModal('open');
+      return;
+    }
+    if (action === 'View Active Period History') {
+      setActiveSection('Shift Activity');
+      setStatusMessage(`${request.terminalId} active period history opened.`);
       return;
     }
     if (action === 'Recover Last State') {
@@ -722,6 +759,28 @@ export default function PosShift({
             </div>
             <TerminalIcon size={18} aria-hidden="true" />
           </div>
+          <div className="terminal-activation-guide-panel">
+            <div>
+              <p className="sci-pos-eyebrow">Terminal Activation Guide</p>
+              <h3>How to Activate This Terminal</h3>
+            </div>
+            <ol>
+              <li>Open Shift Control.</li>
+              <li>Go to Terminal Activation.</li>
+              <li>Open the terminal row three-dot menu.</li>
+              <li>Select Run Readiness Check.</li>
+              <li>Select Activate Terminal.</li>
+              <li>Go to Open Shift.</li>
+              <li>Assign cash drawer if required.</li>
+              <li>Open Shift.</li>
+              <li>App will move to Sales Terminal.</li>
+            </ol>
+            <div className="terminal-activation-guide-actions">
+              <button type="button" className="sci-pos-button sci-pos-button--primary" onClick={() => void handleOpenTerminalActivationGuide('activation')}>Open Terminal Activation</button>
+              <button type="button" className="sci-pos-button sci-pos-button--secondary" onClick={() => void handleOpenTerminalActivationGuide('shift')}>Open Shift</button>
+              <button type="button" className="sci-pos-button sci-pos-button--secondary" onClick={() => void handleOpenTerminalActivationGuide('drawer')}>Assign Drawer</button>
+            </div>
+          </div>
           <div className="pos-control-form">
             <label>
               Terminal ID
@@ -763,7 +822,7 @@ export default function PosShift({
                         </button>
                         {openTerminalActionMenuId === request.id && (
                           <div className="approval-action-menu">
-                            {['View Terminal Details', 'Activate Terminal', 'Deactivate Terminal', 'Register Terminal Placeholder', 'Run Readiness Check', 'View Active Period History', 'Recover Last State', 'Assign Drawer', 'Open Shift'].map((action) => (
+                            {['View Terminal Details', 'Run Readiness Check', 'Activate Terminal', 'Deactivate Terminal', 'Assign Drawer', 'Open Shift', 'View Active Period History', 'Recover Last State'].map((action) => (
                               <button key={action} type="button" onClick={() => void handleTerminalMenuAction(request.id, action)}>
                                 {action}
                               </button>

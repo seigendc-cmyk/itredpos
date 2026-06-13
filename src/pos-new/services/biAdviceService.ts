@@ -17,6 +17,7 @@ const ADVICE_KEY = 'itred_pos_bi_advice_records_v1';
 const ACTIVITY_KEY = 'itred_pos_bi_advice_activity_v1';
 const REORDER_WARNING_KEY = 'itred_pos_bi_reorder_block_warnings_v1';
 const SHELF_ASSIGNMENT_KEY = 'itred_pos_bi_shelf_stocktake_assignments_v1';
+const ADVICE_TASK_KEY = 'itred_pos_bi_advice_tasks_v1';
 
 type TriggerLike = {
   id?: string;
@@ -53,6 +54,21 @@ export interface CreateBIAdviceActionPointPayload {
   assignedToStaffId?: string;
   assignedToRole?: string;
   dueDate?: string;
+}
+
+export interface BIAdviceLocalTask {
+  taskId: string;
+  title: string;
+  description: string;
+  sourceModule: 'BI Desk';
+  sourceAdviceId: string;
+  category: BIAdviceCategory;
+  priority: BIAdvicePriority;
+  assignedToRole?: string;
+  assignedToStaffId?: string;
+  dueDate?: string;
+  status: 'Open';
+  createdAt: string;
 }
 
 function canUseLocalStorage(): boolean {
@@ -295,6 +311,10 @@ function recordActivity(input: Omit<BIAdviceActivityEvent, 'eventId' | 'createdA
   return event;
 }
 
+export function recordBIAdviceActivityEvent(input: Omit<BIAdviceActivityEvent, 'eventId' | 'createdAt'>): BIAdviceActivityEvent {
+  return recordActivity(input);
+}
+
 function upsertAdvice(advice: BIAdviceRecord): BIAdviceRecord {
   const records = readList<BIAdviceRecord>(ADVICE_KEY);
   const existing = records.find((item) => item.sourceTriggerId === advice.sourceTriggerId);
@@ -425,6 +445,42 @@ export async function createBIAdviceActionPoint(payload: CreateBIAdviceActionPoi
   saveList(ADVICE_KEY, next);
   recordActivity({ eventType: 'BI_ACTION_POINT_CREATED', adviceId: payload.adviceId, message: `${payload.label} action point created.` });
   return actionPoint;
+}
+
+export async function createBIAdviceTaskFromAdvice(advice: BIAdviceRecord): Promise<BIAdviceLocalTask> {
+  const task: BIAdviceLocalTask = {
+    taskId: makeId('BITASK'),
+    title: `BI task: ${advice.title || advice.adviceNumber}`,
+    description: advice.recommendedAction || advice.narrative,
+    sourceModule: 'BI Desk',
+    sourceAdviceId: advice.adviceId,
+    category: advice.category,
+    priority: advice.priority,
+    assignedToRole: advice.assignedToRole,
+    assignedToStaffId: advice.assignedToStaffId,
+    dueDate: advice.dueDate,
+    status: 'Open',
+    createdAt: nowIso()
+  };
+  saveList(ADVICE_TASK_KEY, [task, ...readList<BIAdviceLocalTask>(ADVICE_TASK_KEY)].slice(0, 120));
+  await createBIAdviceActionPoint({
+    adviceId: advice.adviceId,
+    actionType: 'Create Task',
+    label: 'Task created',
+    description: `${task.taskId} created from ${advice.adviceNumber}.`,
+    assignedToStaffId: advice.assignedToStaffId,
+    assignedToRole: advice.assignedToRole,
+    dueDate: advice.dueDate
+  });
+  if (advice.status === 'New') {
+    await updateBIAdviceStatus(advice.adviceId, 'Assigned', advice.assignedToStaffId || 'BI-DESK', 'Task created from BI advice.');
+  }
+  recordActivity({ eventType: 'BI_TASK_CREATED_FROM_ADVICE', adviceId: advice.adviceId, staffId: advice.assignedToStaffId, message: `${task.taskId} created from ${advice.adviceNumber}.` });
+  return task;
+}
+
+export async function getBIAdviceLocalTasks(filters: { sourceAdviceId?: string } = {}): Promise<BIAdviceLocalTask[]> {
+  return readList<BIAdviceLocalTask>(ADVICE_TASK_KEY).filter((task) => !filters.sourceAdviceId || task.sourceAdviceId === filters.sourceAdviceId);
 }
 
 export async function assignBIAdvice(adviceId: string, assignmentPayload: BIAdviceAssignmentPayload): Promise<BIAdviceRecord | null> {

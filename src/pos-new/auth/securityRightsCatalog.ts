@@ -17,6 +17,7 @@ const highRisk = new Set([
   'shift.close',
   'shift.override',
   'cashDrawer.release',
+  'terminal.readinessCheck',
   'stockAdjustment.post',
   'stocktake.post',
   'openingBalance.post',
@@ -130,7 +131,10 @@ export const securityRightsCatalog: SecurityPermissionRight[] = [
   right('Sales', 'shift.eodReport.print', accountant, 'Print shift EOD reports or use device Save as PDF.'),
   right('Sales', 'cashDrawer.assign', supervisor, 'Assign a local cash drawer to a terminal shift.'),
   right('Sales', 'cashDrawer.release', manager, 'Release an assigned local cash drawer.'),
+  right('Sales', 'terminal.activate', manager, 'Activate local POS terminals after readiness review.'),
+  right('Sales', 'terminal.deactivate', manager, 'Deactivate local POS terminals during control review.'),
   right('Sales', 'terminal.history.view', supervisor, 'View detailed closed terminal period history.'),
+  right('Sales', 'terminal.readinessCheck', supervisor, 'Run local terminal readiness checks before activation or shift open.'),
   right('Sales', 'shift.recovery.restore', cashier, 'Restore recoverable local shift state on this device.'),
   right('Sales', 'shift.override', manager, 'Override selected shift close checks during local review.'),
 
