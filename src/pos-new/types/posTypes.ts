@@ -183,7 +183,14 @@ export type BIAdviceCategory =
   | 'Delivery Verification'
   | 'Pricing Control'
   | 'Approval Control'
-  | 'Inventory Risk';
+  | 'Inventory Risk'
+  | 'Customer and Credit Risk'
+  | 'Tax / VAT Readiness'
+  | 'Shift / EOD Control'
+  | 'Supplier / Purchase Discipline'
+  | 'Offline Sync Risk'
+  | 'Management Profit Snapshot'
+  | 'Miscellaneous Sales Review';
 
 export type BIAdvicePriority = 'Low' | 'Medium' | 'High' | 'Critical';
 
@@ -320,6 +327,219 @@ export interface BIAdviceActivityEvent {
     | 'BI_ADVICE_ESCALATED'
     | 'BI_TASK_CREATED_FROM_ADVICE';
   adviceId?: string;
+  message: string;
+  staffId?: string;
+  createdAt: string;
+}
+
+export type BIDomain =
+  | 'Sales Integrity'
+  | 'Stock Integrity'
+  | 'Cash Control'
+  | 'Staff Behaviour'
+  | 'Shift / EOD Control'
+  | 'Delivery Fulfilment'
+  | 'Customer and Credit Risk'
+  | 'Tax / VAT Readiness'
+  | 'Reorder Discipline'
+  | 'Branch / Terminal Performance'
+  | 'Approval Pressure'
+  | 'Management Profit Snapshot'
+  | 'Miscellaneous Sales Review'
+  | 'Supplier / Purchase Discipline'
+  | 'Offline Sync Risk';
+
+export type BIRiskLevel = RiskLevel;
+export type BITriggerType =
+  | 'DISCOUNT_ABOVE_LIMIT'
+  | 'REPEATED_PRICE_OVERRIDE'
+  | 'MISCELLANEOUS_SALE_REVIEW'
+  | 'RETURN_AFTER_SHORT_TIME'
+  | 'REPEATED_RECEIPT_REPRINT'
+  | 'ZERO_STOCK_SALE_BLOCKED'
+  | 'NEGATIVE_STOCK_ATTEMPT'
+  | 'DEAD_STOCK_REORDER_WARNING'
+  | 'SHELF_STOCKTAKE_DUE'
+  | 'HIGH_VARIANCE_STOCKTAKE'
+  | 'DRAWER_VARIANCE'
+  | 'DRAWER_OPEN_TOO_OFTEN'
+  | 'PAYMENT_METHOD_MISMATCH'
+  | 'DELIVERY_CASH_PENDING'
+  | 'REPEATED_FAILED_LOGIN'
+  | 'STAFF_OVERRIDE_PATTERN'
+  | 'UNUSUAL_SALE_VOID_PATTERN'
+  | 'END_OF_DAY_DELAY'
+  | 'DELIVERY_CODE_NOT_VERIFIED'
+  | 'DELIVERY_CASH_NOT_CONFIRMED'
+  | 'DELIVERY_TIME_RISK'
+  | 'CREDIT_LIMIT_EXCEEDED'
+  | 'REPEAT_UNPAID_CUSTOMER'
+  | 'SUSPICIOUS_CUSTOMER_RETURNS'
+  | 'MISSING_TAX_NUMBER'
+  | 'VAT_AMOUNT_INCONSISTENCY'
+  | 'EOD_VAT_SUMMARY_MISSING'
+  | 'TOO_MANY_PENDING_APPROVALS'
+  | 'HIGH_RISK_APPROVAL_WAITING'
+  | 'OFFLINE_SALES_NOT_SYNCED'
+  | 'CONFLICT_PENDING';
+export type BIRuleStatus = 'Active' | 'Inactive' | 'Draft';
+export type BIManagementAdviceStatus = 'New' | 'Assigned' | 'In Progress' | 'Waiting Review' | 'Resolved' | 'Dismissed' | 'Escalated' | 'Blocked';
+export type BIManagementActionStatus = 'New' | 'Assigned' | 'In Progress' | 'Waiting Review' | 'Resolved' | 'Dismissed' | 'Escalated' | 'Blocked';
+export type BIManagementDesk =
+  | 'BI Desk'
+  | 'Manager Desk'
+  | 'Owner Desk'
+  | 'Stock Controller Desk'
+  | 'Inventory'
+  | 'Cash Control'
+  | 'Shift Control'
+  | 'Delivery Desk'
+  | 'Customer Centre'
+  | 'Approvals'
+  | 'Accounting / Finance'
+  | 'Sync Desk'
+  | 'Task Desk';
+export type BIManagementScoreType = 'Staff' | 'Stock' | 'Cash' | 'Sales' | 'Delivery' | 'Customer' | 'Tax' | 'Shift' | 'Domain';
+
+export interface BIRuleDefinition {
+  ruleId: string;
+  ruleCode: BITriggerType;
+  domain: BIDomain;
+  title: string;
+  description: string;
+  riskLevel: BIRiskLevel;
+  triggerConditionNarrative: string;
+  recommendedAction: string;
+  assignedDesk: BIManagementDesk;
+  assignedRole: string;
+  active: boolean;
+  severityWeight: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface BIRuleEvaluationContext {
+  branchId?: string;
+  branchName?: string;
+  terminalId?: string;
+  terminalName?: string;
+  staffId?: string;
+  staffName?: string;
+  products?: Product[];
+  transactions?: Transaction[];
+  biEvents?: BiEvent[];
+  customerRecords?: CustomerRecord[];
+}
+
+export interface BIRuleTriggerLog {
+  triggerId: string;
+  ruleId: string;
+  ruleCode: BITriggerType;
+  domain: BIDomain;
+  title: string;
+  narrative: string;
+  riskLevel: BIRiskLevel;
+  relatedRecordId?: string;
+  relatedModule: string;
+  productId?: string;
+  productName?: string;
+  sku?: string;
+  staffId?: string;
+  staffName?: string;
+  customerId?: string;
+  customerName?: string;
+  branchId?: string;
+  branchName?: string;
+  terminalId?: string;
+  terminalName?: string;
+  assignedDesk: BIManagementDesk;
+  assignedRole: string;
+  recommendedAction: string;
+  createdAt: string;
+}
+
+export interface BIManagementActionPoint {
+  actionPointId: string;
+  adviceId: string;
+  label: string;
+  description: string;
+  assignedDesk: BIManagementDesk;
+  assignedRole: string;
+  assignedStaffId?: string;
+  dueDate: string;
+  status: BIManagementActionStatus;
+  completedAt?: string;
+  completedBy?: string;
+  resultNote?: string;
+}
+
+export interface BIManagementAdvice {
+  adviceId: string;
+  adviceNumber: string;
+  domain: BIDomain;
+  title: string;
+  narrative: string;
+  businessRisk: string;
+  recommendedAction: string;
+  riskLevel: BIRiskLevel;
+  priority: BIRiskLevel;
+  sourceRuleCode: BITriggerType;
+  sourceTriggerId: string;
+  relatedRecordId?: string;
+  relatedModule: string;
+  productId?: string;
+  productName?: string;
+  sku?: string;
+  staffId?: string;
+  staffName?: string;
+  customerId?: string;
+  customerName?: string;
+  branchId?: string;
+  branchName?: string;
+  terminalId?: string;
+  terminalName?: string;
+  assignedDesk: BIManagementDesk;
+  assignedRole: string;
+  assignedStaffId?: string;
+  dueDate?: string;
+  status: BIManagementAdviceStatus;
+  actionPoints: BIManagementActionPoint[];
+  createdAt: string;
+  resolvedAt?: string;
+  resolutionNote?: string;
+}
+
+export interface BIStaffRiskScore { staffId: string; staffName: string; score: number; riskLevel: BIRiskLevel; openWarnings: number; }
+export interface BIStockRiskScore { productId: string; productName: string; sku: string; score: number; riskLevel: BIRiskLevel; availableQty: number; }
+export interface BICashRiskScore { drawerId: string; terminalName: string; score: number; riskLevel: BIRiskLevel; varianceAmount: number; }
+export interface BISalesRiskScore { branchName: string; score: number; riskLevel: BIRiskLevel; openWarnings: number; }
+export interface BIDeliveryRiskScore { branchName: string; score: number; riskLevel: BIRiskLevel; openWarnings: number; }
+export interface BICustomerRiskScore { customerId: string; customerName: string; score: number; riskLevel: BIRiskLevel; currentBalance: number; }
+export interface BITaxReadinessScore { branchName: string; score: number; riskLevel: BIRiskLevel; warnings: number; }
+export interface BIShiftScore { shiftId: string; branchName: string; score: number; riskLevel: BIRiskLevel; openWarnings: number; }
+
+export interface BIManagementDashboardMetric {
+  metricId: string;
+  label: string;
+  value: number | string;
+  riskLevel: BIRiskLevel;
+  help: string;
+}
+
+export interface BIManagementInsightPayload {
+  metrics: BIManagementDashboardMetric[];
+  domainCards: Array<{ domain: BIDomain; riskScore: number; openWarnings: number; dueActionPoints: number; lastTrigger: string; riskLevel: BIRiskLevel }>;
+  triggerLogs: BIRuleTriggerLog[];
+  advice: BIManagementAdvice[];
+  actionPoints: BIManagementActionPoint[];
+}
+
+export interface BIManagementActivityEvent {
+  eventId: string;
+  eventType: string;
+  domain?: BIDomain;
+  adviceId?: string;
+  actionPointId?: string;
   message: string;
   staffId?: string;
   createdAt: string;

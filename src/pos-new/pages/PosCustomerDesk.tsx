@@ -87,8 +87,10 @@ function eventTitle(value: CustomerActivityEvent['eventType']): string {
   return value.toLowerCase().split('_').map((word) => word.charAt(0).toUpperCase() + word.slice(1)).join(' ');
 }
 
-function customerContact(customer: CustomerRecord): string {
-  return customer.whatsapp || customer.phone || customer.email || 'No contact';
+function creditLabel(value: CustomerCreditStatus): string {
+  if (value === 'Credit Review Required') return 'Review';
+  if (value === 'Credit Suspended') return 'Suspended';
+  return value;
 }
 
 function exportCsv(filename: string, rows: string[][]) {
@@ -206,7 +208,9 @@ export default function PosCustomerDesk({ session, onNavigate }: PosCustomerDesk
 
   const handleSuspend = async (customer: CustomerRecord) => {
     if (!requirePermission('customers.suspend')) return;
-    await suspendCustomer(customer.customerId, session.staffName, 'Suspended from Customer Centre.');
+    const reason = window.prompt('Suspend reason', 'Suspended from Customer Centre.');
+    if (reason === null) return;
+    await suspendCustomer(customer.customerId, session.staffName, reason.trim() || 'Suspended from Customer Centre.');
     await refreshAfterAction('Customer suspended.', customer.customerId);
   };
 
@@ -259,11 +263,12 @@ export default function PosCustomerDesk({ session, onNavigate }: PosCustomerDesk
   const handleWhatsApp = (customer: CustomerRecord) => {
     if (!requirePermission('customers.whatsappMessage')) return;
     const rawNumber = customer.whatsapp || customer.phone;
-    if (!rawNumber) {
-      setNotice('No WhatsApp or phone number is available for this customer.');
+    const fallbackNumber = rawNumber || window.prompt('WhatsApp phone number', '');
+    if (!fallbackNumber) {
+      setNotice('WhatsApp message cancelled. No phone number was provided.');
       return;
     }
-    const phone = rawNumber.replace(/[^\d]/g, '');
+    const phone = fallbackNumber.replace(/[^\d]/g, '');
     window.open(`https://wa.me/${phone}`, '_blank', 'noopener,noreferrer');
   };
 
@@ -485,20 +490,32 @@ function CustomerTable({ customers, actionItems, onProfile }: { customers: Custo
     <section className="sci-pos-card pos-customer-list-card">
       <div className="sci-pos-card__bar"><div><p className="sci-pos-eyebrow">Records</p><h2>Customer List</h2></div><span>{customers.length} records</span></div>
       <div className="pos-customer-list-scroll">
-        <table className="sci-pos-table pos-customer-table">
+        <table className="sci-pos-table pos-customer-table customer-list-table">
+          <colgroup>
+            <col className="customer-col-code" />
+            <col className="customer-col-customer" />
+            <col className="customer-col-type" />
+            <col className="customer-col-contact" />
+            <col className="customer-col-location" />
+            <col className="customer-col-source" />
+            <col className="customer-col-status" />
+            <col className="customer-col-credit" />
+            <col className="customer-col-last" />
+            <col className="customer-col-action" />
+          </colgroup>
           <thead><tr>{['Code', 'Customer', 'Type', 'Contact', 'Location', 'Source', 'Status', 'Credit', 'Last Purchase', ''].map((heading) => <th key={heading}>{heading}</th>)}</tr></thead>
           <tbody>
             {customers.map((customer) => (
               <tr key={customer.customerId} onDoubleClick={() => onProfile(customer)}>
-                <td className="sci-pos-table__strong">{customer.customerCode}</td>
-                <td><strong>{customer.customerName}</strong><span>{customer.email || 'No email'}</span></td>
-                <td>{customer.customerType}</td>
-                <td>{customerContact(customer)}</td>
-                <td>{customer.cityTown}{customer.suburb ? `, ${customer.suburb}` : ''}</td>
-                <td>{customer.source}</td>
-                <td><span className={`sci-status-pill ${statusClass(customer.status)}`}>{customer.status}</span></td>
-                <td>{customer.creditStatus}</td>
-                <td>{lastPurchaseByCustomer.get(customer.customerId) || 'No purchase'}</td>
+                <td><span className="customer-list-primary">{customer.customerCode}</span></td>
+                <td><span className="customer-list-primary">{customer.customerName}</span><span className="customer-list-secondary">{customer.email || 'No email'}</span></td>
+                <td><span className="customer-list-primary">{customer.customerType}</span></td>
+                <td><span className="customer-list-primary">{customer.phone || customer.email || 'No contact'}</span><span className="customer-list-secondary">{customer.whatsapp && customer.whatsapp !== customer.phone ? customer.whatsapp : customer.whatsapp ? 'WhatsApp same' : 'No WhatsApp'}</span></td>
+                <td><span className="customer-list-primary">{customer.cityTown || 'No city'}</span><span className="customer-list-secondary">{customer.suburb || customer.district || 'No suburb'}</span></td>
+                <td><span className="customer-list-primary customer-list-truncate">{customer.source}</span></td>
+                <td><span className={`customer-list-status customer-list-status--${customer.status.toLowerCase().replace(/\s+/g, '-')}`}>{customer.status}</span></td>
+                <td><span className="customer-list-credit">{creditLabel(customer.creditStatus)}</span></td>
+                <td><span className="customer-list-secondary">{lastPurchaseByCustomer.get(customer.customerId) || 'No purchase'}</span></td>
                 <td className="pos-customer-row-actions"><RowActionMenu ariaLabel={`Actions for ${customer.customerName}`} open={openMenuId === customer.customerId} items={actionItems(customer)} onOpenChange={(open) => setOpenMenuId(open ? customer.customerId : '')} /></td>
               </tr>
             ))}

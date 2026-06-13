@@ -7,15 +7,19 @@ import {
   ClipboardCheck,
   Database,
   Filter,
+  FileText,
   HelpCircle,
   Radio,
   Search,
   ShieldAlert,
-  Sliders
+  Sliders,
+  MoreVertical,
+  DollarSign
 } from 'lucide-react';
 import BIAssignAdviceModal, { BIAssignAdvicePayload } from '../components/BIAssignAdviceModal';
 import BIAdviceDetailModal from '../components/BIAdviceDetailModal';
 import BIAdviceFlowPanel from '../components/BIAdviceFlowPanel';
+import BIManagementAdviceDetailModal from '../components/BIManagementAdviceDetailModal';
 import BIShelfStocktakeAssignmentModal from '../components/BIShelfStocktakeAssignmentModal';
 import {
   assignBIAdvice,
@@ -35,8 +39,36 @@ import {
   updateBIShelfStocktakeAssignmentStatus
 } from '../services/biAdviceService';
 import { routeBIAdviceToDesk } from '../services/biAdviceRoutingService';
+import {
+  evaluateBIManagementRules,
+  getBIManagementActivityEvents,
+  recordBIManagementActivityEvent,
+  searchBIManagementAdvice,
+  updateBIManagementActionPoint,
+  updateBIManagementAdviceStatus
+} from '../services/biManagementRuleService';
+import { routeBIManagementAdvice } from '../services/biManagementRoutingService';
+import {
+  generateSalesProfitSnapshot,
+  getSalesProfitDefaultFilter,
+  recordSalesProfitSnapshotExportPlaceholder,
+  recordSalesProfitSnapshotPrintPlaceholder
+} from '../services/salesProfitService';
 import { BiEvent, PosSession, Product, Role, Transaction } from '../types';
-import type { BIAdviceActivityEvent, BIAdviceFilterState, BIAdviceRecord, BIShelfStocktakeAssignment } from '../types';
+import type {
+  BIAdviceActivityEvent,
+  BIAdviceFilterState,
+  BIAdviceRecord,
+  BIManagementActivityEvent,
+  BIManagementAdvice,
+  BIManagementInsightPayload,
+  BIManagementActionPoint,
+  BIManagementAdviceStatus,
+  BIManagementActionStatus,
+  BIReorderBlockWarning,
+  BIShelfStocktakeAssignment,
+  SalesProfitSnapshotPayload
+} from '../types';
 import { mockBIEvents } from '../mock/mockPosData';
 import { canPerformAction } from '../utils/posPermissions';
 import { matchesFreeOrderSearch } from '../utils/searchUtils';
@@ -90,10 +122,10 @@ interface BiRuleDefinition {
   recommendedAction: string;
 }
 
-type BiDeskTab = 'BI Overview' | 'Ruleset Library' | 'Trigger Logs' | 'BI Advice Flow' | 'Risk Output' | 'BI Activity' | 'Settings / Thresholds';
+type BiDeskTab = 'BI Overview' | 'Management BI' | 'Ruleset Library' | 'Trigger Logs' | 'BI Advice Flow' | 'Risk Output' | 'BI Activity' | 'Settings / Thresholds';
 type BiRuleDomain = 'Anti-Theft' | 'Stock Health' | 'Cash Control' | 'Staff Behaviour' | 'Sales Integrity' | 'Delivery Verification';
 
-const biTabs: BiDeskTab[] = ['BI Overview', 'Ruleset Library', 'Trigger Logs', 'BI Advice Flow', 'Risk Output', 'BI Activity', 'Settings / Thresholds'];
+const biTabs: BiDeskTab[] = ['BI Overview', 'Management BI', 'Ruleset Library', 'Trigger Logs', 'BI Advice Flow', 'Risk Output', 'BI Activity', 'Settings / Thresholds'];
 const ruleDomains: BiRuleDomain[] = ['Anti-Theft', 'Stock Health', 'Cash Control', 'Staff Behaviour', 'Sales Integrity', 'Delivery Verification'];
 
 const ruleDescriptions: Record<BiRuleDomain, string> = {
@@ -333,7 +365,7 @@ function triggerActionText(row: BiAlertRow): string {
   return 'Open Advice';
 }
 
-function permissionMessage(): JSX.Element {
+function permissionMessage() {
   return <div className="sci-pos-alert sci-pos-alert--danger">You do not have permission to view this BI section.</div>;
 }
 
@@ -363,6 +395,12 @@ export default function PosBIDesk({
   const [selectedAdvice, setSelectedAdvice] = useState<BIAdviceRecord | null>(null);
   const [selectedShelfAssignment, setSelectedShelfAssignment] = useState<BIShelfStocktakeAssignment | null>(null);
   const [assignAdviceTarget, setAssignAdviceTarget] = useState<BIAdviceRecord | null>(null);
+  const [managementInsight, setManagementInsight] = useState<BIManagementInsightPayload | null>(null);
+  const [managementSearch, setManagementSearch] = useState('');
+  const [selectedManagementAdvice, setSelectedManagementAdvice] = useState<BIManagementAdvice | null>(null);
+  const [managementActivity, setManagementActivity] = useState<BIManagementActivityEvent[]>([]);
+  const [openManagementMenuId, setOpenManagementMenuId] = useState('');
+  const [profitSnapshot, setProfitSnapshot] = useState<SalesProfitSnapshotPayload | null>(null);
   const [activityFeed, setActivityFeed] = useState<ActivityLogItem[]>([
     { id: 'BIA-1', timestamp: '16:05:22', message: 'Rule evaluated: SALE_BLOCKED_ZERO_STOCK (Gate: Blocked transaction output)', type: 'INFO' },
     { id: 'BIA-2', timestamp: '15:45:11', message: 'Supervisor review opened for cash variance: USD -5.00 on register 01', type: 'WARNING' },
@@ -385,6 +423,14 @@ export default function PosBIDesk({
   const canCreateAdviceTask = canPerformAction(roleName, 'bi.advice.createTask');
   const canAssignShelfStocktake = canPerformAction(roleName, 'bi.shelfStocktake.assign');
   const canReviewReorderBlock = canPerformAction(roleName, 'bi.reorderBlock.review');
+  const canViewManagement = canPerformAction(roleName, 'bi.management.view');
+  const canGenerateManagement = canPerformAction(roleName, 'bi.management.generate');
+  const canManageActionPoints = canPerformAction(roleName, 'bi.actionPoints.manage');
+  const canViewActionPoints = canPerformAction(roleName, 'bi.actionPoints.view');
+  const canViewReorderProtection = canPerformAction(roleName, 'bi.reorderProtection.view') || canReviewReorderBlock;
+  const canOverrideReorderProtection = canPerformAction(roleName, 'bi.reorderProtection.override');
+  const canViewTaxReadiness = canPerformAction(roleName, 'bi.taxReadiness.view');
+  const canViewProfitSnapshot = canPerformAction(roleName, 'bi.profitSnapshot.view') || canPerformAction(roleName, 'sales.profitSnapshot.view');
   const productTriggerRows = useMemo(
     () => products.map((product) => mapProductToTriggerRow(product, branchName, terminalName)).filter((row): row is BiAlertRow => Boolean(row)),
     [branchName, products, terminalName]
@@ -420,10 +466,32 @@ export default function PosBIDesk({
     setShelfAssignments(assignments);
   };
 
+  const loadManagementInsight = async () => {
+    const insight = evaluateBIManagementRules({
+      branchName,
+      terminalName,
+      staffName,
+      products,
+      transactions,
+      biEvents
+    });
+    await Promise.all(insight.advice.slice(0, 12).map(routeBIManagementAdvice));
+    setManagementInsight(insight);
+    setManagementActivity(await getBIManagementActivityEvents());
+    if (!profitSnapshot) {
+      setProfitSnapshot(generateSalesProfitSnapshot(getSalesProfitDefaultFilter(), undefined, products, staffName, { branchName, terminalName, cashierName: staffName }));
+    }
+  };
+
   useEffect(() => {
     void loadAdvice(adviceFilters);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [adviceFilters]);
+
+  useEffect(() => {
+    void loadManagementInsight();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [branchName, terminalName, staffName, products, transactions, biEvents]);
 
   const openTab = (tab: BiDeskTab) => {
     setActiveDeskTab(tab);
@@ -499,6 +567,73 @@ export default function PosBIDesk({
     await loadAdvice(adviceFilters);
   };
 
+  const handleGenerateManagement = async () => {
+    if (!canGenerateManagement) {
+      addActivity('Management BI generation blocked by permission.', 'WARNING');
+      return;
+    }
+    await loadManagementInsight();
+    addActivity('BI_MANAGEMENT_EVALUATED: management BI refreshed from local deterministic rules.', 'SUCCESS');
+  };
+
+  const handleOpenManagementAdvice = async (advice: BIManagementAdvice) => {
+    setSelectedManagementAdvice(advice);
+    recordBIManagementActivityEvent({ eventType: 'BI_MANAGEMENT_ADVICE_OPENED', domain: advice.domain, adviceId: advice.adviceId, staffId: staffName, message: `${advice.adviceNumber} opened.` });
+    setManagementActivity(await getBIManagementActivityEvents());
+  };
+
+  const handleManagementAdviceStatus = async (advice: BIManagementAdvice, status: BIManagementAdviceStatus) => {
+    if (!canManageActionPoints && status !== 'In Progress') {
+      addActivity('Management BI action blocked by permission.', 'WARNING');
+      return;
+    }
+    const note = status === 'Resolved'
+      ? window.prompt('Resolution proof', 'Reviewed locally and action completed.')
+      : status === 'Dismissed'
+        ? window.prompt('Dismiss reason', 'Dismissed after management review.')
+        : status === 'Escalated'
+          ? window.prompt('Escalation reason', 'Escalated to owner/manager review.')
+          : `${status} from Management BI.`;
+    if (note === null) return;
+    await updateBIManagementAdviceStatus(advice.adviceId, status, staffName, String(note || status));
+    addActivity(`BI_MANAGEMENT_ADVICE_${status.toUpperCase().replace(/\s+/g, '_')}: ${advice.adviceNumber}.`, status === 'Resolved' ? 'SUCCESS' : 'ACTION');
+    await loadManagementInsight();
+  };
+
+  const handleManagementActionPoint = async (point: BIManagementActionPoint, status: BIManagementActionStatus) => {
+    if (!canManageActionPoints) {
+      addActivity('BI action point update blocked by permission.', 'WARNING');
+      return;
+    }
+    const note = status === 'Resolved' ? window.prompt('Action result note', 'Completed locally.') : `${status} from Management BI.`;
+    if (note === null) return;
+    await updateBIManagementActionPoint(point.actionPointId, status, staffName, String(note || status));
+    addActivity(`BI_MANAGEMENT_ACTION_POINT_UPDATED: ${point.label} -> ${status}.`, 'ACTION');
+    await loadManagementInsight();
+  };
+
+  const handlePrintManagementAdvice = (advice: BIManagementAdvice) => {
+    recordBIManagementActivityEvent({ eventType: 'BI_MANAGEMENT_ADVICE_PRINTED', domain: advice.domain, adviceId: advice.adviceId, staffId: staffName, message: `${advice.adviceNumber} print dialog opened.` });
+    window.print();
+  };
+
+  const handleExportManagementCsv = () => {
+    if (!managementInsight) return;
+    const rows = [
+      ['Advice No', 'Domain', 'Risk', 'Title', 'Desk', 'Role', 'Status'],
+      ...managementInsight.advice.map((advice) => [advice.adviceNumber, advice.domain, advice.riskLevel, advice.title, advice.assignedDesk, advice.assignedRole, advice.status])
+    ];
+    const csv = rows.map((row) => row.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(',')).join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `bi-management-${Date.now()}.csv`;
+    link.click();
+    URL.revokeObjectURL(url);
+    addActivity('BI_MANAGEMENT_EXPORT_PREPARED: CSV placeholder exported.', 'SUCCESS');
+  };
+
   const handleOpenAdvice = async (advice: BIAdviceRecord) => {
     setSelectedAdvice(advice);
     const assignment = shelfAssignments.find((item) => item.createdFromBIAdviceId === advice.adviceId) || null;
@@ -511,6 +646,25 @@ export default function PosBIDesk({
   const handleAdviceActionMenuOpen = (advice: BIAdviceRecord) => {
     recordBIAdviceActivityEvent({ eventType: 'BI_ADVICE_ACTION_MENU_OPENED', adviceId: advice.adviceId, staffId: staffName, message: `${advice.adviceNumber} action menu opened.` });
     addActivity(`BI_ADVICE_ACTION_MENU_OPENED: ${advice.adviceNumber}.`, 'INFO');
+  };
+
+  const handleRequestApprovalFromAdvice = async (advice: BIAdviceRecord) => {
+    await createBIAdviceActionPoint({
+      adviceId: advice.adviceId,
+      actionType: 'Request Approval',
+      label: 'Request Approval',
+      description: `${advice.adviceNumber} approval request prepared locally for ${advice.assignedToRole || 'Manager'}.`,
+      assignedToRole: advice.assignedToRole || 'Manager',
+      dueDate: advice.dueDate || new Date().toISOString().slice(0, 10)
+    });
+    await updateBIAdviceStatus(advice.adviceId, 'Waiting Review', staffName, 'Approval requested locally.');
+    addActivity(`BI_ADVICE_APPROVAL_REQUESTED: ${advice.adviceNumber}.`, 'ACTION');
+    await loadAdvice(adviceFilters);
+  };
+
+  const handlePrintAdvice = (advice: BIAdviceRecord) => {
+    recordBIAdviceActivityEvent({ eventType: 'BI_ADVICE_DETAIL_OPENED', adviceId: advice.adviceId, staffId: staffName, message: `${advice.adviceNumber} print dialog opened.` });
+    window.print();
   };
 
   const handleCreateTaskFromAdvice = async (advice: BIAdviceRecord) => {
@@ -695,6 +849,38 @@ export default function PosBIDesk({
     return ['Critical', 'High', 'Medium', 'Low'].map((severity) => `${severity}: ${rules.filter((rule) => rule.riskLevel === severity).length}`).join(' / ');
   }, [selectedDomain]);
 
+  const filteredManagementAdvice = useMemo(() => {
+    if (!managementInsight) return [];
+    return searchBIManagementAdvice(managementInsight.advice, managementSearch);
+  }, [managementInsight, managementSearch]);
+
+  const managementActionPoints = useMemo(() => {
+    return filteredManagementAdvice.flatMap((advice) => advice.actionPoints.map((point) => ({ ...point, advice })));
+  }, [filteredManagementAdvice]);
+
+  const reorderProtectionRows: BIReorderBlockWarning[] = useMemo(() => {
+    return products
+      .filter((product) => productStock(product) > 0)
+      .map((product) => {
+        const staleDays = product.lastMovementDate ? Math.max(0, Math.floor((Date.now() - new Date(product.lastMovementDate).getTime()) / 86400000)) : 999;
+        return {
+          warningId: `BIRP-${product.id}`,
+          productId: product.id,
+          sku: productSku(product),
+          productName: productName(product),
+          currentQty: product.stock,
+          availableQty: productStock(product),
+          lastMovementDate: product.lastMovementDate,
+          daysWithoutMovement: staleDays,
+          blocked: staleDays >= 60,
+          reason: staleDays >= 90 ? 'Block until approval' : staleDays >= 30 ? 'Review first' : 'Allow reorder',
+          createdAt: new Date().toISOString()
+        };
+      })
+      .sort((a, b) => b.daysWithoutMovement - a.daysWithoutMovement)
+      .slice(0, 8);
+  }, [products]);
+
   if (!hasBiView) {
     return (
       <div className="bi-desk-page">
@@ -767,6 +953,98 @@ export default function PosBIDesk({
               <p><strong>Current Scan:</strong> {transactions.length} transaction rows, {products.length} product rows, {triggerRows.length} trigger logs.</p>
             </div>
           </article>
+        </section>
+      )}
+
+      {activeDeskTab === 'Management BI' && (
+        <section className="bi-management-shell">
+          {!canViewManagement && permissionMessage()}
+          {canViewManagement && managementInsight && (
+            <>
+              <div className="bi-management-toolbar">
+                <label className="bi-trigger-searchbar">
+                  <Search size={15} aria-hidden="true" />
+                  <input value={managementSearch} onChange={(event) => setManagementSearch(event.target.value)} placeholder="Search BI management logs, advice, action points" />
+                </label>
+                <button type="button" className="sci-pos-button sci-pos-button--primary" onClick={handleGenerateManagement}>Generate Management BI</button>
+                <button type="button" className="sci-pos-button sci-pos-button--secondary" onClick={handleExportManagementCsv}>Export CSV Placeholder</button>
+                <button type="button" className="sci-pos-button sci-pos-button--secondary" onClick={() => window.print()}>Print Dashboard</button>
+              </div>
+
+              <div className="bi-management-metric-grid">
+                {managementInsight.metrics.map((metric) => (
+                  <article key={metric.metricId} className="bi-metric-card">
+                    <span>{metric.label}</span>
+                    <strong>{metric.value}</strong>
+                    <small>{metric.help}</small>
+                  </article>
+                ))}
+              </div>
+
+              <div className="bi-management-domain-grid">
+                {managementInsight.domainCards.map((card) => (
+                  <article key={card.domain} className="bi-management-domain-card">
+                    <div>
+                      <strong>{card.domain}</strong>
+                      <span className={riskBadgeClass(card.riskLevel)}>{card.riskLevel}</span>
+                    </div>
+                    <p>Risk score {card.riskScore} / Open warnings {card.openWarnings}</p>
+                    <small>Due action points: {card.dueActionPoints}</small>
+                    <small>Last trigger: {card.lastTrigger}</small>
+                    <button type="button" className="sci-pos-button sci-pos-button--secondary" onClick={() => setManagementSearch(card.domain)}>View Advice</button>
+                  </article>
+                ))}
+              </div>
+
+              <ManagementAdviceTable
+                records={filteredManagementAdvice}
+                openMenuId={openManagementMenuId}
+                setOpenMenuId={setOpenManagementMenuId}
+                onOpen={handleOpenManagementAdvice}
+                onStart={(advice) => void handleManagementAdviceStatus(advice, 'In Progress')}
+                onResolve={(advice) => void handleManagementAdviceStatus(advice, 'Resolved')}
+                onDismiss={(advice) => void handleManagementAdviceStatus(advice, 'Dismissed')}
+                onEscalate={(advice) => void handleManagementAdviceStatus(advice, 'Escalated')}
+                onPrint={handlePrintManagementAdvice}
+              />
+
+              {canViewActionPoints && (
+                <BIActionPointsPanel
+                  points={managementActionPoints}
+                  onOpen={(advice) => void handleOpenManagementAdvice(advice)}
+                  onUpdate={(point, status) => void handleManagementActionPoint(point, status)}
+                />
+              )}
+
+              {canViewReorderProtection && (
+                <ReorderProtectionPanel
+                  rows={reorderProtectionRows}
+                  canOverride={canOverrideReorderProtection}
+                  onAction={(label, row) => addActivity(`BI_REORDER_PROTECTION_ACTION: ${label} for ${row.sku}.`, 'ACTION')}
+                />
+              )}
+
+              <div className="bi-management-two-col">
+                {canViewProfitSnapshot && profitSnapshot && (
+                  <ProfitSnapshotPanel
+                    snapshot={profitSnapshot}
+                    onRefresh={() => {
+                      setProfitSnapshot(generateSalesProfitSnapshot(getSalesProfitDefaultFilter(), undefined, products, staffName, { branchName, terminalName, cashierName: staffName }));
+                      addActivity('SALES_PROFIT_SNAPSHOT_GENERATED: BI Management snapshot refreshed.', 'SUCCESS');
+                    }}
+                    onPrint={() => { recordSalesProfitSnapshotPrintPlaceholder(staffName); window.print(); }}
+                    onExport={() => { recordSalesProfitSnapshotExportPlaceholder(staffName); addActivity('SALES_PROFIT_SNAPSHOT_EXPORT_PLACEHOLDER: Export placeholder recorded.', 'SUCCESS'); }}
+                  />
+                )}
+                {canViewTaxReadiness && (
+                  <VatReadinessPanel
+                    advice={filteredManagementAdvice}
+                    onAction={(label) => addActivity(`BI_TAX_READINESS_ACTION: ${label}.`, 'ACTION')}
+                  />
+                )}
+              </div>
+            </>
+          )}
         </section>
       )}
 
@@ -919,9 +1197,11 @@ export default function PosBIDesk({
             onCreateTask={handleCreateTaskFromAdvice}
             onAssignStaff={handleAssignAdvice}
             onStartStocktake={handleStartStocktakeAdvice}
+            onRequestApproval={handleRequestApprovalFromAdvice}
             onResolve={handleResolveAdvice}
             onDismiss={handleDismissAdvice}
             onEscalate={handleEscalateAdvice}
+            onPrintAdvice={handlePrintAdvice}
             onActionMenuOpen={handleAdviceActionMenuOpen}
             canView={canViewAdvice}
           />
@@ -1006,6 +1286,16 @@ export default function PosBIDesk({
         onEscalate={() => selectedAdvice && void handleEscalateAdvice(selectedAdvice)}
         onClose={() => setSelectedAdvice(null)}
       />
+      <BIManagementAdviceDetailModal
+        advice={selectedManagementAdvice}
+        activity={managementActivity.filter((event) => !selectedManagementAdvice || event.adviceId === selectedManagementAdvice.adviceId)}
+        onStart={(advice) => void handleManagementAdviceStatus(advice, 'In Progress')}
+        onResolve={(advice) => void handleManagementAdviceStatus(advice, 'Resolved')}
+        onDismiss={(advice) => void handleManagementAdviceStatus(advice, 'Dismissed')}
+        onEscalate={(advice) => void handleManagementAdviceStatus(advice, 'Escalated')}
+        onPrint={handlePrintManagementAdvice}
+        onClose={() => setSelectedManagementAdvice(null)}
+      />
       <BIShelfStocktakeAssignmentModal
         assignment={selectedShelfAssignment}
         advice={selectedAdvice}
@@ -1021,5 +1311,211 @@ export default function PosBIDesk({
         onCancel={() => setAssignAdviceTarget(null)}
       />
     </div>
+  );
+}
+
+function ManagementAdviceTable({
+  records,
+  openMenuId,
+  setOpenMenuId,
+  onOpen,
+  onStart,
+  onResolve,
+  onDismiss,
+  onEscalate,
+  onPrint
+}: {
+  records: BIManagementAdvice[];
+  openMenuId: string;
+  setOpenMenuId: (id: string) => void;
+  onOpen: (advice: BIManagementAdvice) => void;
+  onStart: (advice: BIManagementAdvice) => void;
+  onResolve: (advice: BIManagementAdvice) => void;
+  onDismiss: (advice: BIManagementAdvice) => void;
+  onEscalate: (advice: BIManagementAdvice) => void;
+  onPrint: (advice: BIManagementAdvice) => void;
+}) {
+  const action = (advice: BIManagementAdvice, fn: (record: BIManagementAdvice) => void) => {
+    setOpenMenuId('');
+    fn(advice);
+  };
+  return (
+    <section className="sci-pos-card bi-management-table-card">
+      <div className="bi-section-header">
+        <ShieldAlert className="bi-section-header-icon" size={18} aria-hidden="true" />
+        <div><h2 className="bi-section-header-title">Management Advice</h2><span>Rule outputs, routed desks, assigned roles, and action menus.</span></div>
+      </div>
+      <div className="bi-trigger-table-scroll">
+        <table className="bi-trigger-table bi-management-table">
+          <thead><tr>{['Advice No.', 'Domain', 'Risk', 'Narrative', 'Desk', 'Role', 'Due', 'Status', 'Action'].map((heading) => <th key={heading}>{heading}</th>)}</tr></thead>
+          <tbody>
+            {records.map((advice) => (
+              <tr key={advice.adviceId}>
+                <td>{advice.adviceNumber}</td>
+                <td>{advice.domain}</td>
+                <td><span className={`bi-risk-badge bi-risk-badge--${advice.riskLevel.toLowerCase()}`}>{advice.riskLevel}</span></td>
+                <td>{advice.narrative}</td>
+                <td>{advice.assignedDesk}</td>
+                <td>{advice.assignedRole}</td>
+                <td>{advice.dueDate || 'No due date'}</td>
+                <td>{advice.status}</td>
+                <td className="bi-advice-row-actions">
+                  <button type="button" className="bi-advice-action-menu-trigger" aria-label={`Actions for ${advice.adviceNumber}`} aria-expanded={openMenuId === advice.adviceId} onClick={() => setOpenMenuId(openMenuId === advice.adviceId ? '' : advice.adviceId)}>
+                    <MoreVertical size={16} />
+                  </button>
+                  {openMenuId === advice.adviceId && (
+                    <div className="bi-advice-action-menu-portal bi-management-inline-menu" role="menu">
+                      <button type="button" className="bi-advice-action-menu-item" onClick={() => action(advice, onOpen)}>Open Advice</button>
+                      <button type="button" className="bi-advice-action-menu-item" onClick={() => action(advice, onStart)}>Create Task / Start</button>
+                      <button type="button" className="bi-advice-action-menu-item" onClick={() => action(advice, onResolve)}>Resolve</button>
+                      <button type="button" className="bi-advice-action-menu-item" onClick={() => action(advice, onDismiss)}>Dismiss</button>
+                      <button type="button" className="bi-advice-action-menu-item" onClick={() => action(advice, onEscalate)}>Escalate</button>
+                      <button type="button" className="bi-advice-action-menu-item" onClick={() => action(advice, onPrint)}>Print Advice</button>
+                    </div>
+                  )}
+                </td>
+              </tr>
+            ))}
+            {records.length === 0 && <tr><td colSpan={9} className="sci-pos-empty-cell">No management advice matched your search.</td></tr>}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  );
+}
+
+function BIActionPointsPanel({
+  points,
+  onOpen,
+  onUpdate
+}: {
+  points: Array<BIManagementActionPoint & { advice: BIManagementAdvice }>;
+  onOpen: (advice: BIManagementAdvice) => void;
+  onUpdate: (point: BIManagementActionPoint, status: BIManagementActionStatus) => void;
+}) {
+  return (
+    <section className="sci-pos-card bi-management-table-card">
+      <div className="bi-section-header">
+        <ClipboardCheck className="bi-section-header-icon" size={18} aria-hidden="true" />
+        <div><h2 className="bi-section-header-title">BI Action Points</h2><span>Action number, source advice, owner, due date, and local status updates.</span></div>
+      </div>
+      <div className="bi-management-action-grid">
+        {points.slice(0, 12).map((point) => (
+          <article key={point.actionPointId}>
+            <strong>{point.label}</strong>
+            <span>{point.advice.domain} / {point.status}</span>
+            <p>{point.description}</p>
+            <small>{point.assignedRole} / {point.assignedDesk} / Due {point.dueDate}</small>
+            <div>
+              <button type="button" className="sci-pos-button sci-pos-button--secondary" onClick={() => onOpen(point.advice)}>Open</button>
+              <button type="button" className="sci-pos-button sci-pos-button--secondary" onClick={() => onUpdate(point, 'In Progress')}>Start</button>
+              <button type="button" className="sci-pos-button sci-pos-button--primary" onClick={() => onUpdate(point, 'Resolved')}>Complete</button>
+              <button type="button" className="sci-pos-button sci-pos-button--secondary" onClick={() => onUpdate(point, 'Escalated')}>Escalate</button>
+            </div>
+          </article>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function ReorderProtectionPanel({
+  rows,
+  canOverride,
+  onAction
+}: {
+  rows: BIReorderBlockWarning[];
+  canOverride: boolean;
+  onAction: (label: string, row: BIReorderBlockWarning) => void;
+}) {
+  return (
+    <section className="sci-pos-card bi-management-table-card">
+      <div className="bi-section-header">
+        <Database className="bi-section-header-icon" size={18} aria-hidden="true" />
+        <div><h2 className="bi-section-header-title">Reorder Protection</h2><span>Stagnant stock protection before purchase discipline is broken.</span></div>
+      </div>
+      <div className="bi-trigger-table-scroll">
+        <table className="bi-trigger-table">
+          <thead><tr>{['Product', 'Qty', 'Available', 'Last Movement', 'Days', 'BI Decision', 'Action'].map((heading) => <th key={heading}>{heading}</th>)}</tr></thead>
+          <tbody>
+            {rows.map((row) => (
+              <tr key={row.warningId}>
+                <td>{row.productName}<small>{row.sku}</small></td>
+                <td>{row.currentQty}</td>
+                <td>{row.availableQty}</td>
+                <td>{row.lastMovementDate || 'No movement'}</td>
+                <td>{row.daysWithoutMovement}</td>
+                <td>{row.daysWithoutMovement >= 60 ? 'block until approval' : row.daysWithoutMovement >= 30 ? 'review first' : 'allow reorder'}</td>
+                <td><div className="pos-approval-actions">
+                  <button type="button" className="sci-pos-button sci-pos-button--secondary" onClick={() => onAction('Review Stock', row)}>Review Stock</button>
+                  <button type="button" className="sci-pos-button sci-pos-button--secondary" onClick={() => onAction('Start Stocktake', row)}>Start Stocktake</button>
+                  <button type="button" className="sci-pos-button sci-pos-button--secondary" onClick={() => onAction('Create Purchase Reminder', row)}>Reminder</button>
+                  <button type="button" className="sci-pos-button sci-pos-button--secondary" disabled={!canOverride} onClick={() => onAction('Request Manager Approval', row)}>Approval</button>
+                </div></td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  );
+}
+
+function ProfitSnapshotPanel({
+  snapshot,
+  onRefresh,
+  onPrint,
+  onExport
+}: {
+  snapshot: SalesProfitSnapshotPayload;
+  onRefresh: () => void;
+  onPrint: () => void;
+  onExport: () => void;
+}) {
+  return (
+    <section className="sci-pos-card bi-management-subpanel">
+      <div className="bi-section-header">
+        <DollarSign className="bi-section-header-icon" size={18} aria-hidden="true" />
+        <div><h2 className="bi-section-header-title">Profit and Drawer Snapshot</h2><span>{snapshot.period} / {snapshot.branchName} / {snapshot.terminalName}</span></div>
+      </div>
+      <div className="bi-management-ledger">
+        <div><span>Gross Sales Revenue</span><strong>USD {snapshot.grossSalesRevenue.toFixed(2)}</strong></div>
+        <div><span>COGS</span><strong>USD {snapshot.cogs.toFixed(2)}</strong></div>
+        <div><span>Gross Profit</span><strong>USD {snapshot.grossProfit.toFixed(2)}</strong></div>
+        <div><span>Drawer Expenses</span><strong>USD {snapshot.drawerExpenses.toFixed(2)}</strong></div>
+        <div><span>Drawer Net Profit</span><strong>USD {snapshot.netDrawerProfit.toFixed(2)}</strong></div>
+      </div>
+      <div className="pos-approval-actions">
+        <button type="button" className="sci-pos-button sci-pos-button--secondary" onClick={onRefresh}>Refresh</button>
+        <button type="button" className="sci-pos-button sci-pos-button--secondary" onClick={onPrint}>Print</button>
+        <button type="button" className="sci-pos-button sci-pos-button--secondary" onClick={onExport}>Export Placeholder</button>
+      </div>
+    </section>
+  );
+}
+
+function VatReadinessPanel({ advice, onAction }: { advice: BIManagementAdvice[]; onAction: (label: string) => void }) {
+  const taxWarnings = advice.filter((item) => item.domain === 'Tax / VAT Readiness');
+  const missingTax = taxWarnings.filter((item) => item.sourceRuleCode === 'MISSING_TAX_NUMBER').length;
+  return (
+    <section className="sci-pos-card bi-management-subpanel">
+      <div className="bi-section-header">
+        <FileText className="bi-section-header-icon" size={18} aria-hidden="true" />
+        <div><h2 className="bi-section-header-title">VAT / Tax Readiness</h2><span>Local readiness output for EOD and finance review.</span></div>
+      </div>
+      <div className="bi-management-ledger">
+        <div><span>VAT Collected</span><strong>USD 184.50</strong></div>
+        <div><span>Taxable Sales</span><strong>USD 1,230.00</strong></div>
+        <div><span>VAT Exempt Sales</span><strong>USD 95.00</strong></div>
+        <div><span>Missing Tax Customers</span><strong>{missingTax}</strong></div>
+        <div><span>VAT Mismatch</span><strong>{taxWarnings.filter((item) => item.sourceRuleCode === 'VAT_AMOUNT_INCONSISTENCY').length}</strong></div>
+        <div><span>EOD VAT Status</span><strong>{taxWarnings.length > 0 ? 'Review Required' : 'Ready'}</strong></div>
+      </div>
+      <div className="pos-approval-actions">
+        <button type="button" className="sci-pos-button sci-pos-button--secondary" onClick={() => onAction('Open VAT Summary')}>Open VAT Summary</button>
+        <button type="button" className="sci-pos-button sci-pos-button--secondary" onClick={() => onAction('Create VAT Review Task')}>Create VAT Review Task</button>
+        <button type="button" className="sci-pos-button sci-pos-button--primary" onClick={() => onAction('Mark Reviewed')}>Mark Reviewed</button>
+      </div>
+    </section>
   );
 }

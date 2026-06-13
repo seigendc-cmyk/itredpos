@@ -4,6 +4,7 @@ import type {
   BIAdviceActivityEvent,
   BIAdviceCategory,
   BIAdviceFilterState,
+  BIAdvicePriority,
   BIAdviceRecord,
   BIAdviceStatus,
   BIReorderBlockWarning,
