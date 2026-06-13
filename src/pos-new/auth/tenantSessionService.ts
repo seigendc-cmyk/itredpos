@@ -5,7 +5,7 @@ import {
   isStaffPinRequired,
   isTenantResolutionEnabled
 } from '../repositories/repositoryConfig';
-import { getPermissionsForRole, type PermissionKey } from '../utils/posPermissions';
+import { type PermissionKey } from '../utils/posPermissions';
 import type {
   AuthActivityEvent,
   FirebaseAuthUserProfile,
@@ -63,11 +63,7 @@ const placeholderTerminals: Record<string, TenantTerminalIdentity[]> = {
 };
 
 const roleToPermissions = (role: TenantStaffIdentity['staffRole']): PermissionKey[] => {
-  if (role === 'VendorOwner' || role === 'VendorAdmin') return getPermissionsForRole('Owner');
-  if (role === 'StockController') return getPermissionsForRole('Stock Controller');
-  if (role === 'DeliveryStaff') return getPermissionsForRole('Delivery Staff');
-  if (role === 'Cashier' || role === 'Manager' || role === 'Supervisor') return getPermissionsForRole(role);
-  return ['sales.viewHistory', 'sync.view'];
+  return getTenantPermissionsForRole(role);
 };
 
 const canUseLocalStorage = () => {
@@ -124,7 +120,7 @@ export function createBuildDevelopmentSession(): TenantSession {
     branchName: 'Harare Main',
     terminalId: 'POS-01',
     terminalName: 'POS-01 Harare Front Counter',
-    permissions: getPermissionsForRole('Owner'),
+    permissions: getTenantPermissionsForRole('VendorOwner'),
     isBuildDevelopmentSession: true,
     authRequired: isFirebaseAuthRequired(),
     tenantResolved: true,

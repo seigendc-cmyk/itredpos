@@ -1,7 +1,8 @@
 import { securityRightsCatalog } from './securityRightsCatalog';
 import {
+  getDirectRolePermissions,
   getDefaultRolePermissions,
-  getInheritedRoles,
+  getPermissionInheritanceSource,
   securityRoleDefinitions
 } from './securityRoleHierarchy';
 import type {
@@ -74,6 +75,9 @@ export function calculatePermissionCell(permissionKey: string, roleKey: Security
   if (ownerLocked) {
     return { permissionKey, roleKey, allowed: true, inheritanceMode: 'Locked', locked: true, reason: 'Owner full access is protected during build-development.' };
   }
+  if (roleKey === 'SysAdmin' && !override) {
+    return { permissionKey, roleKey, allowed: true, inheritanceMode: 'Direct', locked: false, reason: 'SysAdmin has full POS rights. Internal console access is not included.' };
+  }
   if (override) {
     return {
       permissionKey,
@@ -86,10 +90,10 @@ export function calculatePermissionCell(permissionKey: string, roleKey: Security
       changedAt: override.changedAt
     };
   }
-  if (permission.defaultRoles.includes(roleKey)) {
+  if (getDirectRolePermissions(roleKey).includes(permissionKey)) {
     return { permissionKey, roleKey, allowed: true, inheritanceMode: 'Direct', locked: false, reason: 'Allowed by default role rights.' };
   }
-  const inheritedFrom = getInheritedRoles(roleKey).find((inheritedRole) => permission.defaultRoles.includes(inheritedRole));
+  const inheritedFrom = getPermissionInheritanceSource(roleKey, permissionKey);
   if (inheritedFrom) {
     return { permissionKey, roleKey, allowed: true, inheritanceMode: 'Inherited', inheritedFrom, locked: false, reason: `Inherited from ${inheritedFrom}.` };
   }

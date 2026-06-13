@@ -1,5 +1,6 @@
 import { Fragment, useMemo, useState } from 'react';
 import {
+  calculatePermissionCell,
   getPermissionMatrix,
   getPermissionMatrixActivityEvents,
   recordSecurityMatrixEvent,
@@ -7,6 +8,9 @@ import {
   resetRoleToDefault,
   togglePermissionForRole
 } from '../auth/permissionMatrixService';
+import { getEffectiveMenuKeysForRole, roleHasEffectivePermission } from '../auth/effectivePermissionService';
+import { runPermissionMatrixSelfTest } from '../auth/permissionMatrixSelfTest';
+import { roleMenuDefinitions } from '../auth/roleMenuDefinitions';
 import { securityPermissionAreas } from '../auth/securityRightsCatalog';
 import type {
   PermissionArea,
@@ -23,8 +27,15 @@ export default function SecurityRightsMatrix() {
   const [matrix, setMatrix] = useState<SecurityPermissionMatrix>(() => getPermissionMatrix());
   const [filter, setFilter] = useState<SecurityRightsFilterState>({ area: 'ALL', view: 'All Rights', search: '' });
   const [selected, setSelected] = useState<SecurityPermissionRight>(matrix.rows[0]?.permission);
+  const [checkRole, setCheckRole] = useState<SecurityRoleKey>('Cashier');
+  const [checkPermission, setCheckPermission] = useState('settings.permissions.edit');
+  const [checkMenu, setCheckMenu] = useState('settings');
   const [notice, setNotice] = useState('');
   const activity = getPermissionMatrixActivityEvents().slice(0, 4);
+  const selfTest = useMemo(() => runPermissionMatrixSelfTest(), [matrix.updatedAt]);
+  const resolutionCell = calculatePermissionCell(checkPermission, checkRole);
+  const canOpenMenu = getEffectiveMenuKeysForRole(checkRole).includes(checkMenu);
+  const hasPermission = roleHasEffectivePermission(checkRole, checkPermission);
 
   const filteredRows = useMemo(() => {
     const search = filter.search.trim().toLowerCase();
@@ -142,6 +153,51 @@ export default function SecurityRightsMatrix() {
           </div>
 
           <aside className="border border-[#b1b5c2] bg-slate-50 p-3 space-y-3">
+            <div className="border border-[#b1b5c2] bg-white p-2 space-y-2">
+              <div>
+                <p className="text-[9px] text-orange-600 uppercase font-black">Permission Resolution Check</p>
+                <h3 className="text-sm font-black uppercase text-[#1e222b]">Effective Access</h3>
+              </div>
+              <Select label="Role" value={checkRole} options={matrix.roles.map((role) => role.roleKey)} onChange={(value) => setCheckRole(value as SecurityRoleKey)} />
+              <Select label="Permission Key" value={checkPermission} options={matrix.rows.map((row) => row.permission.permissionKey)} onChange={setCheckPermission} />
+              <Select label="Menu Key" value={checkMenu} options={roleMenuDefinitions.map((menu) => menu.menuKey)} onChange={setCheckMenu} />
+              <div className="grid grid-cols-2 gap-2">
+                <Metric label="Has Permission" value={hasPermission ? 'Allowed' : 'Denied'} />
+                <Metric label="Can Open Menu" value={canOpenMenu ? 'Allowed' : 'Denied'} />
+                <Metric label="Source" value={resolutionCell.inheritanceMode} />
+                <Metric label="Inherited From" value={resolutionCell.inheritedFrom || 'None'} />
+              </div>
+              <div className="border border-[#d6d9e0] bg-slate-50 p-2 text-[9px] font-bold uppercase text-slate-700">{resolutionCell.reason}</div>
+            </div>
+
+            <div className="border border-[#b1b5c2] bg-white p-2 space-y-2">
+              <div className="flex items-center justify-between gap-2">
+                <div>
+                  <p className="text-[9px] text-orange-600 uppercase font-black">Matrix Self Test</p>
+                  <h3 className="text-sm font-black uppercase text-[#1e222b]">Permission Checks</h3>
+                </div>
+                <span className={`px-2 py-1 border text-[9px] font-black uppercase ${selfTest.passed ? 'bg-emerald-50 border-emerald-400 text-emerald-800' : 'bg-red-50 border-red-400 text-red-800'}`}>{selfTest.passed ? 'Passed' : 'Failed'}</span>
+              </div>
+              <div className="max-h-56 overflow-auto border border-[#d6d9e0]">
+                <table className="w-full text-left text-[9px]">
+                  <thead className="bg-[#1e222b] text-white uppercase sticky top-0">
+                    <tr><th className="p-2">Case</th><th className="p-2">Result</th></tr>
+                  </thead>
+                  <tbody className="divide-y divide-[#d6d9e0]">
+                    {selfTest.results.map((result) => (
+                      <tr key={`${result.roleKey}-${result.permissionKey}`}>
+                        <td className="p-2">
+                          <strong className="block uppercase">{result.label}</strong>
+                          <span className="block text-slate-500">{result.roleKey} / {result.permissionKey}</span>
+                        </td>
+                        <td className={`p-2 font-black uppercase ${result.passed ? 'text-emerald-700' : 'text-red-700'}`}>{result.passed ? 'Pass' : `Fail ${String(result.actual)}`}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
             <div>
               <p className="text-[9px] text-orange-600 uppercase font-black">Permission Help</p>
               <h3 className="text-sm font-black uppercase text-[#1e222b]">{selected?.label || 'Select a Right'}</h3>

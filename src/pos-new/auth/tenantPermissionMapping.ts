@@ -1,7 +1,7 @@
 import type { Role } from '../types';
-import { getAllowedMenusForRole, getPermissionsForRole, type PermissionKey } from '../utils/posPermissions';
+import { type PermissionKey } from '../utils/posPermissions';
 import type { TenantUserRole } from './authTypes';
-import { getEffectivePermissionsForRole, normalizeSecurityRole } from './permissionMatrixService';
+import { getEffectiveMenuKeysForRole, getEffectivePermissionsForRole, normalizeRoleKey } from './effectivePermissionService';
 
 const roleMap: Record<TenantUserRole, Role> = {
   VendorOwner: 'Owner',
@@ -20,8 +20,7 @@ export function mapTenantRoleToPosRole(role: TenantUserRole): Role {
 }
 
 export function getTenantPermissionsForRole(role: TenantUserRole): PermissionKey[] {
-  if (role === 'VendorOwner') return getPermissionsForRole('Owner');
-  return getEffectivePermissionsForRole(normalizeSecurityRole(role)) as PermissionKey[];
+  return getEffectivePermissionsForRole(normalizeRoleKey(role)) as PermissionKey[];
 }
 
 export function getTenantPermissionMappingRows() {
@@ -31,7 +30,7 @@ export function getTenantPermissionMappingRows() {
       tenantRole,
       posRole,
       permissionCount: getTenantPermissionsForRole(tenantRole).length,
-      menuCount: getAllowedMenusForRole(posRole).length
+      menuCount: getEffectiveMenuKeysForRole(tenantRole).length
     };
   });
 }

@@ -22,6 +22,146 @@ export const securityRoleHierarchyRules: SecurityRoleHierarchyRule[] = securityR
   }))
 );
 
+const managerDirectPermissions = [
+  'ownerDesk.view',
+  'bi.summary.view',
+  'sales.discount',
+  'sales.priceChange',
+  'sales.void',
+  'sales.return',
+  'sales.endOfDay.run',
+  'customers.createDirect',
+  'customers.edit',
+  'inventory.view',
+  'productMaster.view',
+  'productMaster.create',
+  'productMaster.edit',
+  'productMaster.activate',
+  'productImport.view',
+  'productImport.create',
+  'productImport.map',
+  'productImport.validate',
+  'productImport.approve',
+  'productImport.import',
+  'purchaseOrder.view',
+  'purchaseOrder.create',
+  'purchaseOrder.approve',
+  'goodsReceiving.view',
+  'goodsReceiving.create',
+  'goodsReceiving.post',
+  'stockAdjustment.view',
+  'stockAdjustment.create',
+  'stockAdjustment.approve',
+  'stocktake.view',
+  'stocktake.create',
+  'stocktake.approve',
+  'delivery.assign',
+  'delivery.cashReview',
+  'approvals.approveHighRisk',
+  'reports.sales',
+  'reports.inventory',
+  'settings.view',
+  'businessProfile.edit',
+  'businessRegistration.view',
+  'businessRegistration.dashboardView',
+  'businessTax.view',
+  'businessAdministrator.view',
+  'hardware.view',
+  'bi.view',
+  'bi.riskReview'
+];
+
+const directRolePermissions: Record<SecurityRoleKey, string[]> = {
+  Owner: [],
+  SysAdmin: [],
+  Manager: managerDirectPermissions,
+  Supervisor: [
+    'sales.discount',
+    'sales.viewHistory',
+    'inventory.view',
+    'productMaster.view',
+    'stocktake.view',
+    'delivery.view',
+    'delivery.assign',
+    'approvals.view',
+    'approvals.approveLowRisk',
+    'reports.view',
+    'sync.view'
+  ],
+  Accountant: [
+    'sales.viewHistory',
+    'reports.view',
+    'reports.sales',
+    'reports.accounting',
+    'reports.export',
+    'accounting.view',
+    'accounting.readinessReview',
+    'accounting.export',
+    'chartOfAccounts.view',
+    'delivery.cashReview',
+    'approvals.view',
+    'sync.view',
+    'customers.creditView',
+    'businessRegistration.view',
+    'businessRegistration.dashboardView',
+    'businessTax.view',
+    'businessAdministrator.view'
+  ],
+  StockController: [
+    'inventory.view',
+    'productMaster.view',
+    'productMaster.create',
+    'productMaster.edit',
+    'productImport.view',
+    'productImport.create',
+    'productImport.map',
+    'productImport.validate',
+    'purchaseOrder.view',
+    'purchaseOrder.create',
+    'goodsReceiving.view',
+    'goodsReceiving.create',
+    'supplierReturn.view',
+    'supplierReturn.create',
+    'stockAdjustment.view',
+    'stockAdjustment.create',
+    'stocktake.view',
+    'stocktake.create',
+    'stockTransfer.view',
+    'stockTransfer.create',
+    'stockTransfer.dispatch',
+    'stockTransfer.receive',
+    'openingBalance.view',
+    'openingBalance.create',
+    'reports.inventory',
+    'sync.view',
+    'sync.retry',
+    'sync.batch.create'
+  ],
+  Cashier: [
+    'sales.open',
+    'sales.complete',
+    'sales.hold',
+    'sales.reprintReceipt',
+    'customers.view',
+    'customers.createRequest',
+    'delivery.create',
+    'sync.view'
+  ],
+  DeliveryStaff: [
+    'delivery.view',
+    'delivery.track',
+    'delivery.verifyCode',
+    'delivery.complete',
+    'sync.view'
+  ],
+  Viewer: [
+    'dashboard.view',
+    'reports.view',
+    'audit.view',
+    'businessProfile.view'
+  ]
+};
+
 export function getRoleHierarchyLevel(roleKey: SecurityRoleKey): number {
   return securityRoleDefinitions.find((role) => role.roleKey === roleKey)?.hierarchyLevel || 99;
 }
@@ -37,9 +177,15 @@ export function roleInheritsFrom(roleKey: SecurityRoleKey, inheritedRoleKey: Sec
 }
 
 export function getDefaultRolePermissions(roleKey: SecurityRoleKey): string[] {
-  if (roleKey === 'Owner') return securityRightsCatalog.map((right) => right.permissionKey);
-  const inheritedRoles = getInheritedRoles(roleKey);
-  return securityRightsCatalog
-    .filter((right) => right.defaultRoles.includes(roleKey) || right.defaultRoles.some((defaultRole) => inheritedRoles.includes(defaultRole)))
-    .map((right) => right.permissionKey);
+  if (roleKey === 'Owner' || roleKey === 'SysAdmin') return securityRightsCatalog.map((right) => right.permissionKey);
+  return Array.from(new Set([...getDirectRolePermissions(roleKey), ...getInheritedRoles(roleKey).flatMap((role) => getDirectRolePermissions(role))]));
+}
+
+export function getDirectRolePermissions(roleKey: SecurityRoleKey): string[] {
+  if (roleKey === 'Owner' || roleKey === 'SysAdmin') return securityRightsCatalog.map((right) => right.permissionKey);
+  return directRolePermissions[roleKey] || directRolePermissions.Viewer;
+}
+
+export function getPermissionInheritanceSource(roleKey: SecurityRoleKey, permissionKey: string): SecurityRoleKey | undefined {
+  return getInheritedRoles(roleKey).find((inheritedRole) => getDirectRolePermissions(inheritedRole).includes(permissionKey));
 }

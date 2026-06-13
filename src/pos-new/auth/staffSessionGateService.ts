@@ -7,12 +7,16 @@ import {
   isStrictPermissionEnforcementEnabled
 } from '../repositories/repositoryConfig';
 import type { PosPageId } from '../types';
-import { getAllowedMenusForRole, getPermissionsForRole } from '../utils/posPermissions';
+import {
+  getEffectiveMenuKeysForRole,
+  getEffectivePageIdsForRole,
+  getEffectivePermissionsForRole,
+  isOwnerBypassSession
+} from './effectivePermissionService';
 import { getCurrentTenantSession } from './tenantSessionService';
-import { getRoleActionKeys } from './roleActionPermissions';
-import { getAllowedPosPageIdsForRoleMenu, getRoleMenuKeys } from './roleMenuDefinitions';
 import { getStaffPinAttempts, verifyStaffPin } from './staffPinService';
 import type {
+  RoleMenuKey,
   StaffDeskType,
   StaffGateRole,
   StaffGateSession,
@@ -58,15 +62,6 @@ const recordGateActivity = (event: Omit<StaffPinActivityEvent, 'eventId' | 'crea
   writeJson(GATE_ACTIVITY_KEY, [{ ...event, eventId: makeId('GATEACT'), createdAt: nowIso() }, ...rows].slice(0, 75));
 };
 
-const roleForPosPermissions = (role: StaffGateRole) => {
-  if (role === 'VendorOwner') return 'Owner';
-  if (role === 'VendorAdmin' || role === 'Accountant') return 'Manager';
-  if (role === 'StockController') return 'Stock Controller';
-  if (role === 'DeliveryStaff') return 'Delivery Staff';
-  if (role === 'Viewer') return 'Cashier';
-  return role;
-};
-
 export function getStaffSessionGateReadiness(): StaffSessionGateReadiness[] {
   return [
     { item: 'Gate Enabled', status: isStaffSessionGateEnabled() ? 'Enabled' : 'Disabled', notes: 'Staff session gate preview layer is available.' },
@@ -91,7 +86,8 @@ export function startStaffGateSession(payload: {
   expiresAt?: string;
 }): StaffGateSession {
   const tenantSession = getCurrentTenantSession();
-  const isOwnerBypass = payload.staffRole === 'Owner' || payload.staffRole === 'VendorOwner';
+  const bypassCandidate = { staffRole: payload.staffRole, isBuildDevelopmentSession: isBuildDevelopmentOwnerBypassEnabled() };
+  const isOwnerBypass = isOwnerBypassSession(bypassCandidate);
   const session: StaffGateSession = {
     gateSessionId: makeId('GATE'),
     tenantSessionId: tenantSession.sessionId,
@@ -106,7 +102,7 @@ export function startStaffGateSession(payload: {
     deskType: payload.deskType,
     pinStatus: isOwnerBypass && isBuildDevelopmentOwnerBypassEnabled() ? 'Build Development Bypass' : isStaffPinRequired() ? 'Pending' : 'Not Required',
     gateStatus: isOwnerBypass && isBuildDevelopmentOwnerBypassEnabled() ? 'Build Development Bypass' : isStaffSessionGateRequired() ? 'Required' : 'Preview',
-    menuKeys: getRoleMenuKeys(payload.staffRole),
+    menuKeys: getEffectiveMenuKeysForRole(String(payload.staffRole)) as RoleMenuKey[],
     permissions: getAllowedActionsForStaffRole(payload.staffRole),
     startedAt: nowIso(),
     lastActiveAt: nowIso(),
@@ -206,17 +202,16 @@ export function refreshStaffGateSessionActivity(): StaffGateSession {
 }
 
 export function getAllowedMenusForStaffSession(session: StaffGateSession): PosPageId[] {
-  if (session.isBuildDevelopmentBypass || session.staffRole === 'Owner' || session.staffRole === 'VendorOwner') return getAllowedMenusForRole('Owner');
-  return getAllowedPosPageIdsForRoleMenu(session.staffRole);
+  if (isOwnerBypassSession({ staffRole: String(session.staffRole), isBuildDevelopmentSession: session.isBuildDevelopmentBypass })) return getEffectivePageIdsForRole('Owner');
+  return getEffectivePageIdsForRole(String(session.staffRole));
 }
 
 export function getAllowedActionsForStaffRole(role: StaffGateRole): string[] {
-  if (role === 'Owner' || role === 'VendorOwner') return getPermissionsForRole('Owner');
-  return Array.from(new Set([...getRoleActionKeys(role), ...getPermissionsForRole(roleForPosPermissions(role) as never)]));
+  return getEffectivePermissionsForRole(String(role));
 }
 
 export function getAllowedActionsForStaffSession(session: StaffGateSession): string[] {
-  if (session.isBuildDevelopmentBypass) return getPermissionsForRole('Owner');
+  if (isOwnerBypassSession({ staffRole: String(session.staffRole), isBuildDevelopmentSession: session.isBuildDevelopmentBypass })) return getEffectivePermissionsForRole('Owner');
   return session.permissions.length > 0 ? session.permissions : getAllowedActionsForStaffRole(session.staffRole);
 }
 

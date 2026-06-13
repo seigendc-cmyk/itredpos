@@ -1,6 +1,6 @@
 import type { PosPageId } from '../types';
 import type { RoleMenuDefinition, RoleMenuKey, StaffGateRole, StaffMenuAccessRecord } from './staffPinTypes';
-import { getEffectivePermissionsForRole, normalizeSecurityRole } from './permissionMatrixService';
+import { getEffectiveMenuKeysForRole } from './effectivePermissionService';
 
 export const roleMenuDefinitions: RoleMenuDefinition[] = [
   { menuKey: 'dashboard', menuLabel: 'Dashboard', group: 'Main', pageId: 'DASHBOARD' },
@@ -27,53 +27,9 @@ export const roleMenuDefinitions: RoleMenuDefinition[] = [
   { menuKey: 'settings', menuLabel: 'Settings', group: 'Control', pageId: 'SETTINGS' }
 ];
 
-const allMenuKeys = roleMenuDefinitions.map((menu) => menu.menuKey);
-
-const roleMenuAccess: Record<string, RoleMenuKey[]> = {
-  Owner: allMenuKeys,
-  SysAdmin: allMenuKeys,
-  VendorOwner: allMenuKeys,
-  VendorAdmin: ['dashboard', 'salesTerminal', 'salesHistory', 'customerCentre', 'deliveryDesk', 'inventory', 'productMaster', 'productImportDesk', 'stocktakeDesk', 'taskDesk', 'approvals', 'biDesk', 'syncDesk', 'reports', 'accountingFinance', 'settings'],
-  Manager: ['dashboard', 'salesTerminal', 'salesHistory', 'customerCentre', 'deliveryDesk', 'inventory', 'productMaster', 'productImportDesk', 'stocktakeDesk', 'taskDesk', 'approvals', 'biDesk', 'syncDesk', 'reports', 'accountingFinance', 'settings'],
-  Supervisor: ['dashboard', 'salesTerminal', 'salesHistory', 'customerCentre', 'deliveryDesk', 'inventory', 'stocktakeDesk', 'taskDesk', 'approvals', 'reports'],
-  Cashier: ['dashboard', 'salesTerminal', 'salesHistory', 'customerCentre', 'syncDesk'],
-  StockController: ['dashboard', 'inventory', 'productMaster', 'productImportDesk', 'stocktakeDesk', 'stockAdjustments', 'purchaseOrders', 'goodsReceiving', 'supplierReturns', 'stockTransfers', 'syncDesk', 'reports'],
-  'Stock Controller': ['dashboard', 'inventory', 'productMaster', 'productImportDesk', 'stocktakeDesk', 'stockAdjustments', 'purchaseOrders', 'goodsReceiving', 'supplierReturns', 'stockTransfers', 'syncDesk', 'reports'],
-  DeliveryStaff: ['dashboard', 'deliveryDesk', 'syncDesk'],
-  'Delivery Staff': ['dashboard', 'deliveryDesk', 'syncDesk'],
-  Accountant: ['dashboard', 'salesHistory', 'reports', 'accountingFinance', 'approvals', 'syncDesk'],
-  Viewer: ['dashboard', 'reports']
-};
-
 export function getRoleMenuKeys(role: StaffGateRole): RoleMenuKey[] {
-  const effective = new Set(getEffectivePermissionsForRole(normalizeSecurityRole(String(role))));
-  const catalogMenus = roleMenuAccess[role] || roleMenuAccess.Viewer;
-  const matrixMenus = roleMenuDefinitions
-    .filter((menu) => {
-      if (menu.menuKey === 'dashboard') return effective.has('dashboard.view');
-      if (menu.menuKey === 'salesTerminal') return effective.has('sales.open');
-      if (menu.menuKey === 'salesHistory') return effective.has('sales.viewHistory');
-      if (menu.menuKey === 'customerCentre') return effective.has('customers.view');
-      if (menu.menuKey === 'deliveryDesk') return effective.has('delivery.view');
-      if (menu.menuKey === 'inventory' || menu.menuKey === 'productMaster') return effective.has('inventory.view') || effective.has('productMaster.view');
-      if (menu.menuKey === 'productImportDesk') return effective.has('productImport.view');
-      if (menu.menuKey === 'stocktakeDesk') return effective.has('stocktake.view');
-      if (menu.menuKey === 'stockAdjustments') return effective.has('stockAdjustment.view');
-      if (menu.menuKey === 'purchaseOrders') return effective.has('purchaseOrder.view');
-      if (menu.menuKey === 'goodsReceiving') return effective.has('goodsReceiving.view');
-      if (menu.menuKey === 'supplierReturns') return effective.has('supplierReturn.view');
-      if (menu.menuKey === 'stockTransfers') return effective.has('stockTransfer.view');
-      if (menu.menuKey === 'approvals') return effective.has('approvals.view');
-      if (menu.menuKey === 'syncDesk') return effective.has('sync.view');
-      if (menu.menuKey === 'reports') return effective.has('reports.view');
-      if (menu.menuKey === 'accountingFinance') return effective.has('accounting.view');
-      if (menu.menuKey === 'settings') return effective.has('settings.view');
-      if (menu.menuKey === 'biDesk') return effective.has('bi.view');
-      if (menu.menuKey === 'ownerDesk') return effective.has('ownerDesk.view');
-      return catalogMenus.includes(menu.menuKey);
-    })
-    .map((menu) => menu.menuKey);
-  return Array.from(new Set([...catalogMenus, ...matrixMenus]));
+  const known = new Set(roleMenuDefinitions.map((menu) => menu.menuKey));
+  return getEffectiveMenuKeysForRole(String(role)).filter((menuKey): menuKey is RoleMenuKey => known.has(menuKey as RoleMenuKey));
 }
 
 export function getRoleMenuAccessRecords(role: StaffGateRole): StaffMenuAccessRecord[] {

@@ -1,17 +1,45 @@
 import { getCurrentTenantSession } from './tenantSessionService';
 import type { TenantUserRole } from './authTypes';
-import { canPerformAction, getPermissionsForRole, type PermissionKey, type PosAction } from '../utils/posPermissions';
-import { getEffectivePermissionsForRole, normalizeSecurityRole } from './permissionMatrixService';
+import { type PermissionKey, type PosAction } from '../utils/posPermissions';
+import {
+  canCurrentSessionPerformAction,
+  getEffectivePermissionsForRole,
+  getEffectivePermissionsForSession,
+  isOwnerBypassSession,
+  normalizeRoleKey
+} from './effectivePermissionService';
+
+const actionPermissionMap: Partial<Record<PosAction, string>> = {
+  'sales.create': 'sales.open',
+  'settings.manage': 'settings.permissions.edit',
+  'stockAdjustments.create': 'stockAdjustment.create',
+  'stockAdjustments.approve': 'stockAdjustment.approve',
+  'stockAdjustments.post': 'stockAdjustment.post',
+  'goodsReceiving.post': 'goodsReceiving.post',
+  'supplierReturns.post': 'supplierReturn.post',
+  'stockTransfers.dispatch': 'stockTransfer.dispatch',
+  'stockTransfers.receive': 'stockTransfer.receive',
+  'approvals.approve': 'approvals.approveLowRisk',
+  COMPLETE_SALE: 'sales.complete',
+  APPLY_DISCOUNT: 'sales.discount',
+  APPROVE_OVERRIDE: 'approvals.approveLowRisk',
+  VIEW_BI: 'bi.view',
+  OPEN_SETTINGS: 'settings.view',
+  CLOSE_SHIFT: 'sales.endOfDay.run',
+  RECORD_CASH_MOVEMENT: 'accounting.review',
+  STOCK_ADJUSTMENT: 'stockAdjustment.create',
+  STOCKTAKE: 'stocktake.create',
+  OWNER_FINANCIAL_EXPORT: 'reports.export'
+};
 
 export function getPermissionsForTenantRole(role?: TenantUserRole): PermissionKey[] {
-  if (role === 'VendorOwner' || role === 'VendorAdmin') return getPermissionsForRole('Owner');
-  return getEffectivePermissionsForRole(normalizeSecurityRole(role || 'Viewer')) as PermissionKey[];
+  return getEffectivePermissionsForRole(normalizeRoleKey(role || 'Viewer')) as PermissionKey[];
 }
 
 export function getCurrentSessionPermissions(): PermissionKey[] {
   const session = getCurrentTenantSession();
-  if (session.isBuildDevelopmentSession && session.staffRole === 'VendorOwner') return getPermissionsForRole('Owner');
-  return session.permissions || getPermissionsForTenantRole(session.staffRole);
+  if (isOwnerBypassSession(session)) return getEffectivePermissionsForRole('Owner') as PermissionKey[];
+  return (session.permissions?.length ? session.permissions : getEffectivePermissionsForSession(session)) as PermissionKey[];
 }
 
 export function hasSessionPermission(permission: PermissionKey): boolean {
@@ -24,10 +52,6 @@ export function isBuildDevelopmentOwnerSession(): boolean {
 }
 
 export function canCurrentSessionPerform(action: PosAction): boolean {
-  const session = getCurrentTenantSession();
-  if (isBuildDevelopmentOwnerSession()) return true;
-  if (session.staffRole === 'StockController') return canPerformAction('Stock Controller', action);
-  if (session.staffRole === 'DeliveryStaff') return canPerformAction('Delivery Staff', action);
-  if (session.staffRole === 'Manager' || session.staffRole === 'Supervisor' || session.staffRole === 'Cashier') return canPerformAction(session.staffRole, action);
-  return false;
+  const permissionKey = actionPermissionMap[action] || action;
+  return canCurrentSessionPerformAction(permissionKey);
 }
