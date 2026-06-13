@@ -844,6 +844,7 @@ export default function PosPrototypeApp() {
           onLogBiEvent={handleLogBiEvent}
           cashLogs={cashLogs}
           session={activeSession}
+          onNavigate={(page) => setActivePage(page as PosPageId)}
         />
       )}
 

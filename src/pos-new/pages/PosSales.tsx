@@ -25,6 +25,12 @@ import { postSaleMovement } from '../services/inventoryMovementService';
 import { createDeliveryRequestFromReceipt } from '../services/deliveryService';
 import { recordPaymentReportEvent } from '../services/paymentReportService';
 import { logTerminalControlEvent, runTerminalControlCheck } from '../services/terminalControlService';
+import {
+  clearShiftRecoveryState,
+  getShiftRecoveryState,
+  hasRecoverableShiftState,
+  recoverShiftState
+} from '../services/shiftRecoveryService';
 import { createCustomerRequest, getCustomers, recordCustomerSelectedForSale } from '../services/customerService';
 import { enqueueOfflineAction, getNetworkStatus } from '../services/offlineSyncService';
 import { getProductTotalAvailableStock } from '../services/stockBalanceService';
@@ -45,6 +51,7 @@ import {
   ReceiptPrintPreview,
   Role,
   Sale,
+  TerminalControlCheck,
   VATMode
 } from '../types';
 import { canPerformAction } from '../utils/posPermissions';
@@ -178,6 +185,9 @@ export default function PosSales({
   const [profitSnapshotOpen, setProfitSnapshotOpen] = useState(false);
   const [heldSaleSearch, setHeldSaleSearch] = useState('');
   const [recentReceiptSearch, setRecentReceiptSearch] = useState('');
+  const [salesReadiness, setSalesReadiness] = useState<TerminalControlCheck | null>(null);
+  const [salesRecoveryFound, setSalesRecoveryFound] = useState(hasRecoverableShiftState());
+  const [salesRecoveryDetailsOpen, setSalesRecoveryDetailsOpen] = useState(false);
   const [activitySearch, setActivitySearch] = useState('');
 
   useEffect(() => {
@@ -250,6 +260,39 @@ export default function PosSales({
     }, ...current].slice(0, 8));
   };
 
+  useEffect(() => {
+    let cancelled = false;
+    runTerminalControlCheck({
+      vendorId: VENDOR_ID,
+      branchId: branchIdFromName(branchName),
+      terminalId: terminalName,
+      terminalName,
+      staffId: staffName,
+      staffName,
+      role: roleName,
+      requiresCashDrawer: true
+    }).then((check) => {
+      if (!cancelled) setSalesReadiness(check);
+    }).catch(() => {
+      if (!cancelled) setSalesReadiness(null);
+    });
+    setSalesRecoveryFound(hasRecoverableShiftState());
+    return () => {
+      cancelled = true;
+    };
+  }, [branchName, roleName, staffName, terminalName]);
+
+  useEffect(() => {
+    logEvent('CART_HEADER_RENDERED', `Cart header rendered for ${staffName} at ${terminalName}.`);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    if (cart.length === 0) return;
+    logEvent('CART_TOTALS_UPDATED', `Cart totals updated. Total ${money(grandTotal)}.`);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [subtotal, taxTotal, parsedDeliveryFee, cartDiscountAmount, creditRedemptionAmount, loyaltyRedemptionAmount, paymentReceived, grandTotal]);
+
   const eventTitle = (eventType: string): string => {
     const titles: Record<string, string> = {
       PRODUCT_ADDED_TO_CART: 'Product Added',
@@ -289,13 +332,20 @@ export default function PosSales({
       SALES_PRODUCT_FIELDS_UPDATED: 'Product Fields Updated',
       CAT_FORM_OPENED_LOCAL: 'CAT Form Opened',
       CHECKOUT_STARTED_FROM_CART_ITEMS: 'Checkout Started',
+      CHECKOUT_BUTTON_CLICKED: 'Checkout Button Clicked',
+      CHECKOUT_VALIDATION_FAILED: 'Checkout Validation Failed',
       CHECKOUT_DELIVERY_REQUIRED: 'Checkout Delivery Required',
       CHECKOUT_DELIVERY_SKIPPED: 'Checkout Delivery Skipped',
       CHECKOUT_DELIVERY_REVIEW_OPENED: 'Checkout Delivery Review',
       CHECKOUT_DELIVERY_SAVED: 'Checkout Delivery Saved',
       CHECKOUT_IDELIVER_REQUEST_PREPARED: 'Checkout iDeliver Prepared',
       CHECKOUT_PAYMENT_OPENED: 'Checkout Payment Opened',
+      CHECKOUT_DELIVERY_STEP_OPENED: 'Checkout Delivery Step Opened',
+      CHECKOUT_PAYMENT_STEP_OPENED: 'Checkout Payment Step Opened',
       CHECKOUT_PAYMENT_ADDED: 'Checkout Payment Added',
+      CHECKOUT_COMPLETE_TRANSACTION_CLICKED: 'Checkout Complete Clicked',
+      CART_HEADER_RENDERED: 'Cart Header Rendered',
+      CART_TOTALS_UPDATED: 'Cart Totals Updated',
       CHECKOUT_BACK_TO_CART: 'Checkout Back to Cart',
       CHECKOUT_BACK_TO_DELIVERY: 'Checkout Back to Delivery',
       CHECKOUT_COMPLETED: 'Checkout Completed'
@@ -666,11 +716,11 @@ export default function PosSales({
     return null;
   };
 
-  const handleCompleteSale = async () => {
+  const handleCompleteSale = async (): Promise<boolean> => {
     const validationMessage = validateSale();
     if (validationMessage) {
       setStatusMessage(validationMessage);
-      return;
+      return false;
     }
 
     const salePayment = payments[0]?.method || paymentMethod;
@@ -710,7 +760,7 @@ export default function PosSales({
       } catch {
         logEvent('SALE_BLOCKED_SHIFT_OR_TERMINAL_BI_SKIPPED', 'Blocked sale BI placeholder was skipped safely.');
       }
-      return;
+      return false;
     }
 
     const now = new Date().toISOString();
@@ -962,8 +1012,10 @@ export default function PosSales({
       setStatusMessage(saleQueuedLocally ? (deliveryQueuedLocally ? 'Sale completed locally and queued for sync. Delivery request queued for sync.' : 'Sale completed locally and queued for sync.') : deliveryMode === 'No Delivery' ? 'Sale completed successfully.' : 'Sale completed and delivery request prepared.');
       logEvent('SALE_COMPLETED', `Sale ${invoiceNo} completed for ${money(grandTotal)}.`);
       logEvent('RECEIPT_DRAFTED', `Receipt ${receipt.receiptNumber} prepared for preview.`);
+      return true;
     } catch (error) {
       setStatusMessage(error instanceof Error ? error.message : 'Sale completion failed.');
+      return false;
     }
   };
 
@@ -989,7 +1041,7 @@ export default function PosSales({
       total: grandTotal,
       heldBy: staffName,
       heldAt: new Date().toLocaleString(),
-      note: paymentReference || customerNotes || deliveryNotes || 'Held from Sales Terminal.',
+      note: paymentReference || cartInternalNote || customerNotes || deliveryNotes || 'Held from Sales Terminal.',
       paymentMethod,
       paymentAmount,
       paymentReference,
@@ -1220,6 +1272,31 @@ export default function PosSales({
     setWorkspaceMenuOpen(false);
   };
 
+  const handleRecoverSalesShift = () => {
+    const recovered = recoverShiftState();
+    if (!recovered) {
+      setStatusMessage('No recoverable shift state found on this device.');
+      setSalesRecoveryFound(false);
+      return;
+    }
+    setSalesRecoveryDetailsOpen(true);
+    setSalesRecoveryFound(true);
+    setStatusMessage('Recoverable shift state restored for review.');
+    logEvent('SHIFT_RECOVERY_STATE_RESTORED', `Recovered ${recovered.terminalName} for ${recovered.staffName}.`);
+  };
+
+  const handleClearSalesRecovery = () => {
+    if (!window.confirm('Clear the saved recovery state from this device? Completed shift history will not be deleted.')) return;
+    clearShiftRecoveryState();
+    setSalesRecoveryFound(false);
+    setSalesRecoveryDetailsOpen(false);
+    setStatusMessage('Recovery state cleared.');
+    logEvent('SHIFT_RECOVERY_STATE_CLEARED', 'Local recovery state cleared from Sales Terminal.');
+  };
+
+  const salesBlocked = salesReadiness ? !salesReadiness.allowed : false;
+  const salesBlockedNeedsDrawer = salesReadiness?.reasons.some((reason) => reason.toLowerCase().includes('drawer')) || false;
+
   return (
     <div className="sales-terminal-shell">
       <header className="sci-page-header sci-page-header--compact sales-terminal-page-header">
@@ -1277,6 +1354,43 @@ export default function PosSales({
             </button>
           )}
         </div>
+      )}
+
+      {salesBlocked && (
+        <section className="shift-recovery-banner sales-readiness-banner">
+          <ShieldCheck size={18} aria-hidden="true" />
+          <div>
+            <strong>Sales Blocked</strong>
+            <span>{salesReadiness?.message || 'Open shift and drawer readiness must be completed before sales.'}</span>
+          </div>
+          <button type="button" className="sci-pos-button sci-pos-button--primary" onClick={() => onNavigate('SHIFT')}>
+            {salesBlockedNeedsDrawer ? 'Assign Drawer' : 'Open Shift'}
+          </button>
+        </section>
+      )}
+
+      {salesRecoveryFound && (
+        <section className="shift-recovery-banner sales-readiness-banner">
+          <RotateCcw size={18} aria-hidden="true" />
+          <div>
+            <strong>Recoverable Shift State Found</strong>
+            <span>The previous terminal session was interrupted. You can recover the last shift state from this device.</span>
+          </div>
+          <button type="button" className="sci-pos-button sci-pos-button--primary" onClick={handleRecoverSalesShift}>Recover Shift</button>
+          <button type="button" className="sci-pos-button sci-pos-button--secondary" onClick={() => setSalesRecoveryDetailsOpen((current) => !current)}>Review Recovery Details</button>
+          <button type="button" className="sci-pos-button sci-pos-button--secondary" onClick={handleClearSalesRecovery}>Clear Recovery State</button>
+        </section>
+      )}
+
+      {salesRecoveryDetailsOpen && (
+        <section className="sci-pos-card shift-history-card">
+          <div className="shift-history-detail-grid">
+            <div><span>Terminal</span><strong>{getShiftRecoveryState()?.terminalName || terminalName}</strong></div>
+            <div><span>Staff</span><strong>{getShiftRecoveryState()?.staffName || staffName}</strong></div>
+            <div><span>Shift</span><strong>{getShiftRecoveryState()?.shift?.status || 'Review required'}</strong></div>
+            <div><span>Saved At</span><strong>{getShiftRecoveryState()?.savedAt ? new Date(getShiftRecoveryState()!.savedAt).toLocaleString() : 'Not recorded'}</strong></div>
+          </div>
+        </section>
       )}
 
       <div className="pos-sales-layout sales-terminal-workspace">

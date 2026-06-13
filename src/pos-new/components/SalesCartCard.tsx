@@ -206,7 +206,7 @@ interface SalesCartCardProps {
   onDeliveryPaymentModeChange: (value: SalesDeliveryPaymentMode) => void;
   onVatModeChange: (value: VATMode) => void;
   onVatRateChange: (value: string) => void;
-  onCompleteSale: () => void;
+  onCompleteSale: () => boolean | Promise<boolean>;
   onHoldSale: () => void;
   onCancelSale: () => void;
 }
@@ -435,11 +435,13 @@ export default function SalesCartCard({
   const validateCartForCheckout = (): boolean => {
     if (cart.length === 0) {
       onCartNotice?.('Cart is empty. Add products before checkout.');
+      emitCheckoutActivity('CHECKOUT_VALIDATION_FAILED', 'Cart is empty. Add products before checkout.');
       return false;
     }
     const invalidLine = cart.find((item) => item.quantity <= 0);
     if (invalidLine) {
       onCartNotice?.('Cart contains a zero or negative quantity. Correct quantities before checkout.');
+      emitCheckoutActivity('CHECKOUT_VALIDATION_FAILED', 'Fix cart quantities before checkout.');
       return false;
     }
     const blockedLine = cart.find((item) => {
@@ -448,6 +450,7 @@ export default function SalesCartCard({
     });
     if (blockedLine) {
       onCartNotice?.(`Stock is not available for ${blockedLine.product.productName || blockedLine.product.name}.`);
+      emitCheckoutActivity('CHECKOUT_VALIDATION_FAILED', 'One or more items are out of stock.');
       return false;
     }
     return true;
@@ -461,6 +464,18 @@ export default function SalesCartCard({
       setDraftDeliveryNote(cartDeliveryNote);
     }
     setActiveToolPanel(panel);
+  };
+
+  const openHoldSalePanel = () => {
+    if (!canHoldSale) {
+      onCartNotice?.('You do not have permission to hold sales.');
+      return;
+    }
+    if (cart.length === 0) {
+      onCartNotice?.('Cart is empty. Add products before holding the sale.');
+      return;
+    }
+    openToolPanel('hold');
   };
 
   const renderCheckoutFlowIndicator = () => (
@@ -478,11 +493,13 @@ export default function SalesCartCard({
     setCheckoutFlowStep('PaymentReview');
     setPendingCheckoutAfterPayment(true);
     emitCheckoutActivity('CHECKOUT_PAYMENT_OPENED', 'Receive Payment opened from checkout flow.');
+    emitCheckoutActivity('CHECKOUT_PAYMENT_STEP_OPENED', 'Payment step opened from checkout.');
   };
 
   const startCheckoutFromCartItems = () => {
     setCheckoutStartedFromCartItems(true);
     setCheckoutFlowStep('CartReview');
+    emitCheckoutActivity('CHECKOUT_BUTTON_CLICKED', 'Checkout button clicked from Cart Items.');
     emitCheckoutActivity('CHECKOUT_STARTED_FROM_CART_ITEMS', 'Checkout started from Cart Items.');
     if (!validateCartForCheckout()) return;
     const deliveryRequired = shouldOpenDeliveryBeforePayment();
@@ -494,6 +511,7 @@ export default function SalesCartCard({
       setCheckoutFlowStep('DeliveryReview');
       emitCheckoutActivity('CHECKOUT_DELIVERY_REQUIRED', 'Delivery review required before payment.');
       emitCheckoutActivity('CHECKOUT_DELIVERY_REVIEW_OPENED', 'Delivery / iDeliver checkout review opened.');
+      emitCheckoutActivity('CHECKOUT_DELIVERY_STEP_OPENED', 'Delivery step opened from checkout.');
       return;
     }
     emitCheckoutActivity('CHECKOUT_DELIVERY_SKIPPED', 'Delivery review skipped for no-delivery checkout.');
@@ -551,7 +569,8 @@ export default function SalesCartCard({
     openPaymentFromCheckout();
   };
 
-  const completeTransactionFromPayment = () => {
+  const completeTransactionFromPayment = async () => {
+    emitCheckoutActivity('CHECKOUT_COMPLETE_TRANSACTION_CLICKED', 'Complete Transaction clicked from payment review.');
     if (!canComplete) {
       onCartNotice?.('You do not have permission to complete this sale.');
       return;
@@ -560,9 +579,14 @@ export default function SalesCartCard({
       onCartNotice?.('Balance remains. Capture payment or choose an allowed payment mode before completing.');
       return;
     }
+    const completed = await onCompleteSale();
+    if (!completed) return;
+    setPaymentDrawerOpen(false);
+    setPendingCheckoutAfterPayment(false);
+    setCheckoutStartedFromCartItems(false);
+    setDeliveryStepIncluded(false);
     setCheckoutFlowStep('Completed');
     emitCheckoutActivity('CHECKOUT_COMPLETED', 'Checkout completed from payment review.');
-    onCompleteSale();
   };
 
   const submitDiscount = () => {
@@ -643,7 +667,7 @@ export default function SalesCartCard({
 
   return (
     <section className="sci-pos-card pos-cart-card sales-cart-shell" aria-labelledby="cart-title">
-      <div className="sci-pos-card__bar sales-cart-fixed-header">
+      <div className="sci-pos-card__bar sales-cart-fixed-header sales-cart-floating-header">
         <div>
           <p className="sci-pos-eyebrow">Make Sale</p>
           <h2 id="cart-title">Cart</h2>
@@ -683,10 +707,10 @@ export default function SalesCartCard({
         </div>
       </div>
 
-      <div className="pos-session-strip sales-cart-session-card" aria-label="Sale context">
-        <span><strong>Cashier</strong>{cashierName}</span>
-        <span><strong>Terminal</strong>{terminalName}</span>
-        <span><strong>Branch</strong>{branchName}</span>
+      <div className="pos-session-strip sales-cart-session-card sales-cart-session-grid" aria-label="Sale context">
+        <span className="sales-cart-session-item"><strong className="sales-cart-session-label">Cashier</strong><span className="sales-cart-session-value">{cashierName}</span></span>
+        <span className="sales-cart-session-item"><strong className="sales-cart-session-label">Terminal</strong><span className="sales-cart-session-value">{terminalName}</span></span>
+        <span className="sales-cart-session-item"><strong className="sales-cart-session-label">Branch</strong><span className="sales-cart-session-value">{branchName}</span></span>
       </div>
 
       <div className="sales-cart-body">
@@ -777,19 +801,19 @@ export default function SalesCartCard({
         </section>
       </div>
 
-      <footer className="sales-cart-footer" aria-label="Checkout Totals">
-        <div className="sales-cart-footer-totals">
-          <span>Subtotal <strong>{money(totals.subtotal)}</strong></span>
-          <span>Discount <strong>{money(totals.discountTotal)}</strong></span>
-          <span>Credit / Loyalty <strong>{money(creditRedemptionAmount + loyaltyRedemptionAmount)}</strong></span>
-          <span>Tax <strong>{vatMode === 'Not VAT Registered' ? 'None' : money(totals.taxTotal)}</strong></span>
-          <span>Delivery <strong>{money(totals.deliveryFee)}</strong></span>
-          <span>Paid <strong>{money(totals.paymentReceived)}</strong></span>
-          <span>Balance <strong>{money(totals.balanceDue)}</strong></span>
-          <span className="sales-cart-footer-total">Total <strong>{money(totals.grandTotal)}</strong></span>
+      <footer className="sales-cart-footer sales-cart-floating-footer" aria-label="Checkout Totals">
+        <div className="sales-cart-footer-totals sales-cart-total-grid">
+          <span className="sales-cart-total-cell"><span className="sales-cart-total-label">Subtotal</span><strong className="sales-cart-total-value">{money(totals.subtotal)}</strong></span>
+          <span className="sales-cart-total-cell"><span className="sales-cart-total-label">Discount</span><strong className="sales-cart-total-value">{money(totals.discountTotal)}</strong></span>
+          <span className="sales-cart-total-cell"><span className="sales-cart-total-label">Credit / Loyalty</span><strong className="sales-cart-total-value">{money(creditRedemptionAmount + loyaltyRedemptionAmount)}</strong></span>
+          <span className="sales-cart-total-cell"><span className="sales-cart-total-label">Tax</span><strong className="sales-cart-total-value">{vatMode === 'Not VAT Registered' ? 'None' : money(totals.taxTotal)}</strong></span>
+          <span className="sales-cart-total-cell"><span className="sales-cart-total-label">Delivery</span><strong className="sales-cart-total-value">{money(totals.deliveryFee)}</strong></span>
+          <span className="sales-cart-total-cell"><span className="sales-cart-total-label">Paid</span><strong className="sales-cart-total-value">{money(totals.paymentReceived)}</strong></span>
+          <span className="sales-cart-total-cell"><span className="sales-cart-total-label">Balance</span><strong className="sales-cart-total-value">{money(totals.balanceDue)}</strong></span>
+          <span className="sales-cart-total-cell sales-cart-total-cell--grand sales-cart-footer-total"><span className="sales-cart-total-label">Total</span><strong className="sales-cart-total-value">{money(totals.grandTotal)}</strong></span>
         </div>
         <div className="sales-cart-footer-actions">
-          <button type="button" className="sci-pos-button sci-pos-button--secondary" onClick={onHoldSale} disabled={cart.length === 0}>
+          <button type="button" className="sci-pos-button sci-pos-button--secondary" onClick={openHoldSalePanel} disabled={!canHoldSale || cart.length === 0}>
             <PauseCircle size={17} aria-hidden="true" />
             Hold Sale
           </button>
@@ -808,7 +832,8 @@ export default function SalesCartCard({
         onQuantityChange={onQuantityChange}
         onRemoveItem={onRemoveItem}
         onApplyLineDiscount={onApplyLineDiscount}
-        onHoldSale={onHoldSale}
+        onHoldSale={openHoldSalePanel}
+        canHoldSale={canHoldSale}
         onCheckout={startCheckoutFromCartItems}
         flowIndicator={checkoutStartedFromCartItems ? renderCheckoutFlowIndicator() : undefined}
         onNotice={onCartNotice}
@@ -889,6 +914,12 @@ export default function SalesCartCard({
               {activeToolPanel === 'hold' && (
                 <section className="sales-drawer-section">
                   <div className="sales-tool-summary"><ClipboardList size={16} /><span>{itemCount} item(s), {money(totals.grandTotal)} held by {cashierName}</span></div>
+                  <div className="sales-account-grid">
+                    <div><span>Customer</span><strong>{customerName || 'Walk-in Customer'}</strong></div>
+                    <div><span>Item Count</span><strong>{itemCount}</strong></div>
+                    <div><span>Total</span><strong>{money(totals.grandTotal)}</strong></div>
+                    <div><span>Staff</span><strong>{cashierName}</strong></div>
+                  </div>
                   <label>Reason / Note<textarea rows={3} value={holdReason} onChange={(event) => setHoldReason(event.target.value)} /></label>
                   <label>Hold Expiry<input type="datetime-local" value={holdExpiry} onChange={(event) => setHoldExpiry(event.target.value)} /></label>
                 </section>
@@ -903,7 +934,7 @@ export default function SalesCartCard({
               {activeToolPanel === 'void' && <button type="button" className="sci-pos-button sci-pos-button--primary" onClick={submitVoidCart}>Void Cart</button>}
               {activeToolPanel === 'clear' && <button type="button" className="sci-pos-button sci-pos-button--primary" onClick={() => { onClearWorkspace(clearMode); setActiveToolPanel(null); }}>Clear Workspace</button>}
               {activeToolPanel === 'notes' && <button type="button" className="sci-pos-button sci-pos-button--primary" onClick={() => { onSaveCartNotes({ internalNote: draftInternalNote, receiptNote: draftReceiptNote, deliveryNote: draftDeliveryNote }); setActiveToolPanel(null); }}>Save Notes</button>}
-              {activeToolPanel === 'hold' && <button type="button" className="sci-pos-button sci-pos-button--primary" disabled={!canHoldSale || cart.length === 0} onClick={() => { onPaymentReferenceChange(holdExpiry ? `${holdReason || 'Held sale'} | Expiry ${holdExpiry}` : holdReason); onHoldSale(); setActiveToolPanel(null); }}>Hold Sale</button>}
+              {activeToolPanel === 'hold' && <button type="button" className="sci-pos-button sci-pos-button--primary" disabled={!canHoldSale || cart.length === 0} onClick={() => { const note = holdExpiry ? `${holdReason || 'Held sale'} | Expiry ${holdExpiry}` : holdReason || 'Held from Sales Terminal.'; onPaymentReferenceChange(note); onSaveCartNotes({ internalNote: note, receiptNote, deliveryNote: cartDeliveryNote }); onHoldSale(); setActiveToolPanel(null); }}>Confirm Hold</button>}
               <button type="button" className="sci-pos-button sci-pos-button--secondary" onClick={() => setActiveToolPanel(null)}>Close</button>
             </div>
           </aside>

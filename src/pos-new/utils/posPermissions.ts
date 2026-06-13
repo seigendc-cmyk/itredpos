@@ -29,9 +29,17 @@ export type PermissionKey =
   | 'creditNotes.approve'
   | 'terminal.activate'
   | 'terminal.deactivate'
+  | 'terminal.history.view'
+  | 'shift.view'
   | 'shift.open'
   | 'shift.close'
   | 'shift.forceClose'
+  | 'shift.eodReport.view'
+  | 'shift.eodReport.print'
+  | 'shift.recovery.restore'
+  | 'shift.override'
+  | 'cashDrawer.assign'
+  | 'cashDrawer.release'
   | 'customers.createRequest'
   | 'customers.view'
   | 'customers.approve'
@@ -152,6 +160,9 @@ export type PermissionKey =
   | 'settings.manage'
   | 'bi.view'
   | 'bi.review'
+  | 'bi.riskReview'
+  | 'bi.rules.manage'
+  | 'bi.export'
   | 'sync.view'
   | 'sync.run'
   | 'sync.queue.view'
@@ -208,9 +219,17 @@ const ALL_PERMISSIONS: PermissionKey[] = [
   'creditNotes.approve',
   'terminal.activate',
   'terminal.deactivate',
+  'terminal.history.view',
+  'shift.view',
   'shift.open',
   'shift.close',
   'shift.forceClose',
+  'shift.eodReport.view',
+  'shift.eodReport.print',
+  'shift.recovery.restore',
+  'shift.override',
+  'cashDrawer.assign',
+  'cashDrawer.release',
   'customers.createRequest',
   'customers.view',
   'customers.approve',
@@ -331,6 +350,9 @@ const ALL_PERMISSIONS: PermissionKey[] = [
   'settings.manage',
   'bi.view',
   'bi.review',
+  'bi.riskReview',
+  'bi.rules.manage',
+  'bi.export',
   'sync.view',
   'sync.run',
   'sync.queue.view',
@@ -370,7 +392,9 @@ const ROLE_PERMISSIONS: Record<Role, PermissionKey[]> = {
     'sales.creditRedeem', 'sales.loyalty', 'sales.accountSale',
     'sales.profitSnapshot.view', 'sales.profitSnapshot.generate', 'sales.profitSnapshot.export', 'sales.profitSnapshot.print',
     'returns.request', 'returns.approve', 'creditNotes.request', 'creditNotes.approve',
-    'terminal.activate', 'terminal.deactivate', 'shift.open', 'shift.close', 'shift.forceClose',
+    'terminal.activate', 'terminal.deactivate', 'terminal.history.view',
+    'shift.view', 'shift.open', 'shift.close', 'shift.forceClose', 'shift.eodReport.view', 'shift.eodReport.print', 'shift.recovery.restore', 'shift.override',
+    'cashDrawer.assign', 'cashDrawer.release',
     'payment.capture',
     'customers.view', 'customers.createRequest', 'customers.approve',
     'inventory.view', 'inventory.import', 'inventory.approveImport', 'inventory.adjust', 'inventory.approveAdjustment',
@@ -393,7 +417,7 @@ const ROLE_PERMISSIONS: Record<Role, PermissionKey[]> = {
     'accounting.view', 'accounting.review', 'accounting.approve', 'accounting.postPlaceholder', 'accounting.export',
     'inventoryAccounting.view', 'inventoryAccounting.review', 'inventoryAccounting.approve', 'inventoryAccounting.hold', 'inventoryAccounting.reject', 'inventoryAccounting.export',
     'settings.view',
-    'bi.view', 'bi.review',
+    'bi.view', 'bi.review', 'bi.riskReview', 'bi.export',
     'sync.view', 'sync.run', 'sync.queue.view', 'sync.retry', 'sync.batch.create', 'sync.batch.run', 'sync.conflict.view', 'sync.conflict.resolve', 'sync.conflict.hold', 'sync.export', 'sync.clearSynced',
     'productImport.view', 'productImport.create', 'productImport.map', 'productImport.validate', 'productImport.approve', 'productImport.import', 'productImport.export'
   ],
@@ -401,7 +425,8 @@ const ROLE_PERMISSIONS: Record<Role, PermissionKey[]> = {
     'sales.open', 'sales.create', 'sales.complete', 'sales.hold', 'sales.viewHistory', 'sales.discount', 'sales.priceOverride', 'sales.void', 'sales.reprintReceipt',
     'sales.loyalty',
     'returns.request', 'returns.approve', 'creditNotes.request',
-    'shift.open', 'shift.close',
+    'shift.view', 'shift.open', 'shift.close', 'shift.eodReport.view', 'terminal.history.view', 'shift.recovery.restore',
+    'cashDrawer.assign', 'cashDrawer.release',
     'payment.capture',
     'customers.view', 'customers.createRequest',
     'inventory.view',
@@ -423,14 +448,14 @@ const ROLE_PERMISSIONS: Record<Role, PermissionKey[]> = {
     'reports.view',
     'accounting.view', 'accounting.review',
     'inventoryAccounting.view', 'inventoryAccounting.review',
-    'bi.view', 'bi.review',
+    'bi.view', 'bi.review', 'bi.riskReview',
     'sync.view', 'sync.run', 'sync.queue.view', 'sync.retry', 'sync.batch.create', 'sync.conflict.view', 'sync.conflict.hold',
     'productImport.view', 'productImport.create', 'productImport.map', 'productImport.validate', 'productImport.export'
   ],
   Cashier: [
     'sales.open', 'sales.create', 'sales.complete', 'sales.hold', 'sales.viewHistory', 'sales.reprintReceipt',
     'returns.request', 'creditNotes.request',
-    'shift.open', 'shift.close',
+    'shift.view', 'shift.open', 'shift.close', 'terminal.history.view', 'shift.recovery.restore',
     'payment.capture',
     'customers.view', 'customers.createRequest',
     'delivery.view', 'delivery.create',

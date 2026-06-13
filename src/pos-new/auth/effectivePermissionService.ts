@@ -63,7 +63,7 @@ const menuPermissionMap: Array<{ menuKey: string; pageId: PosPageId; permissions
   { menuKey: 'stockTransfers', pageId: 'STOCK', permissions: ['stockTransfer.view'] },
   { menuKey: 'taskDesk', pageId: 'TASK_DESK', permissions: ['approvals.view'] },
   { menuKey: 'approvals', pageId: 'APPROVALS', permissions: ['approvals.view'] },
-  { menuKey: 'shiftControl', pageId: 'SHIFT', permissions: ['sales.endOfDay.run'] },
+  { menuKey: 'shiftControl', pageId: 'SHIFT', permissions: ['shift.view', 'sales.endOfDay.run'] },
   { menuKey: 'biDesk', pageId: 'BI_DESK', permissions: ['bi.view', 'bi.summary.view'] },
   { menuKey: 'syncDesk', pageId: 'SYNC_DESK', permissions: ['sync.view'] },
   { menuKey: 'reports', pageId: 'BI_DESK', permissions: ['reports.view'] },

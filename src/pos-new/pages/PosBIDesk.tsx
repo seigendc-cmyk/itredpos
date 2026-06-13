@@ -1,27 +1,22 @@
-import React, { useEffect, useState } from 'react';
-import { 
-  ShieldAlert, 
-  Activity, 
-  CheckCircle, 
-  AlertTriangle, 
-  Clock, 
-  Sliders, 
-  HelpCircle, 
-  BookOpen, 
-  Lock, 
-  Radio, 
-  ClipboardCheck, 
-  Database,
-  Search,
-  Filter,
+import { useEffect, useMemo, useState } from 'react';
+import {
+  Activity,
+  AlertTriangle,
+  BookOpen,
   Check,
-  AlertCircle,
-  Truck,
-  TrendingDown,
-  ChevronRight
+  ClipboardCheck,
+  Database,
+  Filter,
+  HelpCircle,
+  Radio,
+  Search,
+  ShieldAlert,
+  Sliders
 } from 'lucide-react';
-import { Transaction, Product, BiEvent, PosSession } from '../types';
+import { BiEvent, PosSession, Product, Role, Transaction } from '../types';
 import { mockBIEvents } from '../mock/mockPosData';
+import { canPerformAction } from '../utils/posPermissions';
+import { matchesFreeOrderSearch } from '../utils/searchUtils';
 
 interface PosBIDeskProps {
   transactions: Transaction[];
@@ -40,13 +35,21 @@ interface PosBIDeskProps {
 interface BiAlertRow {
   id: string;
   eventType: string;
-  domain: 'Anti-Theft' | 'Stock Health' | 'Cash Control' | 'Staff Behaviour' | 'Sales Integrity' | 'Approval' | 'Delivery Verification';
+  domain: BiRuleDomain | 'Approval';
   severity: 'Low' | 'Medium' | 'High' | 'Critical';
   trigger: string;
   description: string;
   recommendedAction: string;
   status: 'Open' | 'Pending Approval' | 'Resolved' | 'Completed' | 'Reminder Created' | 'Stocktake Initiated' | 'Followed Up';
   actionLabel: 'Review' | 'Approve' | 'Start Stocktake' | 'Create Task' | 'Follow Up' | 'Done';
+  productName?: string;
+  sku?: string;
+  staffName?: string;
+  branchName?: string;
+  terminalName?: string;
+  eventMessage?: string;
+  notes?: string;
+  localDerived?: boolean;
 }
 
 interface ActivityLogItem {
@@ -56,6 +59,252 @@ interface ActivityLogItem {
   type: 'INFO' | 'SUCCESS' | 'WARNING' | 'ACTION';
 }
 
+interface BiRuleDefinition {
+  ruleName: string;
+  ruleTrigger: string;
+  description: string;
+  riskLevel: BiAlertRow['severity'];
+  recommendedAction: string;
+}
+
+type BiDeskTab = 'BI Overview' | 'Ruleset Library' | 'Trigger Logs' | 'Risk Output' | 'BI Activity' | 'Settings / Thresholds';
+type BiRuleDomain = 'Anti-Theft' | 'Stock Health' | 'Cash Control' | 'Staff Behaviour' | 'Sales Integrity' | 'Delivery Verification';
+
+const biTabs: BiDeskTab[] = ['BI Overview', 'Ruleset Library', 'Trigger Logs', 'Risk Output', 'BI Activity', 'Settings / Thresholds'];
+const ruleDomains: BiRuleDomain[] = ['Anti-Theft', 'Stock Health', 'Cash Control', 'Staff Behaviour', 'Sales Integrity', 'Delivery Verification'];
+
+const ruleDescriptions: Record<BiRuleDomain, string> = {
+  'Anti-Theft': 'Monitors drawer behavior, suspicious movement, zero-stock attempts, and repeated override patterns.',
+  'Stock Health': 'Reviews dead stock, low stock, out-of-stock, fast-moving reorder, variance, and missing shelf signals.',
+  'Cash Control': 'Tracks drawer variance, cash-out authorization, unresolved shift variance, and solenoid movement logs.',
+  'Staff Behaviour': 'Highlights failed logins, high override frequency, refund patterns, and out-of-branch terminal use.',
+  'Sales Integrity': 'Protects checkout pricing, quote overrides, bulk discount patterns, and stock-backed sale validation.',
+  'Delivery Verification': 'Reviews delivery completion codes, pending dispatch follow-up, and failed confirmation events.'
+};
+
+const rulesMap: Record<BiRuleDomain, BiRuleDefinition[]> = {
+  'Anti-Theft': [
+    { ruleName: 'Block sale when stock is zero', ruleTrigger: 'SALE_BLOCKED_ZERO_STOCK', description: 'Prevents negative stock indices and manual count overrides on nonexistent parts.', riskLevel: 'Critical', recommendedAction: 'Block sale and require stock review.' },
+    { ruleName: 'Flag repeated price overrides', ruleTrigger: 'PRICE_OVERRIDE_REQUESTED', description: 'Logs cashier accounts attempting over 3 manual price updates in a single hour.', riskLevel: 'High', recommendedAction: 'Supervisor price override review.' },
+    { ruleName: 'Flag suspicious stock adjustments', ruleTrigger: 'STOCK_ADJUSTMENT_REQUESTED', description: 'Triggers audit requirements when items are adjusted without a valid reference invoice.', riskLevel: 'High', recommendedAction: 'Require supervisor approval.' },
+    { ruleName: 'Flag cash drawer variance', ruleTrigger: 'CASH_VARIANCE_FOUND', description: 'Logs a warning if declared terminal float is beyond the local tolerance.', riskLevel: 'High', recommendedAction: 'Supervisor drawer recount.' },
+    { ruleName: 'Flag repeated failed staff logins', ruleTrigger: 'FAILED_TERMINAL_LOGIN', description: 'Alerts security if staff credentials fail repeatedly in a short period.', riskLevel: 'High', recommendedAction: 'Verify staff identity and terminal use.' }
+  ],
+  'Stock Health': [
+    { ruleName: 'Low stock reminder', ruleTrigger: 'LOW_STOCK_REMINDER', description: 'Triggers system notice when inventory item falls below safety stock margins.', riskLevel: 'Medium', recommendedAction: 'Create purchase reminder.' },
+    { ruleName: 'Out of stock alert', ruleTrigger: 'OUT_OF_STOCK_ALERT', description: 'Logs critical alarm when high-velocity parts fall to zero.', riskLevel: 'Critical', recommendedAction: 'Reorder or stock review.' },
+    { ruleName: 'Dead stock warning', ruleTrigger: 'DEAD_STOCK_WARNING', description: 'Identifies inventory sitting over 90 days with zero sales.', riskLevel: 'Medium', recommendedAction: 'Discount or clearance review.' },
+    { ruleName: 'Slow moving item warning', ruleTrigger: 'SLOW_MOVING_STOCK_WARNING', description: 'Logs notification for parts with extended turnover cycles.', riskLevel: 'Low', recommendedAction: 'Review price and demand.' },
+    { ruleName: 'Variance risk warning', ruleTrigger: 'VARIANCE_RISK_FOUND', description: 'Signals risk when warehouse counts deviate from theoretical receipt balances.', riskLevel: 'Critical', recommendedAction: 'Stocktake required.' },
+    { ruleName: 'Recommend major stocktake', ruleTrigger: 'RECOMMEND_MAJOR_STOCKTAKE', description: 'Assembles stocktake instructions when audit counts flag repeated negative records.', riskLevel: 'High', recommendedAction: 'Schedule major stocktake.' }
+  ],
+  'Cash Control': [
+    { ruleName: 'Variance requires supervisor review', ruleTrigger: 'CASH_VARIANCE_FOUND', description: 'Blocks cashiers from closing shift with unresolved drawer variance.', riskLevel: 'High', recommendedAction: 'Supervisor review before shift closure.' },
+    { ruleName: 'Cash out requires authorization', ruleTrigger: 'CASH_OUT_AUTH_REQUIRED', description: 'Forces second operator verification for payout or banking drop.', riskLevel: 'Medium', recommendedAction: 'Authorize payout locally.' },
+    { ruleName: 'Shift cannot close with unresolved variance', ruleTrigger: 'SHIFT_CLOSE_BLOCKED', description: 'Restricts terminal unlock functions until supervisor logs override keys.', riskLevel: 'High', recommendedAction: 'Resolve cash variance.' },
+    { ruleName: 'Drawer movement must be logged', ruleTrigger: 'DRAWER_OPENED_MANUALLY', description: 'Records every mechanical solenoid open and links to a terminal event.', riskLevel: 'Medium', recommendedAction: 'Review drawer event trail.' }
+  ],
+  'Staff Behaviour': [
+    { ruleName: 'Failed login monitoring', ruleTrigger: 'FAILED_TERMINAL_LOGIN', description: 'Performs lockouts and registers warning logs for repeated failed access.', riskLevel: 'High', recommendedAction: 'Verify staff identity.' },
+    { ruleName: 'High override frequency', ruleTrigger: 'PRICE_OVERRIDE_REQUESTED', description: 'Identifies clerks whose override ratio exceeds local supervisor limits.', riskLevel: 'High', recommendedAction: 'Review cashier override pattern.' },
+    { ruleName: 'Frequent void/refund requests', ruleTrigger: 'VOID_REFUND_PATTERN', description: 'Highlights clerks showing an outlying rate of voided tickets post-print.', riskLevel: 'Medium', recommendedAction: 'Review sales history.' },
+    { ruleName: 'Terminal activity outside assigned branch', ruleTrigger: 'OUT_OF_BRANCH_TERMINAL_USE', description: 'Signals incorrect branch logins immediately.', riskLevel: 'High', recommendedAction: 'Lock session pending review.' }
+  ],
+  'Sales Integrity': [
+    { ruleName: 'Block sale when stock is zero', ruleTrigger: 'SALE_BLOCKED_ZERO_STOCK', description: 'Maintains catalog integrity and prevents arbitrary checkout of unavailable parts.', riskLevel: 'Critical', recommendedAction: 'Block sale and recount shelf.' },
+    { ruleName: 'Flag price deviations', ruleTrigger: 'PRICE_OVERRIDE_REQUESTED', description: 'Identifies margin leakage by monitoring products sold below distributor cost.', riskLevel: 'High', recommendedAction: 'Manager approval required.' },
+    { ruleName: 'Mandate supervisor PIN for custom quotes', ruleTrigger: 'CUSTOM_QUOTE_OVERRIDE', description: 'Demands double signature keys for manual invoice prices.', riskLevel: 'Medium', recommendedAction: 'Supervisor PIN approval.' },
+    { ruleName: 'Flag frequent bulk discounts', ruleTrigger: 'BULK_DISCOUNT_PATTERN', description: 'Identifies large commercial orders processed without account registration.', riskLevel: 'Medium', recommendedAction: 'Create account review task.' }
+  ],
+  'Delivery Verification': [
+    { ruleName: 'Delivery completion requires customer secret code', ruleTrigger: 'DELIVERY_CODE_REQUIRED', description: 'Enforces six-digit confirmation code entry at dispatch completion.', riskLevel: 'High', recommendedAction: 'Require customer code.' },
+    { ruleName: 'Pending delivery code must be followed up', ruleTrigger: 'DELIVERY_CODE_PENDING', description: 'Generates warnings if dispatches are in transit beyond local threshold.', riskLevel: 'Medium', recommendedAction: 'Follow up with driver/customer.' },
+    { ruleName: 'Failed delivery confirmation is flagged', ruleTrigger: 'DELIVERY_CONFIRMATION_FAILED', description: 'Alerts depot manager if customer rejects parts or code fails to authorize.', riskLevel: 'High', recommendedAction: 'Review delivery proof.' }
+  ]
+};
+
+const STOCK_HEALTH_EVENT_TYPES = new Set([
+  'DEAD_STOCK_WARNING',
+  'LOW_STOCK_REMINDER',
+  'VARIANCE_RISK_FOUND',
+  'NEGATIVE_STOCK_ALERT',
+  'FAST_MOVING_REORDER_RECOMMENDED',
+  'OUT_OF_STOCK_ALERT',
+  'SLOW_MOVING_STOCK_WARNING',
+  'MISSING_SHELF_LOCATION',
+  'STOCK_HEALTH_EVALUATED'
+]);
+
+function mapSeverity(value: BiEvent['severity']): BiAlertRow['severity'] {
+  if (value === 'Critical' || value === 'CRITICAL') return 'Critical';
+  if (value === 'High') return 'High';
+  if (value === 'Medium' || value === 'WARNING') return 'Medium';
+  return 'Low';
+}
+
+function mapBiEventToAlertRow(event: BiEvent): BiAlertRow {
+  let domain: BiAlertRow['domain'] = 'Anti-Theft';
+  let trigger = 'Pattern flag activated';
+  let recommendedAction = 'Investigate operator logs';
+  let actionLabel: BiAlertRow['actionLabel'] = 'Review';
+
+  if (event.eventType === 'CASH_VARIANCE_FOUND') {
+    domain = 'Cash Control';
+    trigger = 'Declared cash does not match expected cash';
+    recommendedAction = 'Supervisor review before shift closure';
+  } else if (event.eventType === 'SALE_BLOCKED_ZERO_STOCK') {
+    domain = 'Stock Health';
+    trigger = 'Product quantity is zero';
+    recommendedAction = 'Block sale and require stock review';
+  } else if (event.eventType === 'PRICE_OVERRIDE_REQUESTED') {
+    domain = 'Sales Integrity';
+    trigger = 'Discount above allowed cashier threshold';
+    recommendedAction = 'Manager approval required';
+    actionLabel = 'Approve';
+  } else if (event.eventType === 'FAILED_TERMINAL_LOGIN') {
+    domain = 'Staff Behaviour';
+    trigger = 'Multiple failed access attempts';
+    recommendedAction = 'Verify staff identity and terminal use';
+  } else if (event.eventType === 'STOCK_ADJUSTMENT_REQUESTED') {
+    domain = 'Stock Health';
+    trigger = 'Manual adjustment requested';
+    recommendedAction = 'Require supervisor approval';
+    actionLabel = 'Approve';
+  } else if (event.eventType === 'DELIVERY_CODE_PENDING') {
+    domain = 'Delivery Verification';
+    trigger = 'Verification code not entered';
+    recommendedAction = 'Verify dispatch with customer';
+    actionLabel = 'Follow Up';
+  } else if (event.eventType === 'SUSPICIOUS_MOVEMENT_ALERT') {
+    domain = 'Anti-Theft';
+    trigger = 'Drawer opened manually';
+    recommendedAction = 'Check security footage near register';
+  } else if (event.eventType === 'RECOMMEND_MAJOR_STOCKTAKE') {
+    domain = 'Stock Health';
+    trigger = 'Variance risk increasing';
+    recommendedAction = 'Schedule major stocktake';
+    actionLabel = 'Start Stocktake';
+  } else if (STOCK_HEALTH_EVENT_TYPES.has(event.eventType)) {
+    domain = 'Stock Health';
+    trigger = 'Stock health rule evaluated';
+    recommendedAction = 'Review stock position';
+  }
+
+  return {
+    id: event.id,
+    eventType: event.eventType,
+    domain,
+    severity: mapSeverity(event.severity),
+    trigger,
+    description: event.payload?.productName || event.payload?.details || event.payload?.message || 'Rule activation logged',
+    recommendedAction,
+    status: 'Open',
+    actionLabel,
+    productName: event.payload?.productName,
+    sku: event.payload?.sku,
+    staffName: event.operator,
+    branchName: event.payload?.branchName,
+    terminalName: event.terminal,
+    eventMessage: event.payload?.details || event.payload?.message,
+    notes: event.payload?.notes || event.payload?.reason
+  };
+}
+
+function productName(product: Product): string {
+  return product.productName || product.name;
+}
+
+function productSku(product: Product): string {
+  return product.sku || product.code;
+}
+
+function productStock(product: Product): number {
+  return product.availableStock ?? product.qtyOnHand ?? product.stock;
+}
+
+function mapProductToTriggerRow(product: Product, branchName: string, terminalName: string): BiAlertRow | null {
+  const stock = productStock(product);
+  const status = product.stockStatus || product.healthStatus;
+  const name = productName(product);
+  const sku = productSku(product);
+
+  if (stock <= 0) {
+    return {
+      id: `BI-PROD-OUT-${product.id}`,
+      eventType: 'OUT_OF_STOCK_ALERT',
+      domain: 'Stock Health',
+      severity: 'Critical',
+      trigger: 'Product quantity is zero',
+      description: `${name} is out of stock.`,
+      recommendedAction: 'Reorder / stock review',
+      status: 'Open',
+      actionLabel: 'Review',
+      productName: name,
+      sku,
+      branchName,
+      terminalName,
+      eventMessage: `${name} stock is zero.`,
+      notes: status || 'Out of stock local trigger',
+      localDerived: true
+    };
+  }
+
+  if (status === 'Variance Risk' || product.riskLevel === 'Critical' || product.riskLevel === 'High') {
+    return {
+      id: `BI-PROD-VAR-${product.id}`,
+      eventType: 'VARIANCE_RISK_FOUND',
+      domain: 'Stock Health',
+      severity: product.riskLevel === 'Critical' ? 'Critical' : 'High',
+      trigger: 'Stocktake or adjustment movement in last 30 days',
+      description: `${name} variance risk requires review.`,
+      recommendedAction: 'Stocktake required',
+      status: 'Open',
+      actionLabel: 'Start Stocktake',
+      productName: name,
+      sku,
+      branchName,
+      terminalName,
+      eventMessage: `${sku} variance risk found.`,
+      notes: status || product.riskLevel || 'Variance risk local trigger',
+      localDerived: true
+    };
+  }
+
+  if (stock <= product.minStock) {
+    return {
+      id: `BI-PROD-REORDER-${product.id}`,
+      eventType: status === 'Fast Moving' ? 'FAST_MOVING_REORDER_RECOMMENDED' : 'LOW_STOCK_REMINDER',
+      domain: 'Stock Health',
+      severity: status === 'Fast Moving' ? 'High' : 'Medium',
+      trigger: status === 'Fast Moving' ? 'Multiple sale movements in last 7 days' : 'Quantity on hand at or below reorder level',
+      description: `${name} is at or below reorder level.`,
+      recommendedAction: status === 'Fast Moving' ? 'Reorder fast-moving item' : 'Create purchase reminder',
+      status: 'Open',
+      actionLabel: 'Create Task',
+      productName: name,
+      sku,
+      branchName,
+      terminalName,
+      eventMessage: `${sku} reorder trigger generated locally.`,
+      notes: status || 'Low stock local trigger',
+      localDerived: true
+    };
+  }
+
+  return null;
+}
+
+function riskBadgeClass(severity: BiAlertRow['severity']): string {
+  if (severity === 'Critical') return 'bi-risk-badge bi-risk-badge--critical';
+  if (severity === 'High') return 'bi-risk-badge bi-risk-badge--high';
+  if (severity === 'Medium') return 'bi-risk-badge bi-risk-badge--medium';
+  return 'bi-risk-badge bi-risk-badge--low';
+}
+
+function permissionMessage(): JSX.Element {
+  return <div className="sci-pos-alert sci-pos-alert--danger">You do not have permission to view this BI section.</div>;
+}
+
 export default function PosBIDesk({
   transactions,
   products,
@@ -63,710 +312,412 @@ export default function PosBIDesk({
   onLogBiEvent,
   session
 }: PosBIDeskProps) {
-
-  // Session context integration
   const vendorName = session?.vendor || 'SCI Logistics Ltd';
   const branchName = session?.branch || 'Harare Main';
   const terminalName = session?.terminal || 'Term-A';
   const staffName = session?.staffName || 'Admin User';
+  const roleName = (session?.role || 'Owner') as Role;
 
-  // State for metrics (Square panels) to allow dynamic decrementing/updating
-  const [criticalCount, setCriticalCount] = useState(3);
-  const [highRiskCount, setHighRiskCount] = useState(7);
-  const [mediumCount, setMediumCount] = useState(12);
-  const [staffFlags, setStaffFlags] = useState(4);
-  const [stockFlags, setStockFlags] = useState(9);
-  const [cashFlags, setCashFlags] = useState(3);
-  const [spotChecks, setSpotChecks] = useState(5);
-  const [supervisorReviews, setSupervisorReviews] = useState(6);
-
-  // Active Category rule tab
-  const [activeTab, setActiveTab] = useState<'Anti-Theft' | 'Stock Health' | 'Cash Control' | 'Staff Behaviour' | 'Sales Integrity' | 'Delivery Verification'>('Anti-Theft');
-
-  // Search and Filter within alerts
-  const [alertsSearch, setAlertsSearch] = useState('');
-  const [severityFilter, setSeverityFilter] = useState<string>('ALL');
-
-  // --- BI ACTIVITY FEED STATE ---
+  const [activeDeskTab, setActiveDeskTab] = useState<BiDeskTab>('BI Overview');
+  const [selectedDomain, setSelectedDomain] = useState<BiRuleDomain>('Anti-Theft');
+  const [rulesetSearch, setRulesetSearch] = useState('');
+  const [triggerSearch, setTriggerSearch] = useState('');
+  const [severityFilter, setSeverityFilter] = useState('ALL');
+  const [domainFilter, setDomainFilter] = useState('ALL');
   const [activityFeed, setActivityFeed] = useState<ActivityLogItem[]>([
-    {
-      id: 'BIA-1',
-      timestamp: '16:05:22',
-      message: 'Rule evaluated: SALE_BLOCKED_ZERO_STOCK (Gate: Blocked transaction output)',
-      type: 'INFO'
-    },
-    {
-      id: 'BIA-2',
-      timestamp: '15:45:11',
-      message: 'Supervisor review opened for cash variance: USD -5.00 on register 01',
-      type: 'WARNING'
-    },
-    {
-      id: 'BIA-3',
-      timestamp: '14:30:15',
-      message: 'Price override approved by mock manager: Radiator discount authorized at 15%',
-      type: 'SUCCESS'
-    },
-    {
-      id: 'BIA-4',
-      timestamp: '13:10:05',
-      message: 'Major stocktake recommendation created for low velocity category Motor Spares',
-      type: 'ACTION'
-    },
-    {
-      id: 'BIA-5',
-      timestamp: '11:32:00',
-      message: 'Delivery code follow-up assigned to supervisor: Ref GD6 Pending verification code',
-      type: 'ACTION'
-    }
+    { id: 'BIA-1', timestamp: '16:05:22', message: 'Rule evaluated: SALE_BLOCKED_ZERO_STOCK (Gate: Blocked transaction output)', type: 'INFO' },
+    { id: 'BIA-2', timestamp: '15:45:11', message: 'Supervisor review opened for cash variance: USD -5.00 on register 01', type: 'WARNING' },
+    { id: 'BIA-3', timestamp: '14:30:15', message: 'Price override approved by mock manager: Radiator discount authorized at 15%', type: 'SUCCESS' },
+    { id: 'BIA-4', timestamp: '13:10:05', message: 'Major stocktake recommendation created for low velocity category Motor Spares', type: 'ACTION' },
+    { id: 'BIA-5', timestamp: '11:32:00', message: 'Delivery code follow-up assigned to supervisor: Ref GD6 Pending verification code', type: 'ACTION' }
   ]);
+  const [alertsTable, setAlertsTable] = useState<BiAlertRow[]>(() => mockBIEvents.map(mapBiEventToAlertRow));
 
-  const STOCK_HEALTH_EVENT_TYPES = new Set([
-    'DEAD_STOCK_WARNING',
-    'LOW_STOCK_REMINDER',
-    'VARIANCE_RISK_FOUND',
-    'NEGATIVE_STOCK_ALERT',
-    'FAST_MOVING_REORDER_RECOMMENDED',
-    'OUT_OF_STOCK_ALERT',
-    'SLOW_MOVING_STOCK_WARNING',
-    'MISSING_SHELF_LOCATION',
-    'STOCK_HEALTH_EVALUATED'
-  ]);
+  const hasBiView = canPerformAction(roleName, 'bi.view');
+  const canReviewRisk = canPerformAction(roleName, 'bi.riskReview') || canPerformAction(roleName, 'bi.review');
+  const canManageRules = canPerformAction(roleName, 'bi.rules.manage');
+  const canExportBi = canPerformAction(roleName, 'bi.export') || canPerformAction(roleName, 'reports.export');
+  const productTriggerRows = useMemo(
+    () => products.map((product) => mapProductToTriggerRow(product, branchName, terminalName)).filter((row): row is BiAlertRow => Boolean(row)),
+    [branchName, products, terminalName]
+  );
+  const triggerRows = useMemo(() => {
+    const existingIds = new Set(alertsTable.map((row) => row.id));
+    return [...alertsTable, ...productTriggerRows.filter((row) => !existingIds.has(row.id))];
+  }, [alertsTable, productTriggerRows]);
 
-  const mapBiEventToAlertRow = (e: BiEvent): BiAlertRow => {
-    let domain: BiAlertRow['domain'] = 'Stock Health';
-    let trigger = 'Stock health rule evaluated';
-    let recommendedAction = 'Review stock position';
-    let actionLabel: BiAlertRow['actionLabel'] = 'Review';
-
-    if (e.eventType === 'DEAD_STOCK_WARNING') {
-      trigger = 'No sale movement for 90+ days with stock on hand';
-      recommendedAction = 'Discount / clearance review';
-    } else if (e.eventType === 'LOW_STOCK_REMINDER') {
-      trigger = 'Quantity on hand at or below reorder level';
-      recommendedAction = 'Create purchase reminder';
-      actionLabel = 'Create Task';
-    } else if (e.eventType === 'VARIANCE_RISK_FOUND') {
-      trigger = 'Stocktake or adjustment movement in last 30 days';
-      recommendedAction = 'Stocktake required';
-      actionLabel = 'Start Stocktake';
-    } else if (e.eventType === 'NEGATIVE_STOCK_ALERT') {
-      trigger = 'Quantity on hand below zero';
-      recommendedAction = 'Immediate stock review';
-    } else if (e.eventType === 'FAST_MOVING_REORDER_RECOMMENDED') {
-      trigger = 'Multiple sale movements in last 7 days';
-      recommendedAction = 'Reorder fast-moving item';
-      actionLabel = 'Create Task';
-    } else if (e.eventType === 'OUT_OF_STOCK_ALERT') {
-      trigger = 'Product quantity is zero';
-      recommendedAction = 'Reorder / stock review';
-    } else if (e.eventType === 'SLOW_MOVING_STOCK_WARNING') {
-      trigger = 'No sale movement for 30-89 days';
-      recommendedAction = 'Review price and demand';
-    } else if (e.eventType === 'MISSING_SHELF_LOCATION') {
-      trigger = 'Shelf / location not assigned';
-      recommendedAction = 'Check shelf assignment';
-    }
-
-    const severity = String(e.severity);
-    const sevMapped = (severity === 'Critical' || severity === 'CRITICAL') ? 'Critical'
-      : (severity === 'High' || severity === 'HIGH') ? 'High'
-      : ((severity === 'Medium' || severity === 'WARNING') ? 'Medium' : 'Low');
-
-    return {
-      id: e.id,
-      eventType: e.eventType,
-      domain,
-      severity: sevMapped as BiAlertRow['severity'],
-      trigger,
-      description: e.payload?.productName || e.payload?.details || 'Stock health event logged',
-      recommendedAction,
-      status: 'Open',
-      actionLabel
-    };
+  const addActivity = (message: string, type: ActivityLogItem['type'] = 'INFO') => {
+    const timestamp = new Date().toTimeString().split(' ')[0];
+    setActivityFeed((current) => [{ id: `BIA-${Date.now()}`, timestamp, message, type }, ...current].slice(0, 30));
   };
 
-  // --- BI ALERTS TABLE STATE ---
-  const [alertsTable, setAlertsTable] = useState<BiAlertRow[]>(() => {
-    return mockBIEvents.map(e => {
-      let domain: BiAlertRow['domain'] = 'Anti-Theft';
-      let trigger = 'Pattern flag activated';
-      let recommendedAction = 'Investigate operator logs';
-      let actionLabel: BiAlertRow['actionLabel'] = 'Review';
-
-      if (e.eventType === 'CASH_VARIANCE_FOUND') {
-        domain = 'Cash Control';
-        trigger = 'Declared cash does not match expected cash';
-        recommendedAction = 'Supervisor review before shift closure';
-      } else if (e.eventType === 'SALE_BLOCKED_ZERO_STOCK') {
-        domain = 'Stock Health';
-        trigger = 'Product quantity is zero';
-        recommendedAction = 'Block sale and require stock review';
-      } else if (e.eventType === 'PRICE_OVERRIDE_REQUESTED') {
-        domain = 'Sales Integrity';
-        trigger = 'Discount above allowed cashier threshold';
-        recommendedAction = 'Manager approval required';
-        actionLabel = 'Approve';
-      } else if (e.eventType === 'FAILED_TERMINAL_LOGIN') {
-        domain = 'Staff Behaviour';
-        trigger = 'Multiple failed access attempts';
-        recommendedAction = 'Verify staff identity and terminal use';
-      } else if (e.eventType === 'STOCK_ADJUSTMENT_REQUESTED') {
-        domain = 'Stock Health';
-        trigger = 'Manual adjustment requested';
-        recommendedAction = 'Require supervisor approval';
-        actionLabel = 'Approve';
-      } else if (e.eventType === 'DELIVERY_CODE_PENDING') {
-        domain = 'Delivery Verification';
-        trigger = 'Verification code not entered';
-        recommendedAction = 'Verify dispatch with customer';
-        actionLabel = 'Follow Up';
-      } else if (e.eventType === 'SUSPICIOUS_MOVEMENT_ALERT') {
-        domain = 'Anti-Theft';
-        trigger = 'Drawer opened manually';
-        recommendedAction = 'Check security footage near register';
-      } else if (e.eventType === 'RECOMMEND_MAJOR_STOCKTAKE') {
-        domain = 'Stock Health';
-        trigger = 'Variance risk increasing';
-        recommendedAction = 'Schedule major stocktake';
-        actionLabel = 'Start Stocktake';
-      }
-
-      const sevMapped = (e.severity === 'Critical' || e.severity === 'CRITICAL') ? 'Critical' :
-                        (e.severity === 'High' ? 'High' : 
-                        ((e.severity === 'Medium' || e.severity === 'WARNING') ? 'Medium' : 'Low'));
-
-      return {
-        id: e.id,
-        eventType: e.eventType,
-        domain,
-        severity: sevMapped as any,
-        trigger,
-        description: e.payload?.details || 'Rule activation logged',
-        recommendedAction,
-        status: 'Open',
-        actionLabel
-      };
-    });
-  });
-
   useEffect(() => {
-    const mergeStockHealthEvents = (events: BiEvent[]) => {
-      const stockHealthEvents = events.filter((event) => STOCK_HEALTH_EVENT_TYPES.has(event.eventType));
-      if (stockHealthEvents.length === 0) return;
-      setAlertsTable((current) => {
-        const existingIds = new Set(current.map((row) => row.id));
-        const newRows = stockHealthEvents
-          .filter((event) => !existingIds.has(event.id))
-          .map(mapBiEventToAlertRow);
-        if (newRows.length === 0) return current;
-        setStockFlags((count) => count + newRows.length);
-        return [...newRows, ...current];
-      });
-    };
-
-    mergeStockHealthEvents(biEvents);
-    try {
-      const cached = localStorage.getItem('itred_pos_bi_events');
-      if (cached) {
-        mergeStockHealthEvents(JSON.parse(cached) as BiEvent[]);
-      }
-    } catch {
-      // Local BI event merge is best-effort during build-development.
-    }
+    const stockHealthEvents = biEvents.filter((event) => STOCK_HEALTH_EVENT_TYPES.has(event.eventType));
+    if (stockHealthEvents.length === 0) return;
+    setAlertsTable((current) => {
+      const existingIds = new Set(current.map((row) => row.id));
+      const newRows = stockHealthEvents.filter((event) => !existingIds.has(event.id)).map(mapBiEventToAlertRow);
+      return newRows.length > 0 ? [...newRows, ...current] : current;
+    });
   }, [biEvents]);
 
-  // Handle action click
+  const openTab = (tab: BiDeskTab) => {
+    setActiveDeskTab(tab);
+    const eventType = tab === 'Ruleset Library' ? 'BI_RULESET_LIBRARY_OPENED'
+      : tab === 'Trigger Logs' ? 'BI_TRIGGER_LOGS_OPENED'
+        : 'BI_TAB_OPENED';
+    addActivity(`${eventType}: ${tab}`, 'INFO');
+  };
+
+  const selectDomain = (domain: BiRuleDomain) => {
+    setSelectedDomain(domain);
+    addActivity(`BI_RULESET_DOMAIN_SELECTED: ${domain}`, 'ACTION');
+  };
+
   const handleAlertAction = (rowId: string, actionType: BiAlertRow['actionLabel']) => {
-    setAlertsTable(prev => prev.map(row => {
-      if (row.id === rowId) {
-        let nextStatus: BiAlertRow['status'] = 'Resolved';
-        if (actionType === 'Approve') nextStatus = 'Completed';
-        if (actionType === 'Start Stocktake') nextStatus = 'Stocktake Initiated';
-        if (actionType === 'Create Task') nextStatus = 'Reminder Created';
-        if (actionType === 'Follow Up') nextStatus = 'Followed Up';
-
-        // Add to activity feed
-        const now = new Date();
-        const timeStr = now.toTimeString().split(' ')[0];
-        const newFeedItem: ActivityLogItem = {
-          id: `F-${Date.now()}`,
-          timestamp: timeStr,
-          message: `User triggered [${actionType}] on ${row.eventType}: ${row.description.slice(0, 45)}... status updated to [${nextStatus}]`,
-          type: actionType === 'Approve' ? 'SUCCESS' : 'ACTION'
-        };
-        setActivityFeed(f => [newFeedItem, ...f]);
-
-        // Adjust metric panels accordingly
-        if (row.severity === 'Critical') {
-          setCriticalCount(c => Math.max(0, c - 1));
-        } else if (row.severity === 'High') {
-          setHighRiskCount(h => Math.max(0, h - 1));
-        } else if (row.severity === 'Medium') {
-          setMediumCount(m => Math.max(0, m - 1));
-        }
-
-        if (row.domain === 'Staff Behaviour') setStaffFlags(sf => Math.max(0, sf - 1));
-        if (row.domain === 'Stock Health') setStockFlags(sk => Math.max(0, sk - 1));
-        if (row.domain === 'Cash Control') setCashFlags(cf => Math.max(0, cf - 1));
-
-        return {
-          ...row,
-          status: nextStatus,
-          actionLabel: 'Done'
-        };
-      }
-      return row;
+    if (!canReviewRisk) {
+      addActivity('Risk review blocked by permission.', 'WARNING');
+      return;
+    }
+    const triggerRow = triggerRows.find((row) => row.id === rowId);
+    if (triggerRow?.localDerived) {
+      addActivity(`BI_RULESET_OUTPUT_VIEWED: ${actionType} noted for local product trigger ${triggerRow.productName || triggerRow.eventType}.`, 'ACTION');
+      onLogBiEvent('BI_RISK_ACTION_RECORDED' as BiEvent['eventType'], staffName, terminalName, { rowId, actionType, localDerived: true }, 'INFO');
+      return;
+    }
+    setAlertsTable((current) => current.map((row) => {
+      if (row.id !== rowId) return row;
+      let nextStatus: BiAlertRow['status'] = 'Resolved';
+      if (actionType === 'Approve') nextStatus = 'Completed';
+      if (actionType === 'Start Stocktake') nextStatus = 'Stocktake Initiated';
+      if (actionType === 'Create Task') nextStatus = 'Reminder Created';
+      if (actionType === 'Follow Up') nextStatus = 'Followed Up';
+      addActivity(`User triggered [${actionType}] on ${row.eventType}: ${row.description.slice(0, 45)}... status updated to [${nextStatus}]`, actionType === 'Approve' ? 'SUCCESS' : 'ACTION');
+      onLogBiEvent('BI_RISK_ACTION_RECORDED' as BiEvent['eventType'], staffName, terminalName, { rowId, actionType, nextStatus }, 'INFO');
+      return { ...row, status: nextStatus, actionLabel: 'Done' };
     }));
   };
 
-  // Predefined Rule Cards grouped by category
-  const rulesMap = {
-    'Anti-Theft': [
-      { rule: 'Block sale when stock is zero', details: 'Prevents negative stock indices and manual count overrides on nonexistent parts.' },
-      { rule: 'Flag repeated price overrides', details: 'Logs cashier accounts attempting over 3 manual price updates in a single hour.' },
-      { rule: 'Flag suspicious stock adjustments', details: 'Triggers audit requirements when items are adjusted without a valid reference invoice.' },
-      { rule: 'Flag cash drawer variance', details: 'Logs a High-Risk warning if declared terminal float is +/- 2.00 USD off formula.' },
-      { rule: 'Flag repeated failed staff logins', details: 'Alerts security if staff credentials fail 3 consecutive times in 10 minutes.' }
-    ],
-    'Stock Health': [
-      { rule: 'Low stock reminder', details: 'Triggers system notice when inventory item falls below safety stock margins.' },
-      { rule: 'Out of stock alert', details: 'Logs Critical-level alarm immediately when high-velocity parts fall to zero.' },
-      { rule: 'Dead stock warning', details: 'Identifies inventory sitting over 90 days with zero sales. Highlights potential discount path.' },
-      { rule: 'Slow moving item warning', details: 'Logs notification for parts with turnover cycles exceeding Bulawayo warehouse targets.' },
-      { rule: 'Variance risk warning', details: 'Signals risk when warehouse counts deviate from theoretical receipt balances.' },
-      { rule: 'Recommend major stocktake', details: 'Assembles stocktake instructions when audit counts flag repeated negative records.' }
-    ],
-    'Cash Control': [
-      { rule: 'Variance requires supervisor review', details: 'Blocks cashiers from closing shift with unresolved drawer variance.' },
-      { rule: 'Cash out requires authorization', details: 'Forces second operator PIN code verification for any payout or banking drop.' },
-      { rule: 'Shift cannot close with unresolved variance', details: 'Restricts terminal unlock functions until supervisor logs override keys.' },
-      { rule: 'Drawer movement must be logged', details: 'System records every mechanical solenoid open and links to Transaction ID.' }
-    ],
-    'Staff Behaviour': [
-      { rule: 'Failed login monitoring', details: 'Performs lockouts and registers warning logs for out-of-branch logins.' },
-      { rule: 'High override frequency', details: 'Identifies clerks whose override ratio exceeds 8% of total customer tickets.' },
-      { rule: 'Frequent void/refund requests', details: 'Highlights clerks showing an outlying rate of voided tickets post-print.' },
-      { rule: 'Terminal activity outside assigned branch', details: 'Signals cross-border or incorrect branch logins immediately.' }
-    ],
-    'Sales Integrity': [
-      { rule: 'Block sale when stock is zero', details: 'Maintains catalog integrity; prevents arbitrary checkout of imaginary parts.' },
-      { rule: 'Flag price deviations', details: 'Identifies margin leakage by monitoring products sold below specified distributor cost.' },
-      { rule: 'Mandate supervisor PIN for custom quotes', details: 'Demands double signature keys for invoice prices adjusted manually on-screen.' },
-      { rule: 'Flag frequent bulk discounts', details: 'Identifies large commercial orders processed without prior account registration.' }
-    ],
-    'Delivery Verification': [
-      { rule: 'Delivery completion requires customer secret code', details: 'Enforces entering six-digit confirmation SMS code at the site of dispatch.' },
-      { rule: 'Pending delivery code must be followed up', details: 'Generates warnings if driver dispatches are on-transit for more than 4 hours.' },
-      { rule: 'Failed delivery confirmation is flagged', details: 'Alerts depot manager if customer rejects parts or code fails to authorize.' }
-    ]
-  };
+  const domainRules = rulesMap[selectedDomain];
+  const filteredRules = domainRules.filter((rule) => matchesFreeOrderSearch(
+    { domain: selectedDomain, ...rule },
+    rulesetSearch,
+    ['domain', 'ruleName', 'ruleTrigger', 'description', 'riskLevel', 'recommendedAction']
+  ));
 
-  // Filter alerts by search term and severity
-  const filteredAlerts = alertsTable.filter(row => {
-    const matchesSearch = row.eventType.toLowerCase().includes(alertsSearch.toLowerCase()) ||
-                          row.description.toLowerCase().includes(alertsSearch.toLowerCase()) ||
-                          row.domain.toLowerCase().includes(alertsSearch.toLowerCase());
-    
-    const matchesSeverity = severityFilter === 'ALL' || row.severity.toLowerCase() === severityFilter.toLowerCase();
-    
-    return matchesSearch && matchesSeverity;
+  const filteredAlerts = triggerRows.filter((row) => {
+    const matchesSearch = matchesFreeOrderSearch(row, triggerSearch, [
+      'eventType',
+      'domain',
+      'severity',
+      'trigger',
+      'description',
+      'recommendedAction',
+      'productName',
+      'sku',
+      'staffName',
+      'branchName',
+      'terminalName',
+      'eventMessage',
+      'notes',
+      (item) => item.status,
+      () => branchName,
+      () => terminalName
+    ]);
+    const matchesSeverity = severityFilter === 'ALL' || row.severity === severityFilter;
+    const matchesDomain = domainFilter === 'ALL' || row.domain === domainFilter;
+    return matchesSearch && matchesSeverity && matchesDomain;
   });
 
-  return (
-    <div className="space-y-6 font-mono text-xs text-[#111827] select-none pb-12" id="bi-desk-root">
-      
-      {/* 1. PAGE HEADER */}
-      <div className="bg-white border-2 border-[#b1b5c2] p-5 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-        <div>
-          <div className="text-[9px] font-black text-orange-600 uppercase tracking-widest">SCI COGNITIVE REGISTRY</div>
-          <h1 className="text-sm font-black text-[#1e222b] uppercase flex items-center gap-2 mt-1">
-            <Sliders className="w-5 h-5 text-orange-500" />
-            Rule-Based POS Intelligence Desk
-          </h1>
-          
-          <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 mt-2 text-[10px] text-slate-500 font-bold">
-            <span className="flex items-center gap-1">
-              <strong>Corporate Vendor:</strong> <span className="text-[#13151a] font-black">{vendorName}</span>
-            </span>
-            <span className="flex items-center gap-1">
-              <strong>Branch:</strong> <span className="bg-slate-100 text-[#13151a] px-1.5 py-0.2">{branchName}</span>
-            </span>
-            <span className="flex items-center gap-1">
-              <strong>Terminal:</strong> <span className="text-[#13151a] font-extrabold">{terminalName}</span>
-            </span>
-            <span className="flex items-center gap-1">
-              <strong>Current BI Mode:</strong> <span className="text-orange-600">Build Development Rules</span>
-            </span>
-            <span className="flex items-center gap-1">
-              <strong>Last Evaluation:</strong> <span className="text-slate-800">Today (Real-time scan)</span>
-            </span>
-          </div>
-        </div>
+  const metrics = useMemo(() => {
+    const critical = triggerRows.filter((row) => row.severity === 'Critical' && row.status === 'Open').length;
+    const high = triggerRows.filter((row) => row.severity === 'High' && row.status === 'Open').length;
+    const medium = triggerRows.filter((row) => row.severity === 'Medium' && row.status === 'Open').length;
+    return {
+      critical,
+      high,
+      medium,
+      staff: triggerRows.filter((row) => row.domain === 'Staff Behaviour').length,
+      stock: triggerRows.filter((row) => row.domain === 'Stock Health').length,
+      cash: triggerRows.filter((row) => row.domain === 'Cash Control').length,
+      spotChecks: products.filter((product) => product.stock <= product.minStock).length,
+      reviews: triggerRows.filter((row) => row.status === 'Open' || row.status === 'Pending Approval').length
+    };
+  }, [products, triggerRows]);
 
-        {/* Current status tag */}
-        <div className="flex items-center gap-2 px-4 py-2 border border-[#b1b5c2] bg-[#1e222b] text-white">
-          <Radio className="w-4 h-4 text-orange-500 animate-pulse" />
+  const severityMix = useMemo(() => {
+    const rules = rulesMap[selectedDomain];
+    return ['Critical', 'High', 'Medium', 'Low'].map((severity) => `${severity}: ${rules.filter((rule) => rule.riskLevel === severity).length}`).join(' / ');
+  }, [selectedDomain]);
+
+  if (!hasBiView) {
+    return (
+      <div className="bi-desk-page">
+        <header className="sci-page-header sci-page-header--compact">
           <div>
-            <span className="text-[8px] text-slate-400 font-bold block uppercase tracking-wider">Scout Engine status</span>
-            <span className="text-[10px] font-black text-white uppercase">DETERMINISTIC ACTIVE</span>
+            <p className="sci-pos-eyebrow">BI Desk</p>
+            <h1>Rule-Based POS Intelligence Desk</h1>
           </div>
-        </div>
+        </header>
+        {permissionMessage()}
       </div>
+    );
+  }
 
-      {/* 2. BI SUMMARY PANELS (Square Metric Panels) */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 xl:grid-cols-8 gap-4">
-        
-        {/* Metric 1 */}
-        <div className={`p-4 border bg-white flex flex-col justify-between h-[100px] border-[#b1b5c2] ${criticalCount > 0 ? 'border-l-4 border-l-red-500' : 'border-l-4 border-l-[#1e222b]'}`}>
-          <span className="text-[9px] text-slate-500 font-black uppercase tracking-wider block">Critical Alerts</span>
-          <div className="mt-2 text-right">
-            <span className={`text-base font-black block ${criticalCount > 0 ? 'text-red-500 animate-pulse' : 'text-[#1e222b]'}`}>{criticalCount}</span>
-            <span className="text-[8px] text-slate-400 font-bold uppercase block">high hazard locks</span>
-          </div>
+  return (
+    <div className="bi-desk-page" id="bi-desk-root">
+      <header className="sci-page-header sci-page-header--compact">
+        <div>
+          <p className="sci-pos-eyebrow">SCI Cognitive Registry</p>
+          <h1><Sliders size={20} aria-hidden="true" /> Rule-Based POS Intelligence Desk</h1>
+          <p>{vendorName} / {branchName} / {terminalName} / Build Development Rules</p>
         </div>
-
-        {/* Metric 2 */}
-        <div className="p-4 border bg-white flex flex-col justify-between h-[100px] border-[#b1b5c2] border-l-4 border-l-orange-500">
-          <span className="text-[9px] text-orange-600 font-black uppercase tracking-wider block">High Risk Alerts</span>
-          <div className="mt-2 text-right">
-            <span className="text-base font-black text-orange-600 block">{highRiskCount}</span>
-            <span className="text-[8px] text-slate-400 font-bold uppercase block">require supervisor pin</span>
-          </div>
+        <div className="sci-page-header__actions">
+          <span className="sci-status-pill sci-status-pill--success">
+            <Radio size={14} aria-hidden="true" />
+            Deterministic Active
+          </span>
+          <span className="sci-status-pill">Logs {triggerRows.length}</span>
         </div>
+      </header>
 
-        {/* Metric 3 */}
-        <div className="p-4 border bg-white flex flex-col justify-between h-[100px] border-[#b1b5c2]">
-          <span className="text-[9px] text-slate-500 font-black uppercase tracking-wider block">Medium Alerts</span>
-          <div className="mt-2 text-right">
-            <span className="text-base font-black text-slate-800 block">{mediumCount}</span>
-            <span className="text-[8px] text-slate-400 font-bold uppercase block">general audit anomalies</span>
-          </div>
-        </div>
+      <nav className="bi-tab-bar" aria-label="BI Desk sections">
+        {biTabs.map((tab) => (
+          <button key={tab} type="button" className={`bi-tab ${activeDeskTab === tab ? 'bi-tab-active' : ''}`} onClick={() => openTab(tab)}>
+            {tab}
+          </button>
+        ))}
+      </nav>
 
-        {/* Metric 4 */}
-        <div className="p-4 border bg-white flex flex-col justify-between h-[100px] border-[#b1b5c2]">
-          <span className="text-[9px] text-slate-500 font-black uppercase tracking-wider block">Staff Risk Flags</span>
-          <div className="mt-2 text-right">
-            <span className="text-sm font-black text-slate-800 block">{staffFlags}</span>
-            <span className="text-[8px] text-slate-400 font-bold uppercase block">credential/override anomalies</span>
-          </div>
-        </div>
+      {activeDeskTab === 'BI Overview' && (
+        <section className="bi-overview-grid">
+          {[
+            ['Critical Alerts', metrics.critical, 'high hazard locks'],
+            ['High Risk Alerts', metrics.high, 'require supervisor review'],
+            ['Medium Alerts', metrics.medium, 'general audit anomalies'],
+            ['Staff Risk Flags', metrics.staff, 'credential/override anomalies'],
+            ['Stock Risk Flags', metrics.stock, 'shrinkage/out of stock'],
+            ['Cash Risk Flags', metrics.cash, 'drawer drift counts'],
+            ['Spot Checks', metrics.spotChecks, 'bin recount tasks'],
+            ['Pending Reviews', metrics.reviews, 'supervisor ledger signs']
+          ].map(([label, value, help]) => (
+            <article key={label} className="bi-metric-card">
+              <span>{label}</span>
+              <strong>{value}</strong>
+              <small>{help}</small>
+            </article>
+          ))}
 
-        {/* Metric 5 */}
-        <div className="p-4 border bg-white flex flex-col justify-between h-[100px] border-[#b1b5c2]">
-          <span className="text-[9px] text-slate-500 font-black uppercase tracking-wider block">Stock Risk Flags</span>
-          <div className="mt-2 text-right">
-            <span className="text-sm font-black text-[#1e222b] block">{stockFlags}</span>
-            <span className="text-[8px] text-slate-400 font-bold uppercase block">shrinkage/out of stock</span>
-          </div>
-        </div>
-
-        {/* Metric 6 */}
-        <div className="p-4 border bg-white flex flex-col justify-between h-[100px] border-[#b1b5c2]">
-          <span className="text-[9px] text-slate-500 font-black uppercase tracking-wider block">Cash Risk Flags</span>
-          <div className="mt-2 text-right">
-            <span className="text-sm font-black text-slate-800 block">{cashFlags}</span>
-            <span className="text-[8px] text-slate-400 font-bold uppercase block">drawer drift counts</span>
-          </div>
-        </div>
-
-        {/* Metric 7 */}
-        <div className="p-4 border bg-white flex flex-col justify-between h-[100px] border-[#b1b5c2]">
-          <span className="text-[9px] text-slate-500 font-black uppercase tracking-wider block">Spot Checks</span>
-          <div className="mt-2 text-right">
-            <span className="text-sm font-black text-slate-800 block">{spotChecks} Recommended</span>
-            <span className="text-[8px] text-slate-400 font-bold uppercase block">bin recount tasks</span>
-          </div>
-        </div>
-
-        {/* Metric 8 */}
-        <div className="p-4 border bg-white flex flex-col justify-between h-[100px] border-[#b1b5c2]">
-          <span className="text-[9px] text-slate-500 font-black uppercase tracking-wider block">Pending Reviews</span>
-          <div className="mt-2 text-right">
-            <span className="text-sm font-black text-slate-800 block">{supervisorReviews} Reviews</span>
-            <span className="text-[8px] text-slate-400 font-bold uppercase block">supervisor ledger signs</span>
-          </div>
-        </div>
-
-      </div>
-
-      {/* THREE SECTION GRID LAYOUT */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-        
-        {/* Left Side: Rule Explanation and Rule Category Tabs (5 cols) */}
-        <div className="lg:col-span-4 space-y-6">
-          
-          {/* A. RULE EXPLANATION PANEL */}
-          <div className="bg-white border border-[#b1b5c2] p-5 space-y-4">
-            <div className="bg-[#1e222b] p-3 -mx-5 -mt-5 text-white flex items-center justify-between border-b-2 border-slate-900 select-none">
-              <span className="font-extrabold text-[10px] uppercase tracking-wider flex items-center gap-1.5">
-                <HelpCircle className="w-4 h-4 text-orange-500" />
-                How SCI BI Rules Work
-              </span>
-              <span className="text-[8px] bg-orange-650/20 border border-orange-500 text-orange-500 px-1.5 py-0.2 font-mono">DETERMINISTIC LOGIC</span>
-            </div>
-
-            <div className="space-y-3 font-sans text-[#111827] leading-relaxed">
-              <p className="text-[11px]">
-                The **BI Desk** evaluates POS logs against strict corporate rulesets rather than statistical models or unverified blackbox AI calculations:
-              </p>
-              
-              <ul className="space-y-1.5 pl-4 list-disc text-[10.5px] text-slate-600 font-medium">
-                <li>
-                  <strong className="text-slate-900">Deterministic Reading:</strong> Automatically monitors physical and computational solenoids, float declarations, and terminal keystrokes.
-                </li>
-                <li>
-                  <strong className="text-slate-900">Risk Assessment:</strong> Scans real-time triggers to isolate outliers in cash declarations, stock levels, system overrides, and delivery codes.
-                </li>
-                <li>
-                  <strong className="text-slate-900">Local Customization:</strong> In production, parameters can be customized dynamically by branch administrators to prevent shrinkage.
-                </li>
-              </ul>
-
-              <div className="bg-slate-100 p-2.5 border border-slate-200 mt-2 font-mono text-[9px] uppercase text-slate-500">
-                <span>SYSTEM MODE: NO AUTOMATED TRAINING MODEL IN USE</span>
+          <article className="sci-pos-card bi-overview-panel">
+            <div className="bi-section-header">
+              <HelpCircle className="bi-section-header-icon" size={18} aria-hidden="true" />
+              <div>
+                <h2 className="bi-section-header-title">Deterministic Logic</h2>
+                <span>Rule-Based BI evaluation</span>
               </div>
             </div>
-          </div>
-
-          {/* B. BI RULE CATEGORIES TAB CONTAINER */}
-          <div className="bg-white border border-[#b1b5c2] p-5 space-y-4">
-            <div className="bg-[#1e222b] p-3 -mx-5 -mt-5 text-white flex items-center justify-between border-b-2 border-slate-900 select-none">
-              <span className="font-extrabold text-[10px] uppercase tracking-wider flex items-center gap-1.5">
-                <BookOpen className="w-4 h-4 text-orange-500" />
-                BI Rule Categories
-              </span>
-              <span className="text-[8px] text-slate-400 font-mono">ACTIVE SCAN</span>
+            <div className="bi-text-panel">
+              <p>The BI Desk evaluates POS logs against strict corporate rulesets rather than statistical models or unverified blackbox calculations.</p>
+              <p><strong>Risk Assessment:</strong> Scans local triggers for cash declarations, stock levels, terminal overrides, and delivery codes.</p>
+              <p><strong>Current Scan:</strong> {transactions.length} transaction rows, {products.length} product rows, {triggerRows.length} trigger logs.</p>
             </div>
+          </article>
+        </section>
+      )}
 
-            <p className="text-[10px] text-slate-400 font-medium pb-1.5 border-b border-slate-100">
-              Select an operational threshold ruleset below to audit card indexes:
-            </p>
-
-            <div className="flex flex-col gap-1.5">
-              {(Object.keys(rulesMap) as Array<keyof typeof rulesMap>).map(catName => {
-                const isActive = activeTab === catName;
-                return (
-                  <button
-                    key={catName}
-                    type="button"
-                    onClick={() => setActiveTab(catName)}
-                    className={`px-3 py-2.5 text-left text-[10.5px] font-bold uppercase transition-all flex justify-between items-center cursor-pointer ${
-                      isActive 
-                        ? 'bg-[#f97316] text-white border-l-4 border-l-black border border-orange-650' 
-                        : 'bg-slate-50 text-[#1e222b] hover:bg-slate-100 border border-slate-250'
-                    }`}
-                  >
-                    <span>{catName}</span>
-                    <ChevronRight className={`w-3.5 h-3.5 ${isActive ? 'text-white' : 'text-slate-400'}`} />
+      {activeDeskTab === 'Ruleset Library' && (
+        <section className="sci-pos-card">
+          <div className="bi-section-header">
+            <BookOpen className="bi-section-header-icon" size={18} aria-hidden="true" />
+            <div>
+              <h2 className="bi-section-header-title">Ruleset Library</h2>
+              <span>Active rules, rule descriptions, severity mix, and output preview.</span>
+            </div>
+          </div>
+          {!canReviewRisk && permissionMessage()}
+          {canReviewRisk && (
+            <div className="bi-ruleset-layout">
+              <aside className="bi-ruleset-list">
+                <label className="bi-trigger-searchbar">
+                  <Search size={15} aria-hidden="true" />
+                  <input value={rulesetSearch} onChange={(event) => { setRulesetSearch(event.target.value); addActivity('BI_RULESET_OUTPUT_VIEWED: ruleset search updated', 'INFO'); }} placeholder="Search rules in any word order" />
+                </label>
+                {ruleDomains.map((domain) => (
+                  <button key={domain} type="button" className={selectedDomain === domain ? 'active' : ''} onClick={() => selectDomain(domain)}>
+                    <strong>{domain}</strong>
+                    <span>{rulesMap[domain].length} active rules</span>
                   </button>
-                );
-              })}
-            </div>
-
-            {/* Display list of Rule Cards for active category tab */}
-            <div className="mt-4 pt-4 border-t border-slate-150 space-y-3">
-              <span className="font-black text-[#1e222b] text-[9.5px] block uppercase tracking-wide">
-                Active Rules ({activeTab}):
-              </span>
-              
-              <div className="space-y-2.5">
-                {rulesMap[activeTab].map((item, idx) => (
-                  <div key={idx} className="p-2.5 bg-slate-50 border border-slate-200">
-                    <span className="font-black text-[#1e222b] uppercase text-[10px] block">{item.rule}</span>
-                    <p className="text-[9.5px] text-slate-500 font-sans lowercase mt-0.5 leading-normal">
-                      {item.details}
-                    </p>
-                  </div>
                 ))}
+              </aside>
+              <div className="bi-ruleset-output">
+                <div className="bi-ruleset-summary">
+                  <div><span>Domain</span><strong>{selectedDomain}</strong></div>
+                  <div><span>Active Rule Count</span><strong>{filteredRules.length} / {domainRules.length}</strong></div>
+                  <div><span>Severity Mix</span><strong>{severityMix}</strong></div>
+                  <div><span>Rules Management</span><strong>{canManageRules ? 'Allowed' : 'View only'}</strong></div>
+                </div>
+                <p>{ruleDescriptions[selectedDomain]}</p>
+                <div className="bi-ruleset-rules">
+                  {filteredRules.map((rule) => (
+                    <article key={rule.ruleName}>
+                      <span className={riskBadgeClass(rule.riskLevel)}>{rule.riskLevel}</span>
+                      <strong>{rule.ruleName}</strong>
+                      <small>{rule.ruleTrigger}</small>
+                      <p>{rule.description}</p>
+                      <b>{rule.recommendedAction}</b>
+                    </article>
+                  ))}
+                  {filteredRules.length === 0 && <div className="sci-pos-empty-cell">No rules matched your search.</div>}
+                </div>
               </div>
             </div>
+          )}
+        </section>
+      )}
 
+      {activeDeskTab === 'Trigger Logs' && (
+        <section className="sci-pos-card bi-trigger-card">
+          <div className="bi-section-header">
+            <ShieldAlert className="bi-section-header-icon" size={18} aria-hidden="true" />
+            <div>
+              <h2 className="bi-section-header-title">Trigger Logs</h2>
+              <span>Search BI rule triggers, incident descriptions, risk levels, and recommended resolve paths.</span>
+            </div>
           </div>
-
-        </div>
-
-        {/* Right Side: BI Alerts Table, Search filters, and BI Activity Logs (8 cols) */}
-        <div className="lg:col-span-8 space-y-6">
-          
-          {/* A. BI ALERTS TABLE */}
-          <div className="bg-white border border-[#b1b5c2] p-5 space-y-4">
-            
-            <div className="bg-[#1e222b] p-3 -mx-5 -mt-5 text-white flex items-center justify-between border-b-2 border-slate-900 select-none">
-              <span className="font-extrabold text-[10px] uppercase tracking-wider flex items-center gap-1.5">
-                <ShieldAlert className="w-4 h-4 text-orange-500" />
-                POS Compliance Alarm Ledger
-              </span>
-              <span className="text-[8px] bg-red-650/20 border border-red-500 text-red-500 px-1.5 py-0.2 font-mono">SEC_BUFFER</span>
-            </div>
-
-            {/* Combined Toolbar Filter */}
-            <div className="flex flex-col sm:flex-row justify-between items-center gap-3 bg-slate-50 p-2.5 border border-slate-200">
-              
-              <div className="relative w-full sm:w-auto flex-1">
-                <Search className="absolute left-2.5 top-2 w-3.5 h-3.5 text-slate-400" />
-                <input
-                  type="text"
-                  placeholder="SEARCH TRIGGERS, DOMAINS OR DESCRIPTIONS..."
-                  className="w-full bg-white border border-[#b1b5c2] focus:border-orange-500 pl-8 pr-2.5 py-1.5 font-bold uppercase text-[9.5px]"
-                  value={alertsSearch}
-                  onChange={e => setAlertsSearch(e.target.value)}
-                />
-              </div>
-
-              <div className="flex gap-2 items-center w-full sm:w-auto">
-                <span className="text-[9.5px] font-black uppercase text-slate-500 shrink-0">Severity filter:</span>
-                <select
-                  value={severityFilter}
-                  onChange={e => setSeverityFilter(e.target.value)}
-                  className="bg-white border border-[#b1b5c2] px-2 py-1.5 text-[9.5px] font-bold cursor-pointer uppercase outline-none"
-                >
-                  <option value="ALL">All Severities</option>
-                  <option value="Critical">Critical Only</option>
-                  <option value="High">High Only</option>
-                  <option value="Medium">Medium Only</option>
-                </select>
-              </div>
-
-            </div>
-
-            {/* The Main Alerts Table */}
-            <div className="overflow-x-auto pos-custom-scroll">
-              <table className="w-full text-left border-collapse text-[10px]">
-                <thead>
-                  <tr className="border-b border-[#b1b5c2] bg-slate-55/65 font-mono text-[8.5px] text-slate-500 uppercase tracking-wider font-extrabold">
-                    <th className="py-2.5 px-3">Type</th>
-                    <th className="py-2.5 px-3">Domain</th>
-                    <th className="py-2.5 px-3 text-center">Risk Level</th>
-                    <th className="py-2.5 px-3">Rule Trigger</th>
-                    <th className="py-2.5 px-3">Incident Description</th>
-                    <th className="py-2.5 px-3">Recommended Resolve Path</th>
-                    <th className="py-2.5 px-3 text-center">Status</th>
-                    <th className="py-2.5 px-3 text-right">Gate Key</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-150 font-mono text-[10.5px]">
-                  {filteredAlerts.length === 0 ? (
-                    <tr>
-                      <td colSpan={8} className="py-8 text-center text-slate-400 font-bold uppercase">
-                        No active matching compliance alerts in local memory buffer.
+          <div className="bi-trigger-searchbar">
+            <Search size={15} aria-hidden="true" />
+            <input value={triggerSearch} onChange={(event) => { setTriggerSearch(event.target.value); addActivity('BI_TRIGGER_SEARCH_APPLIED: trigger search updated', 'INFO'); }} placeholder="Search trigger logs in any word order" />
+            <Filter size={15} aria-hidden="true" />
+            <select value={severityFilter} onChange={(event) => { setSeverityFilter(event.target.value); addActivity(`BI_TRIGGER_FILTER_APPLIED: severity ${event.target.value}`, 'INFO'); }}>
+              <option value="ALL">All Severities</option>
+              <option value="Critical">Critical</option>
+              <option value="High">High</option>
+              <option value="Medium">Medium</option>
+              <option value="Low">Low</option>
+            </select>
+            <select value={domainFilter} onChange={(event) => { setDomainFilter(event.target.value); addActivity(`BI_TRIGGER_FILTER_APPLIED: domain ${event.target.value}`, 'INFO'); }}>
+              <option value="ALL">All Domains</option>
+              {ruleDomains.map((domain) => <option key={domain} value={domain}>{domain}</option>)}
+            </select>
+            <button type="button" className="sci-pos-button sci-pos-button--secondary" onClick={() => { setTriggerSearch(''); setSeverityFilter('ALL'); setDomainFilter('ALL'); }}>
+              Reset Filters
+            </button>
+          </div>
+          <div className="bi-trigger-result-count">{filteredAlerts.length} trigger logs found</div>
+          <div className="bi-trigger-table-scroll">
+            <table className="bi-trigger-table">
+              <thead>
+                <tr>
+                  <th>Type</th>
+                  <th>Domain</th>
+                  <th>Risk Level</th>
+                  <th>Rule Trigger</th>
+                  <th>Incident Description</th>
+                  <th>Recommended Resolve Path</th>
+                  <th>Status</th>
+                  <th>Gate Key</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filteredAlerts.map((row) => {
+                  const isDone = row.status !== 'Open' && row.status !== 'Pending Approval';
+                  return (
+                    <tr key={row.id}>
+                      <td>{row.eventType}</td>
+                      <td>{row.domain}</td>
+                      <td><span className={riskBadgeClass(row.severity)}>{row.severity}</span></td>
+                      <td>{row.trigger}</td>
+                      <td>{row.description}</td>
+                      <td>{row.recommendedAction}</td>
+                      <td>{row.status}</td>
+                      <td>
+                        {isDone ? (
+                          <span className="bi-done-label"><Check size={13} aria-hidden="true" /> Done</span>
+                        ) : (
+                          <button type="button" className="sci-pos-button sci-pos-button--secondary" onClick={() => handleAlertAction(row.id, row.actionLabel)}>
+                            {row.actionLabel}
+                          </button>
+                        )}
                       </td>
                     </tr>
-                  ) : (
-                    filteredAlerts.map(row => {
-                      // Custom Risk Level Styling
-                      let badgeColor = 'bg-slate-100 text-slate-600 border-slate-350';
-                      if (row.severity === 'Critical') {
-                        badgeColor = 'bg-red-100 text-red-800 border-red-300 font-extrabold';
-                      } else if (row.severity === 'High') {
-                        badgeColor = 'bg-orange-100 text-orange-850 border-orange-300 font-bold';
-                      } else if (row.severity === 'Medium') {
-                        badgeColor = 'bg-amber-100 text-[#1e222b] border-amber-300';
-                      }
-
-                      const isDone = row.status !== 'Open' && row.status !== 'Pending Approval';
-
-                      return (
-                        <tr key={row.id} className="hover:bg-slate-50/50 transition-colors">
-                          <td className="py-2.5 px-3 font-extrabold text-slate-800">{row.eventType}</td>
-                          <td className="py-2.5 px-3 text-slate-400 font-bold uppercase text-[9px]">{row.domain}</td>
-                          <td className="py-2.5 px-3 text-center">
-                            <span className={`inline-block px-1.5 py-0.2 border rounded-none uppercase text-[8px] ${badgeColor}`}>
-                              {row.severity}
-                            </span>
-                          </td>
-                          <td className="py-2.5 px-3 text-slate-500 font-medium lowercase font-sans max-w-[130px] truncate">{row.trigger}</td>
-                          <td className="py-2.5 px-3 text-slate-800 font-semibold max-w-[170px] truncate">{row.description}</td>
-                          <td className="py-2.5 px-3 text-slate-500 font-sans lowercase leading-relaxed max-w-[170px] truncate">{row.recommendedAction}</td>
-                          
-                          {/* Status Tag */}
-                          <td className="py-2.5 px-3 text-center">
-                            <span className={`inline-block px-1.5 py-0.2 border text-[8px] font-black uppercase ${
-                              isDone 
-                                ? 'bg-emerald-50 border-emerald-355 text-emerald-822' 
-                                : 'bg-red-50 border-red-305 text-red-755 animate-pulse'
-                            }`}>
-                              {row.status}
-                            </span>
-                          </td>
-
-                          {/* Action Button */}
-                          <td className="py-2.5 px-3 text-right">
-                            {isDone ? (
-                              <span className="text-[9px] text-slate-400 font-bold uppercase flex items-center justify-end gap-1">
-                                <Check className="w-3 h-3 text-emerald-600" /> Done
-                              </span>
-                            ) : (
-                              <button
-                                type="button"
-                                onClick={() => handleAlertAction(row.id, row.actionLabel)}
-                                className="px-2.5 py-1 bg-[#1e222b] hover:bg-slate-850 hover:text-orange-500 text-white font-black text-[9px] uppercase rounded-none transition-colors cursor-pointer border border-[#1e222b] whitespace-nowrap"
-                              >
-                                {row.actionLabel}
-                              </button>
-                            )}
-                          </td>
-                        </tr>
-                      );
-                    })
-                  )}
-                </tbody>
-              </table>
-            </div>
-
+                  );
+                })}
+                {filteredAlerts.length === 0 && (
+                  <tr>
+                    <td colSpan={8} className="sci-pos-empty-cell">No trigger logs matched your search.</td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
           </div>
+        </section>
+      )}
 
-          {/* B. BI ACTIVITY RECENT LOGS */}
-          <div className="bg-white border border-[#b1b5c2] p-5 space-y-4">
-            
-            <div className="bg-[#1e222b] p-3 -mx-5 -mt-5 text-white flex items-center justify-between border-b-2 border-slate-900 select-none">
-              <span className="font-extrabold text-[10px] uppercase tracking-wider flex items-center gap-1.5">
-                <Activity className="w-4 h-4 text-orange-500" />
-                Deductive Scanner Activity Feed
-              </span>
-              <span className="text-[8px] text-slate-400 font-mono">REACTIVE_NVRAM</span>
+      {activeDeskTab === 'Risk Output' && (
+        <section className="sci-pos-card">
+          <div className="bi-section-header">
+            <AlertTriangle className="bi-section-header-icon" size={18} aria-hidden="true" />
+            <div>
+              <h2 className="bi-section-header-title">Risk Output</h2>
+              <span>Current local risk output grouped by operational domain.</span>
             </div>
-
-            <div className="space-y-2 max-h-[290px] overflow-y-auto pr-1 pos-custom-scroll">
-              {activityFeed.map(feed => {
-                let textCol = 'text-slate-600';
-                let indicatorCol = 'bg-slate-400';
-
-                if (feed.type === 'SUCCESS') {
-                  textCol = 'text-emerald-700 font-bold';
-                  indicatorCol = 'bg-emerald-500';
-                } else if (feed.type === 'WARNING') {
-                  textCol = 'text-red-700 font-black animate-pulse';
-                  indicatorCol = 'bg-red-500';
-                } else if (feed.type === 'ACTION') {
-                  textCol = 'text-orange-700 font-bold';
-                  indicatorCol = 'bg-orange-500';
-                }
-
+          </div>
+          {!canReviewRisk && permissionMessage()}
+          {canReviewRisk && (
+            <div className="bi-risk-output-grid">
+              {ruleDomains.map((domain) => {
+                const rows = triggerRows.filter((row) => row.domain === domain);
                 return (
-                  <div key={feed.id} className="p-2 border border-slate-200 bg-slate-50/50 flex items-start gap-3 hover:bg-slate-50 transition-colors">
-                    <span className="text-[8.5px] text-slate-400 font-mono pt-0.5 whitespace-nowrap">{feed.timestamp}</span>
-                    <span className={`w-1.5 h-1.5 rounded-none mt-1 shrink-0 ${indicatorCol}`} />
-                    <p className={`text-[10px] font-mono leading-normal select-text uppercase flex-1 ${textCol}`}>
-                      {feed.message}
-                    </p>
-                  </div>
+                  <article key={domain}>
+                    <strong>{domain}</strong>
+                    <span>{rows.length} trigger logs</span>
+                    <small>{rows.filter((row) => row.severity === 'Critical' || row.severity === 'High').length} high-risk outputs</small>
+                  </article>
                 );
               })}
             </div>
+          )}
+        </section>
+      )}
 
-            <div className="bg-slate-100 p-2 border border-slate-250 flex justify-between items-center text-[8px] text-slate-500 font-mono uppercase select-none">
-              <span>Memory Segment: ROM_INTELLIGENCE_BLOCK_22</span>
-              <span>PARITY: REGISTER_OK</span>
+      {activeDeskTab === 'BI Activity' && (
+        <section className="sci-pos-card">
+          <div className="bi-section-header">
+            <Activity className="bi-section-header-icon" size={18} aria-hidden="true" />
+            <div>
+              <h2 className="bi-section-header-title">BI Activity</h2>
+              <span>Local UI events and rule review actions.</span>
             </div>
-
           </div>
+          <div className="bi-activity-list">
+            {activityFeed.map((feed) => (
+              <div key={feed.id}>
+                <span>{feed.timestamp}</span>
+                <strong>{feed.type}</strong>
+                <p>{feed.message}</p>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
 
-        </div>
-
-      </div>
-
+      {activeDeskTab === 'Settings / Thresholds' && (
+        <section className="sci-pos-card">
+          <div className="bi-section-header">
+            <ClipboardCheck className="bi-section-header-icon" size={18} aria-hidden="true" />
+            <div>
+              <h2 className="bi-section-header-title">Settings / Thresholds</h2>
+              <span>Local threshold visibility only. Rules are not changed in this build.</span>
+            </div>
+          </div>
+          <div className="bi-risk-output-grid">
+            <article><Database size={17} aria-hidden="true" /><strong>Rules Engine</strong><span>Deterministic local rules</span><small>No business rule changes applied.</small></article>
+            <article><ShieldAlert size={17} aria-hidden="true" /><strong>Risk Review</strong><span>{canReviewRisk ? 'Allowed' : 'Restricted'}</span><small>Permission: bi.riskReview</small></article>
+            <article><BookOpen size={17} aria-hidden="true" /><strong>Rules Manage</strong><span>{canManageRules ? 'Allowed' : 'Restricted'}</span><small>Permission: bi.rules.manage</small></article>
+            <article><Activity size={17} aria-hidden="true" /><strong>BI Export</strong><span>{canExportBi ? 'Allowed' : 'Restricted'}</span><small>Permission: bi.export</small></article>
+          </div>
+        </section>
+      )}
     </div>
   );
 }

@@ -1,28 +1,38 @@
-import { FormEvent, useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   Activity,
   AlertTriangle,
   CheckCircle,
   DollarSign,
+  FileText,
+  History,
   Lock,
   ShieldCheck,
   Terminal as TerminalIcon,
   Unlock,
   Wallet
 } from 'lucide-react';
+import CashDrawerAssignmentModal from '../components/CashDrawerAssignmentModal';
+import CloseShiftModal from '../components/CloseShiftModal';
+import OpenShiftModal from '../components/OpenShiftModal';
+import ShiftEodReportsModal from '../components/ShiftEodReportsModal';
+import TerminalShiftHistoryModal from '../components/TerminalShiftHistoryModal';
 import {
-  BiEvent,
-  CashDrawerAssignment,
-  CashLog,
-  PosSession,
-  Role,
-  Shift,
-  ShiftSessionControl,
-  TerminalActivationRequest,
-  TerminalControlEvent,
-  TerminalLifecycleRecord,
-  Transaction
-} from '../types';
+  prepareShiftEodPrintPayload,
+  ShiftEodPrintPayload
+} from '../services/shiftEodReportService';
+import {
+  clearPendingShiftProcess,
+  clearShiftRecoveryState,
+  getPendingShiftProcess,
+  getShiftRecoveryState,
+  hasRecoverableShiftState,
+  makePendingShiftProcess,
+  markRecoveryCheckpoint,
+  recoverShiftState,
+  savePendingShiftProcess,
+  saveShiftRecoveryState
+} from '../services/shiftRecoveryService';
 import {
   approveTerminalActivation,
   assignCashDrawer,
@@ -35,12 +45,26 @@ import {
   getTerminalControlEvents,
   getTerminalLifecycle,
   lockTerminal,
-  openShift,
+  logTerminalControlEvent,
   requestTerminalActivation,
   requestTerminalReactivation,
   runTerminalControlCheck,
   unassignCashDrawer
 } from '../services/terminalControlService';
+import {
+  BiEvent,
+  CashDrawerAssignment,
+  CashLog,
+  PosSession,
+  Role,
+  Shift,
+  ShiftSessionControl,
+  TerminalActivationRequest,
+  TerminalControlCheck,
+  TerminalControlEvent,
+  TerminalLifecycleRecord,
+  Transaction
+} from '../types';
 import { canPerformAction } from '../utils/posPermissions';
 
 interface PosShiftProps {
@@ -61,26 +85,15 @@ interface PosShiftProps {
   ) => void;
   cashLogs: CashLog[];
   session?: PosSession | null;
+  onNavigate?: (page: string) => void;
 }
 
-type ShiftTab =
-  | 'Shift Status'
-  | 'Open Shift'
-  | 'Close Shift'
-  | 'Terminal Activation'
-  | 'Cash Drawer Assignment'
-  | 'Shift Activity';
+type ShiftAction = 'open' | 'close' | 'drawer' | null;
+type ShiftSection = 'Status' | 'Terminal Activation' | 'Shift Activity';
 
 const VENDOR_ID = 'SCI-LOG-ZW';
 const permissionBlockedMessage = 'You do not have permission to perform this action.';
-const tabs: ShiftTab[] = [
-  'Shift Status',
-  'Open Shift',
-  'Close Shift',
-  'Terminal Activation',
-  'Cash Drawer Assignment',
-  'Shift Activity'
-];
+const processWarning = 'A shift process is still in progress. Finish or cancel the process before exiting.';
 
 function branchIdFromName(branchName: string): string {
   return branchName.toLowerCase().includes('bulawayo') ? 'BR-BYO' : 'BR-HARARE';
@@ -105,9 +118,33 @@ function eventTitle(value: string): string {
     FORCE_CLOSE_SHIFT: 'Shift Force Closed',
     ASSIGN_CASH_DRAWER: 'Cash Drawer Assigned',
     UNASSIGN_CASH_DRAWER: 'Cash Drawer Unassigned',
-    SALE_BLOCKED_SHIFT_OR_TERMINAL: 'Sale Blocked: Terminal or Shift'
+    SHIFT_OPEN_STARTED: 'Shift Open Started',
+    SHIFT_OPENED: 'Shift Opened',
+    SHIFT_OPEN_FAILED: 'Shift Open Failed',
+    SHIFT_CLOSE_STARTED: 'Shift Close Started',
+    SHIFT_EOD_PREVIEW_GENERATED: 'Shift EOD Preview Generated',
+    SHIFT_CLOSED: 'Shift Closed',
+    SHIFT_CLOSE_BLOCKED: 'Shift Close Blocked',
+    CASH_DRAWER_ASSIGNMENT_STARTED: 'Cash Drawer Assignment Started',
+    CASH_DRAWER_ASSIGNED: 'Cash Drawer Assigned',
+    CASH_DRAWER_RELEASED: 'Cash Drawer Released',
+    TERMINAL_HISTORY_OPENED: 'Terminal History Opened',
+    SHIFT_RECOVERY_STATE_SAVED: 'Shift Recovery Saved',
+    SHIFT_RECOVERY_STATE_FOUND: 'Shift Recovery Found',
+    SHIFT_RECOVERY_STATE_RESTORED: 'Shift Recovery Restored',
+    SHIFT_RECOVERY_STATE_CLEARED: 'Shift Recovery Cleared',
+    SHIFT_EXIT_BLOCKED_PENDING_PROCESS: 'Shift Exit Blocked'
   };
   return titles[value] || value.toLowerCase().split('_').map((word) => word.charAt(0).toUpperCase() + word.slice(1)).join(' ');
+}
+
+function latestRecoveryStatus(): string {
+  const state = getShiftRecoveryState();
+  const pending = getPendingShiftProcess();
+  if (pending) return `Pending ${pending.label}`;
+  if (state?.shift?.status === 'Open') return 'Open shift recoverable';
+  if (state) return 'Recovery state saved';
+  return 'No recovery state';
 }
 
 export default function PosShift({
@@ -121,7 +158,8 @@ export default function PosShift({
   biEvents,
   onLogBiEvent,
   cashLogs,
-  session
+  session,
+  onNavigate
 }: PosShiftProps) {
   const branchName = session?.branch || 'Harare Main';
   const branchId = branchIdFromName(branchName);
@@ -131,21 +169,53 @@ export default function PosShift({
   const staffId = staffIdFromName(staffName);
   const roleName = (session?.role || 'Owner') as Role;
 
-  const [activeTab, setActiveTab] = useState<ShiftTab>('Shift Status');
+  const [activeSection, setActiveSection] = useState<ShiftSection>('Status');
+  const [activeModal, setActiveModal] = useState<ShiftAction>(null);
+  const [modalDirty, setModalDirty] = useState(false);
   const [terminal, setTerminal] = useState<TerminalLifecycleRecord | null>(null);
   const [shift, setShift] = useState<ShiftSessionControl | null>(null);
   const [activationRequests, setActivationRequests] = useState<TerminalActivationRequest[]>([]);
   const [drawerAssignments, setDrawerAssignments] = useState<CashDrawerAssignment[]>([]);
   const [controlEvents, setControlEvents] = useState<TerminalControlEvent[]>([]);
+  const [readiness, setReadiness] = useState<TerminalControlCheck | null>(null);
   const [statusMessage, setStatusMessage] = useState('');
-  const [openingFloat, setOpeningFloat] = useState('120.00');
-  const [openNote, setOpenNote] = useState('Opening float counted and shift ready.');
-  const [declaredCash, setDeclaredCash] = useState('120.00');
+  const [recoverable, setRecoverable] = useState(hasRecoverableShiftState());
+  const [showRecoveryDetails, setShowRecoveryDetails] = useState(false);
+  const [selectedHistoryShift, setSelectedHistoryShift] = useState<Shift | null>(null);
+  const [eodPayload, setEodPayload] = useState<ShiftEodPrintPayload | null>(null);
+  const [eodOpen, setEodOpen] = useState(false);
   const [activationTerminalId, setActivationTerminalId] = useState('POS-03');
   const [activationReason, setActivationReason] = useState('Terminal activation requested from Shift Control.');
-  const [drawerId, setDrawerId] = useState('DRAWER-POS-01-A');
-  const [drawerFloat, setDrawerFloat] = useState('120.00');
-  const [drawerNotes, setDrawerNotes] = useState('Drawer counted and assigned for cash sales.');
+
+  const currentDrawer = drawerAssignments.find((assignment) => assignment.status === 'Assigned') || null;
+  const cashSalesTotal = useMemo(() => transactions
+    .filter((transaction) => transaction.paymentMethod === 'CASH' || transaction.paymentMethod === 'Cash')
+    .reduce((sum, transaction) => sum + transaction.total, 0), [transactions]);
+  const expectedCash = (shift?.openingFloat || activeShift?.startingCash || 0) + cashSalesTotal;
+  const salesTotal = useMemo(() => transactions
+    .filter((transaction) => transaction.status === 'COMPLETED')
+    .reduce((sum, transaction) => sum + transaction.total, 0), [transactions]);
+  const vatTotal = useMemo(() => transactions
+    .filter((transaction) => transaction.status === 'COMPLETED')
+    .reduce((sum, transaction) => sum + (transaction.tax || 0), 0), [transactions]);
+  const paymentTotal = salesTotal;
+  const saleAllowed = readiness?.allowed ?? (terminal?.status === 'Active' && shift?.status === 'Open' && Boolean(currentDrawer));
+  const salesReadinessLabel = saleAllowed
+    ? 'Ready'
+    : readiness?.reasons.find((reason) => reason.includes('drawer')) ? 'Needs Drawer'
+      : readiness?.reasons.find((reason) => reason.includes('Shift') || reason.includes('shift')) ? 'Needs Shift'
+        : readiness?.reasons.find((reason) => reason.includes('Terminal') || reason.includes('terminal')) ? 'Needs Terminal Activation'
+          : 'Blocked';
+  const terminalRegistered = terminal?.status === 'Active' || terminal?.status === 'Registered';
+  const canOverride = canPerformAction(roleName, 'shift.override');
+  const statusCards = [
+    { icon: TerminalIcon, label: 'Terminal', value: terminal?.status || 'Registered', help: terminalId },
+    { icon: Unlock, label: 'Shift', value: shift?.status || activeShift?.status || 'Not Opened', help: shift?.staffName || activeShift?.operator || staffName },
+    { icon: Wallet, label: 'Drawer', value: currentDrawer ? 'Assigned' : 'Not Assigned', help: currentDrawer?.drawerId || 'Cash sales require a drawer' },
+    { icon: DollarSign, label: 'Expected Cash', value: money(expectedCash), help: `${transactions.length} transaction records` },
+    { icon: ShieldCheck, label: 'Sales Readiness', value: salesReadinessLabel, help: readiness?.message || 'Local terminal control check' },
+    { icon: Activity, label: 'Recovery Status', value: recoverable ? 'Recoverable' : 'Clean', help: latestRecoveryStatus() }
+  ];
 
   const loadControlData = async () => {
     const [terminalRecord, shiftRecord, requests, events, drawers] = await Promise.all([
@@ -155,7 +225,7 @@ export default function PosShift({
       getTerminalControlEvents(VENDOR_ID, branchId),
       getCashDrawerAssignments(VENDOR_ID, branchId, terminalId)
     ]);
-    await runTerminalControlCheck({
+    const check = await runTerminalControlCheck({
       vendorId: VENDOR_ID,
       branchId,
       terminalId,
@@ -170,18 +240,38 @@ export default function PosShift({
     setActivationRequests(requests);
     setControlEvents(events);
     setDrawerAssignments(drawers);
+    setReadiness(check);
+    setRecoverable(hasRecoverableShiftState());
   };
 
   useEffect(() => {
     void loadControlData();
   }, [branchId, terminalId, roleName, staffId]);
 
-  const currentDrawer = drawerAssignments.find((assignment) => assignment.status === 'Assigned') || null;
-  const cashSalesTotal = useMemo(() => transactions
-    .filter((transaction) => transaction.paymentMethod === 'CASH' || transaction.paymentMethod === 'Cash')
-    .reduce((sum, transaction) => sum + transaction.total, 0), [transactions]);
-  const expectedCash = (shift?.openingFloat || Number(openingFloat) || 0) + cashSalesTotal;
-  const saleAllowed = terminal?.status === 'Active' && shift?.status === 'Open';
+  useEffect(() => {
+    const handleBeforeUnload = (event: BeforeUnloadEvent) => {
+      if (!activeModal && !getPendingShiftProcess()) return;
+      event.preventDefault();
+      event.returnValue = processWarning;
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, [activeModal]);
+
+  useEffect(() => {
+    if (recoverable) {
+      void logTerminalControlEvent({
+        vendorId: VENDOR_ID,
+        branchId,
+        terminalId,
+        staffId,
+        staffName,
+        eventType: 'SHIFT_RECOVERY_STATE_FOUND',
+        message: 'Recoverable Shift State Found on this device.',
+        severity: 'WARNING'
+      });
+    }
+  }, [branchId, recoverable, staffId, staffName, terminalId]);
 
   const requirePermission = (permission: Parameters<typeof canPerformAction>[1]): boolean => {
     if (canPerformAction(roleName, permission)) return true;
@@ -189,39 +279,138 @@ export default function PosShift({
     return false;
   };
 
-  const handleOpenShift = async (event: FormEvent) => {
-    event.preventDefault();
-    if (!requirePermission('shift.open')) return;
-    const amount = Math.max(0, Number(openingFloat) || 0);
-    await openShift({
-      vendorId: VENDOR_ID,
-      branchId,
-      terminalId,
-      terminalName,
-      staffId,
-      staffName,
-      openingFloat: amount,
-      notes: openNote
-    });
-    onOpenShift(staffName, amount);
-    onLogBiEvent('SHIFT_OPENED', staffName, terminalId, { floatAmount: amount, details: openNote }, 'INFO');
-    setStatusMessage('Shift opened.');
-    await loadControlData();
-  };
-
-  const handleCloseShift = async (event: FormEvent) => {
-    event.preventDefault();
-    if (!requirePermission('shift.close')) return;
-    if (!shift || shift.status !== 'Open') {
-      setStatusMessage('Shift is not open.');
+  const guardedCloseModal = () => {
+    if (modalDirty && !window.confirm(processWarning)) {
+      void logTerminalControlEvent({
+        vendorId: VENDOR_ID,
+        branchId,
+        terminalId,
+        staffId,
+        staffName,
+        eventType: 'SHIFT_EXIT_BLOCKED_PENDING_PROCESS',
+        message: processWarning,
+        severity: 'WARNING'
+      });
       return;
     }
-    const amount = Math.max(0, Number(declaredCash) || 0);
-    const closed = await closeShift(shift.id, amount, staffName);
+    clearPendingShiftProcess();
+    setModalDirty(false);
+    setActiveModal(null);
+  };
+
+  const openActionModal = (modal: ShiftAction) => {
+    if (modal === 'open' && !requirePermission('shift.open')) return;
+    if (modal === 'close' && !requirePermission('shift.close')) return;
+    if (modal === 'drawer' && !requirePermission('cashDrawer.assign')) return;
+    const label = modal === 'open' ? 'opening shift' : modal === 'close' ? 'closing shift' : 'cash drawer assignment';
+    const eventType = modal === 'open' ? 'SHIFT_OPEN_STARTED' : modal === 'close' ? 'SHIFT_CLOSE_STARTED' : 'CASH_DRAWER_ASSIGNMENT_STARTED';
+    savePendingShiftProcess(makePendingShiftProcess({ type: modal === 'open' ? 'opening-shift' : modal === 'close' ? 'closing-shift' : 'drawer-assignment', label, terminalId, staffName }));
+    void logTerminalControlEvent({ vendorId: VENDOR_ID, branchId, terminalId, staffId, staffName, eventType, message: `${eventTitle(eventType)}.`, severity: 'INFO' });
+    setModalDirty(false);
+    setActiveModal(modal);
+  };
+
+  const recoveryContext = (nextShift: ShiftSessionControl | null = shift, nextDrawer: CashDrawerAssignment | null = currentDrawer, nextReadiness: TerminalControlCheck | null = readiness) => ({
+    savedAt: new Date().toISOString(),
+    vendorId: VENDOR_ID,
+    branchId,
+    branchName,
+    terminalId,
+    terminalName,
+    staffId,
+    staffName,
+    roleName,
+    shift: nextShift,
+    drawerAssignment: nextDrawer,
+    readiness: nextReadiness,
+    statusMessage
+  });
+
+  const handleOpenShift = async (payload: { openingFloat: number; drawerId: string; notes: string }) => {
+    try {
+      const opened = await openShift({
+        vendorId: VENDOR_ID,
+        branchId,
+        terminalId,
+        terminalName,
+        staffId,
+        staffName,
+        openingFloat: payload.openingFloat,
+        notes: payload.notes
+      });
+      let drawer = currentDrawer;
+      if (!drawer && payload.drawerId) {
+        drawer = await assignCashDrawer({
+          vendorId: VENDOR_ID,
+          branchId,
+          terminalId,
+          terminalName,
+          drawerId: payload.drawerId,
+          staffId,
+          staffName,
+          openingFloat: payload.openingFloat,
+          notes: 'Drawer assigned during shift open.'
+        });
+      }
+      onOpenShift(staffName, payload.openingFloat);
+      onLogBiEvent('SHIFT_OPENED', staffName, terminalId, { floatAmount: payload.openingFloat, details: payload.notes }, 'INFO');
+      saveShiftRecoveryState(recoveryContext(opened, drawer));
+      markRecoveryCheckpoint('SHIFT_OPENED', { shiftId: opened.id, drawerId: drawer?.drawerId });
+      clearPendingShiftProcess();
+      setStatusMessage('Shift opened successfully.');
+      setActiveModal(null);
+      setModalDirty(false);
+      await loadControlData();
+      onNavigate?.('SALES');
+    } catch {
+      await logTerminalControlEvent({ vendorId: VENDOR_ID, branchId, terminalId, staffId, staffName, eventType: 'SHIFT_OPEN_FAILED', message: 'Shift open failed during local workflow.', severity: 'WARNING' });
+      setStatusMessage('Shift could not be opened.');
+    }
+  };
+
+  const buildEodContext = (countedCash?: number, cashNotes?: string) => ({
+    vendorId: VENDOR_ID,
+    branchId,
+    branchName,
+    terminalId,
+    terminalName,
+    staffName,
+    shift: shift || activeShift,
+    transactions,
+    cashLogs,
+    drawerAssignment: currentDrawer,
+    countedCash,
+    cashNotes
+  });
+
+  const handleGenerateEodPreview = async (payload: { countedCash: number; cashNotes: string; closingNotes: string }) => {
+    const report = await prepareShiftEodPrintPayload(buildEodContext(payload.countedCash, payload.cashNotes));
+    setEodPayload(report);
+    setStatusMessage('EOD preview generated.');
+    markRecoveryCheckpoint('SHIFT_EOD_PREVIEW_GENERATED', { shiftId: report.summary.shiftId, countedCash: payload.countedCash });
+    savePendingShiftProcess(makePendingShiftProcess({ type: 'eod-preview', label: 'EOD report generation', terminalId, staffName, payload }));
+    await logTerminalControlEvent({ vendorId: VENDOR_ID, branchId, terminalId, staffId, staffName, eventType: 'SHIFT_EOD_PREVIEW_GENERATED', message: 'Shift EOD preview generated locally.', severity: 'INFO' });
+  };
+
+  const handleCloseShift = async (payload: { countedCash: number; cashNotes: string; closingNotes: string }) => {
+    if (!shift || shift.status !== 'Open') {
+      setStatusMessage('Shift is not open.');
+      await logTerminalControlEvent({ vendorId: VENDOR_ID, branchId, terminalId, staffId, staffName, eventType: 'SHIFT_CLOSE_BLOCKED', message: 'Shift close blocked because no open shift exists.', severity: 'WARNING' });
+      return;
+    }
+    const closed = await closeShift(shift.id, payload.countedCash, staffName);
     if (closed) {
-      onCloseShift(amount);
-      onLogBiEvent('SHIFT_CLOSED', staffName, terminalId, { actualCash: amount, expectedCash: closed.expectedCash, difference: closed.variance }, 'INFO');
-      setStatusMessage('Shift closed.');
+      const report = eodPayload || await prepareShiftEodPrintPayload(buildEodContext(payload.countedCash, payload.cashNotes));
+      setEodPayload(report);
+      setEodOpen(true);
+      onCloseShift(payload.countedCash);
+      onLogBiEvent('SHIFT_CLOSED', staffName, terminalId, { actualCash: payload.countedCash, expectedCash: closed.expectedCash, difference: closed.variance, closingNotes: payload.closingNotes }, 'INFO');
+      saveShiftRecoveryState(recoveryContext(closed, currentDrawer));
+      markRecoveryCheckpoint('SHIFT_CLOSED', { shiftId: closed.id, countedCash: payload.countedCash, variance: closed.variance });
+      clearPendingShiftProcess();
+      setStatusMessage('Shift closed. EOD reports generated.');
+      setActiveModal(null);
+      setModalDirty(false);
     }
     await loadControlData();
   };
@@ -234,8 +423,41 @@ export default function PosShift({
     await loadControlData();
   };
 
-  const handleRequestActivation = async (event: FormEvent) => {
-    event.preventDefault();
+  const handleAssignDrawer = async (payload: { drawerId: string; openingFloat: number; cashSalesEnabled: boolean; notes: string }) => {
+    if (!requirePermission('cashDrawer.assign')) return;
+    const drawer = await assignCashDrawer({
+      vendorId: VENDOR_ID,
+      branchId,
+      terminalId,
+      terminalName,
+      drawerId: payload.drawerId,
+      staffId,
+      staffName,
+      openingFloat: payload.openingFloat,
+      notes: payload.notes
+    });
+    saveShiftRecoveryState(recoveryContext(shift, drawer));
+    markRecoveryCheckpoint('CASH_DRAWER_ASSIGNED', { drawerId: drawer.drawerId });
+    clearPendingShiftProcess();
+    setStatusMessage('Cash drawer assigned.');
+    setActiveModal(null);
+    setModalDirty(false);
+    await loadControlData();
+  };
+
+  const handleUnassignDrawer = async () => {
+    if (!requirePermission('cashDrawer.release')) return;
+    if (!currentDrawer) return;
+    await unassignCashDrawer(currentDrawer.id, staffName);
+    markRecoveryCheckpoint('CASH_DRAWER_RELEASED', { drawerId: currentDrawer.drawerId });
+    clearPendingShiftProcess();
+    setStatusMessage('Cash drawer released.');
+    setActiveModal(null);
+    setModalDirty(false);
+    await loadControlData();
+  };
+
+  const handleRequestActivation = async () => {
     await requestTerminalActivation({
       vendorId: VENDOR_ID,
       branchId,
@@ -275,188 +497,167 @@ export default function PosShift({
     await loadControlData();
   };
 
-  const handleAssignDrawer = async (event: FormEvent) => {
-    event.preventDefault();
-    if (!requirePermission('hardware.configure')) return;
-    await assignCashDrawer({
-      vendorId: VENDOR_ID,
-      branchId,
-      terminalId,
-      terminalName,
-      drawerId,
-      staffId,
-      staffName,
-      openingFloat: Math.max(0, Number(drawerFloat) || 0),
-      notes: drawerNotes
-    });
-    setStatusMessage('Cash drawer assigned.');
-    await loadControlData();
+  const handleRecoverShift = async () => {
+    if (!requirePermission('shift.recovery.restore')) return;
+    const recovered = recoverShiftState();
+    if (!recovered) {
+      setStatusMessage('No recovery state found.');
+      return;
+    }
+    setStatusMessage('Recoverable shift state restored for review.');
+    setRecoverable(hasRecoverableShiftState());
+    setShowRecoveryDetails(true);
+    await logTerminalControlEvent({ vendorId: VENDOR_ID, branchId, terminalId, staffId, staffName, eventType: 'SHIFT_RECOVERY_STATE_RESTORED', message: 'Recovery state restored for local review.', severity: 'INFO' });
   };
 
-  const handleUnassignDrawer = async (assignmentId: string) => {
-    if (!requirePermission('hardware.configure')) return;
-    await unassignCashDrawer(assignmentId, staffName);
-    setStatusMessage('Cash drawer unassigned.');
-    await loadControlData();
+  const handleClearRecovery = async () => {
+    if (!window.confirm('Clear the saved recovery state from this device? Completed shift history will not be deleted.')) return;
+    clearShiftRecoveryState();
+    clearPendingShiftProcess();
+    setRecoverable(false);
+    setShowRecoveryDetails(false);
+    setStatusMessage('Recovery state cleared.');
+    await logTerminalControlEvent({ vendorId: VENDOR_ID, branchId, terminalId, staffId, staffName, eventType: 'SHIFT_RECOVERY_STATE_CLEARED', message: 'Recovery state cleared from this device.', severity: 'INFO' });
+  };
+
+  const handleOpenHistory = (historyShift: Shift) => {
+    if (!requirePermission('terminal.history.view')) return;
+    setSelectedHistoryShift(historyShift);
+    void logTerminalControlEvent({ vendorId: VENDOR_ID, branchId, terminalId, staffId, staffName, eventType: 'TERMINAL_HISTORY_OPENED', message: `${historyShift.id} terminal history opened.`, severity: 'INFO' });
   };
 
   return (
-    <div className="space-y-6">
-      <header className="sci-page-header sci-page-header--compact">
+    <div className="shift-control-page">
+      <header className="shift-control-header">
         <div>
           <p className="sci-pos-eyebrow">Terminal and Shift Control</p>
           <h1>Shift Control</h1>
-          <p>Local terminal activation, shift status, cash drawer assignment, and sale readiness checks.</p>
+          <p>Responsive local shift control, drawer readiness, recovery, terminal history, and EOD reports.</p>
         </div>
-        <div className="sci-page-header__actions">
+        <div className="shift-header-actions">
           <span className={`sci-status-pill ${saleAllowed ? 'sci-status-pill--success' : 'sci-status-pill--danger'}`}>
             Sales {saleAllowed ? 'Allowed' : 'Blocked'}
           </span>
+          <button type="button" className="sci-pos-button sci-pos-button--primary" onClick={() => openActionModal('open')}>
+            <Unlock size={16} aria-hidden="true" />
+            Open Shift
+          </button>
+          <button type="button" className="sci-pos-button sci-pos-button--secondary" onClick={() => openActionModal('close')}>
+            <Lock size={16} aria-hidden="true" />
+            Close Shift
+          </button>
+          <button type="button" className="sci-pos-button sci-pos-button--secondary" onClick={() => openActionModal('drawer')}>
+            <Wallet size={16} aria-hidden="true" />
+            Drawer
+          </button>
         </div>
       </header>
 
+      {recoverable && (
+        <section className="shift-recovery-banner">
+          <AlertTriangle size={18} aria-hidden="true" />
+          <div>
+            <strong>Recoverable Shift State Found</strong>
+            <span>The previous terminal session was interrupted. You can recover the last shift state from this device.</span>
+          </div>
+          <button type="button" className="sci-pos-button sci-pos-button--primary" onClick={handleRecoverShift}>Recover Shift</button>
+          <button type="button" className="sci-pos-button sci-pos-button--secondary" onClick={() => setShowRecoveryDetails((current) => !current)}>Review Recovery Details</button>
+          <button type="button" className="sci-pos-button sci-pos-button--secondary" onClick={handleClearRecovery}>Clear Recovery State</button>
+        </section>
+      )}
+
+      {showRecoveryDetails && (
+        <section className="sci-pos-card shift-history-card">
+          <div className="sci-pos-card__bar">
+            <div>
+              <p className="sci-pos-eyebrow">Device Recovery</p>
+              <h2>Recovery Details</h2>
+            </div>
+            <FileText size={18} aria-hidden="true" />
+          </div>
+          <div className="shift-history-detail-grid">
+            <div><span>Terminal</span><strong>{getShiftRecoveryState()?.terminalName || terminalName}</strong></div>
+            <div><span>Staff</span><strong>{getShiftRecoveryState()?.staffName || staffName}</strong></div>
+            <div><span>Shift</span><strong>{getShiftRecoveryState()?.shift?.status || 'Review required'}</strong></div>
+            <div><span>Saved At</span><strong>{getShiftRecoveryState()?.savedAt ? new Date(getShiftRecoveryState()!.savedAt).toLocaleString() : 'Not recorded'}</strong></div>
+          </div>
+        </section>
+      )}
+
       {statusMessage && <div className="sci-pos-alert" role="status">{statusMessage}</div>}
 
-      <div className="pos-shift-tabs" role="tablist" aria-label="Shift control sections">
-        {tabs.map((tab) => (
-          <button
-            key={tab}
-            type="button"
-            className={`pos-shift-tab ${activeTab === tab ? 'pos-shift-tab--active' : ''}`}
-            onClick={() => setActiveTab(tab)}
-          >
-            {tab}
+      <section className="shift-status-grid" aria-label="Shift status cards">
+        {statusCards.map((card) => {
+          const Icon = card.icon;
+          return (
+            <article key={card.label} className="shift-status-card">
+              <Icon size={19} aria-hidden="true" />
+              <span>{card.label}</span>
+              <strong>{card.value}</strong>
+              <small>{card.help}</small>
+            </article>
+          );
+        })}
+      </section>
+
+      <nav className="shift-control-tabs" aria-label="Shift control sections">
+        {(['Status', 'Terminal Activation', 'Shift Activity'] as ShiftSection[]).map((section) => (
+          <button key={section} type="button" className={`shift-control-tab ${activeSection === section ? 'shift-control-tab--active' : ''}`} onClick={() => setActiveSection(section)}>
+            {section}
           </button>
         ))}
-      </div>
+      </nav>
 
-      {activeTab === 'Shift Status' && (
-        <section className="sci-pos-card">
-          <div className="sci-pos-card__bar">
-            <div>
-              <p className="sci-pos-eyebrow">Current Session</p>
-              <h2>Shift Status</h2>
+      {activeSection === 'Status' && (
+        <section className="shift-main-grid">
+          <article className="sci-pos-card shift-history-card">
+            <div className="sci-pos-card__bar">
+              <div>
+                <p className="sci-pos-eyebrow">Terminal Periods</p>
+                <h2>Closed Terminal History</h2>
+              </div>
+              <History size={18} aria-hidden="true" />
             </div>
-            <ShieldCheck size={18} aria-hidden="true" />
-          </div>
-          <div className="pos-control-summary-grid">
-            <div>
-              <TerminalIcon size={18} aria-hidden="true" />
-              <span>Terminal</span>
-              <strong>{terminalId}</strong>
-              <small>{terminal?.status || 'Registered'}</small>
+            <div className="shift-history-list">
+              {shiftHistory.map((historyShift) => (
+                <button key={historyShift.id} type="button" className="shift-history-row" onClick={() => handleOpenHistory(historyShift)}>
+                  <span>{historyShift.id}</span>
+                  <strong>{historyShift.operator}</strong>
+                  <small>{historyShift.endTime ? new Date(historyShift.endTime).toLocaleString() : 'Open'} / {money(historyShift.totalSales || 0)}</small>
+                </button>
+              ))}
+              {shiftHistory.length === 0 && <div className="sci-pos-empty-cell">No closed shift history recorded yet.</div>}
             </div>
-            <div>
-              <Unlock size={18} aria-hidden="true" />
-              <span>Shift</span>
-              <strong>{shift?.status || 'Not Opened'}</strong>
-              <small>{shift?.staffName || staffName}</small>
+          </article>
+
+          <article className="sci-pos-card shift-eod-report-card">
+            <div className="sci-pos-card__bar">
+              <div>
+                <p className="sci-pos-eyebrow">Close Reports</p>
+                <h2>EOD Report Readiness</h2>
+              </div>
+              <FileText size={18} aria-hidden="true" />
             </div>
-            <div>
-              <Wallet size={18} aria-hidden="true" />
-              <span>Drawer</span>
-              <strong>{currentDrawer ? 'Assigned' : 'Not Assigned'}</strong>
-              <small>{currentDrawer?.drawerId || 'Cash sales require a drawer'}</small>
+            <div className="shift-history-detail-grid">
+              <div><span>EOD Summary</span><strong>{eodPayload ? 'Generated' : 'Waiting for close'}</strong></div>
+              <div><span>VAT Summary</span><strong>{eodPayload ? money(eodPayload.vat.vatAmount) : 'Not generated'}</strong></div>
+              <div><span>Cash Variance</span><strong>{eodPayload ? money(eodPayload.cashVariance.variance) : 'Not generated'}</strong></div>
+              <div><span>Drawer Reconciliation</span><strong>{eodPayload ? eodPayload.drawer.drawerId : currentDrawer?.drawerId || 'No drawer'}</strong></div>
             </div>
-            <div>
-              <DollarSign size={18} aria-hidden="true" />
-              <span>Expected Cash</span>
-              <strong>{money(expectedCash)}</strong>
-              <small>{transactions.length} transaction records</small>
+            <div className="pos-control-actions">
+              <button type="button" className="sci-pos-button sci-pos-button--secondary" onClick={() => eodPayload && setEodOpen(true)} disabled={!eodPayload}>
+                View EOD Reports
+              </button>
+              <button type="button" className="sci-pos-button sci-pos-button--secondary" onClick={handleForceClose}>
+                <AlertTriangle size={16} aria-hidden="true" />
+                Force Close Shift
+              </button>
             </div>
-          </div>
-          <div className="sci-pos-table-wrap">
-            <table className="sci-pos-table">
-              <thead>
-                <tr>
-                  <th>Terminal</th>
-                  <th>Branch</th>
-                  <th>Staff</th>
-                  <th>Role</th>
-                  <th>Parent Shift</th>
-                  <th>History</th>
-                  <th>BI Events</th>
-                  <th>Cash Logs</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr>
-                  <td>{terminalId}</td>
-                  <td>{branchName}</td>
-                  <td>{staffName}</td>
-                  <td>{roleName}</td>
-                  <td>{activeShift?.status || 'CLOSED'}</td>
-                  <td>{shiftHistory.length}</td>
-                  <td>{biEvents.length}</td>
-                  <td>{cashLogs.length}</td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
+          </article>
         </section>
       )}
 
-      {activeTab === 'Open Shift' && (
-        <section className="sci-pos-card">
-          <div className="sci-pos-card__bar">
-            <div>
-              <p className="sci-pos-eyebrow">Start Work</p>
-              <h2>Open Shift</h2>
-            </div>
-            <Unlock size={18} aria-hidden="true" />
-          </div>
-          <form className="pos-control-form" onSubmit={handleOpenShift}>
-            <label>
-              Cashier
-              <input value={staffName} readOnly />
-            </label>
-            <label>
-              Opening Float
-              <input type="number" min="0" step="0.01" value={openingFloat} onChange={(event) => setOpeningFloat(event.target.value)} />
-            </label>
-            <label>
-              Note
-              <textarea rows={3} value={openNote} onChange={(event) => setOpenNote(event.target.value)} />
-            </label>
-            <button type="submit" className="sci-pos-button sci-pos-button--primary">
-              <Unlock size={16} aria-hidden="true" />
-              Open Shift
-            </button>
-          </form>
-        </section>
-      )}
-
-      {activeTab === 'Close Shift' && (
-        <section className="sci-pos-card">
-          <div className="sci-pos-card__bar">
-            <div>
-              <p className="sci-pos-eyebrow">End Work</p>
-              <h2>Close Shift</h2>
-            </div>
-            <Lock size={18} aria-hidden="true" />
-          </div>
-          <form className="pos-control-form" onSubmit={handleCloseShift}>
-            <label>
-              Expected Cash
-              <input value={money(expectedCash)} readOnly />
-            </label>
-            <label>
-              Declared Cash
-              <input type="number" min="0" step="0.01" value={declaredCash} onChange={(event) => setDeclaredCash(event.target.value)} />
-            </label>
-            <button type="submit" className="sci-pos-button sci-pos-button--primary">
-              <Lock size={16} aria-hidden="true" />
-              Close Shift
-            </button>
-            <button type="button" className="sci-pos-button sci-pos-button--secondary" onClick={handleForceClose}>
-              <AlertTriangle size={16} aria-hidden="true" />
-              Force Close Shift
-            </button>
-          </form>
-        </section>
-      )}
-
-      {activeTab === 'Terminal Activation' && (
+      {activeSection === 'Terminal Activation' && (
         <section className="sci-pos-card">
           <div className="sci-pos-card__bar">
             <div>
@@ -465,7 +666,7 @@ export default function PosShift({
             </div>
             <TerminalIcon size={18} aria-hidden="true" />
           </div>
-          <form className="pos-control-form" onSubmit={handleRequestActivation}>
+          <div className="pos-control-form">
             <label>
               Terminal ID
               <input value={activationTerminalId} onChange={(event) => setActivationTerminalId(event.target.value)} />
@@ -474,11 +675,11 @@ export default function PosShift({
               Reason
               <textarea rows={3} value={activationReason} onChange={(event) => setActivationReason(event.target.value)} />
             </label>
-            <button type="submit" className="sci-pos-button sci-pos-button--primary">
+            <button type="button" className="sci-pos-button sci-pos-button--primary" onClick={handleRequestActivation}>
               <CheckCircle size={16} aria-hidden="true" />
               Request Activation
             </button>
-          </form>
+          </div>
           <div className="sci-pos-table-wrap">
             <table className="sci-pos-table">
               <thead>
@@ -517,42 +718,7 @@ export default function PosShift({
         </section>
       )}
 
-      {activeTab === 'Cash Drawer Assignment' && (
-        <section className="sci-pos-card">
-          <div className="sci-pos-card__bar">
-            <div>
-              <p className="sci-pos-eyebrow">Cash Control</p>
-              <h2>Cash Drawer Assignment</h2>
-            </div>
-            <Wallet size={18} aria-hidden="true" />
-          </div>
-          <form className="pos-control-form" onSubmit={handleAssignDrawer}>
-            <label>
-              Drawer ID
-              <input value={drawerId} onChange={(event) => setDrawerId(event.target.value)} />
-            </label>
-            <label>
-              Opening Float
-              <input type="number" min="0" step="0.01" value={drawerFloat} onChange={(event) => setDrawerFloat(event.target.value)} />
-            </label>
-            <label>
-              Notes
-              <textarea rows={3} value={drawerNotes} onChange={(event) => setDrawerNotes(event.target.value)} />
-            </label>
-            <button type="submit" className="sci-pos-button sci-pos-button--primary">
-              <Wallet size={16} aria-hidden="true" />
-              Assign Cash Drawer
-            </button>
-          </form>
-          {currentDrawer && (
-            <button type="button" className="sci-pos-button sci-pos-button--secondary" onClick={() => handleUnassignDrawer(currentDrawer.id)}>
-              Unassign Cash Drawer
-            </button>
-          )}
-        </section>
-      )}
-
-      {activeTab === 'Shift Activity' && (
+      {activeSection === 'Shift Activity' && (
         <section className="sci-pos-card">
           <div className="sci-pos-card__bar">
             <div>
@@ -573,6 +739,63 @@ export default function PosShift({
           </div>
         </section>
       )}
+
+      <OpenShiftModal
+        open={activeModal === 'open'}
+        staffName={staffName}
+        branchName={branchName}
+        terminalName={terminalName}
+        drawerId={currentDrawer?.drawerId}
+        terminalRegistered={terminalRegistered}
+        staffSessionActive={Boolean(session)}
+        hasOpenShift={shift?.status === 'Open'}
+        cashSalesEnabled
+        onCancel={guardedCloseModal}
+        onSubmit={handleOpenShift}
+        onDirtyChange={setModalDirty}
+      />
+      <CloseShiftModal
+        open={activeModal === 'close'}
+        expectedCash={expectedCash}
+        salesTotal={salesTotal}
+        paymentTotal={paymentTotal}
+        vatTotal={vatTotal}
+        pendingDeliveryCash={0}
+        hasActiveSale={false}
+        canOverride={canOverride}
+        eodPreview={eodPayload}
+        onGeneratePreview={handleGenerateEodPreview}
+        onCloseShift={handleCloseShift}
+        onCancel={guardedCloseModal}
+        onDirtyChange={setModalDirty}
+      />
+      <CashDrawerAssignmentModal
+        open={activeModal === 'drawer'}
+        staffName={staffName}
+        branchName={branchName}
+        terminalName={terminalName}
+        currentDrawerId={currentDrawer?.drawerId}
+        cashSalesEnabled
+        canRelease={Boolean(currentDrawer)}
+        onAssign={handleAssignDrawer}
+        onRelease={handleUnassignDrawer}
+        onCancel={guardedCloseModal}
+        onDirtyChange={setModalDirty}
+      />
+      <TerminalShiftHistoryModal
+        open={Boolean(selectedHistoryShift)}
+        shift={selectedHistoryShift}
+        terminalId={terminalId}
+        branchName={branchName}
+        staffName={staffName}
+        roleName={roleName}
+        transactions={transactions}
+        biEvents={biEvents}
+        cashLogs={cashLogs}
+        controlEvents={controlEvents}
+        onClose={() => setSelectedHistoryShift(null)}
+      />
+      <ShiftEodReportsModal open={eodOpen} payload={eodPayload} onClose={() => setEodOpen(false)} />
     </div>
   );
 }

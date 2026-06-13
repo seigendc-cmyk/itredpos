@@ -12,6 +12,7 @@ interface FloatingCartItemsCardProps {
   onRemoveItem: (productId: string) => void;
   onApplyLineDiscount: (productId: string) => void;
   onHoldSale: () => void;
+  canHoldSale: boolean;
   onCheckout: () => void;
   flowIndicator?: ReactNode;
   onNotice?: (message: string) => void;
@@ -47,6 +48,7 @@ export default function FloatingCartItemsCard({
   onRemoveItem,
   onApplyLineDiscount,
   onHoldSale,
+  canHoldSale,
   onCheckout,
   flowIndicator,
   onNotice
@@ -128,7 +130,7 @@ export default function FloatingCartItemsCard({
         <footer className="floating-cart-card-footer">
           <span>Subtotal <strong>{money(subtotal)}</strong></span>
           <span>Item Count <strong>{itemCount}</strong></span>
-          <button type="button" className="sci-pos-button sci-pos-button--secondary" onClick={onHoldSale} disabled={cart.length === 0}>Hold Sale</button>
+          <button type="button" className="sci-pos-button sci-pos-button--secondary" onClick={onHoldSale} disabled={!canHoldSale || cart.length === 0}>Hold Sale</button>
           <button type="button" className="sci-pos-button sci-pos-button--primary" onClick={onCheckout}>Checkout</button>
         </footer>
       </section>
