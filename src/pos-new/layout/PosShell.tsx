@@ -48,7 +48,7 @@ export default function PosShell({
       <div className="absolute inset-0 bg-slate-950/20 scan-pulse pointer-events-none z-[1]"></div>
 
       {/* MOBILE TRIGGER RAILS */}
-      <div className="xl:hidden bg-slate-900 border-b border-slate-800 h-14 w-full flex items-center justify-between px-4 absolute top-0 left-0 z-30">
+      <div className="xl:hidden bg-slate-900 border-b border-slate-800 h-12 w-full flex items-center justify-between px-3 absolute top-0 left-0 z-30">
         <div className="flex items-center gap-2">
           <button 
             onClick={() => setMobileSidebarOpen(!mobileSidebarOpen)}
@@ -56,10 +56,7 @@ export default function PosShell({
           >
             {mobileSidebarOpen ? <X size={20} /> : <Menu size={20} />}
           </button>
-          <span className="font-mono text-xs font-bold text-[#00f0ff]">{activeSession ? activeSession.terminal : 'iTredPOS v4.2 SHELL'}</span>
-        </div>
-        <div className="font-mono text-[10px] text-slate-400">
-          OP: {activeSession ? activeSession.staffName : activeOperator}
+          <span className="w-2 h-2 bg-orange-500 block" title="POS workspace"></span>
         </div>
       </div>
 
@@ -96,7 +93,7 @@ export default function PosShell({
       )}
 
       {/* RIGHTMOST CONTENT SECTION (Workspace) */}
-      <div className="flex-1 flex flex-col min-w-0 pt-14 xl:pt-0 z-[2]">
+      <div className="flex-1 flex flex-col min-w-0 pt-12 xl:pt-0 z-[2]">
         
         {/* TOP COMMAND BAR */}
         <PosTopbar 

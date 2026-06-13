@@ -1,9 +1,7 @@
 import { useState, useEffect } from 'react';
 import { 
   Clock, 
-  Cpu,
   LogOut,
-  Zap,
   Wifi,
   WifiOff
 } from 'lucide-react';
@@ -23,9 +21,7 @@ interface PosTopbarProps {
 
 export default function PosTopbar({
   terminalId,
-  activeOperator,
   activeShiftStatus,
-  activePage,
   onPageChange,
   session,
   onSignOut
@@ -33,7 +29,7 @@ export default function PosTopbar({
   const [timeStr, setTimeStr] = useState('');
   const [connectivity, setConnectivity] = useState<'ONLINE' | 'OFFLINE'>('ONLINE');
   const [pendingCount, setPendingCount] = useState(0);
-  const [controlCheck, setControlCheck] = useState<TerminalControlCheck | null>(null);
+  const [, setControlCheck] = useState<TerminalControlCheck | null>(null);
 
   useEffect(() => {
     const checkSyncStatus = () => {
@@ -118,130 +114,51 @@ export default function PosTopbar({
     return () => clearInterval(timer);
   }, []);
 
-  const pageSubtitle: Record<PosPageId, string> = {
-    DASHBOARD: 'Operations Overview',
-    OWNER_DESK: 'Owner Review Desk',
-    SALES: 'Sales Terminal',
-    SALES_HISTORY: 'Sales History',
-    CUSTOMER_CENTRE: 'Customer Centre',
-    DELIVERY: 'Delivery Desk',
-    STOCK: 'Inventory',
-    TASK_DESK: 'Task Desk',
-    APPROVALS: 'Approvals',
-    SHIFT: 'Shift Control',
-    CASH: 'Cash Control',
-    BI_DESK: 'BI Desk',
-    SYNC_DESK: 'Sync Desk',
-    SETTINGS: 'Settings'
-  };
-
   return (
-    <header id="pos-topbar" className="h-14 bg-slate-900 border-b border-slate-800 flex items-center justify-between px-4 select-none font-mono text-xs w-full">
-      {/* Current contextual page heading and active session details */}
-      <div className="flex items-center gap-3 overflow-hidden">
-        <div className="bg-amber-500/10 border border-amber-500/45 text-amber-500 px-2.5 py-1 text-[10px] font-black uppercase tracking-wider shrink-0">
-          iTred Commerce POS
+    <header id="pos-topbar" className="h-12 bg-slate-900 border-b border-slate-800 flex items-center justify-between px-3 select-none font-mono text-xs w-full">
+      <div className="flex items-center gap-2 min-w-0">
+        <div className="w-8 h-8 border border-orange-500 bg-orange-500/10 flex items-center justify-center shrink-0" title="POS workspace">
+          <span className="w-2 h-2 bg-orange-500 block"></span>
         </div>
-
-        <div className="bg-slate-950 px-2.5 py-1 border border-slate-800 text-[10px] text-[#00f0ff] font-bold uppercase tracking-wider shrink-0">
-          PAGE: {activePage}
-        </div>
-
-        <div className="bg-slate-950 px-2.5 py-1 border border-slate-850 text-[10px] text-amber-500 font-bold uppercase tracking-wider shrink-0">
-          ROLE ACCESS: {session ? session.role : 'SysAdmin'}
-        </div>
-
-        {session ? (
-          <div className="hidden xl:flex items-center gap-4 text-[9.5px] text-slate-400 bg-slate-950/50 border border-slate-800 px-3 py-1 font-mono uppercase tracking-wide shrink-0">
-            <span className="text-slate-500">Vendor: <strong className="text-amber-500 font-bold" title={session.vendor}>{session.vendor}</strong></span>
-            <span className="text-slate-700">/</span>
-            <span className="text-slate-500">Branch: <strong className="text-slate-300 font-semibold" title={session.branch}>{session.branch}</strong></span>
-            <span className="text-slate-700">/</span>
-            <span className="text-slate-500">Terminal: <strong className="text-[#00f0ff] font-semibold" title={session.terminal}>{session.terminal}</strong></span>
-            <span className="text-slate-700">/</span>
-            <span className="text-slate-500">Staff: <strong className="text-emerald-400 font-bold" title={`${session.staffName} (${session.role})`}>{session.staffName} ({session.role})</strong></span>
-          </div>
-        ) : (
-          <span className="text-slate-500 uppercase text-[10px] hidden md:inline truncate max-w-sm">
-            {pageSubtitle[activePage]}
-          </span>
-        )}
       </div>
 
-      {/* Grid of details */}
-      <div className="flex items-center gap-4">
-        {/* Compact medium-viewport session info */}
-        {session && (
-          <div className="hidden md:flex xl:hidden items-center gap-2 text-[9px] text-[#00f0ff] font-mono bg-slate-950 border border-slate-850 px-2 py-1 uppercase max-w-[200px] truncate shrink-0">
-            <span className="truncate">{session.staffName} [{session.role}] @ {session.terminal}</span>
-          </div>
-        )}
-
-        {session && controlCheck && (
-          <div className="hidden 2xl:flex items-center gap-1.5 text-[8.5px] font-bold uppercase shrink-0">
-            <span className="bg-slate-950 border border-slate-800 text-slate-300 px-2 py-1">Terminal: {controlCheck.terminalStatus || 'Registered'}</span>
-            <span className="bg-slate-950 border border-slate-800 text-slate-300 px-2 py-1">Shift: {controlCheck.shiftStatus || activeShiftStatus}</span>
-            <span className={`border px-2 py-1 ${controlCheck.drawerAssigned ? 'bg-emerald-950 border-emerald-800 text-emerald-300' : 'bg-slate-950 border-slate-800 text-slate-400'}`}>
-              Drawer: {controlCheck.drawerAssigned ? 'Assigned' : 'Not Assigned'}
-            </span>
-            <span className={`border px-2 py-1 ${controlCheck.salesAllowed ? 'bg-emerald-950 border-emerald-800 text-emerald-300' : 'bg-rose-950 border-rose-800 text-rose-300'}`}>
-              Sales: {controlCheck.salesAllowed ? 'Allowed' : 'Blocked'}
-            </span>
-          </div>
-        )}
-        
-        {/* Dynamic ticking clock widget */}
-        <div className="flex items-center gap-2 text-slate-300 border-r border-slate-800 pr-4 bg-slate-950 px-2.5 py-1.5 border border-slate-850">
+      <div className="flex items-center gap-2">
+        <div className="hidden sm:flex items-center gap-2 text-slate-300 bg-slate-950 px-2 py-1 border border-slate-850" title="Local time">
           <Clock className="w-3.5 h-3.5 text-[#00f0ff]" />
-          <span className="font-bold text-[10px] text-emerald-400 tracking-widest">{timeStr || "TICKING..."}</span>
+          <span className="font-semibold text-[10px] text-emerald-400 tracking-widest">{timeStr || "TICKING..."}</span>
         </div>
 
-        <div className="hidden sm:flex items-center gap-2 text-[10px] text-slate-500 font-mono">
-          <div className="hidden">
-            <Cpu className="w-3.5 h-3.5 text-amber-500" />
-            <span className="sr-only">Device status hidden from topbar</span>
-          </div>
+        <div className="flex items-center gap-2 text-[10px] text-slate-500 font-mono">
+          {connectivity === 'ONLINE' ? (
+            <span className="flex items-center justify-center w-8 h-8 bg-emerald-950 border border-emerald-800 text-emerald-400" title="Online">
+              <Wifi className="w-3.5 h-3.5" />
+            </span>
+          ) : (
+            <span className="flex items-center justify-center w-8 h-8 bg-rose-950 border border-rose-800 text-[#f43f5e]" title="Offline">
+              <WifiOff className="w-3.5 h-3.5" />
+            </span>
+          )}
 
-          <div className="hidden">
-            <Zap className="w-3.5 h-3.5 text-[#00f0ff]" />
-            <span className="sr-only">Device power hidden from topbar</span>
-          </div>
-
-          <div className="flex items-center gap-2">
-            {connectivity === 'ONLINE' ? (
-              <span className="flex items-center gap-1 bg-emerald-950 px-2 py-0.5 border border-emerald-800 text-emerald-400 font-extrabold text-[9px] uppercase">
-                <Wifi className="w-3" />
-                ONLINE
-              </span>
-            ) : (
-              <span className="flex items-center gap-1 bg-rose-950 px-2 py-0.5 border border-rose-800 text-[#f43f5e] font-extrabold text-[9px] uppercase">
-                <WifiOff className="w-3" />
-                OFFLINE
-              </span>
-            )}
-
-            <button 
-              onClick={() => onPageChange('SYNC_DESK')}
-              className={`px-1.5 py-0.5 font-bold text-[9px] cursor-pointer outline-none border-0 ${
-                pendingCount > 0 
-                  ? 'bg-orange-600 text-white'
-                  : 'bg-slate-800 text-slate-400'
-              }`}
-              title="Navigate to Sync Desk to inspect transaction queue"
-            >
-              Q-BUFFER: {pendingCount}
-            </button>
-          </div>
+          <button 
+            onClick={() => onPageChange('SYNC_DESK')}
+            className={`w-8 h-8 font-bold text-[10px] cursor-pointer outline-none border ${
+              pendingCount > 0 
+                ? 'bg-orange-600 text-white border-orange-700'
+                : 'bg-slate-800 text-slate-400 border-slate-700'
+            }`}
+            title="Open Sync Desk"
+          >
+            {pendingCount}
+          </button>
         </div>
 
         {session && onSignOut && (
           <button
             onClick={onSignOut}
-            className="bg-rose-950/40 hover:bg-rose-905-6 bg-rose-900/40 border border-rose-800 hover:border-rose-500 text-rose-200 px-2.5 py-1.5 transition-colors cursor-pointer text-[10px] uppercase font-bold flex items-center gap-1.5 shrink-0"
+            className="bg-rose-950/40 hover:bg-rose-900/60 border border-rose-800 hover:border-rose-500 text-rose-200 w-8 h-8 transition-colors cursor-pointer flex items-center justify-center shrink-0"
             title="Switch Operator Staff Member"
           >
             <LogOut className="w-3.5 h-3.5 text-rose-400" />
-            Switch Staff
           </button>
         )}
 

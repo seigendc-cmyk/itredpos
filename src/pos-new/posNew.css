@@ -160,11 +160,13 @@ th {
   background-color: var(--sci-orange) !important;
 }
 
-/* --- TOPBAR CUSTOMIZATION: White/very light grey with charcoal text --- */
+/* --- TOPBAR CUSTOMIZATION: compact fixed utility rail --- */
 #pos-topbar {
   background-color: var(--sci-panel) !important;
   color: var(--sci-text) !important;
   border-bottom: 2px solid var(--sci-border) !important;
+  min-width: 0 !important;
+  overflow: hidden !important;
 }
 #pos-topbar .text-slate-300,
 #pos-topbar .text-slate-100,
@@ -199,12 +201,14 @@ th {
   background-color: var(--sci-bg) !important;
   color: var(--sci-text) !important;
   border: 1px solid var(--sci-border) !important;
+  border-radius: 0 !important;
 }
 #pos-topbar button:hover {
   background-color: var(--sci-panel) !important;
   border-color: var(--sci-charcoal) !important;
 }
-#pos-topbar .bg-amber-500\/10 {
+#pos-topbar .bg-amber-500\/10,
+#pos-topbar .bg-orange-500\/10 {
   background-color: rgba(249, 115, 22, 0.1) !important;
   border-color: var(--sci-orange) !important;
   color: var(--sci-orange) !important;
