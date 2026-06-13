@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { AlertTriangle, Download, Eye, RefreshCw, Search, Wifi, WifiOff } from 'lucide-react';
+import AuthPreviewPanel from '../components/AuthPreviewPanel';
+import FirebaseSandboxPanel from '../components/FirebaseSandboxPanel';
 import OfflineQueueItemForm from '../components/OfflineQueueItemForm';
 import SyncConflictForm from '../components/SyncConflictForm';
 import {
@@ -44,6 +46,10 @@ import {
   resolveSyncConflict
 } from '../services/offlineSyncService';
 import { getFirebaseEnvironmentSummary, getFirebaseHealthStatus, getFirebaseReadinessChecklist } from '../services/firebaseHealthService';
+import { getRepositoryDescriptors, getRepositoryHealthSummary } from '../services/repositoryHealthService';
+import { firestoreDataContracts, getFirestoreContractStatus } from '../firebase/firestoreDataRegistry';
+import { createDisabledFirestoreRepository } from '../repositories/disabledFirestoreRepository';
+import { createMockLocalRepository } from '../repositories/mockLocalRepository';
 import { formatSyncStatus, isRetryAllowed } from '../utils/offlineSyncUtils';
 import { canPerformAction } from '../utils/posPermissions';
 
@@ -73,6 +79,7 @@ export default function PosSyncDesk({ session }: PosSyncDeskProps) {
   const [activity, setActivity] = useState<OfflineSyncActivityEvent[]>([]);
   const [filters, setFilters] = useState<OfflineSyncFilterState>({ entityType: 'ALL', status: 'ALL', priority: 'ALL', conflictType: 'ALL' });
   const [notice, setNotice] = useState('');
+  const [repositoryTestResult, setRepositoryTestResult] = useState('');
   const [selectedQueueItem, setSelectedQueueItem] = useState<OfflineSyncQueueItem | null>(null);
   const [selectedConflict, setSelectedConflict] = useState<OfflineSyncConflict | null>(null);
 
@@ -188,6 +195,21 @@ export default function PosSyncDesk({ session }: PosSyncDeskProps) {
   const firebaseHealth = getFirebaseHealthStatus();
   const firebaseSummary = getFirebaseEnvironmentSummary();
   const firebaseChecklist = getFirebaseReadinessChecklist();
+  const firestoreContractStatus = getFirestoreContractStatus();
+  const repositoryHealthSummary = getRepositoryHealthSummary();
+  const repositoryDescriptors = getRepositoryDescriptors();
+
+  const testMockRepository = async () => {
+    const repository = createMockLocalRepository({ entityName: 'Repository Test', initialRows: [{ id: 'repo-test-1', label: 'Mock Local Ready' }] });
+    const result = await repository.list({ vendorId: 'SCI-LOG-ZW' });
+    setRepositoryTestResult(result.ok ? `Mock local repository returned ${result.rows.length} row(s).` : result.error || 'Mock local repository failed.');
+  };
+
+  const testDisabledFirestoreRepository = async () => {
+    const repository = createDisabledFirestoreRepository<{ id: string }>('Repository Test');
+    const result = await repository.create({ id: 'disabled-test' }, { vendorId: 'SCI-LOG-ZW', reason: 'Repository demo only' });
+    setRepositoryTestResult(result.error || 'Disabled Firestore repository returned no message.');
+  };
 
   return (
     <div className="space-y-5 text-[#111827] pb-10">
@@ -228,6 +250,12 @@ export default function PosSyncDesk({ session }: PosSyncDeskProps) {
         <div className="p-3 space-y-3">
           <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-6 gap-2">
             {firebaseSummary.map(([label, value]) => <ReadinessMetric key={label} label={label} value={value} />)}
+            <ReadinessMetric label="Firestore Data Contracts" value={firestoreContractStatus.ready ? 'Ready' : 'Missing'} />
+            <ReadinessMetric label="Mapped Entities Count" value={String(firestoreContractStatus.mappedEntitiesCount)} />
+            <ReadinessMetric label="Live Reads" value={firestoreContractStatus.liveReads} />
+            <ReadinessMetric label="Live Writes" value={firestoreContractStatus.liveWrites} />
+            <ReadinessMetric label="Repositories" value={firestoreContractStatus.repositories} />
+            <ReadinessMetric label="Next Step" value={firestoreContractStatus.nextStep} />
           </div>
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
             <div className="border border-[#b1b5c2] p-3">
@@ -242,8 +270,109 @@ export default function PosSyncDesk({ session }: PosSyncDeskProps) {
               {firebaseHealth.warnings.map((warning) => <p key={warning}>{warning}</p>)}
             </div>
           </div>
+          <div className="border border-[#b1b5c2] overflow-x-auto">
+            <table className="w-full text-left text-[10px]">
+              <thead className="bg-[#1e222b] text-white uppercase">
+                <tr>
+                  {['Entity', 'Collection', 'Source', 'Reads', 'Writes', 'Offline Sync', 'Status'].map((header) => <th key={header} className="p-2 whitespace-nowrap">{header}</th>)}
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-[#d6d9e0]">
+                {firestoreDataContracts.map((contract) => (
+                  <tr key={contract.entityType}>
+                    <td className="p-2 font-black uppercase text-[#1e222b]">{contract.entityType}</td>
+                    <td className="p-2 font-semibold text-slate-700">{contract.collectionPathName}</td>
+                    <td className="p-2"><Badge value="MockLocal" /></td>
+                    <td className="p-2"><Badge value={contract.liveReadsEnabled ? 'Enabled' : 'Disabled'} /></td>
+                    <td className="p-2"><Badge value={contract.liveWritesEnabled ? 'Enabled' : 'Disabled'} /></td>
+                    <td className="p-2"><Badge value={contract.offlineSyncEnabledPlaceholder ? 'Placeholder' : 'Disabled'} /></td>
+                    <td className="p-2"><Badge value="Ready" /></td>
+                  </tr>
+                ))}
+                {['sandboxConnectivityTests', 'sandboxRepositoryTests', 'sandboxNotes'].map((entity) => (
+                  <tr key={entity}>
+                    <td className="p-2 font-black uppercase text-[#1e222b]">{entity}</td>
+                    <td className="p-2 font-semibold text-slate-700">{entity}</td>
+                    <td className="p-2"><Badge value="Firebase Sandbox" /></td>
+                    <td className="p-2"><Badge value="Enabled" /></td>
+                    <td className="p-2"><Badge value="Enabled" /></td>
+                    <td className="p-2"><Badge value="Disabled" /></td>
+                    <td className="p-2"><Badge value="Ready" /></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
       </section>
+
+      <section className="bg-white border-2 border-[#b1b5c2]">
+        <div className="bg-[#1e222b] text-white p-3 flex flex-col md:flex-row md:items-center md:justify-between gap-2">
+          <div>
+            <p className="text-[9px] text-orange-400 uppercase font-black">Repository Layer Readiness</p>
+            <h2 className="text-sm font-black uppercase">Service Boundary Preparation</h2>
+          </div>
+          <span className="px-2 py-1 border text-[9px] font-black uppercase bg-slate-50 border-slate-300 text-slate-800">
+            {repositoryHealthSummary.currentDefaultSourceMode}
+          </span>
+        </div>
+        <div className="p-3 space-y-3">
+          <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-7 gap-2">
+            <ReadinessMetric label="Total Repositories" value={String(repositoryHealthSummary.totalRepositories)} />
+            <ReadinessMetric label="Mock / Local Active" value={String(repositoryHealthSummary.mockLocalRepositories)} />
+            <ReadinessMetric label="Firestore Disabled" value={String(repositoryHealthSummary.firestoreDisabledRepositories)} />
+            <ReadinessMetric label="Live Reads" value={String(repositoryHealthSummary.liveReadEnabledCount)} />
+            <ReadinessMetric label="Live Writes" value={String(repositoryHealthSummary.liveWriteEnabledCount)} />
+            <ReadinessMetric label="Offline Queue Enabled" value={String(repositoryHealthSummary.offlineQueueEnabledCount)} />
+            <ReadinessMetric label="Default Source Mode" value={repositoryHealthSummary.currentDefaultSourceMode} />
+            <ReadinessMetric label="Firestore Sandbox" value={repositoryHealthSummary.sandboxReadsEnabled && repositoryHealthSummary.sandboxWritesEnabled ? 'Enabled' : 'Disabled'} />
+            <ReadinessMetric label="Business Firestore" value={!repositoryHealthSummary.businessReadsEnabled && !repositoryHealthSummary.businessWritesEnabled ? 'Disabled' : 'Enabled'} />
+          </div>
+          <div className="border border-orange-200 bg-orange-50 p-3 text-[10px] text-orange-950 font-bold uppercase">
+            Repository boundaries are prepared, but business workflows still use mock/local services. Firestore reads and writes remain disabled until activation builds.
+          </div>
+          <div className="border border-[#b1b5c2] overflow-x-auto">
+            <table className="w-full text-left text-[10px]">
+              <thead className="bg-[#1e222b] text-white uppercase">
+                <tr>
+                  {['Module', 'Entity', 'Source Mode', 'Reads', 'Writes', 'Offline Queue', 'Health', 'Notes'].map((header) => <th key={header} className="p-2 whitespace-nowrap">{header}</th>)}
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-[#d6d9e0]">
+                {repositoryDescriptors.map((descriptor) => (
+                  <tr key={`${descriptor.moduleName}-${descriptor.entityName}`}>
+                    <td className="p-2 font-black uppercase text-[#1e222b]">{descriptor.moduleName}</td>
+                    <td className="p-2 font-semibold text-slate-700">{descriptor.entityName}</td>
+                    <td className="p-2"><Badge value={descriptor.sourceMode} /></td>
+                    <td className="p-2"><Badge value={descriptor.liveReadsEnabled ? 'Enabled' : 'Disabled'} /></td>
+                    <td className="p-2"><Badge value={descriptor.liveWritesEnabled ? 'Enabled' : 'Disabled'} /></td>
+                    <td className="p-2"><Badge value={descriptor.offlineQueueEnabled ? 'Enabled' : 'Disabled'} /></td>
+                    <td className="p-2"><Badge value={descriptor.healthStatus} /></td>
+                    <td className="p-2 font-semibold text-slate-700">{descriptor.notes}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <div className="border border-[#b1b5c2] p-3">
+            <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-2">
+              <div>
+                <div className="text-[9px] text-slate-500 uppercase font-black">Repository Test Panel</div>
+                <p className="text-[10px] text-slate-700 font-bold uppercase">Non-business demo only. No Firestore call is made.</p>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <button type="button" className="sci-pos-button sci-pos-button--secondary" onClick={() => void testMockRepository()}>Test Mock Local Repository</button>
+                <button type="button" className="sci-pos-button sci-pos-button--secondary" onClick={() => void testDisabledFirestoreRepository()}>Test Disabled Firestore Repository</button>
+              </div>
+            </div>
+            {repositoryTestResult && <div className="mt-3 border border-[#d6d9e0] bg-slate-50 p-2 text-[10px] font-black uppercase text-[#1e222b]">{repositoryTestResult}</div>}
+          </div>
+        </div>
+      </section>
+
+      <AuthPreviewPanel />
+
+      <FirebaseSandboxPanel />
 
       <section className="bg-white border-2 border-[#b1b5c2] p-3">
         <div className="grid grid-cols-2 md:grid-cols-5 xl:grid-cols-10 gap-2">
