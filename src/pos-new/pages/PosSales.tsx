@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { ArrowRight, Clock, FileText, History, Printer, RotateCcw, ShieldCheck } from 'lucide-react';
+import { ArrowRight, Clock, FileText, History, Menu, Printer, RotateCcw, ShieldCheck, X } from 'lucide-react';
 import ProductSearchCard from '../components/ProductSearchCard';
 import SalesCartCard, {
   DeliveryMode,
@@ -60,9 +60,11 @@ interface SalesAuditEvent {
   message: string;
 }
 
+type SalesWorkspaceDrawer = 'recentReceipts' | 'heldSales' | 'activityFeed' | null;
+
 const DEFAULT_PRODUCTS = mockProducts;
 const VENDOR_ID = 'SCI-LOG-ZW';
-const paymentReferenceRequired = new Set<SalesPaymentMethod>(['EcoCash', 'Swipe', 'Bank Transfer']);
+const paymentReferenceRequired = new Set<SalesPaymentMethod>(['EcoCash Placeholder', 'Innbucks Placeholder', 'Mukuru Placeholder', 'ZIPIT Placeholder', 'Bank Transfer', 'Card Placeholder']);
 
 function money(value: number): string {
   return `USD ${value.toFixed(2)}`;
@@ -89,14 +91,16 @@ function branchIdFromName(branchName: string): string {
 }
 
 function receiptPaymentMode(method: SalesPaymentMethod): PaymentMode {
-  if (method === 'Credit Sale Placeholder') return 'Credit Sale';
-  if (method === 'Store Credit Placeholder') return 'Store Credit';
+  if (method === 'Credit / Account') return 'Credit Sale';
+  if (method === 'Card Placeholder') return 'CARD';
+  if (method === 'Mixed Payment') return 'Split Payment';
+  if (method === 'Already Paid' || method === 'No Payment Due') return 'Cash';
   return method;
 }
 
 function salePaymentMethod(method: SalesPaymentMethod): Sale['paymentMethod'] {
   if (method === 'Cash') return 'CASH';
-  if (method === 'Split Payment') return 'SPLIT';
+  if (method === 'Mixed Payment') return 'SPLIT';
   return 'CARD';
 }
 
@@ -153,6 +157,8 @@ export default function PosSales({
   const [statusMessage, setStatusMessage] = useState('');
   const [receiptPreview, setReceiptPreview] = useState<ReceiptPrintPreview | null>(null);
   const [preparedReceiptPreview, setPreparedReceiptPreview] = useState<ReceiptPrintPreview | null>(null);
+  const [workspaceMenuOpen, setWorkspaceMenuOpen] = useState(false);
+  const [workspaceDrawer, setWorkspaceDrawer] = useState<SalesWorkspaceDrawer>(null);
 
   useEffect(() => {
     const baseProducts = products.length > 0 ? products : DEFAULT_PRODUCTS;
@@ -193,7 +199,8 @@ export default function PosSales({
   const paymentReceived = payments.reduce((sum, payment) => sum + payment.amount, 0);
   const changeDue = Math.max(0, paymentReceived - grandTotal);
   const balanceDue = Math.max(0, grandTotal - paymentReceived);
-  const creditSaleAllowed = paymentMethod === 'Credit Sale Placeholder' || payments.some((payment) => payment.method === 'Credit Sale Placeholder');
+  const creditSaleAllowed = paymentMethod === 'Credit / Account' || paymentMethod === 'Already Paid' || paymentMethod === 'No Payment Due' ||
+    payments.some((payment) => ['Credit / Account', 'Already Paid', 'No Payment Due'].includes(payment.method));
   const canComplete = cart.length > 0 && (creditSaleAllowed || paymentReceived >= grandTotal);
   const disableCompleteReason = cart.length === 0
     ? 'Cart is empty.'
@@ -212,16 +219,16 @@ export default function PosSales({
 
   const eventTitle = (eventType: string): string => {
     const titles: Record<string, string> = {
-      PRODUCT_ADDED: 'Product Added',
-      PRODUCT_REMOVED: 'Product Removed',
+      PRODUCT_ADDED_TO_CART: 'Product Added',
+      PRODUCT_REMOVED_FROM_CART: 'Product Removed',
       SALE_BLOCKED_ZERO_STOCK: 'Sale Blocked: Zero Stock',
       CUSTOMER_CREATED_PENDING: 'Customer Request Created',
-      PAYMENT_ADDED: 'Payment Added',
-      TRANSACTION_HELD: 'Sale Held',
+      PAYMENT_METHOD_SELECTED: 'Payment Added',
+      SALE_HELD: 'Sale Held',
       TRANSACTION_RESUMED: 'Sale Resumed',
       SALE_CANCELLED: 'Sale Cancelled',
       SALE_COMPLETED: 'Sale Completed',
-      RECEIPT_CREATED: 'Receipt Created',
+      RECEIPT_DRAFTED: 'Receipt Drafted',
       SALE_BLOCKED_SHIFT_OR_TERMINAL: 'Sale Blocked: Terminal or Shift',
       CUSTOMER_SELECTED_FOR_SALE: 'Customer Selected for Sale'
     };
@@ -254,7 +261,7 @@ export default function PosSales({
     const removedItem = cart.find((item) => item.product.id === productId);
     setCart((current) => current.filter((item) => item.product.id !== productId));
     if (removedItem) {
-      logEvent('PRODUCT_REMOVED', `${productSku(removedItem.product)} removed from cart.`);
+      logEvent('PRODUCT_REMOVED_FROM_CART', `${productSku(removedItem.product)} removed from cart.`);
     }
   };
 
@@ -383,7 +390,7 @@ export default function PosSales({
       }
       return [...current, { product: currentProduct, quantity: 1, discount: 0 }];
     });
-    logEvent('PRODUCT_ADDED', `${productSku(currentProduct)} added to cart.`);
+    logEvent('PRODUCT_ADDED_TO_CART', `${productSku(currentProduct)} added to cart.`);
   };
 
   const handleQuantityChange = (productId: string, delta: number) => {
@@ -427,7 +434,7 @@ export default function PosSales({
     }, ...current]);
     setPaymentAmount('');
     setPaymentReference('');
-    logEvent('PAYMENT_ADDED', `${paymentMethod} payment added for ${money(amount)}.`);
+    logEvent('PAYMENT_METHOD_SELECTED', `${paymentMethod} payment added for ${money(amount)}.`);
   };
 
   const validateSale = (): string | null => {
@@ -737,7 +744,7 @@ export default function PosSales({
       clearCartState();
       setStatusMessage(saleQueuedLocally ? (deliveryQueuedLocally ? 'Sale completed locally and queued for sync. Delivery request queued for sync.' : 'Sale completed locally and queued for sync.') : deliveryMode === 'No Delivery' ? 'Sale completed successfully.' : 'Sale completed and delivery request prepared.');
       logEvent('SALE_COMPLETED', `Sale ${invoiceNo} completed for ${money(grandTotal)}.`);
-      logEvent('RECEIPT_CREATED', `Receipt ${receipt.receiptNumber} prepared for preview.`);
+      logEvent('RECEIPT_DRAFTED', `Receipt ${receipt.receiptNumber} prepared for preview.`);
     } catch (error) {
       setStatusMessage(error instanceof Error ? error.message : 'Sale completion failed.');
     }
@@ -756,7 +763,7 @@ export default function PosSales({
     setHeldSales((current) => [hold, ...current].slice(0, 8));
     clearCartState();
     setStatusMessage('Sale held successfully.');
-    logEvent('TRANSACTION_HELD', `Held sale ${hold.id}.`);
+    logEvent('SALE_HELD', `Held sale ${hold.id}.`);
   };
 
   const handleResumeHeldSale = (heldSale: HeldSale) => {
@@ -776,15 +783,40 @@ export default function PosSales({
     logEvent('SALE_CANCELLED', 'Current sale was cancelled and cart cleared.');
   };
 
+  const openWorkspaceDrawer = (drawer: SalesWorkspaceDrawer) => {
+    setWorkspaceDrawer(drawer);
+    setWorkspaceMenuOpen(false);
+  };
+
   return (
-    <div className="space-y-6">
-      <header className="sci-page-header sci-page-header--compact">
+    <div className="space-y-6 sales-terminal-shell">
+      <header className="sci-page-header sci-page-header--compact sales-terminal-page-header">
         <div>
           <p className="sci-pos-eyebrow">iTred Commerce POS - Vendor Commerce Terminal</p>
           <h1>Sales Terminal</h1>
           <p>Two-card checkout workspace for product search, cart, payment, delivery, tax, receipts, and local audit events.</p>
         </div>
         <div className="sci-page-header__actions">
+          <div className="sales-workspace-menu-host">
+            <button type="button" className="sci-pos-button sci-pos-button--secondary" onClick={() => setWorkspaceMenuOpen((current) => !current)} aria-expanded={workspaceMenuOpen}>
+              <Menu size={17} aria-hidden="true" />
+              Sales Workspace Menu
+            </button>
+            {workspaceMenuOpen && (
+              <>
+                <button type="button" className="sales-menu-dismiss-layer" aria-label="Close sales workspace menu" onClick={() => setWorkspaceMenuOpen(false)} />
+                <div className="sales-workspace-menu" role="menu">
+                  <strong>Sales Workspace Menu</strong>
+                  <button type="button" onClick={() => openWorkspaceDrawer('recentReceipts')}>Recent Receipts</button>
+                  <button type="button" onClick={() => openWorkspaceDrawer('heldSales')}>Held Sales</button>
+                  <button type="button" onClick={() => openWorkspaceDrawer('activityFeed')}>Sales Activity Feed</button>
+                  <button type="button" onClick={() => { setPreparedReceiptPreview(preparedReceiptPreview); setStatusMessage('Draft Receipt placeholder is ready in the checkout workspace.'); setWorkspaceMenuOpen(false); }}>Draft Receipt</button>
+                  <button type="button" onClick={() => { onNavigate('SALES_HISTORY'); setWorkspaceMenuOpen(false); }}>Open Sales History</button>
+                  <button type="button" onClick={() => { setStatusMessage('Clear Workspace placeholder prepared. Use Cancel Sale to clear an active cart.'); setWorkspaceMenuOpen(false); }}>Clear Workspace Placeholder</button>
+                </div>
+              </>
+            )}
+          </div>
           <button type="button" className="sci-pos-button sci-pos-button--secondary" onClick={() => onNavigate('SALES_HISTORY')}>
             <History size={17} aria-hidden="true" />
             Sales History
@@ -892,138 +924,6 @@ export default function PosSales({
         />
       </div>
 
-      <div className="pos-sales-support-grid">
-        <section className="sci-pos-card">
-          <div className="sci-pos-card__bar">
-            <div>
-              <p className="sci-pos-eyebrow">Suspended</p>
-              <h2>Held Sales</h2>
-            </div>
-            <Clock size={18} aria-hidden="true" />
-          </div>
-          <div className="sci-pos-table-wrap">
-            <table className="sci-pos-table">
-              <thead>
-                <tr>
-                  <th>Hold ID</th>
-                  <th>Customer</th>
-                  <th>Items</th>
-                  <th>Total</th>
-                  <th>Cashier</th>
-                  <th>Time</th>
-                  <th>Resume</th>
-                </tr>
-              </thead>
-              <tbody>
-                {heldSales.map((heldSale) => (
-                  <tr key={heldSale.id}>
-                    <td>{heldSale.id}</td>
-                    <td>{heldSale.customerName}</td>
-                    <td>{heldSale.items.length}</td>
-                    <td>{money(heldSale.total)}</td>
-                    <td>{heldSale.cashier}</td>
-                    <td>{heldSale.time}</td>
-                    <td>
-                      <button type="button" className="sci-pos-button sci-pos-button--secondary" onClick={() => handleResumeHeldSale(heldSale)} title="Resume held sale">
-                        <RotateCcw size={16} aria-hidden="true" />
-                        Resume
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-                {heldSales.length === 0 && (
-                  <tr>
-                    <td colSpan={7} className="sci-pos-empty-cell">No held sales.</td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
-        </section>
-
-        <section className="sci-pos-card">
-          <div className="sci-pos-card__bar">
-            <div>
-              <p className="sci-pos-eyebrow">Receipts</p>
-              <h2>Recent Receipts</h2>
-            </div>
-            <Printer size={18} aria-hidden="true" />
-          </div>
-          <div className="sci-pos-table-wrap pos-recent-receipts-table">
-            <table className="sci-pos-table">
-              <thead>
-                <tr>
-                  <th>Receipt No.</th>
-                  <th>Date / Time</th>
-                  <th>Customer</th>
-                  <th>Cashier</th>
-                  <th>Payment</th>
-                  <th>Total</th>
-                  <th>Status</th>
-                  <th>Action</th>
-                </tr>
-              </thead>
-              <tbody>
-                {recentSales.map((sale) => (
-                  <tr key={sale.id}>
-                    <td className="sci-pos-table__strong">{sale.invoiceNo}</td>
-                    <td>{new Date(sale.date).toLocaleString()}</td>
-                    <td>{sale.customerName || 'Walk-in Customer'}</td>
-                    <td>{sale.operator}</td>
-                    <td>{sale.paymentMethod}</td>
-                    <td>{money(sale.total)}</td>
-                    <td><span className="sci-status-pill sci-status-pill--success">{sale.status}</span></td>
-                    <td>
-                      <div className="pos-recent-receipt__actions">
-                        <button type="button" className="sci-pos-link-button" onClick={() => setStatusMessage(`View Receipt prepared for ${sale.invoiceNo}.`)}>
-                          View Receipt
-                        </button>
-                        <button
-                          type="button"
-                          className="sci-pos-link-button"
-                          onClick={() => preparedReceiptPreview ? setReceiptPreview(preparedReceiptPreview) : setStatusMessage('Receipt preview prepared.')}
-                        >
-                          Preview 80mm
-                        </button>
-                        <button type="button" className="sci-pos-link-button" onClick={() => onNavigate('SALES_HISTORY')}>
-                          Open Sales History <ArrowRight size={14} aria-hidden="true" />
-                        </button>
-                        <button type="button" className="sci-pos-link-button" onClick={() => setStatusMessage(`Refund placeholder prepared for ${sale.invoiceNo}.`)}>
-                          Refund
-                        </button>
-                        <button type="button" className="sci-pos-link-button" onClick={() => setStatusMessage(`Void placeholder prepared for ${sale.invoiceNo}.`)}>
-                          Void
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </section>
-      </div>
-
-      <section className="sci-pos-card">
-        <div className="sci-pos-card__bar">
-          <div>
-            <p className="sci-pos-eyebrow">Audit</p>
-            <h2>Sales Activity Feed</h2>
-          </div>
-          <FileText size={18} aria-hidden="true" />
-        </div>
-        <div className="pos-audit-feed">
-          {auditEvents.map((event) => (
-            <div key={event.id}>
-              <strong>{eventTitle(event.eventType)}</strong>
-              <span>{event.message}</span>
-              <small>{event.time}</small>
-            </div>
-          ))}
-          {auditEvents.length === 0 && <div className="sci-pos-empty-cell">No sale events recorded for this session.</div>}
-        </div>
-      </section>
-
       {receiptPreview && (
         <section className="sci-pos-card pos-receipt-preview-panel">
           <div className="sci-pos-card__bar">
@@ -1037,6 +937,70 @@ export default function PosSales({
           </div>
           <ReceiptPreview80mm preview={receiptPreview} />
         </section>
+      )}
+      {workspaceDrawer && (
+        <div className="sales-drawer-backdrop" onClick={() => setWorkspaceDrawer(null)}>
+          <aside className="sales-drawer sales-workspace-drawer" onClick={(event) => event.stopPropagation()} aria-label="Sales workspace drawer">
+            <div className="sales-drawer-header">
+              <div>
+                <p className="sci-pos-eyebrow">Sales Workspace</p>
+                <h3>{workspaceDrawer === 'recentReceipts' ? 'Recent Receipts' : workspaceDrawer === 'heldSales' ? 'Held Sales' : 'Sales Activity Feed'}</h3>
+              </div>
+              <button type="button" className="sci-pos-icon-button" onClick={() => setWorkspaceDrawer(null)} aria-label="Close sales workspace drawer">
+                <X size={16} aria-hidden="true" />
+              </button>
+            </div>
+            <div className="sales-drawer-body">
+              {workspaceDrawer === 'recentReceipts' && (
+                <div className="sales-drawer-list">
+                  {recentSales.map((sale) => (
+                    <article key={sale.id} className="sales-drawer-row">
+                      <div><strong>{sale.invoiceNo}</strong><span>{sale.customerName || 'Walk-in Customer'} | {sale.paymentMethod} | {new Date(sale.date).toLocaleString()}</span></div>
+                      <b>{money(sale.total)}</b>
+                      <small>{sale.status}</small>
+                      <div className="pos-recent-receipt__actions">
+                        <button type="button" className="sci-pos-link-button" onClick={() => setStatusMessage(`View Receipt prepared for ${sale.invoiceNo}.`)}>View Receipt</button>
+                        <button type="button" className="sci-pos-link-button" onClick={() => setStatusMessage(`CAT Form placeholder opened for ${sale.invoiceNo}.`)}>Open CAT Form</button>
+                        <button type="button" className="sci-pos-link-button" onClick={() => setStatusMessage(`Reprint placeholder prepared for ${sale.invoiceNo}.`)}>Reprint Placeholder</button>
+                      </div>
+                    </article>
+                  ))}
+                </div>
+              )}
+              {workspaceDrawer === 'heldSales' && (
+                <div className="sales-drawer-list">
+                  {heldSales.map((heldSale) => (
+                    <article key={heldSale.id} className="sales-drawer-row">
+                      <div><strong>{heldSale.id}</strong><span>{heldSale.customerName} | {heldSale.items.length} item(s) | Held by {heldSale.cashier}</span></div>
+                      <b>{money(heldSale.total)}</b>
+                      <small>{heldSale.time}</small>
+                      <div className="pos-recent-receipt__actions">
+                        <button type="button" className="sci-pos-link-button" onClick={() => { handleResumeHeldSale(heldSale); setWorkspaceDrawer(null); }}><RotateCcw size={14} aria-hidden="true" /> Resume Sale Placeholder</button>
+                        <button type="button" className="sci-pos-link-button" onClick={() => { setHeldSales((current) => current.filter((item) => item.id !== heldSale.id)); setStatusMessage(`Cancel held sale placeholder recorded for ${heldSale.id}.`); }}>Cancel Held Sale Placeholder</button>
+                      </div>
+                    </article>
+                  ))}
+                  {heldSales.length === 0 && <div className="sci-pos-empty-cell">No held sales.</div>}
+                </div>
+              )}
+              {workspaceDrawer === 'activityFeed' && (
+                <div className="pos-audit-feed sales-activity-drawer-feed">
+                  {auditEvents.map((event) => (
+                    <div key={event.id}>
+                      <strong>{eventTitle(event.eventType)}</strong>
+                      <span>{event.message}</span>
+                      <small>{event.time}</small>
+                    </div>
+                  ))}
+                  {auditEvents.length === 0 && <div className="sci-pos-empty-cell">No sale events recorded for this session.</div>}
+                </div>
+              )}
+            </div>
+            <div className="sales-drawer-actions">
+              <button type="button" className="sci-pos-button sci-pos-button--secondary" onClick={() => setWorkspaceDrawer(null)}>Close</button>
+            </div>
+          </aside>
+        </div>
       )}
     </div>
   );

@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { LayoutGrid, List, RotateCcw, Search, ShoppingCart } from 'lucide-react';
+import { LayoutGrid, List, RotateCcw, Search, ShoppingCart, SlidersHorizontal, X } from 'lucide-react';
 import { Product } from '../types';
 import { matchesFreeOrderSearch } from '../utils/searchUtils';
 
@@ -159,10 +159,13 @@ export default function ProductSearchCard({
   const [sector, setSector] = useState('ALL');
   const [branch, setBranch] = useState('ALL');
   const [warehouse, setWarehouse] = useState('ALL');
+  const [brand, setBrand] = useState('ALL');
+  const [supplier, setSupplier] = useState('ALL');
   const [stockFilter, setStockFilter] = useState<StockFilter>('ALL');
   const [message, setMessage] = useState('');
   const [viewMode, setViewModeState] = useState<ViewMode>(readStoredViewMode);
   const [visibleFields, setVisibleFieldsState] = useState<ProductFieldKey[]>(readStoredFields);
+  const [filterCabinetOpen, setFilterCabinetOpen] = useState(false);
 
   const selectedFields = useMemo(
     () => fieldConfigs.filter((field) => visibleFields.includes(field.key)),
@@ -185,6 +188,14 @@ export default function ProductSearchCard({
     () => distinct([warehouseName, ...products.map((product) => product.warehouse || product.warehouseId || '')]),
     [warehouseName, products]
   );
+  const brands = useMemo(
+    () => distinct(products.map((product) => product.brand || '')),
+    [products]
+  );
+  const suppliers = useMemo(
+    () => distinct(products.map((product) => product.supplierName || textMeta(product, 'supplier'))),
+    [products]
+  );
 
   const filteredProducts = useMemo(() => {
     return products.filter((product) => {
@@ -192,6 +203,8 @@ export default function ProductSearchCard({
       const productSector = product.industrialSector || textMeta(product, 'sector');
       const productBranch = product.branch || product.branchId || branchName;
       const productWarehouse = product.warehouse || product.warehouseId || warehouseName;
+      const productBrand = product.brand || '';
+      const productSupplier = product.supplierName || textMeta(product, 'supplier');
       const qty = productQty(product);
 
       const matchesCategory = category === 'ALL' ||
@@ -201,6 +214,8 @@ export default function ProductSearchCard({
       const matchesSector = sector === 'ALL' || productSector === sector;
       const matchesBranch = branch === 'ALL' || productBranch === branch;
       const matchesWarehouse = warehouse === 'ALL' || productWarehouse === warehouse;
+      const matchesBrand = brand === 'ALL' || productBrand === brand;
+      const matchesSupplier = supplier === 'ALL' || productSupplier === supplier;
       const matchesStock =
         stockFilter === 'ALL' ||
         (stockFilter === 'IN_STOCK' && qty > 0 && !isLowStock(product)) ||
@@ -216,11 +231,19 @@ export default function ProductSearchCard({
         (item) => item.brand,
         (item) => item.manufacturer,
         (item) => item.supplierName,
+        (item) => textMeta(item, 'supplier'),
         (item) => item.shelfLocation,
+        (item) => item.binLocation,
         (item) => item.serialNumber,
         (item) => item.industrialSector,
+        (item) => textMeta(item, 'sector'),
         (item) => item.productCategory,
+        (item) => item.category,
         (item) => item.productSubCategory,
+        (item) => textMeta(item, 'branchName'),
+        (item) => textMeta(item, 'warehouseName'),
+        (item) => item.branch,
+        (item) => item.warehouse,
         (item) => textMeta(item, 'tags'),
         (item) => textMeta(item, 'description'),
         (item) => textMeta(item, 'partNumber'),
@@ -237,9 +260,9 @@ export default function ProductSearchCard({
         (item) => textMeta(item, 'vendorSku')
       ]);
 
-      return matchesCategory && matchesSector && matchesBranch && matchesWarehouse && matchesStock && matchesQuery;
+      return matchesCategory && matchesSector && matchesBranch && matchesWarehouse && matchesBrand && matchesSupplier && matchesStock && matchesQuery;
     });
-  }, [branch, branchName, category, products, query, sector, stockFilter, warehouse, warehouseName]);
+  }, [branch, branchName, brand, category, products, query, sector, stockFilter, supplier, warehouse, warehouseName]);
 
   const setViewMode = (nextMode: ViewMode) => {
     setViewModeState(nextMode);
@@ -266,6 +289,8 @@ export default function ProductSearchCard({
     setSector('ALL');
     setBranch('ALL');
     setWarehouse('ALL');
+    setBrand('ALL');
+    setSupplier('ALL');
     setStockFilter('ALL');
     setMessage('');
   };
@@ -285,17 +310,23 @@ export default function ProductSearchCard({
     setMessage('');
   };
 
+  const applyFilterCabinet = () => {
+    setFilterCabinetOpen(false);
+    setMessage('Product filters applied.');
+  };
+
   const renderFieldValue = (product: Product, field: ProductFieldConfig) => {
     if (field.key === 'stockStatus') {
       const disabled = productQty(product) <= 0;
       return (
-        <span className={`sci-status-pill sci-status-pill--${disabled ? 'danger' : isLowStock(product) ? 'warning' : 'success'}`}>
+        <span className={`sales-status-text sales-status-text--${disabled ? 'danger' : isLowStock(product) ? 'warning' : 'success'}`}>
           {stockLabel(product)}
         </span>
       );
     }
     const value = field.value(product);
-    return <span className="pos-product-value" title={value}>{value}</span>;
+    const className = field.key === 'sku' ? 'pos-product-value sales-sku' : field.key === 'productName' ? 'pos-product-value sales-product-name' : 'pos-product-value';
+    return <span className={className} title={value}>{value}</span>;
   };
 
   const renderCartIcon = (product: Product) => {
@@ -336,39 +367,11 @@ export default function ProductSearchCard({
         </div>
       </div>
 
-      <div className="pos-search-controls">
-        <label className="pos-search-input">
-          <Search size={18} aria-hidden="true" />
-          <span className="sr-only">Search products</span>
-          <input
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-            placeholder="Search by product, SKU, barcode, ALU, brand, make, model, year, side, category..."
-          />
-        </label>
-
-        <select value={sector} onChange={(event) => setSector(event.target.value)} aria-label="Industrial Sector filter">
-          <option value="ALL">All Industrial Sectors</option>
-          {sectors.map((item) => <option key={item} value={item}>{item}</option>)}
-        </select>
-        <select value={category} onChange={(event) => setCategory(event.target.value)} aria-label="Category filter">
-          <option value="ALL">All Categories</option>
-          {categories.map((item) => <option key={item} value={item}>{item}</option>)}
-        </select>
-        <select value={branch} onChange={(event) => setBranch(event.target.value)} aria-label="Branch filter">
-          <option value="ALL">All Branches</option>
-          {branches.map((item) => <option key={item} value={item}>{item}</option>)}
-        </select>
-        <select value={warehouse} onChange={(event) => setWarehouse(event.target.value)} aria-label="Warehouse filter">
-          <option value="ALL">All Warehouses</option>
-          {warehouses.map((item) => <option key={item} value={item}>{item}</option>)}
-        </select>
-        <select value={stockFilter} onChange={(event) => setStockFilter(event.target.value as StockFilter)} aria-label="Stock filter">
-          <option value="ALL">All Stock</option>
-          <option value="IN_STOCK">In Stock</option>
-          <option value="LOW_STOCK">Low Stock</option>
-          <option value="OUT_OF_STOCK">Out of Stock</option>
-        </select>
+      <div className="sales-product-tools">
+        <button type="button" className="sci-pos-button sci-pos-button--secondary" onClick={() => setFilterCabinetOpen(true)}>
+          <SlidersHorizontal size={16} aria-hidden="true" />
+          Filter Cabinet
+        </button>
         <button type="button" className="sci-pos-button sci-pos-button--secondary" onClick={clearSearch}>
           <RotateCcw size={16} aria-hidden="true" />
           Clear Search
@@ -391,20 +394,44 @@ export default function ProductSearchCard({
         })}
       </div>
 
-      <div className="pos-field-chooser">
+      <div className="pos-field-chooser sales-fields-card">
         <div className="pos-field-chooser__title">Fields</div>
-        <div className="pos-field-chooser__options">
-          {fieldConfigs.map((field) => (
-            <label key={field.key}>
-              <input
-                type="checkbox"
-                checked={visibleFields.includes(field.key)}
-                onChange={() => toggleField(field.key)}
-              />
-              <span>{field.label}</span>
-            </label>
-          ))}
-        </div>
+        {[
+          { title: 'Core', keys: ['sku', 'productName', 'brand', 'qty', 'price', 'stockStatus'] as ProductFieldKey[] },
+          { title: 'Optional', keys: ['manufacturer', 'supplier', 'shelf', 'sector', 'category', 'alu', 'productNo', 'barcode'] as ProductFieldKey[] }
+        ].map((group) => (
+          <div key={group.title} className="sales-field-group">
+            <span>{group.title}</span>
+            <div className="pos-field-chooser__options">
+              {group.keys.map((key) => {
+                const field = fieldConfigs.find((item) => item.key === key);
+                if (!field) return null;
+                return (
+                  <label key={field.key} className={visibleFields.includes(field.key) ? 'is-selected' : undefined}>
+                    <input
+                      type="checkbox"
+                      checked={visibleFields.includes(field.key)}
+                      onChange={() => toggleField(field.key)}
+                    />
+                    <span>{field.label}</span>
+                  </label>
+                );
+              })}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <div className="pos-search-controls sales-search-row">
+        <label className="pos-search-input">
+          <Search size={18} aria-hidden="true" />
+        <span className="sr-only">Search products</span>
+          <input
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder="Search by product, SKU, barcode, ALU, brand, supplier, shelf, sector, category, make, model, or part number..."
+          />
+        </label>
       </div>
 
       {message && (
@@ -478,7 +505,7 @@ export default function ProductSearchCard({
                   <span title={productShelf(product)}>{productShelf(product)}</span>
                 </div>
                 <div>
-                  <span className={`sci-status-pill sci-status-pill--${disabled ? 'danger' : isLowStock(product) ? 'warning' : 'success'}`}>
+                  <span className={`sales-status-text sales-status-text--${disabled ? 'danger' : isLowStock(product) ? 'warning' : 'success'}`}>
                     {stockLabel(product)}
                   </span>
                 </div>
@@ -488,6 +515,45 @@ export default function ProductSearchCard({
           {filteredProducts.length === 0 && (
             <div className="industrial-empty-state">No products match the current search.</div>
           )}
+        </div>
+      )}
+      {filterCabinetOpen && (
+        <div className="sales-drawer-backdrop" onClick={() => setFilterCabinetOpen(false)}>
+          <aside className="sales-drawer sales-filter-cabinet" onClick={(event) => event.stopPropagation()} aria-label="Product Filter Cabinet">
+            <div className="sales-drawer-header">
+              <div>
+                <p className="sci-pos-eyebrow">Filters</p>
+                <h3>Product Filter Cabinet</h3>
+              </div>
+              <button type="button" className="sci-pos-icon-button" onClick={() => setFilterCabinetOpen(false)} aria-label="Close filter cabinet">
+                <X size={16} aria-hidden="true" />
+              </button>
+            </div>
+            <div className="sales-drawer-body">
+              <section className="sales-drawer-section">
+                <h4>Location</h4>
+                <label>Branch<select value={branch} onChange={(event) => setBranch(event.target.value)}><option value="ALL">All Branches</option>{branches.map((item) => <option key={item} value={item}>{item}</option>)}</select></label>
+                <label>Warehouse<select value={warehouse} onChange={(event) => setWarehouse(event.target.value)}><option value="ALL">All Warehouses</option>{warehouses.map((item) => <option key={item} value={item}>{item}</option>)}</select></label>
+                <label>Shelf / Location<input value="" placeholder="Shelf search uses the main product search" readOnly /></label>
+              </section>
+              <section className="sales-drawer-section">
+                <h4>Product Classification</h4>
+                <label>Industrial Sector<select value={sector} onChange={(event) => setSector(event.target.value)}><option value="ALL">All Industrial Sectors</option>{sectors.map((item) => <option key={item} value={item}>{item}</option>)}</select></label>
+                <label>Category<select value={category} onChange={(event) => setCategory(event.target.value)}><option value="ALL">All Categories</option>{categories.map((item) => <option key={item} value={item}>{item}</option>)}</select></label>
+                <label>Stock Status<select value={stockFilter} onChange={(event) => setStockFilter(event.target.value as StockFilter)}><option value="ALL">All Stock</option><option value="IN_STOCK">In Stock</option><option value="LOW_STOCK">Low Stock</option><option value="OUT_OF_STOCK">Out of Stock</option></select></label>
+              </section>
+              <section className="sales-drawer-section">
+                <h4>Supplier / Brand</h4>
+                <label>Brand<select value={brand} onChange={(event) => setBrand(event.target.value)}><option value="ALL">All Brands</option>{brands.map((item) => <option key={item} value={item}>{item}</option>)}</select></label>
+                <label>Supplier<select value={supplier} onChange={(event) => setSupplier(event.target.value)}><option value="ALL">All Suppliers</option>{suppliers.map((item) => <option key={item} value={item}>{item}</option>)}</select></label>
+              </section>
+            </div>
+            <div className="sales-drawer-actions">
+              <button type="button" className="sci-pos-button sci-pos-button--primary" onClick={applyFilterCabinet}>Apply Filters</button>
+              <button type="button" className="sci-pos-button sci-pos-button--secondary" onClick={() => { clearSearch(); setFilterCabinetOpen(false); }}>Clear Filters</button>
+              <button type="button" className="sci-pos-button sci-pos-button--secondary" onClick={() => setFilterCabinetOpen(false)}>Close</button>
+            </div>
+          </aside>
         </div>
       )}
     </section>

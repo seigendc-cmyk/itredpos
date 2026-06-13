@@ -1,13 +1,13 @@
 import {
   CreditCard,
   FileText,
-  Save,
   Minus,
   PauseCircle,
   Plus,
   ReceiptText,
   Trash2,
   Truck,
+  UserRound,
   XCircle
 } from 'lucide-react';
 import { useMemo, useState } from 'react';
@@ -15,12 +15,16 @@ import { CartItem, CustomerRecord, VATMode } from '../types';
 
 export type SalesPaymentMethod =
   | 'Cash'
-  | 'EcoCash'
-  | 'Swipe'
+  | 'EcoCash Placeholder'
+  | 'Innbucks Placeholder'
+  | 'Mukuru Placeholder'
+  | 'ZIPIT Placeholder'
   | 'Bank Transfer'
-  | 'Split Payment'
-  | 'Credit Sale Placeholder'
-  | 'Store Credit Placeholder';
+  | 'Card Placeholder'
+  | 'Credit / Account'
+  | 'Mixed Payment'
+  | 'Already Paid'
+  | 'No Payment Due';
 
 export type DeliveryMode =
   | 'No Delivery'
@@ -117,12 +121,16 @@ interface SalesCartCardProps {
 
 const paymentMethods: SalesPaymentMethod[] = [
   'Cash',
-  'EcoCash',
-  'Swipe',
+  'EcoCash Placeholder',
+  'Innbucks Placeholder',
+  'Mukuru Placeholder',
+  'ZIPIT Placeholder',
   'Bank Transfer',
-  'Split Payment',
-  'Credit Sale Placeholder',
-  'Store Credit Placeholder'
+  'Card Placeholder',
+  'Credit / Account',
+  'Mixed Payment',
+  'Already Paid',
+  'No Payment Due'
 ];
 
 const deliveryModes: DeliveryMode[] = [
@@ -137,12 +145,16 @@ const deliveryPaymentModes: SalesDeliveryPaymentMode[] = ['Already Paid', 'Cash 
 
 const paymentLabels: Record<SalesPaymentMethod, string> = {
   Cash: 'Cash',
-  EcoCash: 'EcoCash',
-  Swipe: 'Swipe',
+  'EcoCash Placeholder': 'EcoCash Placeholder',
+  'Innbucks Placeholder': 'Innbucks Placeholder',
+  'Mukuru Placeholder': 'Mukuru Placeholder',
+  'ZIPIT Placeholder': 'ZIPIT Placeholder',
   'Bank Transfer': 'Bank Transfer',
-  'Split Payment': 'Split',
-  'Credit Sale Placeholder': 'Credit',
-  'Store Credit Placeholder': 'Store Credit'
+  'Card Placeholder': 'Card Placeholder',
+  'Credit / Account': 'Credit / Account',
+  'Mixed Payment': 'Mixed Payment',
+  'Already Paid': 'Already Paid',
+  'No Payment Due': 'No Payment Due'
 };
 
 function money(value: number): string {
@@ -222,6 +234,8 @@ export default function SalesCartCard({
   onCancelSale
 }: SalesCartCardProps) {
   const [customerSearch, setCustomerSearch] = useState('');
+  const [customerDrawerOpen, setCustomerDrawerOpen] = useState(false);
+  const [deliveryDrawerOpen, setDeliveryDrawerOpen] = useState(false);
   const filteredExistingCustomers = useMemo(() => {
     const query = customerSearch.trim().toLowerCase();
     return existingCustomers.filter((customer) => {
@@ -260,76 +274,16 @@ export default function SalesCartCard({
         <span>Branch: {branchName}</span>
       </div>
 
-      <div className="pos-section-heading">
-        <FileText size={17} aria-hidden="true" />
-        Customer
-      </div>
-      <div className="pos-form-grid pos-customer-grid">
-        <label>
-          Customer Type
-          <select value={customerMode} onChange={(event) => onCustomerModeChange(event.target.value as SalesCustomerMode)}>
-            <option value="Walk-in Customer">Walk-in Customer</option>
-            <option value="Existing Customer">Existing Customer</option>
-            <option value="New Customer Request">New Customer Request</option>
-          </select>
-        </label>
-        {customerMode === 'Existing Customer' ? (
-          <>
-            <label>
-              Existing Customer Search
-              <input value={customerSearch} onChange={(event) => setCustomerSearch(event.target.value)} placeholder="Search name, phone, WhatsApp, tax no." />
-            </label>
-            <label>
-              Existing Customer
-              <select value={selectedCustomerId} onChange={(event) => onExistingCustomerSelect?.(event.target.value)}>
-                <option value="">Select active customer</option>
-                {filteredExistingCustomers.map((customer) => <option key={customer.customerId} value={customer.customerId}>{customer.customerName} - {customer.customerCode}</option>)}
-              </select>
-              {customerName && <span className="pos-form-hint">{customerName}</span>}
-            </label>
-            {selectedCustomer && (
-              <div className="pos-placeholder-card pos-form-grid__wide">
-                <strong>{selectedCustomer.customerName}</strong>
-                <span>Tax: {selectedCustomer.taxNumber || 'No tax number'} | Credit: {selectedCustomer.creditStatus}</span>
-                <span>Billing: {selectedCustomer.billingAddress || 'No billing address'}</span>
-                <span>Delivery: {selectedCustomer.deliveryAddress || 'No delivery address'}</span>
-              </div>
-            )}
-          </>
-        ) : (
-          <label>
-            Customer Name
-            <input value={customerName} onChange={(event) => onCustomerNameChange(event.target.value)} placeholder="Walk-in Customer" />
-          </label>
-        )}
-        <label>
-          Phone
-          <input value={customerPhone} onChange={(event) => onCustomerPhoneChange(event.target.value)} placeholder="+263" />
-        </label>
-        <label>
-          WhatsApp
-          <input value={customerWhatsApp} onChange={(event) => onCustomerWhatsAppChange(event.target.value)} placeholder="+263" />
-        </label>
-        <label>
-          Address
-          <input value={customerAddress} onChange={(event) => onCustomerAddressChange(event.target.value)} placeholder="Customer address placeholder" />
-        </label>
-        <label>
-          Tax Number
-          <input value={customerTaxNumber} onChange={(event) => onCustomerTaxNumberChange(event.target.value)} placeholder="Tax number placeholder" />
-        </label>
-        {customerMode === 'New Customer Request' && (
-          <>
-            <label className="pos-form-grid__wide">
-              Notes
-              <input value={customerNotes} onChange={(event) => onCustomerNotesChange(event.target.value)} placeholder="Customer request notes" />
-            </label>
-            <button type="button" className="sci-pos-button sci-pos-button--secondary" onClick={onSaveCustomerRequest}>
-              <Save size={16} aria-hidden="true" />
-              Save Customer Request
-            </button>
-          </>
-        )}
+      <div className="sales-cart-summary-card">
+        <div>
+          <span>Customer Summary</span>
+          <strong>{customerName || 'Walk-in Customer'}</strong>
+          <small>{customerMode} | {customerPhone || 'No phone'} | {customerTaxNumber ? 'Tax profile captured' : 'No tax number'}</small>
+        </div>
+        <button type="button" className="sci-pos-button sci-pos-button--secondary" onClick={() => setCustomerDrawerOpen(true)}>
+          <UserRound size={16} aria-hidden="true" />
+          Customer Details
+        </button>
       </div>
 
       <div className="pos-section-heading">
@@ -398,50 +352,16 @@ export default function SalesCartCard({
         </div>
       </div>
 
-      <div className="pos-checkout-section">
-        <div className="pos-section-heading">
-          <Truck size={17} aria-hidden="true" />
-          Delivery
+      <div className="sales-cart-summary-card">
+        <div>
+          <span>Delivery Summary</span>
+          <strong>{deliveryMode}</strong>
+          <small>{deliveryPriority} | Fee {money(Number(deliveryFee) || 0)} | {deliveryPaymentMode}</small>
         </div>
-        <div className="pos-form-grid pos-delivery-grid">
-          <label>
-            Delivery Method
-            <select value={deliveryMode} onChange={(event) => onDeliveryModeChange(event.target.value as DeliveryMode)}>
-              {deliveryModes.map((mode) => <option key={mode} value={mode}>{mode}</option>)}
-            </select>
-          </label>
-          <label>
-            Delivery Fee
-            <input type="number" min="0" value={deliveryFee} onChange={(event) => onDeliveryFeeChange(event.target.value)} />
-          </label>
-          <label>
-            Priority
-            <select value={deliveryPriority} onChange={(event) => onDeliveryPriorityChange(event.target.value as SalesDeliveryPriority)}>
-              {deliveryPriorities.map((priority) => <option key={priority} value={priority}>{priority}</option>)}
-            </select>
-          </label>
-          <label>
-            Payment Mode
-            <select value={deliveryPaymentMode} onChange={(event) => onDeliveryPaymentModeChange(event.target.value as SalesDeliveryPaymentMode)}>
-              {deliveryPaymentModes.map((mode) => <option key={mode} value={mode}>{mode}</option>)}
-            </select>
-          </label>
-          <label>
-            Address
-            <input value={deliveryAddress} onChange={(event) => onDeliveryAddressChange(event.target.value)} placeholder="Delivery address" />
-          </label>
-          <label>
-            WhatsApp
-            <input value={deliveryWhatsApp} onChange={(event) => onDeliveryWhatsAppChange(event.target.value)} placeholder="+263" />
-          </label>
-          <label className="pos-form-grid__wide">
-            Notes
-            <input value={deliveryNotes} onChange={(event) => onDeliveryNotesChange(event.target.value)} placeholder="Delivery notes" />
-          </label>
-        </div>
-        {deliveryMode === 'iDeliver Service' && (
-          <div className="pos-placeholder-card">iDeliver integration will broadcast the delivery request after sale completion.</div>
-        )}
+        <button type="button" className="sci-pos-button sci-pos-button--secondary" onClick={() => setDeliveryDrawerOpen(true)}>
+          <Truck size={16} aria-hidden="true" />
+          Delivery / iDeliver
+        </button>
       </div>
 
       <div className="pos-checkout-section">
@@ -450,28 +370,19 @@ export default function SalesCartCard({
           Payment
         </div>
         <div className="pos-form-grid pos-payment-grid">
-          <div className="pos-payment-method-field">
-            <span>Payment Method</span>
-            <div className="pos-payment-methods" role="group" aria-label="Payment Method">
-              {paymentMethods.map((method) => (
-                <button
-                  key={method}
-                  type="button"
-                  className={`industrial-tab ${paymentMethod === method ? 'active' : ''}`}
-                  onClick={() => onPaymentMethodChange(method)}
-                >
-                  {paymentLabels[method]}
-                </button>
-              ))}
-            </div>
-          </div>
           <label>
-            Amount Tendered
-            <input type="number" min="0" value={paymentAmount} onChange={(event) => onPaymentAmountChange(event.target.value)} />
+            Payment Method
+            <select value={paymentMethod} onChange={(event) => onPaymentMethodChange(event.target.value as SalesPaymentMethod)}>
+              {paymentMethods.map((method) => <option key={method} value={method}>{paymentLabels[method]}</option>)}
+            </select>
           </label>
           <label>
-            Reference
-            <input value={paymentReference} onChange={(event) => onPaymentReferenceChange(event.target.value)} placeholder="Required for non-cash" />
+            Payment Amount
+            <input type="number" min="0" value={paymentAmount} onChange={(event) => onPaymentAmountChange(event.target.value)} />
+          </label>
+          <label className="pos-form-grid__wide">
+            Payment Notes
+            <input value={paymentReference} onChange={(event) => onPaymentReferenceChange(event.target.value)} placeholder="Add payment reference, mobile money confirmation, bank note, or cashier note..." />
           </label>
           <button type="button" className="sci-pos-button sci-pos-button--secondary" onClick={onAddPayment}>
             <Plus size={16} aria-hidden="true" />
@@ -523,6 +434,69 @@ export default function SalesCartCard({
           Cancel Sale
         </button>
       </div>
+      {customerDrawerOpen && (
+        <div className="sales-drawer-backdrop" onClick={() => setCustomerDrawerOpen(false)}>
+          <aside className="sales-drawer" onClick={(event) => event.stopPropagation()} aria-label="Customer Details">
+            <div className="sales-drawer-header">
+              <div><p className="sci-pos-eyebrow">Customer</p><h3>Customer Details</h3></div>
+              <button type="button" className="sci-pos-icon-button" onClick={() => setCustomerDrawerOpen(false)} aria-label="Close customer details"><XCircle size={16} aria-hidden="true" /></button>
+            </div>
+            <div className="sales-drawer-body">
+              <section className="sales-drawer-section">
+                <label>Customer Type<select value={customerMode} onChange={(event) => onCustomerModeChange(event.target.value as SalesCustomerMode)}><option value="Walk-in Customer">Walk-in Customer</option><option value="Existing Customer">Existing Customer</option><option value="New Customer Request">New Customer Request</option></select></label>
+                {customerMode === 'Existing Customer' && (
+                  <>
+                    <label>Existing Customer Lookup Placeholder<input value={customerSearch} onChange={(event) => setCustomerSearch(event.target.value)} placeholder="Search name, phone, WhatsApp, tax no." /></label>
+                    <label>Existing Customer<select value={selectedCustomerId} onChange={(event) => onExistingCustomerSelect?.(event.target.value)}><option value="">Select active customer</option>{filteredExistingCustomers.map((customer) => <option key={customer.customerId} value={customer.customerId}>{customer.customerName} - {customer.customerCode}</option>)}</select></label>
+                    {selectedCustomer && <div className="pos-placeholder-card"><strong>{selectedCustomer.customerName}</strong><span>Tax: {selectedCustomer.taxNumber || 'No tax number'} | Credit: {selectedCustomer.creditStatus}</span><span>Billing: {selectedCustomer.billingAddress || 'No billing address'}</span><span>Delivery: {selectedCustomer.deliveryAddress || 'No delivery address'}</span></div>}
+                  </>
+                )}
+                <label>Customer Name<input value={customerName} onChange={(event) => onCustomerNameChange(event.target.value)} placeholder="Walk-in Customer" /></label>
+                <label>Phone<input value={customerPhone} onChange={(event) => onCustomerPhoneChange(event.target.value)} placeholder="+263" /></label>
+                <label>WhatsApp<input value={customerWhatsApp} onChange={(event) => onCustomerWhatsAppChange(event.target.value)} placeholder="+263" /></label>
+                <label>Address<input value={customerAddress} onChange={(event) => onCustomerAddressChange(event.target.value)} placeholder="Customer address placeholder" /></label>
+                <label>Tax Number<input value={customerTaxNumber} onChange={(event) => onCustomerTaxNumberChange(event.target.value)} placeholder="Tax number placeholder" /></label>
+                <label>Customer Notes<textarea value={customerNotes} onChange={(event) => onCustomerNotesChange(event.target.value)} placeholder="Customer notes" rows={3} /></label>
+                <div className="pos-placeholder-card">New Customer Request Placeholder remains local until saved.</div>
+              </section>
+            </div>
+            <div className="sales-drawer-actions">
+              <button type="button" className="sci-pos-button sci-pos-button--primary" onClick={() => setCustomerDrawerOpen(false)}>Save Customer Details</button>
+              <button type="button" className="sci-pos-button sci-pos-button--secondary" onClick={onSaveCustomerRequest}>New Customer Request Placeholder</button>
+              <button type="button" className="sci-pos-button sci-pos-button--secondary" onClick={() => { onCustomerModeChange('Walk-in Customer'); setCustomerDrawerOpen(false); }}>Clear Customer</button>
+              <button type="button" className="sci-pos-button sci-pos-button--secondary" onClick={() => setCustomerDrawerOpen(false)}>Close</button>
+            </div>
+          </aside>
+        </div>
+      )}
+      {deliveryDrawerOpen && (
+        <div className="sales-drawer-backdrop" onClick={() => setDeliveryDrawerOpen(false)}>
+          <aside className="sales-drawer" onClick={(event) => event.stopPropagation()} aria-label="Delivery / iDeliver Details">
+            <div className="sales-drawer-header">
+              <div><p className="sci-pos-eyebrow">Delivery</p><h3>Delivery / iDeliver Details</h3></div>
+              <button type="button" className="sci-pos-icon-button" onClick={() => setDeliveryDrawerOpen(false)} aria-label="Close delivery details"><XCircle size={16} aria-hidden="true" /></button>
+            </div>
+            <div className="sales-drawer-body">
+              <section className="sales-drawer-section">
+                <label>Delivery Method<select value={deliveryMode} onChange={(event) => onDeliveryModeChange(event.target.value as DeliveryMode)}>{deliveryModes.map((mode) => <option key={mode} value={mode}>{mode}</option>)}</select></label>
+                <label>Delivery Fee<input type="number" min="0" value={deliveryFee} onChange={(event) => onDeliveryFeeChange(event.target.value)} /></label>
+                <label>Priority<select value={deliveryPriority} onChange={(event) => onDeliveryPriorityChange(event.target.value as SalesDeliveryPriority)}>{deliveryPriorities.map((priority) => <option key={priority} value={priority}>{priority}</option>)}</select></label>
+                <label>Payment Mode<select value={deliveryPaymentMode} onChange={(event) => onDeliveryPaymentModeChange(event.target.value as SalesDeliveryPaymentMode)}>{deliveryPaymentModes.map((mode) => <option key={mode} value={mode}>{mode}</option>)}</select></label>
+                <label>Delivery Address<input value={deliveryAddress} onChange={(event) => onDeliveryAddressChange(event.target.value)} placeholder="Delivery address" /></label>
+                <label>WhatsApp<input value={deliveryWhatsApp} onChange={(event) => onDeliveryWhatsAppChange(event.target.value)} placeholder="+263" /></label>
+                <label>Delivery Notes<textarea value={deliveryNotes} onChange={(event) => onDeliveryNotesChange(event.target.value)} placeholder="Delivery notes" rows={3} /></label>
+                <div className="pos-placeholder-card">iDeliver Broadcast Placeholder and Fulfilment Code Placeholder stay local until sale completion.</div>
+              </section>
+            </div>
+            <div className="sales-drawer-actions">
+              <button type="button" className="sci-pos-button sci-pos-button--primary" onClick={() => setDeliveryDrawerOpen(false)}>Save Delivery Details</button>
+              <button type="button" className="sci-pos-button sci-pos-button--secondary" onClick={() => setDeliveryDrawerOpen(false)}>Prepare iDeliver Request Placeholder</button>
+              <button type="button" className="sci-pos-button sci-pos-button--secondary" onClick={() => { onDeliveryModeChange('No Delivery'); onDeliveryFeeChange('0'); onDeliveryAddressChange(''); onDeliveryWhatsAppChange(''); onDeliveryNotesChange(''); setDeliveryDrawerOpen(false); }}>Clear Delivery</button>
+              <button type="button" className="sci-pos-button sci-pos-button--secondary" onClick={() => setDeliveryDrawerOpen(false)}>Close</button>
+            </div>
+          </aside>
+        </div>
+      )}
     </section>
   );
 }
