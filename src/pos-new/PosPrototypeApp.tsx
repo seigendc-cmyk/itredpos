@@ -46,9 +46,8 @@ import {
   mockBIEvents, 
   mockSettings 
 } from './mock/mockPosData';
-import { getAllowedMenusForRole } from './utils/posPermissions';
-import { getAllowedMenusForStaffSession, getCurrentStaffGateSession } from './auth/staffSessionGateService';
-import { isRoleMenuFilteringEnabled, isStrictPermissionEnforcementEnabled } from './repositories/repositoryConfig';
+import { getEffectivePageIdsForRole, normalizeRoleKey } from './auth/effectivePermissionService';
+import { recordSecurityMatrixEvent } from './auth/permissionMatrixService';
 import './posNew.css';
 
 // Core industrial standard catalog seeds loaded from centralized mockPosData
@@ -182,35 +181,6 @@ export default function PosPrototypeApp() {
     return readStoredValue<StaffSetting[]>('itred_pos_staff', mockStaff);
   });
 
-  const [rolePermissions, setRolePermissions] = useState<Record<string, PosPageId[]>>(() => {
-    let parsed = readStoredValue<Record<string, PosPageId[]> | null>('itred_pos_role_permissions', null);
-    const validPageIds: PosPageId[] = ['DASHBOARD', 'OWNER_DESK', 'SALES', 'SALES_HISTORY', 'CUSTOMER_CENTRE', 'DELIVERY', 'STOCK', 'TASK_DESK', 'APPROVALS', 'SHIFT', 'CASH', 'BI_DESK', 'SYNC_DESK', 'SETTINGS'];
-    const hasInvalidPage = Object.values(parsed || {}).some((pages) =>
-      Array.isArray(pages) && pages.some((page) => !validPageIds.includes(page as PosPageId))
-    );
-    if (
-      !parsed ||
-      !parsed['Cashier'] ||
-      !parsed['Cashier'].includes('DELIVERY') ||
-      !parsed['Owner']?.includes('OWNER_DESK') ||
-      !parsed['Owner']?.includes('SALES_HISTORY') ||
-      !parsed['Owner']?.includes('CUSTOMER_CENTRE') ||
-      !parsed['Owner']?.includes('TASK_DESK') ||
-      !parsed['Owner']?.includes('APPROVALS') ||
-      hasInvalidPage
-    ) {
-      parsed = {
-        'Owner': getAllowedMenusForRole('Owner'),
-        'SysAdmin': getAllowedMenusForRole('SysAdmin'),
-        'Manager': getAllowedMenusForRole('Manager'),
-        'Supervisor': getAllowedMenusForRole('Supervisor'),
-        'Cashier': getAllowedMenusForRole('Cashier'),
-        'Stock Controller': getAllowedMenusForRole('Stock Controller')
-      };
-    }
-    return parsed;
-  });
-
   const [hardwareSetting, setHardwareSetting] = useState<HardwareSetting>(() => {
     return readStoredValue<HardwareSetting>('itred_pos_hardware_setting', {
       laserFocus: 'LASER_FOCUS: INTENSE_RED',
@@ -320,10 +290,6 @@ export default function PosPrototypeApp() {
   }, [staffSetting]);
 
   useEffect(() => {
-    writeStoredValue('itred_pos_role_permissions', rolePermissions);
-  }, [rolePermissions]);
-
-  useEffect(() => {
     writeStoredValue('itred_pos_hardware_setting', hardwareSetting);
   }, [hardwareSetting]);
 
@@ -335,19 +301,45 @@ export default function PosPrototypeApp() {
     writeStoredValue('itred_pos_receipt_setting', receiptSetting);
   }, [receiptSetting]);
 
-  // Dynamic authorization check & routing redirect logic
+  // Dynamic authorization check & routing redirect logic. Staff Access Rights is the single source.
   useEffect(() => {
-    if (isRoleMenuFilteringEnabled() && !isStrictPermissionEnforcementEnabled()) return;
     const userRole = activeSession ? activeSession.role : 'SysAdmin';
-    const allowed = userRole === 'Owner' || userRole === 'SysAdmin'
-      ? getAllowedMenusForRole(userRole)
-      : rolePermissions[userRole] || ['DASHBOARD', 'SETTINGS'];
+    const allowed = getEffectivePageIdsForRole(userRole);
     if (allowed && !allowed.includes(activePage)) {
       if (allowed.length > 0) {
         setActivePage(allowed[0]);
       }
     }
-  }, [activeSession, rolePermissions, activePage]);
+  }, [activeSession, activePage]);
+
+  useEffect(() => {
+    recordSecurityMatrixEvent({
+      eventType: 'PERMISSION_SOURCE_UNIFIED',
+      label: 'Permission Source Unified',
+      message: 'Navigation now uses Staff Access Rights effective permissions instead of the retired Roles & Permissions state.'
+    });
+    recordSecurityMatrixEvent({
+      eventType: 'DUPLICATE_PERMISSION_STATE_DISABLED',
+      label: 'Duplicate Permission State Disabled',
+      message: 'Legacy role permission checkbox state is no longer used for access control.'
+    });
+  }, []);
+
+  useEffect(() => {
+    const role = activeSession?.role || 'SysAdmin';
+    recordSecurityMatrixEvent({
+      eventType: 'ROLE_MENU_ACCESS_RECALCULATED',
+      label: 'Role Menu Access Recalculated',
+      message: `Menu access recalculated from Staff Access Rights for ${role}.`,
+      roleKey: normalizeRoleKey(role)
+    });
+    recordSecurityMatrixEvent({
+      eventType: 'STAFF_ROLE_NAVIGATION_APPLIED',
+      label: 'Staff Role Navigation Applied',
+      message: `Navigation links applied for ${role} using effective permissions.`,
+      roleKey: normalizeRoleKey(role)
+    });
+  }, [activeSession?.role]);
 
 
   // Mutators exposed to pages
@@ -706,14 +698,6 @@ export default function PosPrototypeApp() {
       { id: 'ST-005', name: 'Cassie Reilly', email: 'cassie@apex.com', role: 'Owner', pass: 'owner123', branchId: 'BR-GARY-4' },
       { id: 'ST-006', name: 'James Cole', email: 'james@apex.com', role: 'SysAdmin', pass: 'admin123', branchId: 'BR-GARY-4' }
     ]);
-    setRolePermissions({
-      'Owner': getAllowedMenusForRole('Owner'),
-      'SysAdmin': getAllowedMenusForRole('SysAdmin'),
-      'Manager': getAllowedMenusForRole('Manager'),
-      'Supervisor': getAllowedMenusForRole('Supervisor'),
-      'Cashier': getAllowedMenusForRole('Cashier'),
-      'Stock Controller': getAllowedMenusForRole('Stock Controller')
-    });
     setHardwareSetting({
       laserFocus: 'LASER_FOCUS: INTENSE_RED',
       drawerSignal: '12VDC_ELECTRO_M_PULSE'
@@ -746,14 +730,8 @@ export default function PosPrototypeApp() {
     );
   }
 
-  const staffGateSession = getCurrentStaffGateSession();
-  const previewAllowedForAccess = isRoleMenuFilteringEnabled()
-    ? getAllowedMenusForStaffSession(staffGateSession)
-    : [];
-  const allowedForAccess = isRoleMenuFilteringEnabled() && isStrictPermissionEnforcementEnabled()
-    ? previewAllowedForAccess
-    : getAllowedMenusForRole('Owner');
-  const isPageRestricted = isStrictPermissionEnforcementEnabled() && !allowedForAccess.includes(activePage);
+  const allowedForAccess = getEffectivePageIdsForRole(activeSession.role);
+  const isPageRestricted = !allowedForAccess.includes(activePage);
 
   return (
     <PosShell
@@ -911,8 +889,6 @@ export default function PosPrototypeApp() {
           onUpdateTerminals={setTerminalsSetting}
           staff={staffSetting}
           onUpdateStaff={setStaffSetting}
-          rolePermissions={rolePermissions}
-          onUpdateRolePermissions={setRolePermissions}
           hardwareSetting={hardwareSetting}
           onUpdateHardwareSetting={setHardwareSetting}
           taxSetting={taxSetting}

@@ -182,7 +182,7 @@ export default function PurchaseOrderForm({
     ? 'w-[calc(100vw-32px)] h-[calc(100vh-32px)]'
     : windowState === 'minimized'
       ? 'w-[520px] h-[46px]'
-      : 'w-[min(1180px,calc(100vw-32px))] h-[min(820px,calc(100vh-32px))]';
+      : 'w-[min(1360px,calc(100vw-32px))] h-[min(880px,calc(100vh-32px))]';
 
   if (!open) return null;
 

@@ -161,7 +161,7 @@ export default function StockTransferForm({
 
   const panelClass = windowState === 'maximized'
     ? 'fixed inset-3'
-    : 'fixed left-1/2 top-8 w-[min(1240px,calc(100vw-28px))] -translate-x-1/2';
+    : 'fixed left-1/2 top-8 w-[min(1380px,calc(100vw-28px))] -translate-x-1/2';
 
   return (
     <div className="fixed inset-0 z-50 bg-black/35">

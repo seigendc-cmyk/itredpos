@@ -103,7 +103,7 @@ export default function ProductMasterForm({
 
   return (
     <div className="fixed inset-0 bg-black/40 z-50 flex items-start justify-center p-4 overflow-auto">
-      <div className={`bg-[#f4f6f8] border border-[#111827] w-full shadow-xl rounded-none ${isMaximized ? 'max-w-none min-h-[calc(100vh-2rem)]' : 'max-w-6xl'}`}>
+      <div className={`bg-[#f4f6f8] border border-[#111827] w-full shadow-xl rounded-none ${isMaximized ? 'max-w-none min-h-[calc(100vh-2rem)]' : 'max-w-[1360px] min-h-[80vh]'}`}>
         <div className="bg-[#252a31] text-white px-4 py-3 flex items-center justify-between">
           <div>
             <div className="text-[10px] uppercase text-orange-300 font-black">Product Master</div>

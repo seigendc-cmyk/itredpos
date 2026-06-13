@@ -4,6 +4,7 @@ import { MoreVertical } from 'lucide-react';
 export interface RowActionMenuItem {
   label: string;
   onClick: () => void;
+  icon?: React.ReactNode;
   disabled?: boolean;
   danger?: boolean;
 }
@@ -76,6 +77,7 @@ export default function RowActionMenu({
                 item.onClick();
               }}
             >
+              {item.icon && <span className="row-action-item-icon">{item.icon}</span>}
               {item.label}
             </button>
           ))}

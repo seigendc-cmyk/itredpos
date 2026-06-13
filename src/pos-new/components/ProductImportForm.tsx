@@ -64,7 +64,7 @@ export default function ProductImportForm(props: ProductImportFormProps) {
   const currentBatchId = props.batch?.batchId || '';
   const shellClass = mode === 'maximized'
     ? 'fixed inset-4 z-50 bg-white border-2 border-[#1e222b] shadow-2xl flex flex-col'
-    : 'fixed inset-x-4 top-8 z-50 mx-auto max-w-6xl bg-white border-2 border-[#1e222b] shadow-2xl flex flex-col';
+    : 'fixed inset-x-4 top-8 z-50 mx-auto max-w-[1360px] max-h-[90vh] bg-white border-2 border-[#1e222b] shadow-2xl flex flex-col';
 
   return (
     <div className="fixed inset-0 z-40 bg-black/35">

@@ -25,7 +25,6 @@ import {
   Download,
   SlidersHorizontal,
   Package,
-  Eye,
   Settings,
   Send,
   AlertTriangle,
@@ -172,6 +171,15 @@ interface StockActivityEvent {
 }
 
 type StockTab = 'Stock List' | 'Product List' | 'Product Master' | 'Product Import Desk' | 'Product Ledger' | 'Inventory Movements' | 'Stock Health' | 'Inventory Reports' | 'Goods Receiving' | 'Purchase Orders' | 'Supplier Returns' | 'Stock Adjustments' | 'Stocktake' | 'Stock Transfers';
+type InventoryGroup = 'Stock Operations' | 'Product Setup' | 'Procurement' | 'Stock Control' | 'Intelligence';
+
+const INVENTORY_GROUPS: Array<{ group: InventoryGroup; tabs: StockTab[] }> = [
+  { group: 'Stock Operations', tabs: ['Stock List', 'Product List', 'Product Master', 'Product Ledger', 'Inventory Movements'] },
+  { group: 'Product Setup', tabs: ['Product Master', 'Product Import Desk', 'Product Ledger'] },
+  { group: 'Procurement', tabs: ['Purchase Orders', 'Goods Receiving', 'Supplier Returns'] },
+  { group: 'Stock Control', tabs: ['Stock Adjustments', 'Stock Transfers', 'Stocktake'] },
+  { group: 'Intelligence', tabs: ['Stock Health', 'Inventory Reports'] }
+];
 
 // Interactive default mock products specified by user request dynamically generated from mockPosData
 const INDUSTRIAL_SECTORS = ['Motor Spares', 'Mining Supplies', 'Retail FMCG', 'Agriculture', 'Hardware'] as const;
@@ -251,6 +259,12 @@ export default function PosStock({
 
   // Tabbed Routing inside Stock Control
   const [activeTab, setActiveTab] = useState<StockTab>('Stock List');
+  const [activeInventoryGroup, setActiveInventoryGroup] = useState<InventoryGroup>('Stock Operations');
+  const [showInventorySummary, setShowInventorySummary] = useState(false);
+  const [showActivityFeed, setShowActivityFeed] = useState(false);
+  const [selectedProductForDetail, setSelectedProductForDetail] = useState<StockProduct | null>(null);
+  const [isPartSpectralPopupOpen, setIsPartSpectralPopupOpen] = useState(false);
+  const [openRowActionMenuId, setOpenRowActionMenuId] = useState<string | null>(null);
   
   // Simulated access role clearance override
   const [simulatedRole, setSimulatedRole] = useState<Role>(session?.role || 'Stock Controller');
@@ -347,6 +361,33 @@ export default function PosStock({
     return false;
   };
 
+  const activateInventoryGroup = (group: InventoryGroup) => {
+    const target = INVENTORY_GROUPS.find((item) => item.group === group);
+    setActiveInventoryGroup(group);
+    if (target?.tabs[0]) setActiveTab(target.tabs[0]);
+    setOpenRowActionMenuId(null);
+    setOpenProductListMenuId(null);
+  };
+
+  const activateInventoryTab = (tab: StockTab) => {
+    setActiveTab(tab);
+    setOpenRowActionMenuId(null);
+    setOpenProductListMenuId(null);
+  };
+
+  const openPartSpectralPopup = (product: StockProduct) => {
+    setSelectedProduct(product);
+    setSelectedProductForDetail(product);
+    setIsPartSpectralPopupOpen(true);
+    setOpenRowActionMenuId(null);
+    setOpenProductListMenuId(null);
+  };
+
+  const closePartSpectralPopup = () => {
+    setIsPartSpectralPopupOpen(false);
+    setSelectedProductForDetail(null);
+  };
+
   // State of local Stock database (allowing real modifications & audits locally)
   const [localStock, setLocalStock] = useState<StockProduct[]>(() => {
     const cached = localStorage.getItem('sci_pos_stock_catalog');
@@ -397,8 +438,8 @@ export default function PosStock({
     }
   ]);
 
-  // View focused Item right drawer details
-  const [selectedProduct, setSelectedProduct] = useState<StockProduct | null>(DEFAULT_STOCK_ITEMS[0]);
+  // View focused item details only when explicitly opened.
+  const [selectedProduct, setSelectedProduct] = useState<StockProduct | null>(null);
 
   // Operational Filtering & Search parameters
   const [searchTerm, setSearchTerm] = useState('');
@@ -807,37 +848,61 @@ export default function PosStock({
   const getProductListActionItems = (product: StockProduct): RowActionMenuItem[] => {
     const role = simulatedRole || (session?.role as Role) || 'Owner';
     const blocked = 'You do not have permission to perform this action.';
-    const items: RowActionMenuItem[] = [];
+    const items: RowActionMenuItem[] = [
+      { label: 'View Item Detail', icon: <Package className="w-3.5 h-3.5" />, onClick: () => openPartSpectralPopup(product) }
+    ];
     if (canPerformAction(role, 'productLedger.view')) {
-      items.push({ label: 'View Ledger', onClick: () => void openProductLedger(product) });
+      items.push({ label: 'View Ledger', icon: <History className="w-3.5 h-3.5" />, onClick: () => void openProductLedger(product) });
     }
     if (canPerformAction(role, 'productMaster.edit')) {
-      items.push({ label: 'Edit Product Draft', onClick: () => setProductListNotice(`Edit Product Draft placeholder opened for ${product.sku || product.code}.`) });
+      items.push({ label: 'Edit Product Draft', icon: <Settings className="w-3.5 h-3.5" />, onClick: () => setProductListNotice(`Edit Product Draft placeholder opened for ${product.sku || product.code}.`) });
     }
     if (canPerformAction(role, 'stocktake.create') || canPerformAction(role, 'stocktake.count')) {
-      items.push({ label: 'Start Stocktake', onClick: () => openStocktakeForProduct(product) });
+      items.push({ label: 'Start Stocktake', icon: <ClipboardList className="w-3.5 h-3.5" />, onClick: () => openStocktakeForProduct(product) });
     }
     if (canPerformAction(role, 'stockAdjustments.create') || canPerformAction(role, 'inventory.adjust')) {
-      items.push({ label: 'Create Adjustment', onClick: () => triggerAdjustmentModal(product) });
+      items.push({ label: 'Create Adjustment', icon: <Sliders className="w-3.5 h-3.5" />, onClick: () => triggerAdjustmentModal(product) });
     }
     if (canPerformAction(role, 'inventoryMovements.view')) {
-      items.push({ label: 'View Movements', onClick: () => {
+      items.push({ label: 'View Movements', icon: <Activity className="w-3.5 h-3.5" />, onClick: () => {
         setMovementSummaryFilters((current) => ({ ...current, productId: product.id, sku: product.sku || product.code }));
         setActiveTab('Inventory Movements');
       } });
     }
     if (canPerformAction(role, 'stockBalances.view')) {
-      items.push({ label: 'View Stock Balance', onClick: () => setActiveTab('Stock List') });
+      items.push({ label: 'View Stock Balance', icon: <Warehouse className="w-3.5 h-3.5" />, onClick: () => setActiveTab('Stock List') });
     }
     if (canPerformAction(role, 'stockTransfers.create') || canPerformAction(role, 'stockBalances.transfer')) {
-      items.push({ label: 'Transfer Stock', onClick: () => triggerTransferModal(product) });
+      items.push({ label: 'Transfer Stock', icon: <ArrowRightLeft className="w-3.5 h-3.5" />, onClick: () => triggerTransferModal(product) });
     }
     if (canPerformAction(role, 'productMaster.block')) {
-      items.push({ label: 'Block Product Placeholder', danger: true, onClick: () => setProductListNotice(`Block Product placeholder queued for ${product.sku || product.code}.`) });
+      items.push({ label: 'Block Product Placeholder', icon: <Shield className="w-3.5 h-3.5" />, danger: true, onClick: () => setProductListNotice(`Block Product placeholder queued for ${product.sku || product.code}.`) });
     }
     if (items.length === 0) {
       items.push({ label: blocked, disabled: true });
     }
+    return items;
+  };
+
+  const getStockListActionItems = (product: StockProduct): RowActionMenuItem[] => {
+    const role = simulatedRole || (session?.role as Role) || 'Owner';
+    const items: RowActionMenuItem[] = [
+      { label: 'View Item Detail', icon: <Package className="w-3.5 h-3.5" />, onClick: () => openPartSpectralPopup(product) },
+      { label: 'View Ledger', icon: <History className="w-3.5 h-3.5" />, onClick: () => void openProductLedger(product) }
+    ];
+    if (canPerformAction(role, 'stockAdjustments.create') || canPerformAction(role, 'inventory.adjust')) {
+      items.push({ label: 'Adjust Stock', icon: <Sliders className="w-3.5 h-3.5" />, onClick: () => triggerAdjustmentModal(product) });
+    }
+    if (canPerformAction(role, 'stocktake.create') || canPerformAction(role, 'stocktake.count')) {
+      items.push({ label: 'Start Stocktake', icon: <ClipboardList className="w-3.5 h-3.5" />, onClick: () => triggerStocktakeModal(product) });
+    }
+    if (canPerformAction(role, 'stockTransfers.create') || canPerformAction(role, 'stockBalances.transfer')) {
+      items.push({ label: 'Transfer / Route', icon: <ArrowRightLeft className="w-3.5 h-3.5" />, onClick: () => triggerTransferModal(product) });
+    }
+    if (canPerformAction(role, 'productMaster.edit')) {
+      items.push({ label: 'Edit Product', icon: <Settings className="w-3.5 h-3.5" />, onClick: () => setProductListNotice(`Edit Product placeholder opened for ${product.sku || product.code}.`) });
+    }
+    items.push({ label: 'Block Product Placeholder', icon: <Shield className="w-3.5 h-3.5" />, danger: true, onClick: () => setProductListNotice(`Block Product placeholder queued for ${product.sku || product.code}.`) });
     return items;
   };
 
@@ -1431,25 +1496,42 @@ export default function PosStock({
         </div>
       </div>
 
-      {/* 1B. SOLID TAB NAVIGATION SELECTORS */}
-      <div className="industrial-toolbar">
-        {(['Stock List', 'Product List', 'Product Master', 'Product Import Desk', 'Product Ledger', 'Inventory Movements', 'Stock Health', 'Inventory Reports', 'Goods Receiving', 'Purchase Orders', 'Supplier Returns', 'Stock Adjustments', 'Stock Transfers', 'Stocktake'] as const).map((tab) => {
-          const isActive = activeTab === tab;
-          return (
+      {/* 1B. GROUPED UNDERLINE TAB NAVIGATION */}
+      <div className="inventory-group-tabs" aria-label="Inventory workspace groups">
+        <div className="inventory-group-tab-row">
+          {INVENTORY_GROUPS.map((item) => (
+            <button
+              key={item.group}
+              type="button"
+              onClick={() => activateInventoryGroup(item.group)}
+              className={`inventory-group-tab ${activeInventoryGroup === item.group ? 'inventory-group-tab--active' : ''}`}
+            >
+              {item.group}
+            </button>
+          ))}
+        </div>
+        <div className="inventory-child-tabs" aria-label={`${activeInventoryGroup} tabs`}>
+          {INVENTORY_GROUPS.find((item) => item.group === activeInventoryGroup)?.tabs.map((tab) => (
             <button
               key={tab}
               type="button"
-              onClick={() => setActiveTab(tab)}
-              className={`industrial-tab ${
-                isActive 
-                  ? 'active' 
-                  : ''
-              }`}
+              onClick={() => activateInventoryTab(tab)}
+              className={`inventory-child-tab ${activeTab === tab ? 'inventory-child-tab--active' : ''}`}
             >
               {tab}
             </button>
-          );
-        })}
+          ))}
+          {activeInventoryGroup === 'Intelligence' && (
+            <>
+              <button type="button" className={`inventory-child-tab ${showInventorySummary ? 'inventory-child-tab--active' : ''}`} onClick={() => setShowInventorySummary((current) => !current)}>
+                {showInventorySummary ? 'Hide Inventory Summary' : 'Show Inventory Summary'}
+              </button>
+              <button type="button" className={`inventory-child-tab ${showActivityFeed ? 'inventory-child-tab--active' : ''}`} onClick={() => setShowActivityFeed((current) => !current)}>
+                {showActivityFeed ? 'Hide Activity Feed' : 'Show Activity Feed'}
+              </button>
+            </>
+          )}
+        </div>
       </div>
 
       {activeTab === 'Product Import Desk' ? (
@@ -2131,6 +2213,8 @@ export default function PosStock({
         <>
 
       {/* 2. DYNAMIC SQUARE METRICS COMPLIANT GRID */}
+      {showInventorySummary && (
+        <div className="inventory-collapsible-panel">
       <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-6 gap-4">
         
         {/* Metric 1 */}
@@ -2207,8 +2291,11 @@ export default function PosStock({
           <LedgerMetric label="High Risk" value={inventorySummary.highRiskMovements} />
         </div>
       </div>
+        </div>
+      )}
 
-      <div className="bg-white border border-[#b1b5c2] p-4 space-y-3">
+      {showActivityFeed && (
+      <div className="bg-white border border-[#b1b5c2] p-4 space-y-3 inventory-feed-scroll">
         <div className="flex items-center justify-between border-b border-gray-200 pb-2">
           <span className="text-[10px] font-black uppercase text-[#1e222b]">Inventory Movement Activity Feed</span>
           <span className="text-[8px] font-black uppercase text-slate-500">{inventoryMovementEvents.length} events</span>
@@ -2227,9 +2314,10 @@ export default function PosStock({
           )}
         </div>
       </div>
+      )}
 
       {/* 3. STOCK ACTION BAR CONTROL ENGINE */}
-      <div className="bg-[#1e222b] p-4 flex flex-wrap justify-between items-center gap-4 border border-[#b1b5c2]">
+      <div className="inventory-dark-action-strip">
         <div>
           <span className="text-[9px] font-black text-orange-400 uppercase tracking-widest block">STOCK AUDIT CHASSIS INTERACTION MATRIX</span>
           <span className="text-[8px] text-slate-400 block uppercase mt-0.5">PROCESS MANUAL INTERVENTIONS AND PHYSICAL TRANSACTIONS</span>
@@ -2241,7 +2329,7 @@ export default function PosStock({
             onClick={() => {
               if (localStock.length > 0) triggerStocktakeModal(localStock[0]);
             }}
-            className="px-3 py-2 bg-transparent border border-slate-700 hover:border-orange-500 text-white font-extrabold text-[10px] uppercase cursor-pointer rounded-none flex items-center justify-center gap-1.5 hover:bg-slate-800 transition-colors"
+            className="inventory-dark-action-button"
           >
             <ClipboardList className="w-3.5 h-3.5 text-orange-500" />
             Start Stocktake
@@ -2251,7 +2339,7 @@ export default function PosStock({
             onClick={() => {
               if (localStock.length > 0) triggerAdjustmentModal(localStock[0]);
             }}
-            className="px-3 py-2 bg-transparent border border-slate-700 hover:border-orange-500 text-white font-extrabold text-[10px] uppercase cursor-pointer rounded-none flex items-center justify-center gap-1.5 hover:bg-slate-800 transition-colors"
+            className="inventory-dark-action-button"
           >
             <Sliders className="w-3.5 h-3.5 text-orange-500" />
             New Adjustment Request
@@ -2259,7 +2347,7 @@ export default function PosStock({
 
           <button
             onClick={triggerReceiveModal}
-            className="px-3 py-2 bg-[#f97316] text-white hover:bg-[#ea580c] font-black text-[10px] uppercase cursor-pointer rounded-none flex items-center justify-center gap-1.5 border border-orange-600 transition-colors"
+            className="inventory-dark-action-button inventory-dark-action-button--primary"
           >
             <ShoppingBag className="w-3.5 h-3.5 stroke-[2.5]" />
             Receive Goods
@@ -2269,7 +2357,7 @@ export default function PosStock({
             onClick={() => {
               if (localStock.length > 0) triggerTransferModal(localStock[0]);
             }}
-            className="px-3 py-2 bg-transparent border border-slate-700 hover:border-orange-500 text-white font-extrabold text-[10px] uppercase cursor-pointer rounded-none flex items-center justify-center gap-1.5 hover:bg-slate-800 transition-colors"
+            className="inventory-dark-action-button"
           >
             <ArrowRightLeft className="w-3.5 h-3.5 text-orange-500" />
             Transfer Stock
@@ -2277,7 +2365,7 @@ export default function PosStock({
 
           <button
             onClick={handleExportCSV}
-            className="px-3 py-2 bg-transparent border border-slate-700 hover:border-orange-500 text-white font-extrabold text-[10px] uppercase cursor-pointer rounded-none flex items-center justify-center gap-1.5 hover:bg-slate-800 transition-colors"
+            className="inventory-dark-action-button"
           >
             <Download className="w-3.5 h-3.5 text-orange-500" />
             Export Stock List
@@ -2285,7 +2373,7 @@ export default function PosStock({
 
           <button
             onClick={handleViewVarianceRisks}
-            className="px-3 py-2 bg-transparent border border-slate-700 hover:border-orange-500 text-white font-extrabold text-[10px] uppercase cursor-pointer rounded-none flex items-center justify-center gap-1.5 hover:bg-slate-800 transition-colors"
+            className="inventory-dark-action-button"
           >
             <AlertTriangle className="w-3.5 h-3.5 text-orange-500 animate-pulse" />
             View Variance Risks
@@ -2449,17 +2537,17 @@ export default function PosStock({
       </div>
 
       {/* 5. MULTI-SPLIT LOWER SCREEN AND HIGH LEVEL DATA TABLE */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+      <div className="inventory-matches-card">
         
         {/* main table column */}
-        <div className="lg:col-span-8 bg-white border border-[#b1b5c2] p-4 space-y-4">
+        <div className="bg-white border border-[#b1b5c2] p-4 space-y-4">
           
           <div className="flex justify-between items-center pb-2 border-b border-gray-150">
             <span className="font-extrabold text-[#111827] text-[10.5px] uppercase">MATCHES IN LOCAL SYSTEM ({sortedAndFilteredStock.length} SKU ENTITIES)</span>
             <span className="text-[9px] bg-slate-900 text-white px-2 py-0.5 font-bold font-mono">STATUS: HIGH INTEGRITY TELEMETRY</span>
           </div>
 
-          <div className="overflow-x-auto pos-custom-scroll">
+          <div className="inventory-matches-scroll pos-custom-scroll">
             <table className="w-full text-[10.5px] text-left border-collapse min-w-[1180px]">
               <thead>
                 <tr className="bg-[#1e222b] text-white border-b-2 border-slate-900 uppercase text-[8.5px] font-black h-9 select-none">
@@ -2500,7 +2588,7 @@ export default function PosStock({
                     </td>
                   </tr>
                 ) : (
-                  sortedAndFilteredStock.map(p => {
+                  sortedAndFilteredStock.map((p, index) => {
                     const isLowStock = p.stock <= p.minStock && p.stockStatus !== 'Out of Stock';
                     const isOutStock = p.stock === 0;
 
@@ -2574,45 +2662,12 @@ export default function PosStock({
                           </span>
                         </td>
                         <td className="py-2 px-3">
-                          <div className="flex flex-wrap gap-1 justify-center">
-                            
-                            {/* View details */}
-                            <button
-                              onClick={() => setSelectedProduct(p)}
-                              className="p-1 bg-white text-slate-700 hover:text-orange-500 border border-[#b1b5c2] hover:border-orange-500 cursor-pointer"
-                              title="View item details"
-                            >
-                              <Eye className="w-3.5 h-3.5" />
-                            </button>
-
-                            {/* Stocktake */}
-                            <button
-                              onClick={() => triggerStocktakeModal(p)}
-                              className="p-1 bg-white text-slate-700 hover:text-orange-500 border border-[#b1b5c2] hover:border-orange-500 cursor-pointer"
-                              title="Execute physical stocktake audit"
-                            >
-                              <ClipboardList className="w-3.5 h-3.5" />
-                            </button>
-
-                            {/* Adjust */}
-                            <button
-                              onClick={() => triggerAdjustmentModal(p)}
-                              className="p-1 bg-white text-slate-700 hover:text-orange-500 border border-[#b1b5c2] hover:border-orange-500 cursor-pointer"
-                              title="Register adjustment request"
-                            >
-                              <Sliders className="w-3.5 h-3.5" />
-                            </button>
-
-                            {/* Route Transfer */}
-                            <button
-                              onClick={() => triggerTransferModal(p)}
-                              className="p-1 bg-white text-slate-700 hover:text-orange-500 border border-[#b1b5c2] hover:border-orange-500 cursor-pointer"
-                              title="Request inter-branch dispatch transfer"
-                            >
-                              <ArrowRightLeft className="w-3.5 h-3.5" />
-                            </button>
-
-                          </div>
+                          <RowActionMenu
+                            open={openRowActionMenuId === p.id}
+                            align={index > sortedAndFilteredStock.length - 4 ? 'top' : 'bottom'}
+                            items={getStockListActionItems(p)}
+                            onOpenChange={(open) => setOpenRowActionMenuId(open ? p.id : null)}
+                          />
                         </td>
                       </tr>
                     );
@@ -2625,10 +2680,10 @@ export default function PosStock({
         </div>
 
         {/* Right side activity feed and item details panel */}
-        <div className="lg:col-span-4 space-y-6">
+        {showActivityFeed && <div className="space-y-6">
           
           {/* Active Product Details Viewer */}
-          {selectedProduct && (
+          {false && selectedProduct && (
             <div className="bg-white border-2 border-[#1e222b] p-4 relative pt-1 border-t-8 border-t-[#1e222b]">
               
               <div className="flex justify-between items-center border-b border-gray-150 pb-2 mb-3 mt-1">
@@ -2783,10 +2838,21 @@ export default function PosStock({
 
           </div>
 
-        </div>
+        </div>}
 
       </div>
 
+
+      {isPartSpectralPopupOpen && selectedProductForDetail && (
+        <PartSpectralModal
+          product={selectedProductForDetail}
+          onClose={closePartSpectralPopup}
+          onAudit={() => triggerStocktakeModal(selectedProductForDetail)}
+          onAdjust={() => triggerAdjustmentModal(selectedProductForDetail)}
+          onRoute={() => triggerTransferModal(selectedProductForDetail)}
+          onLedger={() => void openProductLedger(selectedProductForDetail)}
+        />
+      )}
 
       {/* ========================================================================= */}
       {/* ===================== SCI CORE TRANSACTION MODALS ======================== */}
@@ -2797,7 +2863,7 @@ export default function PosStock({
         <div className="fixed inset-0 bg-slate-950/70 z-[800] flex items-center justify-center p-4">
           <form 
             onSubmit={handleStocktakeSubmit}
-            className="w-full max-w-[440px] bg-white border-2 border-[#1e222b] shadow-2xl flex flex-col justify-between text-xs tracking-wide rounded-none"
+            className="w-[96vw] max-w-[1040px] max-h-[90vh] bg-white border-2 border-[#1e222b] shadow-2xl flex flex-col justify-between text-xs tracking-wide rounded-none"
           >
             {/* Titlebar */}
             <div className="h-10.5 bg-[#1e222b] text-white px-4 flex items-center justify-between shrink-0 border-b-2 border-orange-500">
@@ -2917,7 +2983,7 @@ export default function PosStock({
         <div className="fixed inset-0 bg-slate-950/70 z-[800] flex items-center justify-center p-4">
           <form 
             onSubmit={handleAdjustmentSubmit}
-            className="w-full max-w-[440px] bg-white border-2 border-[#1e222b] shadow-2xl flex flex-col justify-between text-xs tracking-wide rounded-none"
+            className="w-[96vw] max-w-[1040px] max-h-[90vh] bg-white border-2 border-[#1e222b] shadow-2xl flex flex-col justify-between text-xs tracking-wide rounded-none"
           >
             {/* Titlebar */}
             <div className="h-10.5 bg-[#1e222b] text-white px-4 flex items-center justify-between shrink-0 border-b-2 border-orange-500">
@@ -3049,7 +3115,7 @@ export default function PosStock({
         <div className="fixed inset-0 bg-slate-950/70 z-[800] flex items-center justify-center p-4">
           <form 
             onSubmit={handleTransferSubmit}
-            className="w-full max-w-[440px] bg-white border-2 border-[#1e222b] shadow-2xl flex flex-col justify-between text-xs tracking-wide rounded-none"
+            className="w-[96vw] max-w-[1040px] max-h-[90vh] bg-white border-2 border-[#1e222b] shadow-2xl flex flex-col justify-between text-xs tracking-wide rounded-none"
           >
             {/* Titlebar */}
             <div className="h-10.5 bg-[#1e222b] text-white px-4 flex items-center justify-between shrink-0 border-b-2 border-orange-500">
@@ -3169,7 +3235,7 @@ export default function PosStock({
         <div className="fixed inset-0 bg-slate-950/70 z-[800] flex items-center justify-center p-4">
           <form 
             onSubmit={handleReceiveGoodsSubmit}
-            className="w-full max-w-[440px] bg-white border-2 border-[#1e222b] shadow-2xl flex flex-col justify-between text-xs tracking-wide rounded-none"
+            className="w-[96vw] max-w-[1040px] max-h-[90vh] bg-white border-2 border-[#1e222b] shadow-2xl flex flex-col justify-between text-xs tracking-wide rounded-none"
           >
             {/* Titlebar */}
             <div className="h-10.5 bg-[#1e222b] text-white px-4 flex items-center justify-between shrink-0 border-b-2 border-orange-500">
@@ -3362,6 +3428,72 @@ export default function PosStock({
         />
       )}
 
+    </div>
+  );
+}
+
+function PartSpectralModal({
+  product,
+  onClose,
+  onAudit,
+  onAdjust,
+  onRoute,
+  onLedger
+}: {
+  product: StockProduct;
+  onClose: () => void;
+  onAudit: () => void;
+  onAdjust: () => void;
+  onRoute: () => void;
+  onLedger: () => void;
+}) {
+  const detailRows = [
+    ['SKU / Assignment', product.sku || product.code],
+    ['Product Name', product.productName || product.name],
+    ['System Qty', `${product.qtyOnHand ?? product.stock} ${product.unitOfMeasure || product.unit}`],
+    ['Safety Floor / Reorder Level', `${product.reorderLevel ?? product.minStock} ${product.unitOfMeasure || product.unit}`],
+    ['Category', product.productCategory || product.category],
+    ['Branch', product.branch || 'Harare Main'],
+    ['Warehouse', product.warehouse || 'Main Warehouse'],
+    ['Catalog Rate / Selling Price', `USD ${(product.sellingPrice ?? product.price).toFixed(2)}`],
+    ['Cost Basis', `USD ${(product.costPrice ?? product.cost).toFixed(2)}`],
+    ['Last Movement', product.lastMovementDate || 'No local movement recorded'],
+    ['Risk / Integrity Status', `${product.riskLevel || 'Low'} / ${product.stockStatus || 'In Stock'}`]
+  ];
+  return (
+    <div className="fixed inset-0 z-[1300] bg-slate-950/55 flex items-center justify-center p-3 md:p-4">
+      <div className="part-spectral-modal bg-white border-2 border-[#1e222b] shadow-2xl w-[96vw] md:w-[88vw] max-w-[1320px] h-[90vh] md:h-[86vh] flex flex-col">
+        <div className="bg-[#1e222b] text-white border-b-4 border-orange-500 p-4 flex items-start justify-between gap-4">
+          <div>
+            <p className="text-[9px] text-orange-300 uppercase font-black">Part Spectral Data Feed</p>
+            <h2 className="text-sm font-black uppercase">Product identity, stock balance, pricing, movement, and risk view.</h2>
+          </div>
+          <button type="button" onClick={onClose} className="p-2 border border-white/30 hover:bg-white/10" title="Close Part Spectral Data Feed">
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+        <div className="flex-1 overflow-y-auto pos-custom-scroll p-4 space-y-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
+            {detailRows.map(([label, value]) => (
+              <div key={label} className="border border-[#b1b5c2] bg-slate-50 p-3">
+                <span className="block text-[8px] uppercase font-black text-slate-500">{label}</span>
+                <strong className="block mt-1 text-[11px] uppercase text-[#1e222b] break-words">{value}</strong>
+              </div>
+            ))}
+          </div>
+          <div className="border border-[#b1b5c2] bg-white p-3">
+            <span className="block text-[8px] uppercase font-black text-slate-500">System Integrity</span>
+            <div className="mt-2 font-mono text-[10px] text-slate-700 break-all">||| | | |||| | ||| |||| | | ||| / {product.id}</div>
+          </div>
+        </div>
+        <div className="border-t border-[#b1b5c2] bg-slate-50 p-3 flex flex-wrap justify-end gap-2">
+          <button type="button" onClick={onAudit} className="px-3 py-2 border border-[#b1b5c2] bg-white hover:border-orange-500 text-[#1e222b] text-[10px] font-black uppercase">Audit</button>
+          <button type="button" onClick={onAdjust} className="px-3 py-2 border border-[#b1b5c2] bg-white hover:border-orange-500 text-[#1e222b] text-[10px] font-black uppercase">Adjust</button>
+          <button type="button" onClick={onRoute} className="px-3 py-2 border border-[#b1b5c2] bg-white hover:border-orange-500 text-[#1e222b] text-[10px] font-black uppercase">Route / Transfer</button>
+          <button type="button" onClick={onLedger} className="px-3 py-2 border border-orange-600 bg-orange-600 text-white text-[10px] font-black uppercase">View Ledger</button>
+          <button type="button" onClick={onClose} className="px-3 py-2 border border-[#b1b5c2] bg-white text-[#1e222b] text-[10px] font-black uppercase">Close</button>
+        </div>
+      </div>
     </div>
   );
 }

@@ -25,7 +25,6 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
-  PosPageId, 
   BusinessProfile, 
   BranchSetting, 
   WarehouseSetting, 
@@ -36,12 +35,13 @@ import {
   ReceiptSetting
 } from '../types';
 import { Role } from '../types';
-import { getAllowedMenusForRole, hasPermission } from '../utils/posPermissions';
+import { hasPermission } from '../utils/posPermissions';
 import A5FloatingForm from '../components/A5FloatingForm';
 import StaffSessionGatePanel from '../components/StaffSessionGatePanel';
 import RoleMenuReadinessPanel from '../components/RoleMenuReadinessPanel';
 import SecurityRightsMatrix from '../components/SecurityRightsMatrix';
 import { getCurrentStaffGateSession, getStaffSessionGateReadiness } from '../auth/staffSessionGateService';
+import { recordSecurityMatrixEvent } from '../auth/permissionMatrixService';
 import { saveBusinessProfile, validateBusinessProfile } from '../services/businessProfileService';
 
 interface PosSettingsProps {
@@ -55,8 +55,6 @@ interface PosSettingsProps {
   onUpdateTerminals: (terminals: TerminalSetting[]) => void;
   staff: StaffSetting[];
   onUpdateStaff: (staff: StaffSetting[]) => void;
-  rolePermissions: Record<string, PosPageId[]>;
-  onUpdateRolePermissions: (permissions: Record<string, PosPageId[]>) => void;
   hardwareSetting: HardwareSetting;
   onUpdateHardwareSetting: (hardware: HardwareSetting) => void;
   taxSetting: TaxSetting;
@@ -100,8 +98,6 @@ export default function PosSettings({
   onUpdateTerminals,
   staff,
   onUpdateStaff,
-  rolePermissions,
-  onUpdateRolePermissions,
   hardwareSetting,
   onUpdateHardwareSetting,
   taxSetting,
@@ -338,33 +334,19 @@ export default function PosSettings({
     }
   };
 
-  // --- SUB-FORM 6: ROLES & PERMISSIONS CHECKBOX TOGGLE MATRIX ---
-  const AVAILABLE_ROLES = ['Owner', 'SysAdmin', 'Manager', 'Supervisor', 'Cashier', 'Stock Controller'] as const;
-  const MENU_MAP: { id: PosPageId, label: string }[] = [
-    { id: 'DASHBOARD', label: 'Dashboard Main' },
-    { id: 'OWNER_DESK', label: 'Owner Desk' },
-    { id: 'SALES', label: 'Sales Terminal' },
-    { id: 'DELIVERY', label: 'Delivery Desk' },
-    { id: 'STOCK', label: 'Stock Control Hub' },
-    { id: 'SHIFT', label: 'Shift Logging' },
-    { id: 'CASH', label: 'Cash Drawer Control' },
-    { id: 'BI_DESK', label: 'BI Desk Audits' },
-    { id: 'SYNC_DESK', label: 'Sync Control Desk' },
-    { id: 'SETTINGS', label: 'Config Settings' },
-  ];
-  const togglePermission = (role: string, pageId: PosPageId) => {
-    const current = rolePermissions[role] || [];
-    const updated = current.includes(pageId)
-      ? current.filter(p => p !== pageId)
-      : [...current, pageId];
-    
-    const updatedMap = {
-      ...rolePermissions,
-      [role]: updated
-    };
-    onUpdateRolePermissions(updatedMap);
-    triggerToast(`PERMISSIONS REDEFINED FOR ROLE: ${role.toUpperCase()}`);
+  const openRetiredRolesNotice = () => {
+    recordSecurityMatrixEvent({
+      eventType: 'ROLES_PERMISSIONS_RETIRED',
+      label: 'Roles & Permissions Retired',
+      message: 'The retired Roles & Permissions panel was opened. Staff Access Rights is the active permission control centre.'
+    });
+    setActiveSection('ROLES');
+    triggerToast('Roles & Permissions has been retired. Use Staff Access Rights.');
   };
+  const retiredRolePreviewRows: string[] = [];
+  const retiredMenuPreviewRows: { id: string; label: string }[] = [];
+  const retiredPermissionPreview: Record<string, string[]> = {};
+  const retiredPermissionToggle = () => openRetiredRolesNotice();
 
   // --- SUB-FORM 7: HARDWARE SETTINGS STATES ---
   const [hardForm, setHardForm] = useState<HardwareSetting>({ ...hardwareSetting });
@@ -413,7 +395,7 @@ export default function PosSettings({
     { id: 'WAREHOUSES' as const, label: 'Warehouses Hub', icon: Package, color: 'text-purple-400' },
     { id: 'TERMINALS' as const, label: 'Terminal Registry', icon: Terminal, color: 'text-amber-500' },
     { id: 'STAFF' as const, label: 'Staff Database', icon: Users, color: 'text-emerald-400' },
-    { id: 'ROLES' as const, label: 'Roles & Permissions', icon: ShieldCheck, color: 'text-blue-400' },
+    { id: 'ROLES' as const, label: 'Roles & Permissions - retired', icon: ShieldCheck, color: 'text-slate-500', retired: true },
     { id: 'HARDWARE' as const, label: 'Hardware Config', icon: Cpu, color: 'text-orange-400' },
     { id: 'TAX' as const, label: 'Tax & VAT Settings', icon: Percent, color: 'text-rose-450' },
     { id: 'RECEIPT' as const, label: 'Receipt Blueprint', icon: Receipt, color: 'text-pink-400' },
@@ -491,6 +473,22 @@ export default function PosSettings({
                 <button
                   key={item.id}
                   onClick={() => {
+                    if ('retired' in item && item.retired) {
+                      openRetiredRolesNotice();
+                      return;
+                    }
+                    if (item.id === 'STAFF_ACCESS_RIGHTS') {
+                      recordSecurityMatrixEvent({
+                        eventType: 'STAFF_ACCESS_RIGHTS_OPENED',
+                        label: 'Staff Access Rights Opened',
+                        message: 'Staff Access Rights opened from Settings.'
+                      });
+                      recordSecurityMatrixEvent({
+                        eventType: 'STAFF_ACCESS_RIGHTS_SET_AS_PRIMARY',
+                        label: 'Staff Access Rights Set As Primary',
+                        message: 'Staff Access Rights is the active permission management area.'
+                      });
+                    }
                     setActiveSection(item.id);
                     // Clear intermediate forms
                     setIsEditingBranch(false);
@@ -504,8 +502,10 @@ export default function PosSettings({
                   }}
                   className={`w-full text-left py-2 px-3 flex items-center justify-between transition-all text-[11px] rounded-none border-l-2 font-mono outline-none cursor-pointer ${
                     isActive 
-                      ? 'bg-white text-[#1e222b] font-bold border-orange-600' 
-                      : 'border-transparent text-[#e7edf0] hover:text-white hover:bg-slate-800'
+                      ? 'bg-white text-[#1e222b] font-bold border-orange-600'
+                      : 'retired' in item && item.retired
+                        ? 'border-transparent text-slate-500 hover:text-slate-300 hover:bg-slate-900'
+                        : 'border-transparent text-[#e7edf0] hover:text-white hover:bg-slate-800'
                   }`}
                 >
                   <div className="flex items-center gap-2.5">
@@ -1303,62 +1303,59 @@ export default function PosSettings({
               </div>
             )}
 
-            {/* TAB 6: ROLES & PERMISSIONS checkbox toggle matrix */}
+            {/* TAB 6: RETIRED ROLES & PERMISSIONS panel */}
             {activeSection === 'ROLES' && (
               <div className="space-y-6">
                 <div className="border-b border-slate-800 pb-2 flex flex-col md:flex-row md:items-center justify-between gap-2">
                   <span className="text-xs font-bold text-white uppercase tracking-wider flex items-center gap-2">
-                    <ShieldCheck className="w-4 h-4 text-blue-400" />
-                    ROLE-BASED PERMISSION ACCESS GATES [MATRIX CHECK]
+                    <ShieldCheck className="w-4 h-4 text-orange-400" />
+                    ROLES & PERMISSIONS RETIRED
                   </span>
-                  <div className="flex items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        const defaults: Record<string, PosPageId[]> = {
-                          'Owner': getAllowedMenusForRole('Owner'),
-                          'SysAdmin': getAllowedMenusForRole('SysAdmin'),
-                          'Manager': getAllowedMenusForRole('Manager'),
-                          'Supervisor': getAllowedMenusForRole('Supervisor'),
-                          'Cashier': getAllowedMenusForRole('Cashier'),
-                          'Stock Controller': getAllowedMenusForRole('Stock Controller')
-                        };
-                        onUpdateRolePermissions(defaults);
-                        triggerToast("PERMISSIONS RESET TO SYSTEM DEFAULTS");
-                      }}
-                      className="text-[9.5px] bg-[#00f0ff]/10 hover:bg-[#00f0ff]/20 text-[#00f0ff] border border-[#00f0ff]/30 px-2.5 py-1 uppercase font-bold cursor-pointer transition-colors"
-                    >
-                      Reset to Defaults
-                    </button>
-                    <span className="text-[9px] bg-slate-950 px-1 py-1 border border-slate-800 text-[#00f0ff]">LIVE SHELL INJECTED</span>
-                  </div>
+                  <span className="text-[9px] bg-orange-50 px-2 py-1 border border-orange-300 text-orange-800 font-black uppercase">Retired</span>
                 </div>
 
-                <p className="text-[10px] text-slate-450 uppercase leading-relaxed mb-4">
-                  Define the exact security clearance rules below. Checking a box maps authorization to the corresponding navigation page. <span className="text-amber-500 font-bold">Unchecked modules completely disappear from the clerk's menu and lock structural bypasses.</span>
-                </p>
+                <div className="border border-orange-400 bg-orange-50 text-orange-950 p-4">
+                  <h2 className="text-sm font-black uppercase text-[#1e222b]">Roles & Permissions Retired</h2>
+                  <p className="text-[10px] font-bold uppercase leading-relaxed mt-2">
+                    This panel no longer controls access. Use Staff Access Rights to manage role-based permissions, menu access, staff access gates, and security rights.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      recordSecurityMatrixEvent({
+                        eventType: 'STAFF_ACCESS_RIGHTS_SET_AS_PRIMARY',
+                        label: 'Staff Access Rights Set As Primary',
+                        message: 'User moved from retired Roles & Permissions to Staff Access Rights.'
+                      });
+                      setActiveSection('STAFF_ACCESS_RIGHTS');
+                    }}
+                    className="mt-3 px-3 py-2 bg-orange-600 border border-orange-700 text-white text-[10px] font-black uppercase"
+                  >
+                    Open Staff Access Rights
+                  </button>
+                </div>
 
                 {/* The Permission Table Matrix */}
-                <div className="overflow-x-auto border border-slate-850 pos-custom-scroll bg-slate-950">
+                <div className="hidden overflow-x-auto border border-slate-850 pos-custom-scroll bg-slate-950">
                   <table className="w-full text-left border-collapse text-xs">
                     <thead>
                       <tr className="bg-slate-900 border-b border-slate-800">
                         <th className="p-3 text-[10px] text-slate-400 uppercase font-black tracking-wider">SYSTEM ROLES [6 CLUSTERS]</th>
-                        {MENU_MAP.map(m => (
+                        {retiredMenuPreviewRows.map(m => (
                           <th key={m.id} className="p-3 text-[9px] text-slate-400 text-center uppercase font-black tracking-wider leading-snug max-w-[90px]">{m.label}</th>
                         ))}
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-900 bg-slate-950/60">
-                      {AVAILABLE_ROLES.map(role => {
-                        const permittedPages = rolePermissions[role] || [];
+                      {retiredRolePreviewRows.map(role => {
+                        const permittedPages = retiredPermissionPreview[role] || [];
                         return (
                           <tr key={role} className="hover:bg-slate-900/40 transition-colors">
                             <td className="p-3 font-bold text-slate-200">
                               <span className="text-[#00f0ff] mr-1.5">•</span>
                               {role}
                             </td>
-                            {MENU_MAP.map(menu => {
+                            {retiredMenuPreviewRows.map(menu => {
                               const isChecked = permittedPages.includes(menu.id);
                               return (
                                 <td key={menu.id} className="p-3 text-center align-middle">
@@ -1366,7 +1363,7 @@ export default function PosSettings({
                                     <input 
                                       type="checkbox" 
                                       checked={isChecked}
-                                      onChange={() => togglePermission(role, menu.id)}
+                                      onChange={retiredPermissionToggle}
                                       className="w-4 h-4 rounded-none border border-slate-800 bg-slate-950 text-[#00f0ff] focus:ring-0 accent-blue-500 cursor-pointer"
                                     />
                                   </label>
@@ -1383,8 +1380,8 @@ export default function PosSettings({
                 <div className="p-4 bg-slate-950 border border-slate-900 rounded-none flex items-start gap-3 text-slate-500 text-[10px] uppercase leading-normal">
                   <Info className="w-5 h-5 text-blue-400 shrink-0 mt-0.5" />
                   <div>
-                    <span className="font-bold text-slate-300 block mb-1">HYPER-SECURE LOCAL OVERLAY VERIFIED</span>
-                    Changing these toggles immediately alters client routing. To test Cashier access, register or pick a Cashier account, click "Sign Out staff" in the leftmost panel margin, and log in with their corresponding demo credentials on the lock gateway.
+                    <span className="font-bold text-slate-300 block mb-1">DUPLICATE PERMISSION STATE DISABLED</span>
+                    Navigation, role menu access, staff session permissions, and action readiness now resolve from Staff Access Rights effective permissions.
                   </div>
                 </div>
               </div>
@@ -1732,6 +1729,9 @@ export default function PosSettings({
                     STAFF ACCESS RIGHTS
                   </span>
                   <span className="text-[9px] text-orange-600 uppercase bg-slate-50 px-1 border border-[#b1b5c2]">LOCAL MATRIX</span>
+                </div>
+                <div className="border border-orange-300 bg-orange-50 text-orange-950 p-3 text-[10px] font-bold uppercase leading-relaxed">
+                  Staff Access Rights is the active permission control centre. The older Roles & Permissions panel has been retired to avoid duplicate permission states.
                 </div>
                 <SecurityRightsMatrix />
               </div>

@@ -220,7 +220,7 @@ export default function StocktakeForm({
 
   const panelClass = windowState === 'maximized'
     ? 'fixed inset-3'
-    : 'fixed left-1/2 top-8 w-[min(1180px,calc(100vw-28px))] -translate-x-1/2';
+    : 'fixed left-1/2 top-8 w-[min(1360px,calc(100vw-28px))] -translate-x-1/2';
 
   return (
     <div className="fixed inset-0 z-50 bg-black/35">

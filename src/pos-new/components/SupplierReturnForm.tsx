@@ -94,7 +94,7 @@ export default function SupplierReturnForm({
     ? 'w-[calc(100vw-32px)] h-[calc(100vh-32px)]'
     : windowState === 'minimized'
       ? 'w-[560px] h-[46px]'
-      : 'w-[min(1220px,calc(100vw-32px))] h-[min(840px,calc(100vh-32px))]';
+      : 'w-[min(1380px,calc(100vw-32px))] h-[min(890px,calc(100vh-32px))]';
 
   const reloadLines = async () => {
     setLines(await getSupplierReturnLines(record.supplierReturnId));
