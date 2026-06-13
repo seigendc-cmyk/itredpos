@@ -40,6 +40,7 @@ import { getAllowedMenusForRole, hasPermission } from '../utils/posPermissions';
 import A5FloatingForm from '../components/A5FloatingForm';
 import StaffSessionGatePanel from '../components/StaffSessionGatePanel';
 import RoleMenuReadinessPanel from '../components/RoleMenuReadinessPanel';
+import SecurityRightsMatrix from '../components/SecurityRightsMatrix';
 import { getCurrentStaffGateSession, getStaffSessionGateReadiness } from '../auth/staffSessionGateService';
 
 interface PosSettingsProps {
@@ -84,6 +85,7 @@ type SettingsSectionId =
   | 'TAX' 
   | 'RECEIPT'
   | 'BUILD_STATUS'
+  | 'STAFF_ACCESS_RIGHTS'
   | 'RESET';
 
 export default function PosSettings({
@@ -411,6 +413,7 @@ export default function PosSettings({
     { id: 'HARDWARE' as const, label: 'Hardware Config', icon: Cpu, color: 'text-orange-400' },
     { id: 'TAX' as const, label: 'Tax & VAT Settings', icon: Percent, color: 'text-rose-450' },
     { id: 'RECEIPT' as const, label: 'Receipt Blueprint', icon: Receipt, color: 'text-pink-400' },
+    { id: 'STAFF_ACCESS_RIGHTS' as const, label: 'Staff Access Rights', icon: ShieldCheck, color: 'text-orange-500' },
     { id: 'BUILD_STATUS' as const, label: 'Build Status', icon: Info, color: 'text-orange-500' },
     { id: 'RESET' as const, label: 'System Maintenance', icon: AlertTriangle, color: 'text-red-500 font-extrabold' },
   ];
@@ -1737,6 +1740,19 @@ export default function PosSettings({
                 </div>
                 <StaffSessionGatePanel />
                 <RoleMenuReadinessPanel />
+              </div>
+            )}
+
+            {activeSection === 'STAFF_ACCESS_RIGHTS' && (
+              <div className="space-y-5">
+                <div className="border-b border-slate-800 pb-2 flex items-center justify-between">
+                  <span className="text-xs font-bold text-white uppercase tracking-wider flex items-center gap-2">
+                    <ShieldCheck className="w-4 h-4 text-orange-500" />
+                    STAFF ACCESS RIGHTS
+                  </span>
+                  <span className="text-[9px] text-orange-600 uppercase bg-slate-50 px-1 border border-[#b1b5c2]">LOCAL MATRIX</span>
+                </div>
+                <SecurityRightsMatrix />
               </div>
             )}
 

@@ -63,6 +63,9 @@ export default function StaffSessionGatePanel() {
         <div className="border border-orange-200 bg-orange-50 p-2 text-[10px] text-orange-950 font-bold uppercase">
           Staff gate is in preview mode. It does not lock the app until production gate enforcement is enabled.
         </div>
+        <div className="border border-[#b1b5c2] bg-slate-50 p-2 text-[10px] text-slate-700 font-bold uppercase">
+          Staff Access Rights matrix is available in Settings for role hierarchy and permission override preview.
+        </div>
         <div className="grid grid-cols-1 md:grid-cols-3 xl:grid-cols-6 gap-3">
           <Metric label="Vendor" value={selectedStaff?.vendorId || session.vendorId} />
           <Select label="Staff Member" value={staffId} onChange={(value) => { setStaffId(value); const branch = mockBranchAccess.find((row) => row.staffId === value); setBranchId(branch?.branchId || ''); const terminal = mockTerminalAccess.find((row) => row.staffId === value && row.branchId === branch?.branchId); setTerminalId(terminal?.terminalId || ''); }} options={staffOptions.map((row) => [row.staffId, `${row.staffName} (${row.role})`])} />

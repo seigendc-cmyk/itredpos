@@ -1,13 +1,11 @@
 import { getCurrentTenantSession } from './tenantSessionService';
 import type { TenantUserRole } from './authTypes';
 import { canPerformAction, getPermissionsForRole, type PermissionKey, type PosAction } from '../utils/posPermissions';
+import { getEffectivePermissionsForRole, normalizeSecurityRole } from './permissionMatrixService';
 
 export function getPermissionsForTenantRole(role?: TenantUserRole): PermissionKey[] {
   if (role === 'VendorOwner' || role === 'VendorAdmin') return getPermissionsForRole('Owner');
-  if (role === 'StockController') return getPermissionsForRole('Stock Controller');
-  if (role === 'DeliveryStaff') return getPermissionsForRole('Delivery Staff');
-  if (role === 'Manager' || role === 'Supervisor' || role === 'Cashier') return getPermissionsForRole(role);
-  return [];
+  return getEffectivePermissionsForRole(normalizeSecurityRole(role || 'Viewer')) as PermissionKey[];
 }
 
 export function getCurrentSessionPermissions(): PermissionKey[] {
@@ -17,7 +15,7 @@ export function getCurrentSessionPermissions(): PermissionKey[] {
 }
 
 export function hasSessionPermission(permission: PermissionKey): boolean {
-  return getCurrentSessionPermissions().includes(permission);
+  return getCurrentSessionPermissions().includes(permission) || getCurrentSessionPermissions().includes(permission as PermissionKey);
 }
 
 export function isBuildDevelopmentOwnerSession(): boolean {
@@ -33,4 +31,3 @@ export function canCurrentSessionPerform(action: PosAction): boolean {
   if (session.staffRole === 'Manager' || session.staffRole === 'Supervisor' || session.staffRole === 'Cashier') return canPerformAction(session.staffRole, action);
   return false;
 }
-

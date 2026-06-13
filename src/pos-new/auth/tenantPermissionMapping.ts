@@ -1,6 +1,7 @@
 import type { Role } from '../types';
 import { getAllowedMenusForRole, getPermissionsForRole, type PermissionKey } from '../utils/posPermissions';
 import type { TenantUserRole } from './authTypes';
+import { getEffectivePermissionsForRole, normalizeSecurityRole } from './permissionMatrixService';
 
 const roleMap: Record<TenantUserRole, Role> = {
   VendorOwner: 'Owner',
@@ -20,9 +21,7 @@ export function mapTenantRoleToPosRole(role: TenantUserRole): Role {
 
 export function getTenantPermissionsForRole(role: TenantUserRole): PermissionKey[] {
   if (role === 'VendorOwner') return getPermissionsForRole('Owner');
-  if (role === 'VendorAdmin') return getPermissionsForRole('Manager');
-  if (role === 'Viewer') return ['sales.viewHistory', 'sync.view'];
-  return getPermissionsForRole(mapTenantRoleToPosRole(role));
+  return getEffectivePermissionsForRole(normalizeSecurityRole(role)) as PermissionKey[];
 }
 
 export function getTenantPermissionMappingRows() {

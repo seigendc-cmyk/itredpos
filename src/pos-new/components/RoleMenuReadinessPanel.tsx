@@ -19,13 +19,18 @@ export default function RoleMenuReadinessPanel() {
         </div>
         <label className="text-[9px] uppercase font-black text-slate-200">Role Selector<select className="ml-2 p-2 border border-[#b1b5c2] bg-white text-[#1e222b] text-xs" value={role} onChange={(event) => setRole(event.target.value as StaffGateRole)}>{roles.map((item) => <option key={item} value={item}>{item}</option>)}</select></label>
       </div>
-      <div className="p-3 grid grid-cols-1 xl:grid-cols-2 gap-3">
+      <div className="p-3 space-y-3">
+        <div className="border border-[#b1b5c2] bg-slate-50 p-2 text-[10px] text-slate-700 font-bold uppercase">
+          Menu readiness uses the Staff Access Rights matrix preview where safe. Strict route enforcement remains disabled.
+        </div>
+        <div className="grid grid-cols-1 xl:grid-cols-2 gap-3">
         <Table title="Allowed Menus" headers={['Menu Key', 'Menu Label', 'Group', 'Access']}>
           {menus.map((row) => <tr key={row.menuKey}><Td strong>{row.menuKey}</Td><Td>{row.menuLabel}</Td><Td>{row.group}</Td><Td><Badge value={row.access} /></Td></tr>)}
         </Table>
         <Table title="Allowed Actions" headers={['Permission Key', 'Area', 'Access']}>
           {actions.map((row) => <tr key={row.permissionKey}><Td strong>{row.permissionKey}</Td><Td>{row.area}</Td><Td><Badge value={row.access} /></Td></tr>)}
         </Table>
+        </div>
       </div>
     </section>
   );
