@@ -678,7 +678,7 @@ export default function SalesCartCard({
     <section className="sci-pos-card pos-cart-card sales-cart-shell" aria-labelledby="cart-title">
       <div className="sci-pos-card__bar sales-cart-fixed-header sales-cart-floating-header">
         <div>
-          <p className="sci-pos-eyebrow">Make Sale</p>
+          <p className="sci-pos-eyebrow sales-cart-make-sale-label">MAKE A SALE</p>
           <h2 id="cart-title">Cart</h2>
         </div>
         <div className="sales-cart-header-actions">
