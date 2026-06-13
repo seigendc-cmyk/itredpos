@@ -166,6 +166,7 @@ import {
   getStockAdjustments,
   getStockAdjustmentSummary,
   postStockAdjustment,
+  recordStockAdjustmentPlaceholderActivity,
   rejectStockAdjustment,
   reverseStockAdjustmentPlaceholder,
   StockAdjustmentPostingResult,
@@ -852,6 +853,7 @@ export default function StockPanels({
   const [stockAdjustmentFormOpen, setStockAdjustmentFormOpen] = useState(false);
   const [activeStockAdjustment, setActiveStockAdjustment] = useState<StockAdjustment | null>(null);
   const [stockAdjustmentNotice, setStockAdjustmentNotice] = useState<string | null>(null);
+  const [openStockAdjustmentMenuId, setOpenStockAdjustmentMenuId] = useState<string | null>(null);
 
   const refreshStockAdjustments = async (filters = stockAdjustmentFilters) => {
     const [records, events, summary] = await Promise.all([
@@ -1988,13 +1990,15 @@ export default function StockPanels({
   };
 
   const openStockAdjustmentForm = (record: StockAdjustment | null = null) => {
-    if (record === null && !canPerformAction(simulatedRole, 'stockAdjustments.create')) {
+    if (record === null && !canUseStockAdjustmentPermission('stockAdjustment.create')) {
       setStockAdjustmentNotice('You do not have permission to perform this action.');
       return;
     }
     setActiveStockAdjustment(record);
     setStockAdjustmentFormOpen(true);
   };
+
+  const canUseStockAdjustmentPermission = (permissionKey: string) => roleHasEffectivePermission(String(simulatedRole), permissionKey);
 
   const applyPostedStockAdjustmentToLocalStock = (result: StockAdjustmentPostingResult) => {
     if (!result.stockPosted) return;
@@ -2025,64 +2029,122 @@ export default function StockPanels({
 
   const handleStockAdjustmentAction = async (
     record: StockAdjustment,
-    action: 'submit' | 'approve' | 'reject' | 'post' | 'cancel' | 'reverse' | 'export'
+    action: 'submit' | 'approve' | 'reject' | 'post' | 'cancel' | 'reverse' | 'export' | 'duplicate'
   ) => {
     if (action === 'submit') {
+      if (record.status !== 'Draft' || !canUseStockAdjustmentPermission('stockAdjustment.create')) {
+        setStockAdjustmentNotice('You do not have permission to perform this action.');
+        return;
+      }
       await submitStockAdjustmentForApproval(record.adjustmentId);
-      setStockAdjustmentNotice(`${record.adjustmentNumber} submitted for approval. Stock not changed.`);
+      setStockAdjustmentNotice('Stock adjustment submitted for approval.');
     }
     if (action === 'approve') {
-      if (!canPerformAction(simulatedRole, 'stockAdjustments.approve') && !canPerformAction(simulatedRole, 'approvals.approve')) {
+      if (record.status !== 'Pending Approval' || !canUseStockAdjustmentPermission('stockAdjustment.approve')) {
         setStockAdjustmentNotice('You do not have permission to perform this action.');
         return;
       }
       await approveStockAdjustment(record.adjustmentId, staffName, 'Approved from Stock Adjustments tab.');
-      setStockAdjustmentNotice(`${record.adjustmentNumber} approved for posting.`);
+      setStockAdjustmentNotice('Stock adjustment approved.');
     }
     if (action === 'reject') {
-      if (!canPerformAction(simulatedRole, 'stockAdjustments.approve') && !canPerformAction(simulatedRole, 'approvals.reject')) {
+      if (!['Pending Approval', 'Approved'].includes(record.status) || !canUseStockAdjustmentPermission('stockAdjustment.approve')) {
         setStockAdjustmentNotice('You do not have permission to perform this action.');
         return;
       }
-      await rejectStockAdjustment(record.adjustmentId, staffName, 'Rejected from Stock Adjustments tab.');
-      setStockAdjustmentNotice(`${record.adjustmentNumber} rejected. Stock not changed.`);
+      await rejectStockAdjustment(record.adjustmentId, staffName, 'Rejected during build-development review.');
+      setStockAdjustmentNotice('Stock adjustment rejected.');
     }
     if (action === 'post') {
-      if (!canPerformAction(simulatedRole, 'stockAdjustments.post')) {
+      if (record.status !== 'Approved' || !canUseStockAdjustmentPermission('stockAdjustment.post')) {
         setStockAdjustmentNotice('You do not have permission to perform this action.');
         return;
       }
       const result = await postStockAdjustment(record.adjustmentId, staffName);
       if (result) {
         applyPostedStockAdjustmentToLocalStock(result);
-        setStockAdjustmentNotice(result.message);
+        setStockAdjustmentNotice(result.stockPosted ? result.message : 'Posted placeholder completed. Inventory movement will be written by controlled stock movement logic.');
       }
     }
     if (action === 'cancel') {
-      if (!canPerformAction(simulatedRole, 'stockAdjustments.cancel')) {
+      if (!['Draft', 'Pending Approval'].includes(record.status) || !canUseStockAdjustmentPermission('stockAdjustment.create')) {
         setStockAdjustmentNotice('You do not have permission to perform this action.');
         return;
       }
-      const reason = window.prompt(`Reason for cancelling ${record.adjustmentNumber}?`);
-      if (!reason) return;
-      await cancelStockAdjustment(record.adjustmentId, staffName, reason);
-      setStockAdjustmentNotice(`${record.adjustmentNumber} cancelled. Stock not changed.`);
+      await cancelStockAdjustment(record.adjustmentId, staffName, 'Cancelled during build-development review.');
+      setStockAdjustmentNotice('Stock adjustment cancelled.');
     }
     if (action === 'reverse') {
-      if (!canPerformAction(simulatedRole, 'stockAdjustments.reverse')) {
+      if (record.status !== 'Posted' || !canUseStockAdjustmentPermission('stockAdjustment.post')) {
         setStockAdjustmentNotice('You do not have permission to perform this action.');
         return;
       }
-      const reason = window.prompt(`Reason for reversing ${record.adjustmentNumber} placeholder?`);
-      if (!reason) return;
-      await reverseStockAdjustmentPlaceholder(record.adjustmentId, staffName, reason);
-      setStockAdjustmentNotice(`${record.adjustmentNumber} reversal placeholder recorded.`);
+      await reverseStockAdjustmentPlaceholder(record.adjustmentId, staffName, 'Reverse adjustment placeholder prepared. Final reversal workflow will create a controlled correction movement.');
+      setStockAdjustmentNotice('Reverse adjustment placeholder prepared. Final reversal workflow will create a controlled correction movement.');
     }
     if (action === 'export') {
-      const result = await exportStockAdjustmentPlaceholder(record.adjustmentId);
-      setStockAdjustmentNotice(result.message);
+      await exportStockAdjustmentPlaceholder(record.adjustmentId);
+      await recordStockAdjustmentPlaceholderActivity(record.adjustmentId, staffName, 'STOCK_ADJUSTMENT_EXPORT_PREPARED', `Export prepared for stock adjustment ${record.adjustmentNumber}.`);
+      setStockAdjustmentNotice(`Export prepared for stock adjustment ${record.adjustmentNumber}.`);
+    }
+    if (action === 'duplicate') {
+      if (!canUseStockAdjustmentPermission('stockAdjustment.create')) {
+        setStockAdjustmentNotice('You do not have permission to perform this action.');
+        return;
+      }
+      await recordStockAdjustmentPlaceholderActivity(record.adjustmentId, staffName, 'STOCK_ADJUSTMENT_DUPLICATED_PLACEHOLDER', `${record.adjustmentNumber} duplicate as new placeholder prepared.`);
+      setStockAdjustmentNotice(`${record.adjustmentNumber} duplicate as new placeholder prepared.`);
     }
     await refreshStockAdjustments();
+  };
+
+  const getStockAdjustmentActionItems = (record: StockAdjustment): RowActionMenuItem[] => {
+    const canView = canUseStockAdjustmentPermission('stockAdjustment.view') || canUseStockAdjustmentPermission('stockAdjustment.create');
+    const canCreate = canUseStockAdjustmentPermission('stockAdjustment.create');
+    const canApprove = canUseStockAdjustmentPermission('stockAdjustment.approve');
+    const canPost = canUseStockAdjustmentPermission('stockAdjustment.post');
+    const items: RowActionMenuItem[] = [];
+
+    if (canView) {
+      items.push({
+        label: record.status === 'Draft' ? 'View / Edit' : 'View',
+        icon: <Eye className="w-3.5 h-3.5" />,
+        onClick: () => openStockAdjustmentForm(record)
+      });
+    }
+
+    if (record.status === 'Draft') {
+      if (canCreate) {
+        items.push(
+          { label: 'Submit for Approval', icon: <Clock className="w-3.5 h-3.5" />, onClick: () => void handleStockAdjustmentAction(record, 'submit') },
+          { label: 'Cancel', icon: <X className="w-3.5 h-3.5" />, danger: true, onClick: () => void handleStockAdjustmentAction(record, 'cancel') }
+        );
+      }
+      if (canView) items.push({ label: 'Prepare Export', icon: <Download className="w-3.5 h-3.5" />, onClick: () => void handleStockAdjustmentAction(record, 'export') });
+    } else if (record.status === 'Pending Approval') {
+      if (canApprove) {
+        items.push(
+          { label: 'Approve', icon: <CheckCircle className="w-3.5 h-3.5" />, onClick: () => void handleStockAdjustmentAction(record, 'approve') },
+          { label: 'Reject', icon: <Ban className="w-3.5 h-3.5" />, danger: true, onClick: () => void handleStockAdjustmentAction(record, 'reject') }
+        );
+      }
+      if (canView) items.push({ label: 'Prepare Export', icon: <Download className="w-3.5 h-3.5" />, onClick: () => void handleStockAdjustmentAction(record, 'export') });
+    } else if (record.status === 'Approved') {
+      if (canPost) items.push({ label: 'Post Adjustment', icon: <Check className="w-3.5 h-3.5" />, onClick: () => void handleStockAdjustmentAction(record, 'post') });
+      if (canApprove) items.push({ label: 'Reject / Return for Correction Placeholder', icon: <Ban className="w-3.5 h-3.5" />, danger: true, onClick: () => void handleStockAdjustmentAction(record, 'reject') });
+      if (canView) items.push({ label: 'Prepare Export', icon: <Download className="w-3.5 h-3.5" />, onClick: () => void handleStockAdjustmentAction(record, 'export') });
+    } else if (record.status === 'Posted') {
+      if (canView) {
+        items.push({ label: 'View Ledger', icon: <History className="w-3.5 h-3.5" />, onClick: () => setStockAdjustmentNotice('Product Ledger can be opened from the Inventory Product Ledger tab; posted adjustment movements are recorded as STOCK_ADJUSTMENT_IN or STOCK_ADJUSTMENT_OUT.') });
+      }
+      if (canPost) items.push({ label: 'Reverse Placeholder', icon: <Archive className="w-3.5 h-3.5" />, danger: true, onClick: () => void handleStockAdjustmentAction(record, 'reverse') });
+      if (canView) items.push({ label: 'Prepare Export', icon: <Download className="w-3.5 h-3.5" />, onClick: () => void handleStockAdjustmentAction(record, 'export') });
+    } else {
+      if (canCreate) items.push({ label: 'Duplicate as New Placeholder', icon: <PlusCircle className="w-3.5 h-3.5" />, onClick: () => void handleStockAdjustmentAction(record, 'duplicate') });
+      if (canView) items.push({ label: 'Prepare Export', icon: <Download className="w-3.5 h-3.5" />, onClick: () => void handleStockAdjustmentAction(record, 'export') });
+    }
+
+    return items.length > 0 ? items : [{ label: 'No permitted actions for current role', disabled: true }];
   };
 
 
@@ -2703,20 +2765,21 @@ export default function StockPanels({
   return (
     <div className="space-y-6">
 
-      {/* OPERATOR ACCESS & MOCK ROLE OVERRIDE SELECTOR - Highly Visual Enforced Check */}
-      <div className="bg-[#1e222b] text-white p-3.5 border-b-4 border-b-orange-500 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
-        <div>
-          <span className="text-[8.5px] text-orange-400 font-black uppercase tracking-wider block">SCI AUTHORIZATION INTEGRITY CHAMBER</span>
-          <p className="text-[10px] text-slate-350 mt-0.5">Simulate role clearances globally to verify strict purchase discipline rules and gate logic.</p>
+      <div className="inventory-access-control-strip">
+        <div className="inventory-access-control-copy">
+          <Shield className="w-4 h-4 text-orange-600 shrink-0" />
+          <div>
+            <span>Access Control</span>
+            <p>Permission Source: Staff Access Rights | Page Access: Allowed</p>
+          </div>
         </div>
-        <div className="flex items-center gap-2">
-          <Shield className="w-4 h-4 text-orange-500 shrink-0" />
-          <span className="text-[10px] uppercase font-black">Active Clearance:</span>
+        <label className="inventory-access-role-picker">
+          <span>Preview Role</span>
           <select
             id="mock-reviewer-role-picker"
             value={simulatedRole}
             onChange={(e) => setSimulatedRole(e.target.value as Role)}
-            className="bg-slate-800 text-white font-black uppercase text-[10px] px-2 py-1 border border-slate-700 focus:border-orange-500 outline-none rounded-none cursor-pointer"
+            className="bg-white text-[#1e222b] font-black uppercase text-[10px] px-2 py-1 border border-[#b1b5c2] focus:border-orange-500 outline-none rounded-none cursor-pointer"
           >
             <option value="Stock Controller">Stock Controller</option>
             <option value="Supervisor">Supervisor</option>
@@ -2725,7 +2788,7 @@ export default function StockPanels({
             <option value="SysAdmin">SysAdmin</option>
             <option value="Cashier">Cashier (Blocked)</option>
           </select>
-        </div>
+        </label>
       </div>
 
 
@@ -4112,7 +4175,7 @@ export default function StockPanels({
             <button type="button" onClick={() => { const reset = { status: 'ALL' as const, reason: 'ALL' as const, riskLevel: 'ALL' as const }; setStockAdjustmentFilters(reset); refreshStockAdjustments(reset); }} className="px-3 py-2 bg-white text-[#1e222b] border border-[#b1b5c2] font-black uppercase text-[9px] rounded-none self-end">Clear Filters</button>
           </div>
 
-          <div className="overflow-x-auto pos-custom-scroll">
+          <div className="stock-adjustment-table-scroll pos-custom-scroll">
             <table className="w-full min-w-[1280px] text-[10px] text-left border-collapse">
               <thead>
                 <tr className="bg-[#1e222b] text-white font-black uppercase text-[8px] h-9 select-none">
@@ -4133,10 +4196,9 @@ export default function StockPanels({
               <tbody className="divide-y divide-gray-200">
                 {stockAdjustmentRecords.length === 0 ? (
                   <tr><td colSpan={12} className="py-8 text-center uppercase font-bold text-slate-500">No Stock Adjustments match the current filters.</td></tr>
-                ) : stockAdjustmentRecords.map((record) => {
+                ) : stockAdjustmentRecords.map((record, index) => {
                   const lines = stockAdjustmentLineMap[record.adjustmentId] || [];
                   const valueImpact = lines.reduce((sum, line) => sum + line.valueImpact, 0);
-                  const terminal = record.status === 'Cancelled' || record.status === 'Rejected' || record.status === 'Reversed';
                   return (
                     <tr key={record.adjustmentId} className="hover:bg-slate-50 transition-colors h-11">
                       <td className="py-2 px-3 font-black text-orange-700">{record.adjustmentNumber}</td>
@@ -4150,17 +4212,14 @@ export default function StockPanels({
                       <td className="py-2 px-3 text-center whitespace-nowrap"><span className={`inline-block px-2 py-0.5 text-[8px] uppercase tracking-wide rounded-none ${stockAdjustmentStatusClass(record.status)}`}>{record.status}</span></td>
                       <td className="py-2 px-3 uppercase">{record.requestedByStaffName}</td>
                       <td className="py-2 px-3 uppercase">{record.approvedByStaffName || 'N/A'}</td>
-                      <td className="py-2 px-3">
-                        <div className="flex flex-wrap gap-1 justify-center">
-                          <POAction label="View / Edit" onClick={() => openStockAdjustmentForm(record)} />
-                          {record.status === 'Draft' && <POAction label="Submit for Approval" onClick={() => handleStockAdjustmentAction(record, 'submit')} />}
-                          {record.status === 'Pending Approval' && <POAction label="Approve" onClick={() => handleStockAdjustmentAction(record, 'approve')} />}
-                          {record.status === 'Pending Approval' && <POAction label="Reject" onClick={() => handleStockAdjustmentAction(record, 'reject')} />}
-                          {(record.status === 'Draft' || record.status === 'Approved') && <POAction label="Post Adjustment" primary onClick={() => handleStockAdjustmentAction(record, 'post')} />}
-                          {record.status === 'Draft' && <POAction label="Cancel" onClick={() => handleStockAdjustmentAction(record, 'cancel')} />}
-                          {record.status === 'Posted' && <POAction label="Reverse Placeholder" onClick={() => handleStockAdjustmentAction(record, 'reverse')} />}
-                          {!terminal && <POAction label="Prepare Export" onClick={() => handleStockAdjustmentAction(record, 'export')} />}
-                        </div>
+                      <td className="py-2 px-3 text-center">
+                        <RowActionMenu
+                          ariaLabel="Stock adjustment actions"
+                          open={openStockAdjustmentMenuId === record.adjustmentId}
+                          align={index > Math.max(stockAdjustmentRecords.length - 4, 0) ? 'top' : 'bottom'}
+                          items={getStockAdjustmentActionItems(record)}
+                          onOpenChange={(open) => setOpenStockAdjustmentMenuId(open ? record.adjustmentId : null)}
+                        />
                       </td>
                     </tr>
                   );

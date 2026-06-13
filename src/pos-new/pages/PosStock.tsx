@@ -47,6 +47,8 @@ import {
   StockHealthRow,
   StockHealthSummary,
   InventoryReportFilters,
+  InventoryReportActivityEvent,
+  InventoryReportPayload,
   InventoryReportType,
   StockValuationRow,
   MovementSummaryRow,
@@ -78,6 +80,7 @@ import { canPerformAction } from '../utils/posPermissions';
 import { addLocalQueueItem } from '../utils/localQueueStore';
 import StockPanels from './StockPanels';
 import ProductImportForm from '../components/ProductImportForm';
+import InventoryReportPrintView from '../components/InventoryReportPrintView';
 import RowActionMenu, { RowActionMenuItem } from '../components/RowActionMenu';
 import { normalizeProductNumericNumber } from '../utils/productNumberUtils';
 import { matchesFreeOrderSearch } from '../utils/searchUtils';
@@ -105,6 +108,11 @@ import { generateReadinessFromInventoryMovement } from '../services/inventoryAcc
 import { evaluateStockHealth, getStockHealthRows, getStockHealthSummary } from '../services/stockHealthService';
 import {
   exportInventoryReportPlaceholder,
+  exportInventoryReportCsvPlaceholder,
+  generateInventoryReport,
+  getInventoryReportActivityEvents,
+  getInventoryReportDefaultFilters,
+  getInventoryReportDefinitions,
   getCOAInventoryReport,
   getDamagedHoldingReport,
   getDeadStockReport,
@@ -127,6 +135,10 @@ import {
   getStockHealthRows as getInventoryReportStockHealthRows,
   getSupplierPerformanceReport,
   getSupplierStockReport
+  , markInventoryReportPrintedPlaceholder
+  , prepareInventoryReportPdfPlaceholder
+  , prepareInventoryReportPrintPayload
+  , recordInventoryReportSelected
 } from '../services/inventoryReportService';
 import {
   approveImportBatch,
@@ -519,7 +531,12 @@ export default function PosStock({
     brand: 'ALL',
     supplier: 'ALL',
     shelfLocation: 'ALL',
-    reportType: 'Stock Valuation'
+    reportType: 'STOCK_ON_HAND',
+    searchQuery: '',
+    movementType: 'ALL',
+    approvalStatus: 'ALL',
+    includeZeroStock: true,
+    includeInactive: false
   });
   const [stockHealthRows, setStockHealthRows] = useState<StockHealthRow[]>([]);
   const [stockHealthSummary, setStockHealthSummary] = useState<StockHealthSummary>({
@@ -572,6 +589,11 @@ export default function PosStock({
   const [reorderRecommendationRows, setReorderRecommendationRows] = useState<ReorderRecommendationRow[]>([]);
   const [inventoryRecommendations, setInventoryRecommendations] = useState<StockHealthRecommendation[]>([]);
   const [reportNotice, setReportNotice] = useState<string | null>(null);
+  const [inventoryReportPayload, setInventoryReportPayload] = useState<InventoryReportPayload | null>(null);
+  const [inventoryReportFilterDrawerOpen, setInventoryReportFilterDrawerOpen] = useState(false);
+  const [inventoryReportPrintOpen, setInventoryReportPrintOpen] = useState(false);
+  const [inventoryReportPdfMode, setInventoryReportPdfMode] = useState(false);
+  const [inventoryReportActivityEvents, setInventoryReportActivityEvents] = useState<InventoryReportActivityEvent[]>([]);
   const [reviewedHealthProducts, setReviewedHealthProducts] = useState<Set<string>>(new Set());
   const [reviewedShelves, setReviewedShelves] = useState<Set<string>>(new Set());
 
@@ -923,6 +945,46 @@ export default function PosStock({
     return items;
   };
 
+  const inventoryReportDefinitions = useMemo(() => getInventoryReportDefinitions(), []);
+  const selectedInventoryReportDefinition = useMemo(
+    () => inventoryReportDefinitions.find((definition) => definition.reportType === (reportFilters.reportType || 'STOCK_ON_HAND')) || inventoryReportDefinitions[0],
+    [inventoryReportDefinitions, reportFilters.reportType]
+  );
+  const groupedInventoryReports = useMemo(() => {
+    return inventoryReportDefinitions.reduce<Record<string, typeof inventoryReportDefinitions>>((groups, definition) => {
+      groups[definition.category] = [...(groups[definition.category] || []), definition];
+      return groups;
+    }, {});
+  }, [inventoryReportDefinitions]);
+
+  const canUseInventoryReport = (permissionKey: string) => roleHasEffectivePermission(String(simulatedRole), permissionKey) || roleHasEffectivePermission(String(simulatedRole), 'reports.view');
+
+  const refreshInventoryReportActivity = async () => {
+    setInventoryReportActivityEvents(await getInventoryReportActivityEvents());
+  };
+
+  const handleSelectInventoryReport = async (reportType: InventoryReportType) => {
+    const nextFilters = { ...getInventoryReportDefaultFilters(reportType), staffId: staffName };
+    setReportFilters(nextFilters);
+    setInventoryReportPayload(null);
+    recordInventoryReportSelected(reportType, staffName);
+    setReportNotice(`${getInventoryReportDefinitions().find((report) => report.reportType === reportType)?.reportName || reportType} selected.`);
+    await refreshInventoryReportActivity();
+  };
+
+  const handleGenerateInventoryReport = async (filters = reportFilters) => {
+    const reportType = filters.reportType || 'STOCK_ON_HAND';
+    const definition = inventoryReportDefinitions.find((report) => report.reportType === reportType) || inventoryReportDefinitions[0];
+    if (!canUseInventoryReport(definition.requiredPermission)) {
+      setReportNotice('You do not have permission to view this inventory report.');
+      return;
+    }
+    const payload = await generateInventoryReport(reportType, { ...filters, staffId: staffName });
+    setInventoryReportPayload(payload);
+    setReportNotice(`${payload.reportName} generated with ${payload.rows.length} row(s).`);
+    await refreshInventoryReportActivity();
+  };
+
   const handleLedgerExport = async () => {
     if (!productLedgerProduct) return;
     const result = await exportProductLedgerPlaceholder(productLedgerProduct.id);
@@ -932,6 +994,30 @@ export default function PosStock({
   const handleInventoryReportExport = async (reportType: InventoryReportType) => {
     const result = await exportInventoryReportPlaceholder(reportType);
     setReportNotice(result.message);
+  };
+
+  const handleInventoryReportPrint = async (pdfMode = false) => {
+    const payload = inventoryReportPayload || await generateInventoryReport(reportFilters.reportType || 'STOCK_ON_HAND', { ...reportFilters, staffId: staffName });
+    const prepared = pdfMode ? prepareInventoryReportPdfPlaceholder(payload).payload : prepareInventoryReportPrintPayload(payload);
+    setInventoryReportPayload(prepared);
+    setInventoryReportPdfMode(pdfMode);
+    setInventoryReportPrintOpen(true);
+    setReportNotice(pdfMode ? 'PDF download is prepared through the device print dialog. Choose "Save as PDF" from your printer options.' : 'Inventory report print view prepared.');
+    await refreshInventoryReportActivity();
+  };
+
+  const handleInventoryReportCsv = async () => {
+    const payload = inventoryReportPayload || await generateInventoryReport(reportFilters.reportType || 'STOCK_ON_HAND', { ...reportFilters, staffId: staffName });
+    const result = exportInventoryReportCsvPlaceholder(payload);
+    setReportNotice(result.message);
+    await refreshInventoryReportActivity();
+  };
+
+  const handleResetInventoryReportFilters = () => {
+    const next = getInventoryReportDefaultFilters(reportFilters.reportType || 'STOCK_ON_HAND');
+    setReportFilters({ ...next, staffId: staffName });
+    setInventoryReportPayload(null);
+    setReportNotice('Inventory report filters reset.');
   };
 
   const handleInventoryMovementExport = async () => {
@@ -1062,6 +1148,12 @@ export default function PosStock({
     };
     void loadReports();
   }, [allInventoryMovements, localStock, reportFilters]);
+
+  useEffect(() => {
+    if (activeTab === 'Inventory Reports') {
+      void refreshInventoryReportActivity();
+    }
+  }, [activeTab]);
 
   // Global counts & stats requested by user specifications
   const stats = useMemo(() => {
@@ -1812,90 +1904,138 @@ export default function PosStock({
           </div>
         </div>
       ) : activeTab === 'Inventory Reports' ? (
-        <div className="bg-white border border-[#b1b5c2] p-4 space-y-4">
-          <div className="bg-[#1e222b] text-white p-4 flex flex-col md:flex-row justify-between gap-3">
+        <div className="inventory-reports-centre">
+          <div className="inventory-reports-header">
             <div>
-              <div className="text-[9px] text-orange-400 uppercase font-black">Inventory Reports</div>
-              <h2 className="text-sm font-black uppercase">Stock health, movement intelligence, supplier performance, and reorder recommendations.</h2>
-              <p className="text-[10px] text-slate-300 uppercase mt-1">Inventory reports are read-only. Recommendations do not change stock until approved actions are created and posted.</p>
+              <div className="text-[9px] text-orange-300 uppercase font-black">Inventory Reports Centre</div>
+              <h2>Printable local inventory reports, device print, PDF preparation, and CSV placeholders.</h2>
+              <p>Reports are read-only. They do not change stock, movements, accounting, cashbook, payments, or product master records.</p>
             </div>
-            <button type="button" onClick={() => void handleInventoryReportExport(reportFilters.reportType || 'Inventory Summary')} className="self-start px-3 py-2 bg-orange-600 text-white font-black uppercase text-[10px]">Export Current Report Placeholder</button>
+            <div className="inventory-reports-actions">
+              <button type="button" onClick={() => void handleGenerateInventoryReport()} className="inventory-report-primary-action">Generate Report</button>
+              <button type="button" onClick={() => setInventoryReportFilterDrawerOpen(true)} className="inventory-report-secondary-action"><SlidersHorizontal className="w-4 h-4" /> Filters</button>
+              <button type="button" onClick={() => void handleInventoryReportPrint(false)} disabled={!inventoryReportPayload} className="inventory-report-secondary-action">Print</button>
+              <button type="button" onClick={() => void handleInventoryReportPrint(true)} disabled={!inventoryReportPayload} className="inventory-report-secondary-action">Download PDF</button>
+              <button type="button" onClick={() => void handleInventoryReportCsv()} disabled={!inventoryReportPayload} className="inventory-report-secondary-action">Export CSV Placeholder</button>
+            </div>
           </div>
           {reportNotice && <div className="border border-orange-200 bg-orange-50 text-orange-900 p-2 text-[10px] font-bold uppercase">{reportNotice}</div>}
 
-          <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-12 gap-2">
-            <LedgerMetric label="Total Stock Value" value={`USD ${inventoryReportSummary.totalStockValue.toFixed(2)}`} />
-            <LedgerMetric label="Low Stock Items" value={inventoryReportSummary.lowStockItems} />
-            <LedgerMetric label="Out Of Stock Items" value={inventoryReportSummary.outOfStockItems} />
-            <LedgerMetric label="Dead Stock Items" value={inventoryReportSummary.deadStockItems} />
-            <LedgerMetric label="Slow Moving Items" value={inventoryReportSummary.slowMovingItems} />
-            <LedgerMetric label="Fast Moving Items" value={inventoryReportSummary.fastMovingItems} />
-            <LedgerMetric label="Overstocked Items" value={inventoryReportSummary.overstockedItems} />
-            <LedgerMetric label="Variance Risk Items" value={inventoryReportSummary.varianceRiskItems} />
-            <LedgerMetric label="Damaged Holding Qty" value={inventoryReportSummary.damagedHoldingQty} />
-            <LedgerMetric label="Return Holding Qty" value={inventoryReportSummary.returnHoldingQty} />
-            <LedgerMetric label="In Transit Qty" value={inventoryReportSummary.inTransitQty} />
-            <LedgerMetric label="Reorder Recommendations" value={inventoryReportSummary.reorderRecommendations} />
-          </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-3 bg-slate-50 border border-[#b1b5c2] p-3">
-            <LedgerSelect label="Business / Vendor" value={reportFilters.vendorId || 'SCI-LOG-ZW'} onChange={(value) => setReportFilters((current) => ({ ...current, vendorId: value }))} options={vendorOptions} />
-            <LedgerSelect label="Report Type" value={reportFilters.reportType || 'Inventory Summary'} onChange={(value) => setReportFilters((current) => ({ ...current, reportType: value as InventoryReportType }))} options={['Inventory Summary', 'Low Stock', 'Out Of Stock', 'Dead Stock', 'Slow Moving', 'Fast Moving', 'Overstock', 'Stock Value', 'Variance Risk', 'Reorder Recommendation', 'Supplier Performance', 'GRN Delay', 'Transfer Delay', 'Damaged Holding', 'Return Holding', 'Movement Audit']} />
-            <LedgerInput label="Search Product / SKU" value={reportFilters.search || ''} onChange={(value) => setReportFilters((current) => ({ ...current, search: value }))} />
-            <LedgerSelect label="Branch" value={reportFilters.branch || 'ALL'} onChange={(value) => setReportFilters((current) => ({ ...current, branch: value }))} options={healthBranchOptions as string[]} />
-            <LedgerSelect label="Warehouse" value={reportFilters.warehouse || 'ALL'} onChange={(value) => setReportFilters((current) => ({ ...current, warehouse: value }))} options={healthWarehouseOptions as string[]} />
-            <LedgerSelect label="Location Type" value={reportFilters.locationType || 'ALL'} onChange={(value) => setReportFilters((current) => ({ ...current, locationType: value as InventoryReportFilters['locationType'] }))} options={['ALL', 'Main Warehouse', 'Branch Warehouse', 'Sales Floor', 'Damaged Holding', 'Return Holding', 'In Transit']} />
-            <LedgerSelect label="Category" value={reportFilters.category || 'ALL'} onChange={(value) => setReportFilters((current) => ({ ...current, category: value }))} options={categories as string[]} />
-            <LedgerSelect label="Supplier" value={reportFilters.supplier || 'ALL'} onChange={(value) => setReportFilters((current) => ({ ...current, supplier: value }))} options={healthSupplierOptions as string[]} />
-            <LedgerSelect label="Stock Health Status" value={reportFilters.stockHealthStatus || 'ALL'} onChange={(value) => setReportFilters((current) => ({ ...current, stockHealthStatus: value as InventoryReportFilters['stockHealthStatus'] }))} options={['ALL', 'Healthy', 'Low Stock', 'Out Of Stock', 'Dead Stock', 'Slow Moving', 'Fast Moving', 'Overstocked', 'Variance Risk', 'Damaged', 'Return Holding', 'Reorder Required', 'Review Required']} />
-            <LedgerSelect label="Severity" value={reportFilters.severity || 'ALL'} onChange={(value) => setReportFilters((current) => ({ ...current, severity: value as InventoryReportFilters['severity'] }))} options={['ALL', 'Info', 'Low', 'Medium', 'High', 'Critical']} />
-            <LedgerInput label="Date From" value={reportFilters.dateFrom || ''} onChange={(value) => setReportFilters((current) => ({ ...current, dateFrom: value }))} />
-            <LedgerInput label="Date To" value={reportFilters.dateTo || ''} onChange={(value) => setReportFilters((current) => ({ ...current, dateTo: value }))} />
-            <LedgerSelect label="Movement Type" value={reportFilters.movementType || 'ALL'} onChange={(value) => setReportFilters((current) => ({ ...current, movementType: value as InventoryReportFilters['movementType'] }))} options={['ALL', 'GOODS_RECEIVED', 'SUPPLIER_RETURN', 'SALE', 'STOCK_ADJUSTMENT_IN', 'STOCK_ADJUSTMENT_OUT', 'STOCKTAKE_GAIN', 'STOCKTAKE_LOSS', 'BRANCH_TRANSFER_IN', 'BRANCH_TRANSFER_OUT', 'WAREHOUSE_TRANSFER_IN', 'WAREHOUSE_TRANSFER_OUT']} />
-          </div>
-
-          <div className="flex flex-wrap gap-2">
-            {(['Inventory Summary', 'Low Stock', 'Out Of Stock', 'Dead Stock', 'Slow Moving', 'Fast Moving', 'Overstock', 'Stock Value', 'Variance Risk', 'Reorder Recommendation', 'Supplier Performance', 'GRN Delay', 'Transfer Delay', 'Damaged Holding', 'Return Holding', 'Movement Audit'] as InventoryReportType[]).map((type) => (
-              <button key={type} type="button" onClick={() => setReportFilters((current) => ({ ...current, reportType: type }))} className={`px-3 py-2 border text-[9px] font-black uppercase ${reportFilters.reportType === type ? 'bg-orange-600 text-white border-orange-700' : 'bg-slate-50 text-[#1e222b] border-[#b1b5c2]'}`}>{type}</button>
+          <div className="inventory-report-selector">
+            {Object.entries(groupedInventoryReports).map(([categoryName, definitions]) => (
+              <section key={categoryName}>
+                <h3>{categoryName}</h3>
+                <div className="inventory-report-selector-grid">
+                  {definitions.map((definition) => (
+                    <button
+                      key={definition.reportType}
+                      type="button"
+                      onClick={() => handleSelectInventoryReport(definition.reportType)}
+                      className={reportFilters.reportType === definition.reportType ? 'is-active' : ''}
+                    >
+                      <strong>{definition.reportName}</strong>
+                      <span>{definition.description}</span>
+                    </button>
+                  ))}
+                </div>
+              </section>
             ))}
           </div>
 
-          {reportFilters.reportType === 'Stock Value' ? (
-            <ReportTable headers={['SKU', 'Product', 'Branch', 'Warehouse', 'Location', 'Qty On Hand', 'Available Qty', 'Unit Cost', 'Estimated Stock Value', 'Damaged Value', 'Return Holding Value', 'In Transit Value', 'Last Cost', 'Status', 'Action']} rows={inventoryValueRows.map((row) => [row.sku, row.productName, row.branch, row.warehouse, row.location, row.qtyOnHand, row.availableQty, `USD ${row.unitCost.toFixed(2)}`, `USD ${row.estimatedStockValue.toFixed(2)}`, `USD ${row.damagedValue.toFixed(2)}`, `USD ${row.returnHoldingValue.toFixed(2)}`, `USD ${row.inTransitValue.toFixed(2)}`, `USD ${row.lastCost.toFixed(2)}`, row.status, 'Export Placeholder'])} />
-          ) : reportFilters.reportType === 'Supplier Performance' ? (
-            <ReportTable headers={['Supplier', 'Products Supplied', 'POs', 'GRNs', 'Supplier Returns', 'Average Delivery Days', 'Late Deliveries', 'Damaged / Wrong Items', 'Credit Notes Pending', 'Performance Score', 'Risk', 'Action']} rows={supplierPerformanceRows.map((row) => [row.supplier, row.productsSupplied, row.purchaseOrders, row.grns, row.supplierReturns, row.averageDeliveryDays, row.lateDeliveries, row.damagedWrongItems, row.creditNotesPending, row.performanceScore, row.risk, 'Supplier Review Recommendation'])} />
-          ) : reportFilters.reportType === 'GRN Delay' ? (
-            <ReportTable headers={['GRN No.', 'PO No.', 'Supplier', 'Expected Delivery', 'Received Date', 'Days Late', 'Status', 'Variance', 'Invoice Status', 'Action']} rows={grnDelayRows.map((row) => [row.grnNo, row.poNo, row.supplier, row.expectedDelivery, row.receivedDate || '-', row.daysLate, row.status, row.variance, row.invoiceStatus, 'Mark Reviewed'])} />
-          ) : reportFilters.reportType === 'Transfer Delay' ? (
-            <ReportTable headers={['Transfer No.', 'Source', 'Destination', 'Dispatched Date', 'Expected Arrival', 'Received Date', 'Days In Transit', 'Status', 'Variance', 'Action']} rows={transferDelayRows.map((row) => [row.transferNo, row.source, row.destination, row.dispatchedDate, row.expectedArrival, row.receivedDate || '-', row.daysInTransit, row.status, row.variance, 'Mark Reviewed'])} />
-          ) : reportFilters.reportType === 'Movement Audit' ? (
-            <ReportTable headers={['Date / Time', 'SKU', 'Product', 'Movement Type', 'Reference', 'Branch', 'Warehouse', 'Qty In', 'Qty Out', 'Balance Before', 'Balance After', 'Staff', 'Risk', 'Notes', 'Action']} rows={movementAuditRows.map((row) => [row.dateTime, row.sku, row.productName, row.movementType, row.reference, row.branch, row.warehouse, row.qtyIn, row.qtyOut, row.balanceBefore, row.balanceAfter, row.staff, row.risk, row.notes, 'View Product Ledger'])} />
-          ) : reportFilters.reportType === 'Reorder Recommendation' ? (
-            <ReportTable headers={['SKU', 'Product', 'Branch', 'Warehouse', 'Available Qty', 'Reorder Level', 'Reorder Qty', 'Preferred Supplier', 'Sales Velocity', 'Days Cover', 'Recommendation', 'Priority', 'Action']} rows={reorderRecommendationRows.map((row) => [row.sku, row.productName, row.branch, row.warehouse, row.availableQty, row.reorderLevel, row.reorderQty, row.preferredSupplier, row.salesVelocity, row.daysCover, row.recommendation, row.priority, 'Create PO Recommendation Placeholder'])} />
-          ) : (
-            <ReportTable headers={['SKU', 'Product', 'Brand', 'Category', 'Branch', 'Warehouse', 'Location', 'Available', 'On Hand', 'Reserved', 'Damaged', 'Return Holding', 'In Transit', 'Reorder Level', 'Last Movement', 'Status', 'Severity', 'Recommended Action', 'Action']} rows={inventoryReportHealthRows.map((row) => [row.sku, row.productName, row.brand, row.category, row.branchName || row.branch, row.warehouseName || row.warehouse, row.locationType || row.shelfLocation, row.qtyAvailable || 0, row.qtyOnHand, row.qtyReserved || 0, row.qtyDamaged || 0, row.qtyReturnHolding || 0, row.qtyInTransit || 0, row.reorderLevel, row.lastMovementDate || '-', row.stockHealthStatus || row.stockStatus, row.severity || row.riskLevel, row.recommendedAction, 'Create Recommendation Placeholder'])} />
+          {inventoryReportFilterDrawerOpen && (
+            <div className="inventory-report-filter-backdrop" onClick={() => setInventoryReportFilterDrawerOpen(false)}>
+              <aside className="inventory-report-filter-drawer" onClick={(event) => event.stopPropagation()}>
+                <div className="inventory-report-filter-header">
+                  <h3>Report Filters</h3>
+                  <button type="button" onClick={() => setInventoryReportFilterDrawerOpen(false)}><X className="w-4 h-4" /></button>
+                </div>
+                <div className="inventory-report-filter-body">
+                  <label><span>Branch</span><select value={reportFilters.branch || 'ALL'} onChange={(event) => setReportFilters((current) => ({ ...current, branch: event.target.value }))}>{(healthBranchOptions as string[]).map((item) => <option key={item} value={item}>{item}</option>)}</select></label>
+                  <label><span>Warehouse</span><select value={reportFilters.warehouse || 'ALL'} onChange={(event) => setReportFilters((current) => ({ ...current, warehouse: event.target.value }))}>{(healthWarehouseOptions as string[]).map((item) => <option key={item} value={item}>{item}</option>)}</select></label>
+                  <label><span>Supplier</span><select value={reportFilters.supplier || 'ALL'} onChange={(event) => setReportFilters((current) => ({ ...current, supplier: event.target.value, supplierName: event.target.value }))}>{(healthSupplierOptions as string[]).map((item) => <option key={item} value={item}>{item}</option>)}</select></label>
+                  <label><span>Industrial Sector</span><select value={reportFilters.industrialSector || 'ALL'} onChange={(event) => setReportFilters((current) => ({ ...current, industrialSector: event.target.value }))}>{(healthSectorOptions as string[]).map((item) => <option key={item} value={item}>{item}</option>)}</select></label>
+                  <label><span>Category</span><select value={reportFilters.category || 'ALL'} onChange={(event) => setReportFilters((current) => ({ ...current, category: event.target.value }))}>{(categories as string[]).map((item) => <option key={item} value={item}>{item}</option>)}</select></label>
+                  <label><span>Product Status</span><select value={reportFilters.productStatus || 'ALL'} onChange={(event) => setReportFilters((current) => ({ ...current, productStatus: event.target.value }))}><option>ALL</option><option>Active</option><option>Inactive</option><option>Blocked</option></select></label>
+                  <label><span>Stock Status</span><select value={reportFilters.stockStatus || 'ALL'} onChange={(event) => setReportFilters((current) => ({ ...current, stockStatus: event.target.value }))}><option>ALL</option><option>In Stock</option><option>Low Stock</option><option>Out Of Stock</option><option>Dead Stock</option></select></label>
+                  <label><span>Risk Status</span><select value={reportFilters.riskStatus || 'ALL'} onChange={(event) => setReportFilters((current) => ({ ...current, riskStatus: event.target.value }))}><option>ALL</option><option>Low</option><option>Medium</option><option>High</option><option>Critical</option></select></label>
+                  <label><span>Date From</span><input type="date" value={reportFilters.dateFrom || ''} onChange={(event) => setReportFilters((current) => ({ ...current, dateFrom: event.target.value }))} /></label>
+                  <label><span>Date To</span><input type="date" value={reportFilters.dateTo || ''} onChange={(event) => setReportFilters((current) => ({ ...current, dateTo: event.target.value }))} /></label>
+                  <label><span>Search Query</span><input value={reportFilters.searchQuery || ''} onChange={(event) => setReportFilters((current) => ({ ...current, searchQuery: event.target.value, search: event.target.value }))} placeholder="Search any words in any order" /></label>
+                  <label><span>Movement Type</span><select value={reportFilters.movementType || 'ALL'} onChange={(event) => setReportFilters((current) => ({ ...current, movementType: event.target.value as InventoryReportFilters['movementType'] }))}><option>ALL</option><option>GOODS_RECEIVED</option><option>SUPPLIER_RETURN</option><option>SALE</option><option>STOCK_ADJUSTMENT_IN</option><option>STOCK_ADJUSTMENT_OUT</option></select></label>
+                  <label><span>Staff</span><input value={reportFilters.staffId || ''} onChange={(event) => setReportFilters((current) => ({ ...current, staffId: event.target.value }))} /></label>
+                  <label><span>Approval Status</span><select value={reportFilters.approvalStatus || 'ALL'} onChange={(event) => setReportFilters((current) => ({ ...current, approvalStatus: event.target.value }))}><option>ALL</option><option>Draft</option><option>Pending Approval</option><option>Approved</option><option>Posted</option><option>Rejected</option></select></label>
+                  <label className="inventory-report-checkbox"><input type="checkbox" checked={Boolean(reportFilters.includeZeroStock)} onChange={(event) => setReportFilters((current) => ({ ...current, includeZeroStock: event.target.checked }))} /> Include Zero Stock</label>
+                  <label className="inventory-report-checkbox"><input type="checkbox" checked={Boolean(reportFilters.includeInactive)} onChange={(event) => setReportFilters((current) => ({ ...current, includeInactive: event.target.checked }))} /> Include Inactive</label>
+                </div>
+                <div className="inventory-report-filter-actions">
+                  <button type="button" onClick={() => { void handleGenerateInventoryReport(); setInventoryReportFilterDrawerOpen(false); }} className="inventory-report-primary-action">Apply Filters</button>
+                  <button type="button" onClick={handleResetInventoryReportFilters} className="inventory-report-secondary-action">Clear Filters</button>
+                  <button type="button" onClick={() => setInventoryReportFilterDrawerOpen(false)} className="inventory-report-secondary-action">Close</button>
+                </div>
+              </aside>
+            </div>
           )}
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-            {inventoryRecommendations.slice(0, 6).map((rec) => (
-              <div key={rec.recommendationId} className="border border-[#b1b5c2] bg-white p-3">
-                <div className="text-[8px] uppercase font-black text-orange-700">{rec.recommendationType}</div>
-                <div className="text-sm font-black text-[#1e222b] mt-1">{rec.title}</div>
-                <div className="text-[10px] text-slate-600 mt-1">{rec.description}</div>
-                <div className="mt-2 flex flex-wrap gap-2 text-[9px] uppercase font-black">
-                  <span className="border border-[#b1b5c2] px-2 py-1">{rec.severity}</span>
-                  <span className="border border-[#b1b5c2] px-2 py-1">{rec.status}</span>
-                </div>
-                <button type="button" onClick={() => setReportNotice(`${rec.recommendationType} action placeholder recorded for ${rec.sku || 'inventory'}.`)} className="mt-3 px-3 py-2 bg-orange-600 text-white font-black uppercase text-[9px]">Action Placeholder</button>
+          <section className="inventory-report-preview">
+            <div className="inventory-report-preview-header">
+              <div>
+                <h3>{inventoryReportPayload?.reportName || selectedInventoryReportDefinition.reportName}</h3>
+                <p>{selectedInventoryReportDefinition.description}</p>
               </div>
-            ))}
-          </div>
+              <span>{inventoryReportPayload ? `${inventoryReportPayload.rows.length} row(s)` : 'Not generated'}</span>
+            </div>
 
-          <div className="flex flex-wrap gap-2">
-            {(['Inventory Summary', 'Low Stock', 'Out Of Stock', 'Stock Value', 'Variance Risk', 'Reorder Recommendation', 'Supplier Performance', 'Movement Audit'] as InventoryReportType[]).map((type) => (
-              <button key={type} type="button" onClick={() => void handleInventoryReportExport(type)} className="px-3 py-2 border border-[#b1b5c2] hover:border-orange-500 text-[10px] font-black uppercase">{`Export ${type} Placeholder`}</button>
-            ))}
-          </div>
+            {inventoryReportPayload && (
+              <div className="inventory-report-summary-row">
+                {inventoryReportPayload.summaryMetrics.map((metric) => <LedgerMetric key={metric.label} label={metric.label} value={metric.value} />)}
+              </div>
+            )}
+
+            <div className="inventory-report-table-scroll">
+              <table>
+                <thead>
+                  <tr>
+                    {(inventoryReportPayload?.columns || selectedInventoryReportDefinition.defaultColumns).map((column) => <th key={column.key}>{column.label}</th>)}
+                  </tr>
+                </thead>
+                <tbody>
+                  {!inventoryReportPayload ? (
+                    <tr><td colSpan={selectedInventoryReportDefinition.defaultColumns.length}>Generate a report to preview local rows.</td></tr>
+                  ) : inventoryReportPayload.rows.length === 0 ? (
+                    <tr><td colSpan={inventoryReportPayload.columns.length}>No report rows match the current filters.</td></tr>
+                  ) : inventoryReportPayload.rows.map((row) => (
+                    <tr key={row.rowId}>
+                      {inventoryReportPayload.columns.map((column) => <td key={column.key}>{String(row.values[column.key] ?? '-')}</td>)}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </section>
+
+          <section className="inventory-report-activity">
+            <h3>Report Activity</h3>
+            <div>
+              {inventoryReportActivityEvents.slice(0, 8).map((event) => (
+                <p key={event.id}><strong>{event.eventType.replaceAll('_', ' ')}</strong><span>{event.message} - {event.createdAt}</span></p>
+              ))}
+              {inventoryReportActivityEvents.length === 0 && <p><strong>No report activity yet.</strong><span>Generate, print, prepare PDF, or export CSV to create local activity.</span></p>}
+            </div>
+          </section>
+
+          <InventoryReportPrintView
+            open={inventoryReportPrintOpen}
+            payload={inventoryReportPayload}
+            pdfMode={inventoryReportPdfMode}
+            onClose={() => setInventoryReportPrintOpen(false)}
+            onPrinted={() => {
+              if (inventoryReportPayload) {
+                setInventoryReportPayload(markInventoryReportPrintedPlaceholder(inventoryReportPayload));
+              }
+              setReportNotice('Inventory report printed placeholder recorded.');
+              void refreshInventoryReportActivity();
+            }}
+          />
         </div>
       ) : activeTab === 'Product List' ? (
         <div className="bg-white border border-[#b1b5c2] p-4 space-y-4">

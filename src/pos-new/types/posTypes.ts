@@ -1205,6 +1205,24 @@ export interface StockHealthRow {
 }
 
 export type InventoryReportType =
+  | 'STOCK_ON_HAND'
+  | 'LOW_STOCK'
+  | 'OUT_OF_STOCK'
+  | 'DEAD_STOCK'
+  | 'SLOW_MOVING'
+  | 'FAST_MOVING'
+  | 'STOCK_VALUATION'
+  | 'INVENTORY_MOVEMENT'
+  | 'PRODUCT_LEDGER'
+  | 'STOCK_ADJUSTMENT'
+  | 'STOCKTAKE_VARIANCE'
+  | 'GOODS_RECEIVED'
+  | 'SUPPLIER_RETURNS'
+  | 'STOCK_TRANSFER'
+  | 'DAMAGED_HOLDING'
+  | 'REORDER'
+  | 'INVENTORY_RISK'
+  | 'PRODUCT_MASTER_EXPORT'
   | 'Inventory Summary'
   | 'Low Stock'
   | 'Out Of Stock'
@@ -1233,14 +1251,40 @@ export type InventoryReportType =
   | 'Shelf / Location Report'
   | 'COA Inventory Report';
 
+export type InventoryReportOutputMode = 'Preview' | 'Print' | 'PdfDownload' | 'ExportPlaceholder';
+
+export type InventoryReportStatus = 'Ready' | 'Empty' | 'Error' | 'Generated' | 'Printed' | 'PdfPrepared';
+
+export interface InventoryReportColumn {
+  key: string;
+  label: string;
+  align?: 'left' | 'right' | 'center';
+}
+
+export interface InventoryReportDefinition {
+  reportType: InventoryReportType;
+  reportName: string;
+  description: string;
+  category: 'Stock Position' | 'Movement and Control' | 'Procurement' | 'Intelligence' | 'Master Data';
+  requiredPermission: string;
+  defaultColumns: InventoryReportColumn[];
+  supportsPrint: boolean;
+  supportsPdf: boolean;
+  supportsCsvPlaceholder: boolean;
+  riskLevel: 'Low' | 'Medium' | 'High' | 'Critical';
+  sortOrder: number;
+}
+
 export interface InventoryReportFilters {
   vendorId?: string;
   search?: string;
   sku?: string;
   branch?: string;
   branchId?: string;
+  branchName?: string;
   warehouse?: string;
   warehouseId?: string;
+  warehouseName?: string;
   locationType?: 'ALL' | StockLocationType;
   industrialSector?: string;
   category?: string;
@@ -1253,9 +1297,53 @@ export interface InventoryReportFilters {
   dateFrom?: string;
   dateTo?: string;
   reportType?: InventoryReportType;
+  supplierName?: string;
+  productStatus?: string;
+  stockStatus?: string;
+  riskStatus?: string;
+  searchQuery?: string;
+  includeZeroStock?: boolean;
+  includeInactive?: boolean;
+  staffId?: string;
+  approvalStatus?: string;
 }
 
 export type InventoryReportFilterState = InventoryReportFilters;
+
+export interface InventoryReportRow {
+  rowId: string;
+  values: Record<string, string | number | boolean | null | undefined>;
+}
+
+export interface InventoryReportSummaryMetric {
+  label: string;
+  value: string | number;
+}
+
+export interface InventoryReportPayload {
+  reportId: string;
+  reportType: InventoryReportType;
+  reportName: string;
+  vendorName: string;
+  branchName: string;
+  warehouseName: string;
+  generatedAt: string;
+  generatedBy: string;
+  filters: InventoryReportFilterState;
+  summaryMetrics: InventoryReportSummaryMetric[];
+  columns: InventoryReportColumn[];
+  rows: InventoryReportRow[];
+  notes: string;
+  status: InventoryReportStatus;
+}
+
+export interface InventoryReportPrintOptions {
+  outputMode: InventoryReportOutputMode;
+  includeFilters: boolean;
+  includeSummary: boolean;
+  pageSize?: 'A4' | 'Letter';
+  orientation?: 'Portrait' | 'Landscape';
+}
 
 export interface InventoryReportSummary {
   totalStockValue: number;
@@ -1379,7 +1467,16 @@ export interface ReorderRecommendationRow {
 
 export interface InventoryReportActivityEvent {
   id: string;
-  eventType: string;
+  eventType:
+    | 'INVENTORY_REPORT_SELECTED'
+    | 'INVENTORY_REPORT_GENERATED'
+    | 'INVENTORY_REPORT_FILTERED'
+    | 'INVENTORY_REPORT_PRINT_PREPARED'
+    | 'INVENTORY_REPORT_PRINTED_PLACEHOLDER'
+    | 'INVENTORY_REPORT_PDF_PREPARED'
+    | 'INVENTORY_REPORT_CSV_EXPORTED_PLACEHOLDER'
+    | 'INVENTORY_REPORT_PERMISSION_RESTRICTED'
+    | string;
   reportType?: InventoryReportType;
   message: string;
   staffId?: string;
@@ -2548,6 +2645,9 @@ export type StockAdjustmentActivityEventType =
   | 'STOCK_ADJUSTMENT_POSTED'
   | 'STOCK_ADJUSTMENT_CANCELLED'
   | 'STOCK_ADJUSTMENT_REVERSE_REQUESTED'
+  | 'STOCK_ADJUSTMENT_REVERSAL_PLACEHOLDER_PREPARED'
+  | 'STOCK_ADJUSTMENT_EXPORT_PREPARED'
+  | 'STOCK_ADJUSTMENT_DUPLICATED_PLACEHOLDER'
   | 'STOCK_ADJUSTMENT_HIGH_RISK'
   | 'STOCK_ADJUSTMENT_NEGATIVE_STOCK_BLOCKED';
 

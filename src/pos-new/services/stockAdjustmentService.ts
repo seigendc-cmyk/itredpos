@@ -419,7 +419,7 @@ export async function approveStockAdjustment(adjustmentId: string, staffId: stri
 
 export async function rejectStockAdjustment(adjustmentId: string, staffId: string, notes = ''): Promise<StockAdjustment | null> {
   const record = await getStockAdjustmentById(adjustmentId);
-  if (!record || record.status !== 'Pending Approval') return null;
+  if (!record || (record.status !== 'Pending Approval' && record.status !== 'Approved')) return null;
   const updated = updateAdjustment(adjustmentId, { status: 'Rejected', notes: `${record.notes}\nRejected: ${notes}` });
   if (updated) {
     await recordActivity({ adjustmentId, adjustmentNumber: updated.adjustmentNumber, eventType: 'STOCK_ADJUSTMENT_REJECTED', operator: staffId, message: `${updated.adjustmentNumber} rejected. Stock not changed.` });
@@ -503,9 +503,26 @@ export async function reverseStockAdjustmentPlaceholder(adjustmentId: string, st
   if (!record || record.status !== 'Posted') return null;
   const updated = updateAdjustment(adjustmentId, { status: 'Reversed', notes: `${record.notes}\nReversal placeholder: ${reason}` });
   if (updated) {
-    await recordActivity({ adjustmentId, adjustmentNumber: updated.adjustmentNumber, eventType: 'STOCK_ADJUSTMENT_REVERSE_REQUESTED', operator: staffId, message: `${updated.adjustmentNumber} reversal placeholder recorded.` });
+    await recordActivity({ adjustmentId, adjustmentNumber: updated.adjustmentNumber, eventType: 'STOCK_ADJUSTMENT_REVERSAL_PLACEHOLDER_PREPARED', operator: staffId, message: `${updated.adjustmentNumber} reverse adjustment placeholder prepared. Final reversal workflow will create a controlled correction movement.` });
   }
   return updated;
+}
+
+export async function recordStockAdjustmentPlaceholderActivity(
+  adjustmentId: string,
+  staffId: string,
+  eventType: 'STOCK_ADJUSTMENT_EXPORT_PREPARED' | 'STOCK_ADJUSTMENT_DUPLICATED_PLACEHOLDER',
+  message: string
+): Promise<StockAdjustmentActivityEvent[]> {
+  const record = await getStockAdjustmentById(adjustmentId);
+  if (!record) return getStockAdjustmentActivityEvents();
+  return recordActivity({
+    adjustmentId,
+    adjustmentNumber: record.adjustmentNumber,
+    eventType,
+    operator: staffId,
+    message
+  });
 }
 
 export async function exportStockAdjustmentPlaceholder(adjustmentId: string): Promise<{ message: string; payload: { record: StockAdjustment | null; lines: StockAdjustmentLine[] } }> {
