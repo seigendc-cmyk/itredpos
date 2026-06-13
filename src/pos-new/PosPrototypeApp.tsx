@@ -799,6 +799,7 @@ export default function PosPrototypeApp() {
               cashLogs={cashLogs}
               onNavigate={(page) => setActivePage(page as PosPageId)}
               session={activeSession}
+              businessProfile={businessProfile}
             />
           )}
 

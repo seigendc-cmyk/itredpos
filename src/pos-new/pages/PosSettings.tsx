@@ -42,6 +42,7 @@ import StaffSessionGatePanel from '../components/StaffSessionGatePanel';
 import RoleMenuReadinessPanel from '../components/RoleMenuReadinessPanel';
 import SecurityRightsMatrix from '../components/SecurityRightsMatrix';
 import { getCurrentStaffGateSession, getStaffSessionGateReadiness } from '../auth/staffSessionGateService';
+import { saveBusinessProfile, validateBusinessProfile } from '../services/businessProfileService';
 
 interface PosSettingsProps {
   businessProfile: BusinessProfile;
@@ -131,17 +132,20 @@ export default function PosSettings({
 
   // --- SUB-FORM 1: BUSINESS PROFILE STATES ---
   const [profileForm, setProfileForm] = useState<BusinessProfile>({ ...businessProfile });
+  const [profileErrors, setProfileErrors] = useState<string[]>([]);
+  const [profileWarnings, setProfileWarnings] = useState<string[]>([]);
   const handleSaveProfile = (e: React.FormEvent) => {
     e.preventDefault();
-    if (profileForm.isBusinessRegistered && !profileForm.companyRegistrationNumber?.trim()) {
-      alert("COMPANY REGISTRATION NUMBER IS REQUIRED WHEN BUSINESS REGISTERED IS ENABLED.");
+    const validation = validateBusinessProfile(profileForm);
+    setProfileErrors(validation.errors);
+    setProfileWarnings(validation.warnings);
+    if (!validation.ok) {
+      triggerToast('BUSINESS PROFILE VALIDATION NEEDS ATTENTION.');
       return;
     }
-    if (profileForm.vatRegistered && !profileForm.vatNumber?.trim()) {
-      alert("VAT NUMBER IS REQUIRED WHEN VAT REGISTERED IS ENABLED.");
-      return;
-    }
-    onUpdateBusinessProfile(profileForm);
+    const saved = saveBusinessProfile(profileForm, activeOperatorName || 'SETTINGS');
+    setProfileForm(saved);
+    onUpdateBusinessProfile(saved);
     triggerToast("BUSINESS PROFILE INTEGRITY SPECS UPDATED SUCCESSFULLY.");
   };
 
@@ -473,10 +477,10 @@ export default function PosSettings({
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
         
         {/* SUB SIDEBAR CONFIG MENU (4 columns) */}
-        <div className="lg:col-span-3 bg-[#11141d] border border-slate-750 p-2 space-y-0.5">
-          <div className="text-[10px] text-slate-650 font-bold font-mono py-1 px-2.5 uppercase tracking-wider border-b border-slate-800/80 flex items-center justify-between mb-2">
+        <div className="lg:col-span-3 bg-[#1e222b] border border-[#3a3f4b] p-2 space-y-0.5">
+          <div className="text-[10px] text-slate-100 font-bold font-mono py-1 px-2.5 uppercase tracking-wider border-b border-slate-600 flex items-center justify-between mb-2">
             <span>Settings Menu</span>
-            <span className="text-[9px] bg-slate-950 px-1 py-0.2 text-[#00f0ff]">Local</span>
+            <span className="text-[9px] bg-orange-600 px-1 py-0.2 text-white">Local</span>
           </div>
 
           <div className="space-y-1">
@@ -500,25 +504,27 @@ export default function PosSettings({
                   }}
                   className={`w-full text-left py-2 px-3 flex items-center justify-between transition-all text-[11px] rounded-none border-l-2 font-mono outline-none cursor-pointer ${
                     isActive 
-                      ? 'bg-slate-950 text-slate-100 font-bold border-[#00f0ff]' 
-                      : 'border-transparent text-slate-400 hover:text-white hover:bg-slate-900/30'
+                      ? 'bg-white text-[#1e222b] font-bold border-orange-600' 
+                      : 'border-transparent text-[#e7edf0] hover:text-white hover:bg-slate-800'
                   }`}
                 >
                   <div className="flex items-center gap-2.5">
-                    <IconComp className={`w-3.5 h-3.5 shrink-0 ${isActive ? 'text-[#00f0ff]' : 'text-slate-500'}`} />
+                    <IconComp className={`w-3.5 h-3.5 shrink-0 ${isActive ? 'text-orange-600' : 'text-[#b8c2c7]'}`} />
                     <span className="uppercase tracking-wide">{item.label}</span>
                   </div>
-                  <ChevronRight size={10} className={isActive ? 'text-[#00f0ff]' : 'text-slate-600'} />
+                  <ChevronRight size={10} className={isActive ? 'text-orange-600' : 'text-[#b8c2c7]'} />
                 </button>
               );
             })}
           </div>
 
           {/* CLERK DIAL METADATA INDICATOR */}
-          <div className="p-3 bg-slate-950 border border-slate-850 mt-4 text-[9px] space-y-1 text-slate-500 font-mono uppercase">
-            <div>Product: <span className="text-[#00f0ff]">iTred Commerce POS</span></div>
-            <div>Mode: Build Development</div>
-            <div>Backend: Mock / Local Services</div>
+          <div className="p-3 bg-slate-950 border border-slate-700 mt-4 text-[9px] space-y-1 text-slate-200 font-mono uppercase">
+            <div>Product: <span className="text-orange-400">iTred Commerce POS</span></div>
+            <div>Mode: <span className="text-slate-100">Build Development</span></div>
+            <div>Backend: <span className="text-slate-100">Mock / Local Services</span></div>
+            <div>Firebase: <span className="text-slate-100">Config Shell / Sandbox Only</span></div>
+            <div>Business Writes: <span className="text-orange-400">Disabled</span></div>
           </div>
         </div>
 
@@ -539,106 +545,79 @@ export default function PosSettings({
                   <span className="text-[9px] text-[#00f0ff] uppercase bg-slate-950 px-1 border border-slate-900">SECURE PROFILE</span>
                 </div>
 
-                <p className="text-[10px] text-slate-450 uppercase mb-4 leading-normal">
-                  Configure corporate identifiers which print immediately on top invoice structures, secure tax audits, and ledger reports.
+                <p className="text-[10px] text-slate-300 uppercase mb-4 leading-normal">
+                  Configure business identity, registration, tax, owner, accountant, and administrator details. Registration details are shown only where permissions allow.
                 </p>
 
-                <div className="bg-slate-950 border border-slate-850 p-4 space-y-4">
-                  <div className="text-[10px] text-orange-400 font-black uppercase tracking-widest">Industrial Business Registry</div>
+                {profileErrors.length > 0 && <ValidationList title="Validation Errors" items={profileErrors} tone="error" />}
+                {profileWarnings.length > 0 && <ValidationList title="Warnings" items={profileWarnings} tone="warning" />}
+
+                <SettingsFormSection title="Basic Business Identity">
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                    <div className="space-y-1">
-                      <label className="block text-slate-500 text-[10px] uppercase font-bold">Business Name</label>
-                      <input
-                        type="text"
-                        value={profileForm.businessName || ''}
-                        onChange={e => setProfileForm({ ...profileForm, businessName: e.target.value, legalName: e.target.value || profileForm.legalName })}
-                        className="w-full bg-slate-900 border border-slate-800 p-2 text-slate-100 text-xs outline-none focus:border-[#00f0ff]"
-                        required
-                      />
-                    </div>
-                    <div className="space-y-1">
-                      <label className="block text-slate-500 text-[10px] uppercase font-bold">Trading Name</label>
-                      <input
-                        type="text"
-                        value={profileForm.tradingName || ''}
-                        onChange={e => setProfileForm({ ...profileForm, tradingName: e.target.value })}
-                        className="w-full bg-slate-900 border border-slate-800 p-2 text-slate-100 text-xs outline-none focus:border-[#00f0ff]"
-                      />
-                    </div>
-                    <div className="space-y-1">
-                      <label className="block text-slate-500 text-[10px] uppercase font-bold">Business Type</label>
-                      <select
-                        value={profileForm.businessType || 'Private Company'}
-                        onChange={e => setProfileForm({ ...profileForm, businessType: e.target.value })}
-                        className="w-full bg-slate-900 border border-slate-800 p-2 text-slate-200 text-xs outline-none"
-                      >
-                        <option>Private Company</option>
-                        <option>Partnership</option>
-                        <option>Sole Proprietor</option>
-                        <option>Cooperative</option>
-                        <option>Government</option>
-                      </select>
-                    </div>
-                    <div className="space-y-1">
-                      <label className="block text-slate-500 text-[10px] uppercase font-bold">Industrial Sector</label>
-                      <input
-                        type="text"
-                        value={profileForm.industrialSector || ''}
-                        onChange={e => setProfileForm({ ...profileForm, industrialSector: e.target.value })}
-                        className="w-full bg-slate-900 border border-slate-800 p-2 text-slate-100 text-xs outline-none focus:border-[#00f0ff]"
-                      />
-                    </div>
-                    <div className="space-y-1">
-                      <label className="block text-slate-500 text-[10px] uppercase font-bold">City / Town</label>
-                      <input
-                        type="text"
-                        value={profileForm.cityTown || ''}
-                        onChange={e => setProfileForm({ ...profileForm, cityTown: e.target.value })}
-                        className="w-full bg-slate-900 border border-slate-800 p-2 text-slate-100 text-xs outline-none focus:border-[#00f0ff]"
-                      />
-                    </div>
-                    <div className="space-y-1">
-                      <label className="block text-slate-500 text-[10px] uppercase font-bold">District / Suburb</label>
-                      <input
-                        type="text"
-                        value={[profileForm.district, profileForm.suburb].filter(Boolean).join(' / ')}
-                        onChange={e => setProfileForm({ ...profileForm, district: e.target.value })}
-                        className="w-full bg-slate-900 border border-slate-800 p-2 text-slate-100 text-xs outline-none focus:border-[#00f0ff]"
-                      />
-                    </div>
+                    <SettingsTextField label="Business Name" value={profileForm.businessName || ''} onChange={(value) => setProfileForm({ ...profileForm, businessName: value, legalName: value || profileForm.legalName })} />
+                    <SettingsTextField label="Trading Name" value={profileForm.tradingName || ''} onChange={(value) => setProfileForm({ ...profileForm, tradingName: value })} />
+                    <label className="block text-slate-600 text-[10px] uppercase font-bold">Business Type<select value={profileForm.businessType || 'Private Company'} onChange={(e) => setProfileForm({ ...profileForm, businessType: e.target.value })} className="w-full bg-white border border-[#b1b5c2] p-2 text-[#1e222b] text-xs outline-none"><option>Private Company</option><option>Partnership</option><option>Sole Proprietor</option><option>Cooperative</option><option>Government</option><option>Retail and Wholesale</option></select></label>
+                    <SettingsTextField label="Industrial Sector" value={profileForm.industrialSector || ''} onChange={(value) => setProfileForm({ ...profileForm, industrialSector: value })} />
+                    <SettingsTextField label="City / Town" value={profileForm.cityTown || ''} onChange={(value) => setProfileForm({ ...profileForm, cityTown: value })} />
+                    <SettingsTextField label="District / Suburb" value={profileForm.districtSuburb || [profileForm.district, profileForm.suburb].filter(Boolean).join(' / ')} onChange={(value) => setProfileForm({ ...profileForm, districtSuburb: value, district: value })} />
+                    <label className="block text-slate-600 text-[10px] uppercase font-bold">Base Currency<select value={profileForm.currency} onChange={(e) => setProfileForm({ ...profileForm, currency: e.target.value })} className="w-full bg-white border border-[#b1b5c2] p-2 text-[#1e222b] text-xs outline-none"><option value="USD">USD ($)</option><option value="EUR">EUR</option><option value="GBP">GBP</option><option value="AUD">AUD</option></select></label>
+                    <SettingsTextField label="Headquarters Address" value={profileForm.address} onChange={(value) => setProfileForm({ ...profileForm, address: value })} />
+                    <div className="text-[10px] text-emerald-800 uppercase font-black border border-emerald-300 bg-emerald-50 p-2">Status: {profileForm.profileStatus || profileForm.businessStatus || 'Active'}</div>
                   </div>
 
-                  <div className="grid grid-cols-1 md:grid-cols-4 gap-4 pt-2 border-t border-slate-900">
-                    <label className="flex items-center gap-2 text-[10px] uppercase font-black text-slate-300">
-                      <input
-                        type="checkbox"
-                        checked={!!profileForm.isBusinessRegistered}
-                        onChange={e => setProfileForm({ ...profileForm, isBusinessRegistered: e.target.checked })}
-                        className="accent-orange-500"
-                      />
-                      Registered Business
-                    </label>
-                    <label className="flex items-center gap-2 text-[10px] uppercase font-black text-slate-300">
-                      <input
-                        type="checkbox"
-                        checked={!!profileForm.vatRegistered}
-                        onChange={e => setProfileForm({ ...profileForm, vatRegistered: e.target.checked })}
-                        className="accent-orange-500"
-                      />
-                      VAT Registered
-                    </label>
-                    <label className="flex items-center gap-2 text-[10px] uppercase font-black text-slate-300">
-                      <input
-                        type="checkbox"
-                        checked={!!profileForm.isTaxCollector}
-                        onChange={e => setProfileForm({ ...profileForm, isTaxCollector: e.target.checked })}
-                        className="accent-orange-500"
-                      />
-                      Tax Collector
-                    </label>
-                    <div className="text-[10px] text-emerald-400 uppercase font-black">Status: {profileForm.businessStatus || 'Active'}</div>
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4 pt-3 border-t border-[#d6d9e0]">
+                    <SettingsCheckbox label="Registered Business" checked={!!(profileForm.isRegisteredBusiness || profileForm.isBusinessRegistered)} onChange={(checked) => setProfileForm({ ...profileForm, isRegisteredBusiness: checked, isBusinessRegistered: checked })} />
+                    <SettingsCheckbox label="VAT Registered" checked={!!profileForm.vatRegistered} onChange={(checked) => setProfileForm({ ...profileForm, vatRegistered: checked })} />
+                    <SettingsCheckbox label="Tax Registered / Tax Collector" checked={!!(profileForm.taxCollector || profileForm.isTaxCollector)} onChange={(checked) => setProfileForm({ ...profileForm, taxCollector: checked, isTaxCollector: checked })} />
                   </div>
+                </SettingsFormSection>
 
+                {(profileForm.isRegisteredBusiness || profileForm.isBusinessRegistered) && (
+                  <SettingsFormSection title="Business Registration Details">
+                    <div className="border border-orange-200 bg-orange-50 p-2 text-[10px] text-orange-950 font-bold uppercase">
+                      Registration details are used for receipts, tax readiness, audit references, and dashboard visibility where permission allows.
+                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                      <SettingsTextField label="Registered Business Name" value={profileForm.registeredBusinessName || ''} onChange={(value) => setProfileForm({ ...profileForm, registeredBusinessName: value, legalName: value || profileForm.legalName })} />
+                      <SettingsTextField label="Company Registration Number" value={profileForm.companyRegistrationNumber || ''} onChange={(value) => setProfileForm({ ...profileForm, companyRegistrationNumber: value, regNo: value || profileForm.regNo })} />
+                      <SettingsTextField label="Trade Certificate Registration Number" value={profileForm.tradeCertificateRegistrationNumber || profileForm.regNo || ''} onChange={(value) => setProfileForm({ ...profileForm, tradeCertificateRegistrationNumber: value, regNo: value || profileForm.regNo })} />
+                      <SettingsTextField label="Date of Registration" type="date" value={profileForm.registrationDate || ''} onChange={(value) => setProfileForm({ ...profileForm, registrationDate: value })} />
+                      <SettingsTextField label="Place of Registration" value={profileForm.registrationPlace || ''} onChange={(value) => setProfileForm({ ...profileForm, registrationPlace: value })} />
+                      <SettingsTextField label="Owner Full Name" value={profileForm.ownerFullName || ''} onChange={(value) => setProfileForm({ ...profileForm, ownerFullName: value })} />
+                      <SettingsTextField label="Owner National ID" value={profileForm.ownerNationalId || profileForm.ownerNationalIdPlaceholder || ''} onChange={(value) => setProfileForm({ ...profileForm, ownerNationalId: value, ownerNationalIdPlaceholder: value })} />
+                      <SettingsTextField label="Owner Contact" value={profileForm.ownerContact || profileForm.ownerPhone || ''} onChange={(value) => setProfileForm({ ...profileForm, ownerContact: value, ownerPhone: value })} />
+                    </div>
+                  </SettingsFormSection>
+                )}
+
+                {(profileForm.vatRegistered || profileForm.taxCollector || profileForm.isTaxCollector) && (
+                  <SettingsFormSection title="Tax and VAT Details">
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                      {profileForm.vatRegistered && <SettingsTextField label="VAT Number" value={profileForm.vatNumber || ''} onChange={(value) => setProfileForm({ ...profileForm, vatNumber: value, taxNo: value || profileForm.taxNo })} />}
+                      {(profileForm.taxCollector || profileForm.isTaxCollector) && <SettingsTextField label="Tax Registration Number" value={profileForm.taxRegistrationNumber || profileForm.taxIdentificationNumber || ''} onChange={(value) => setProfileForm({ ...profileForm, taxRegistrationNumber: value, taxIdentificationNumber: value })} />}
+                      {(profileForm.taxCollector || profileForm.isTaxCollector) && <SettingsTextField label="Tax Collector Type" value={profileForm.taxCollectorType || ''} onChange={(value) => setProfileForm({ ...profileForm, taxCollectorType: value })} />}
+                    </div>
+                  </SettingsFormSection>
+                )}
+
+                <SettingsFormSection title="Accountant / Business Administrator">
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <SettingsTextField label="Accountant Name" value={profileForm.accountantName || ''} onChange={(value) => setProfileForm({ ...profileForm, accountantName: value })} />
+                    <SettingsTextField label="Accountant Phone" value={profileForm.accountantPhone || ''} onChange={(value) => setProfileForm({ ...profileForm, accountantPhone: value })} />
+                    <SettingsTextField label="Accountant Email" type="email" value={profileForm.accountantEmail || ''} onChange={(value) => setProfileForm({ ...profileForm, accountantEmail: value })} />
+                    <SettingsTextField label="Business Administrator Name" value={profileForm.businessAdministratorName || ''} onChange={(value) => setProfileForm({ ...profileForm, businessAdministratorName: value })} />
+                    <SettingsTextField label="Business Administrator Phone" value={profileForm.businessAdministratorPhone || ''} onChange={(value) => setProfileForm({ ...profileForm, businessAdministratorPhone: value })} />
+                    <SettingsTextField label="Business Administrator Email" type="email" value={profileForm.administratorEmail || ''} onChange={(value) => setProfileForm({ ...profileForm, administratorEmail: value })} />
+                  </div>
+                </SettingsFormSection>
+
+                <div className="border border-[#b1b5c2] bg-slate-50 p-3 text-[10px] text-slate-700 font-bold uppercase">
+                  Dashboard visibility is permission-aware. Registration details require businessRegistration.dashboardView; users without that right see only basic business identity.
+                </div>
+
+                {false && (
+                  <>
+                  <div>
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                     <div className="space-y-1">
                       <label className="block text-slate-500 text-[10px] uppercase font-bold">Company Registration No</label>
@@ -756,6 +735,8 @@ export default function PosSettings({
                     />
                   </div>
                 </div>
+                  </>
+                )}
 
                 <div className="pt-3 border-t border-slate-900">
                   <button
@@ -1875,6 +1856,48 @@ function ReadOnlyAccessMetric({ label, value }: { label: string; value: string }
     <div className="border border-[#b1b5c2] bg-slate-50 p-3">
       <div className="text-[8.5px] text-slate-500 font-black uppercase tracking-wider">{label}</div>
       <div className="mt-1 text-sm text-[#1e222b] font-black uppercase">{value}</div>
+    </div>
+  );
+}
+
+function SettingsFormSection({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <section className="bg-white border-2 border-[#b1b5c2] p-4 space-y-4 text-[#1e222b]">
+      <div className="border-b border-[#d6d9e0] pb-2 text-[10px] text-orange-600 font-black uppercase tracking-widest">{title}</div>
+      {children}
+    </section>
+  );
+}
+
+function SettingsTextField({ label, value, onChange, type = 'text' }: { label: string; value: string; onChange: (value: string) => void; type?: string }) {
+  return (
+    <label className="space-y-1 block">
+      <span className="block text-[9px] text-slate-600 font-black uppercase">{label}</span>
+      <input
+        type={type}
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        className="w-full bg-white border border-[#b1b5c2] px-2.5 py-2 text-[11px] font-bold text-[#1e222b] outline-none focus:border-orange-500"
+      />
+    </label>
+  );
+}
+
+function SettingsCheckbox({ label, checked, onChange }: { label: string; checked: boolean; onChange: (checked: boolean) => void }) {
+  return (
+    <label className="flex items-center gap-2 text-[10px] uppercase font-black text-[#1e222b] border border-[#b1b5c2] bg-slate-50 p-2">
+      <input type="checkbox" checked={checked} onChange={(event) => onChange(event.target.checked)} className="accent-orange-600" />
+      {label}
+    </label>
+  );
+}
+
+function ValidationList({ title, items, tone }: { title: string; items: string[]; tone: 'error' | 'warning' }) {
+  const danger = tone === 'error';
+  return (
+    <div className={`border p-3 text-[10px] font-bold uppercase ${danger ? 'bg-rose-50 border-rose-400 text-rose-900' : 'bg-orange-50 border-orange-400 text-orange-950'}`}>
+      <div className="font-black mb-1">{title}</div>
+      {items.map((item) => <div key={item}>{item}</div>)}
     </div>
   );
 }

@@ -28,7 +28,9 @@ import {
   ShieldCheck,
   FileText
 } from 'lucide-react';
-import { Product, Transaction, Shift, CashLog, PosSession, PosPageId } from '../types';
+import { Product, Transaction, Shift, CashLog, PosSession, PosPageId, BusinessProfile } from '../types';
+import { getBusinessProfileDashboardSummary } from '../services/businessProfileService';
+import { normalizeSecurityRole, roleHasPermission } from '../auth/permissionMatrixService';
 
 interface PosDashboardProps {
   products: Product[];
@@ -37,6 +39,7 @@ interface PosDashboardProps {
   cashLogs: CashLog[];
   onNavigate: (page: PosPageId) => void;
   session?: PosSession | null;
+  businessProfile?: BusinessProfile;
 }
 
 export default function PosDashboard({
@@ -45,7 +48,8 @@ export default function PosDashboard({
   activeShift,
   cashLogs,
   onNavigate,
-  session
+  session,
+  businessProfile
 }: PosDashboardProps) {
 
   // Retrieve current active operator name
@@ -54,6 +58,10 @@ export default function PosDashboard({
   const vendorName = session?.vendor || 'Demo Vendor';
   const branchName = session?.branch || 'Harare Main';
   const terminalName = session?.terminal || 'POS-01';
+  const businessSummary = getBusinessProfileDashboardSummary(
+    (permissionKey) => roleHasPermission(normalizeSecurityRole(roleName), permissionKey),
+    businessProfile
+  );
 
   // State to simulate system notification feedback when quick actions are clicked
   const [consoleNotification, setConsoleNotification] = useState<string>('Sync Status: Fully Synchronized');
@@ -200,6 +208,39 @@ export default function PosDashboard({
         </div>
         <div className="text-[9px] text-slate-600 font-black">
           UTC: {new Date().toISOString().substring(11, 19)}
+        </div>
+      </div>
+
+      <div className="bg-white border-2 border-[#b1b5c2] p-3 text-[#1e222b]">
+        <div className="flex items-center justify-between gap-3 mb-3">
+          <div>
+            <p className="text-[9px] text-orange-600 uppercase font-black">Business Profile</p>
+            <h3 className="text-sm font-black uppercase">Registration Summary</h3>
+          </div>
+          {!businessSummary.canViewRegistration && <span className="border border-orange-400 bg-orange-50 text-orange-950 px-2 py-1 text-[9px] font-black uppercase">Registration details hidden by permission</span>}
+        </div>
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+          {businessSummary.canViewRegistration ? (
+            <>
+              <DashboardBusinessMetric label="Registered Name" value={businessSummary.registration.registeredBusinessName} />
+              <DashboardBusinessMetric label="Trading Name" value={businessSummary.registration.tradingName || '-'} />
+              <DashboardBusinessMetric label="Registration No" value={businessSummary.registration.registrationNumber || '-'} />
+              <DashboardBusinessMetric label="Registration Date" value={businessSummary.registration.registrationDate || '-'} />
+              <DashboardBusinessMetric label="Registration Place" value={businessSummary.registration.registrationPlace || '-'} />
+              <DashboardBusinessMetric label="VAT Status" value={businessSummary.registration.vatStatus} />
+              <DashboardBusinessMetric label="Tax Registration" value={businessSummary.registration.taxRegistrationNumber || '-'} />
+              <DashboardBusinessMetric label="Admin / Accountant" value={businessSummary.registration.accountantOrAdministratorName || '-'} />
+              <DashboardBusinessMetric label="Admin Phone" value={businessSummary.registration.accountantOrAdministratorPhone || '-'} />
+            </>
+          ) : (
+            <>
+              <DashboardBusinessMetric label="Business Name" value={businessSummary.basic.businessName || '-'} />
+              <DashboardBusinessMetric label="Trading Name" value={businessSummary.basic.tradingName || '-'} />
+              <DashboardBusinessMetric label="City / Town" value={businessSummary.basic.cityTown || '-'} />
+              <DashboardBusinessMetric label="Industrial Sector" value={businessSummary.basic.industrialSector || '-'} />
+              <DashboardBusinessMetric label="Status" value={businessSummary.basic.status || '-'} />
+            </>
+          )}
         </div>
       </div>
 
@@ -704,5 +745,14 @@ function TableActionsIcon(props: React.SVGProps<SVGSVGElement>) {
       <path d="M21 15H3" />
       <path d="M12 3v18" />
     </svg>
+  );
+}
+
+function DashboardBusinessMetric({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="border border-[#d6d9e0] bg-slate-50 p-2 min-h-14">
+      <span className="block text-[8px] text-slate-500 uppercase font-black">{label}</span>
+      <strong className="block text-[10px] text-[#1e222b] uppercase break-words">{value}</strong>
+    </div>
   );
 }
