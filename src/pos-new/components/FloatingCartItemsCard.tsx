@@ -1,4 +1,5 @@
 import { Minus, Plus, ShoppingCart, Trash2, X } from 'lucide-react';
+import type { ReactNode } from 'react';
 import type { CartItem } from '../types';
 
 interface FloatingCartItemsCardProps {
@@ -11,6 +12,8 @@ interface FloatingCartItemsCardProps {
   onRemoveItem: (productId: string) => void;
   onApplyLineDiscount: (productId: string) => void;
   onHoldSale: () => void;
+  onCheckout: () => void;
+  flowIndicator?: ReactNode;
   onNotice?: (message: string) => void;
 }
 
@@ -44,6 +47,8 @@ export default function FloatingCartItemsCard({
   onRemoveItem,
   onApplyLineDiscount,
   onHoldSale,
+  onCheckout,
+  flowIndicator,
   onNotice
 }: FloatingCartItemsCardProps) {
   if (!open) return null;
@@ -67,6 +72,7 @@ export default function FloatingCartItemsCard({
           <span>Items <strong>{itemCount}</strong></span>
           <span>Cart Total <strong>{money(subtotal)}</strong></span>
         </div>
+        {flowIndicator}
 
         <div className="floating-cart-card-body">
           {cart.length === 0 ? (
@@ -123,7 +129,7 @@ export default function FloatingCartItemsCard({
           <span>Subtotal <strong>{money(subtotal)}</strong></span>
           <span>Item Count <strong>{itemCount}</strong></span>
           <button type="button" className="sci-pos-button sci-pos-button--secondary" onClick={onHoldSale} disabled={cart.length === 0}>Hold Sale</button>
-          <button type="button" className="sci-pos-button sci-pos-button--primary" onClick={onClose}>Continue Checkout</button>
+          <button type="button" className="sci-pos-button sci-pos-button--primary" onClick={onCheckout}>Checkout</button>
         </footer>
       </section>
     </div>

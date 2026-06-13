@@ -55,6 +55,14 @@ type CartToolPanel =
   | 'hold'
   | null;
 
+type CheckoutFlowStep =
+  | 'Idle'
+  | 'CartReview'
+  | 'DeliveryReview'
+  | 'PaymentReview'
+  | 'ReadyToComplete'
+  | 'Completed';
+
 export interface SalesDiscountPayload {
   scope: 'Cart' | 'Line';
   productId?: string;
@@ -152,6 +160,8 @@ interface SalesCartCardProps {
   canVoidCart: boolean;
   canReprintReceipt: boolean;
   canHoldSale: boolean;
+  canSaveDelivery: boolean;
+  canBroadcastDelivery: boolean;
   disableCompleteReason: string;
   onCustomerModeChange: (value: SalesCustomerMode) => void;
   onCustomerNameChange: (value: string) => void;
@@ -180,6 +190,7 @@ interface SalesCartCardProps {
   onPrepareDeliveryWhatsApp: () => void;
   onCustomerDetailsSaved: () => void;
   onDeliveryDetailsSaved: () => void;
+  onCheckoutActivity?: (eventType: string, message: string) => void;
   onPaymentMethodChange: (value: SalesPaymentMethod) => void;
   onPaymentAmountChange: (value: string) => void;
   onPaymentReferenceChange: (value: string) => void;
@@ -287,6 +298,8 @@ export default function SalesCartCard({
   canVoidCart,
   canReprintReceipt,
   canHoldSale,
+  canSaveDelivery,
+  canBroadcastDelivery,
   disableCompleteReason,
   onCustomerModeChange,
   onCustomerNameChange,
@@ -315,6 +328,7 @@ export default function SalesCartCard({
   onPrepareDeliveryWhatsApp,
   onCustomerDetailsSaved,
   onDeliveryDetailsSaved,
+  onCheckoutActivity,
   onPaymentMethodChange,
   onPaymentAmountChange,
   onPaymentReferenceChange,
@@ -362,6 +376,11 @@ export default function SalesCartCard({
   const [clearMode, setClearMode] = useState<SalesWorkspaceClearMode>('Search Only');
   const [holdReason, setHoldReason] = useState('');
   const [holdExpiry, setHoldExpiry] = useState('');
+  const [checkoutFlowStep, setCheckoutFlowStep] = useState<CheckoutFlowStep>('Idle');
+  const [checkoutStartedFromCartItems, setCheckoutStartedFromCartItems] = useState(false);
+  const [pendingCheckoutAfterDelivery, setPendingCheckoutAfterDelivery] = useState(false);
+  const [pendingCheckoutAfterPayment, setPendingCheckoutAfterPayment] = useState(false);
+  const [deliveryStepIncluded, setDeliveryStepIncluded] = useState(false);
   const filteredExistingCustomers = useMemo(() => {
     const query = customerSearch.trim().toLowerCase();
     return existingCustomers.filter((customer) => {
@@ -389,6 +408,50 @@ export default function SalesCartCard({
       : 'Paid';
   const knownCustomerSelected = customerMode !== 'Walk-in Customer' && Boolean(customerName.trim());
   const loyaltyRedemptionValue = Math.min(Number(loyaltyPoints) || 0, availableLoyaltyPoints) * 0.01;
+  const deliveryFeeAmount = Math.max(0, Number(deliveryFee) || 0);
+  const deliveryRequiresCashCollection = deliveryPaymentMode === 'Cash On Delivery' || deliveryPaymentMode === 'Delivery Fee Cash';
+  const shouldOpenDeliveryBeforePayment = () => {
+    if (deliveryMode === 'Vendor Delivery' || deliveryMode === 'iDeliver Service') return true;
+    if (deliveryMode === 'Customer Collection' && (deliveryNotes.trim() || deliveryFeeAmount > 0)) return true;
+    if (deliveryFeeAmount > 0) return true;
+    if (deliveryAddress.trim() || deliveryWhatsApp.trim() || deliveryNotes.trim()) return true;
+    return deliveryRequiresCashCollection;
+  };
+  const checkoutSteps = deliveryStepIncluded
+    ? ['Cart Review', 'Delivery Review', 'Payment', 'Complete']
+    : ['Cart Review', 'Payment', 'Complete'];
+  const activeStepLabel = checkoutFlowStep === 'DeliveryReview'
+    ? 'Delivery Review'
+    : checkoutFlowStep === 'PaymentReview' || checkoutFlowStep === 'ReadyToComplete'
+      ? 'Payment'
+      : checkoutFlowStep === 'Completed'
+        ? 'Complete'
+        : 'Cart Review';
+
+  const emitCheckoutActivity = (eventType: string, message: string) => {
+    onCheckoutActivity?.(eventType, message);
+  };
+
+  const validateCartForCheckout = (): boolean => {
+    if (cart.length === 0) {
+      onCartNotice?.('Cart is empty. Add products before checkout.');
+      return false;
+    }
+    const invalidLine = cart.find((item) => item.quantity <= 0);
+    if (invalidLine) {
+      onCartNotice?.('Cart contains a zero or negative quantity. Correct quantities before checkout.');
+      return false;
+    }
+    const blockedLine = cart.find((item) => {
+      const available = item.product.availableStock ?? item.product.qtyOnHand ?? item.product.stock;
+      return available <= 0 || item.quantity > available;
+    });
+    if (blockedLine) {
+      onCartNotice?.(`Stock is not available for ${blockedLine.product.productName || blockedLine.product.name}.`);
+      return false;
+    }
+    return true;
+  };
 
   const openToolPanel = (panel: CartToolPanel) => {
     setCartToolsOpen(false);
@@ -398,6 +461,108 @@ export default function SalesCartCard({
       setDraftDeliveryNote(cartDeliveryNote);
     }
     setActiveToolPanel(panel);
+  };
+
+  const renderCheckoutFlowIndicator = () => (
+    <div className="checkout-flow-indicator" aria-label="Checkout flow">
+      {checkoutSteps.map((step) => (
+        <span key={step} className={step === activeStepLabel ? 'active' : undefined}>{step}</span>
+      ))}
+    </div>
+  );
+
+  const openPaymentFromCheckout = () => {
+    setCartItemsOpen(false);
+    setDeliveryDrawerOpen(false);
+    setPaymentDrawerOpen(true);
+    setCheckoutFlowStep('PaymentReview');
+    setPendingCheckoutAfterPayment(true);
+    emitCheckoutActivity('CHECKOUT_PAYMENT_OPENED', 'Receive Payment opened from checkout flow.');
+  };
+
+  const startCheckoutFromCartItems = () => {
+    setCheckoutStartedFromCartItems(true);
+    setCheckoutFlowStep('CartReview');
+    emitCheckoutActivity('CHECKOUT_STARTED_FROM_CART_ITEMS', 'Checkout started from Cart Items.');
+    if (!validateCartForCheckout()) return;
+    const deliveryRequired = shouldOpenDeliveryBeforePayment();
+    setDeliveryStepIncluded(deliveryRequired);
+    if (deliveryRequired) {
+      setCartItemsOpen(false);
+      setDeliveryDrawerOpen(true);
+      setPendingCheckoutAfterDelivery(true);
+      setCheckoutFlowStep('DeliveryReview');
+      emitCheckoutActivity('CHECKOUT_DELIVERY_REQUIRED', 'Delivery review required before payment.');
+      emitCheckoutActivity('CHECKOUT_DELIVERY_REVIEW_OPENED', 'Delivery / iDeliver checkout review opened.');
+      return;
+    }
+    emitCheckoutActivity('CHECKOUT_DELIVERY_SKIPPED', 'Delivery review skipped for no-delivery checkout.');
+    openPaymentFromCheckout();
+  };
+
+  const backToCartItemsFromCheckout = () => {
+    setPaymentDrawerOpen(false);
+    setDeliveryDrawerOpen(false);
+    setCartItemsOpen(true);
+    setCheckoutFlowStep('CartReview');
+    emitCheckoutActivity('CHECKOUT_BACK_TO_CART', 'Returned to Cart Items during checkout.');
+  };
+
+  const backToDeliveryFromPayment = () => {
+    setPaymentDrawerOpen(false);
+    setDeliveryDrawerOpen(true);
+    setCheckoutFlowStep('DeliveryReview');
+    emitCheckoutActivity('CHECKOUT_BACK_TO_DELIVERY', 'Returned to Delivery Review during checkout.');
+  };
+
+  const validateDeliveryForPayment = (): boolean => {
+    if (!shouldOpenDeliveryBeforePayment()) return true;
+    if ((deliveryMode === 'Vendor Delivery' || deliveryMode === 'iDeliver Service') && !deliveryAddress.trim() && !deliveryNotes.trim()) {
+      onCartNotice?.('Delivery address or a clear delivery note is required before payment.');
+      return false;
+    }
+    if (!canSaveDelivery) {
+      onCartNotice?.('You do not have permission to save delivery details.');
+      return false;
+    }
+    if (deliveryMode === 'iDeliver Service' && !canBroadcastDelivery) {
+      onCartNotice?.('You do not have permission to prepare iDeliver requests.');
+      return false;
+    }
+    if (!canUseAccountSale && deliveryRequiresCashCollection && !canReceivePayment) {
+      onCartNotice?.('You do not have permission to prepare a delivery cash collection.');
+      return false;
+    }
+    return true;
+  };
+
+  const continueFromDeliveryToPayment = () => {
+    if (!canComplete && !canReceivePayment && !canUseAccountSale) {
+      onCartNotice?.('You do not have permission to continue checkout payment.');
+      return;
+    }
+    if (!validateDeliveryForPayment()) return;
+    onDeliveryDetailsSaved();
+    if (deliveryMode === 'iDeliver Service') onPrepareIDeliverRequest();
+    if (deliveryMode === 'Vendor Delivery' || deliveryMode === 'iDeliver Service' || deliveryRequiresCashCollection) onGenerateDeliveryCode();
+    setPendingCheckoutAfterDelivery(false);
+    emitCheckoutActivity('CHECKOUT_DELIVERY_SAVED', 'Delivery review saved during checkout.');
+    if (deliveryMode === 'iDeliver Service') emitCheckoutActivity('CHECKOUT_IDELIVER_REQUEST_PREPARED', 'Local iDeliver request prepared during checkout.');
+    openPaymentFromCheckout();
+  };
+
+  const completeTransactionFromPayment = () => {
+    if (!canComplete) {
+      onCartNotice?.('You do not have permission to complete this sale.');
+      return;
+    }
+    if (totals.balanceDue > 0 && !['Credit / Account', 'Already Paid', 'No Payment Due'].includes(paymentMethod)) {
+      onCartNotice?.('Balance remains. Capture payment or choose an allowed payment mode before completing.');
+      return;
+    }
+    setCheckoutFlowStep('Completed');
+    emitCheckoutActivity('CHECKOUT_COMPLETED', 'Checkout completed from payment review.');
+    onCompleteSale();
   };
 
   const submitDiscount = () => {
@@ -644,6 +809,8 @@ export default function SalesCartCard({
         onRemoveItem={onRemoveItem}
         onApplyLineDiscount={onApplyLineDiscount}
         onHoldSale={onHoldSale}
+        onCheckout={startCheckoutFromCartItems}
+        flowIndicator={checkoutStartedFromCartItems ? renderCheckoutFlowIndicator() : undefined}
         onNotice={onCartNotice}
       />
       {activeToolPanel && (
@@ -773,8 +940,21 @@ export default function SalesCartCard({
               <div><p className="sci-pos-eyebrow">Payment</p><h3>Receive Payment</h3></div>
               <button type="button" className="sci-pos-icon-button" onClick={() => setPaymentDrawerOpen(false)} aria-label="Close receive payment"><XCircle size={16} aria-hidden="true" /></button>
             </div>
+            {checkoutStartedFromCartItems && renderCheckoutFlowIndicator()}
             <div className="sales-drawer-body">
               <section className="sales-drawer-section">
+                {checkoutStartedFromCartItems && (
+                  <div className="checkout-payment-summary">
+                    <span>Subtotal <strong>{money(totals.subtotal)}</strong></span>
+                    <span>Discount <strong>{money(totals.discountTotal)}</strong></span>
+                    <span>Credit / Loyalty <strong>{money(creditRedemptionAmount + loyaltyRedemptionAmount)}</strong></span>
+                    <span>Tax <strong>{money(totals.taxTotal)}</strong></span>
+                    <span>Delivery <strong>{money(totals.deliveryFee)}</strong></span>
+                    <span>Total <strong>{money(totals.grandTotal)}</strong></span>
+                    <span>Paid <strong>{money(totals.paymentReceived)}</strong></span>
+                    <span>Balance <strong>{money(totals.balanceDue)}</strong></span>
+                  </div>
+                )}
                 <label>Payment Method<select value={paymentMethod} onChange={(event) => onPaymentMethodChange(event.target.value as SalesPaymentMethod)}>{paymentMethods.map((method) => <option key={method} value={method}>{paymentLabels[method]}</option>)}</select></label>
                 <label>Payment Amount<input type="number" min="0" value={paymentAmount} onChange={(event) => onPaymentAmountChange(event.target.value)} /></label>
                 <label>Payment Notes<input value={paymentReference} onChange={(event) => onPaymentReferenceChange(event.target.value)} placeholder="Add payment reference, mobile money confirmation, bank note, or cashier note..." /></label>
@@ -801,8 +981,11 @@ export default function SalesCartCard({
               </section>
             </div>
             <div className="sales-drawer-actions">
-              <button type="button" className="sci-pos-button sci-pos-button--primary" onClick={onAddPayment} disabled={!canReceivePayment}>Add Payment</button>
+              <button type="button" className="sci-pos-button sci-pos-button--primary" onClick={() => { onAddPayment(); emitCheckoutActivity('CHECKOUT_PAYMENT_ADDED', 'Payment line added during checkout.'); }} disabled={!canReceivePayment}>Add Payment</button>
               <button type="button" className="sci-pos-button sci-pos-button--secondary" onClick={onClearPayments}>Clear Payment</button>
+              {checkoutStartedFromCartItems && deliveryStepIncluded && <button type="button" className="sci-pos-button sci-pos-button--secondary" onClick={backToDeliveryFromPayment}>Back to Delivery</button>}
+              {checkoutStartedFromCartItems && <button type="button" className="sci-pos-button sci-pos-button--secondary" onClick={backToCartItemsFromCheckout}>Back to Cart Items</button>}
+              {checkoutStartedFromCartItems && <button type="button" className="sci-pos-button sci-pos-button--primary" disabled={!canComplete} title={disableCompleteReason} onClick={completeTransactionFromPayment}>Complete Transaction</button>}
               <button type="button" className="sci-pos-button sci-pos-button--secondary" onClick={() => setPaymentDrawerOpen(false)}>Close</button>
             </div>
           </aside>
@@ -847,11 +1030,24 @@ export default function SalesCartCard({
         <div className="sales-drawer-backdrop" onClick={() => setDeliveryDrawerOpen(false)}>
           <aside className="sales-drawer" onClick={(event) => event.stopPropagation()} aria-label="Delivery / iDeliver Details">
             <div className="sales-drawer-header">
-              <div><p className="sci-pos-eyebrow">Delivery</p><h3>Delivery / iDeliver Details</h3></div>
+              <div><p className="sci-pos-eyebrow">Delivery</p><h3>{pendingCheckoutAfterDelivery ? 'Delivery / iDeliver Checkout Review' : 'Delivery / iDeliver Details'}</h3></div>
               <button type="button" className="sci-pos-icon-button" onClick={() => setDeliveryDrawerOpen(false)} aria-label="Close delivery details"><XCircle size={16} aria-hidden="true" /></button>
             </div>
+            {checkoutStartedFromCartItems && renderCheckoutFlowIndicator()}
             <div className="sales-drawer-body">
               <section className="sales-drawer-section">
+                {pendingCheckoutAfterDelivery && (
+                  <div className="checkout-payment-summary">
+                    <span>Method <strong>{deliveryMode}</strong></span>
+                    <span>Address <strong>{deliveryAddress || 'Not captured'}</strong></span>
+                    <span>WhatsApp <strong>{deliveryWhatsApp || customerWhatsApp || '-'}</strong></span>
+                    <span>Priority <strong>{deliveryPriority}</strong></span>
+                    <span>Fee <strong>{money(Number(deliveryFee) || 0)}</strong></span>
+                    <span>Payment <strong>{deliveryPaymentMode}</strong></span>
+                    <span>iDeliver Status <strong>{deliveryMode === 'iDeliver Service' ? 'Local draft ready' : 'Not required'}</strong></span>
+                    <span>Fulfilment Code <strong>{deliveryNotes.includes('Fulfilment') ? 'Captured in notes' : 'Generated when continuing'}</strong></span>
+                  </div>
+                )}
                 <label>Delivery Method<select value={deliveryMode} onChange={(event) => onDeliveryModeChange(event.target.value as DeliveryMode)}>{deliveryModes.map((mode) => <option key={mode} value={mode}>{mode}</option>)}</select></label>
                 <label>Delivery Fee<input type="number" min="0" value={deliveryFee} onChange={(event) => onDeliveryFeeChange(event.target.value)} /></label>
                 <label>Priority<select value={deliveryPriority} onChange={(event) => onDeliveryPriorityChange(event.target.value as SalesDeliveryPriority)}>{deliveryPriorities.map((priority) => <option key={priority} value={priority}>{priority}</option>)}</select></label>
@@ -863,10 +1059,12 @@ export default function SalesCartCard({
               </section>
             </div>
             <div className="sales-drawer-actions">
-              <button type="button" className="sci-pos-button sci-pos-button--primary" onClick={() => { onDeliveryDetailsSaved(); setDeliveryDrawerOpen(false); }}>Save Delivery Details</button>
-              <button type="button" className="sci-pos-button sci-pos-button--secondary" onClick={onPrepareIDeliverRequest}>Prepare iDeliver Request</button>
+              <button type="button" className="sci-pos-button sci-pos-button--primary" disabled={!canSaveDelivery} onClick={() => { onDeliveryDetailsSaved(); emitCheckoutActivity('CHECKOUT_DELIVERY_SAVED', 'Delivery details saved locally.'); setDeliveryDrawerOpen(false); }}>Save Delivery Details</button>
+              <button type="button" className="sci-pos-button sci-pos-button--secondary" disabled={!canBroadcastDelivery || deliveryMode !== 'iDeliver Service'} onClick={() => { onPrepareIDeliverRequest(); emitCheckoutActivity('CHECKOUT_IDELIVER_REQUEST_PREPARED', 'Local iDeliver request prepared.'); }}>Prepare iDeliver Request</button>
               <button type="button" className="sci-pos-button sci-pos-button--secondary" onClick={onGenerateDeliveryCode}>Generate Fulfilment Code</button>
               <button type="button" className="sci-pos-button sci-pos-button--secondary" onClick={onPrepareDeliveryWhatsApp}>Prepare WhatsApp Message</button>
+              {checkoutStartedFromCartItems && <button type="button" className="sci-pos-button sci-pos-button--secondary" onClick={backToCartItemsFromCheckout}>Back to Cart Items</button>}
+              {pendingCheckoutAfterDelivery && <button type="button" className="sci-pos-button sci-pos-button--primary" disabled={!canSaveDelivery || (deliveryMode === 'iDeliver Service' && !canBroadcastDelivery)} onClick={continueFromDeliveryToPayment}>Continue to Payment</button>}
               <button type="button" className="sci-pos-button sci-pos-button--secondary" onClick={() => { onDeliveryModeChange('No Delivery'); onDeliveryFeeChange('0'); onDeliveryAddressChange(''); onDeliveryWhatsAppChange(''); onDeliveryNotesChange(''); setDeliveryDrawerOpen(false); }}>Clear Delivery</button>
               <button type="button" className="sci-pos-button sci-pos-button--secondary" onClick={() => setDeliveryDrawerOpen(false)}>Close</button>
             </div>

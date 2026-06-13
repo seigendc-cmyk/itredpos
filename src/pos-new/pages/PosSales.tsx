@@ -287,7 +287,18 @@ export default function PosSales({
       WHATSAPP_DELIVERY_MESSAGE_PREPARED: 'WhatsApp Message Prepared',
       SALES_PRODUCT_FILTERS_APPLIED: 'Product Filters Applied',
       SALES_PRODUCT_FIELDS_UPDATED: 'Product Fields Updated',
-      CAT_FORM_OPENED_LOCAL: 'CAT Form Opened'
+      CAT_FORM_OPENED_LOCAL: 'CAT Form Opened',
+      CHECKOUT_STARTED_FROM_CART_ITEMS: 'Checkout Started',
+      CHECKOUT_DELIVERY_REQUIRED: 'Checkout Delivery Required',
+      CHECKOUT_DELIVERY_SKIPPED: 'Checkout Delivery Skipped',
+      CHECKOUT_DELIVERY_REVIEW_OPENED: 'Checkout Delivery Review',
+      CHECKOUT_DELIVERY_SAVED: 'Checkout Delivery Saved',
+      CHECKOUT_IDELIVER_REQUEST_PREPARED: 'Checkout iDeliver Prepared',
+      CHECKOUT_PAYMENT_OPENED: 'Checkout Payment Opened',
+      CHECKOUT_PAYMENT_ADDED: 'Checkout Payment Added',
+      CHECKOUT_BACK_TO_CART: 'Checkout Back to Cart',
+      CHECKOUT_BACK_TO_DELIVERY: 'Checkout Back to Delivery',
+      CHECKOUT_COMPLETED: 'Checkout Completed'
     };
     return titles[eventType] || eventType.toLowerCase().split('_').map((word) => word.charAt(0).toUpperCase() + word.slice(1)).join(' ');
   };
@@ -611,9 +622,21 @@ export default function PosSales({
       setStatusMessage('You do not have permission to capture payment.');
       return;
     }
+    if (paymentMethod === 'Credit / Account' && customerMode === 'Walk-in Customer') {
+      setStatusMessage('Select a customer account before capturing account payment.');
+      return;
+    }
+    if (paymentMethod === 'Already Paid' && paymentReference.trim().length === 0) {
+      setStatusMessage('Already Paid requires a payment note or reference.');
+      return;
+    }
     const amount = Number(paymentAmount);
     if (!Number.isFinite(amount) || amount <= 0) {
       setStatusMessage('Enter a payment amount above zero.');
+      return;
+    }
+    if (amount > balanceDue && paymentMethod !== 'Cash') {
+      setStatusMessage('Payment amount exceeds balance. Use Cash for tender/change or reduce the amount.');
       return;
     }
     if (paymentReferenceRequired.has(paymentMethod) && paymentReference.trim().length === 0) {
@@ -1320,6 +1343,8 @@ export default function PosSales({
           canVoidCart={canPerformAction(roleName, 'sales.void')}
           canReprintReceipt={canPerformAction(roleName, 'sales.reprintReceipt')}
           canHoldSale={canPerformAction(roleName, 'sales.hold')}
+          canSaveDelivery={canPerformAction(roleName, 'delivery.create')}
+          canBroadcastDelivery={canPerformAction(roleName, 'delivery.broadcast')}
           disableCompleteReason={disableCompleteReason}
           onCustomerModeChange={handleCustomerModeChange}
           onCustomerNameChange={setCustomerName}
@@ -1375,6 +1400,7 @@ export default function PosSales({
             setStatusMessage('Delivery details saved to current cart draft.');
             logEvent('DELIVERY_DETAILS_UPDATED', `${deliveryMode} details saved locally.`);
           }}
+          onCheckoutActivity={logEvent}
           onVatModeChange={setVatMode}
           onVatRateChange={setVatRate}
           onCompleteSale={handleCompleteSale}
