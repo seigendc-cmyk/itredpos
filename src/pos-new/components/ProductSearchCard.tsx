@@ -156,6 +156,7 @@ export default function ProductSearchCard({
 }: ProductSearchCardProps) {
   const [query, setQuery] = useState('');
   const [category, setCategory] = useState('ALL');
+  const [subcategory, setSubcategory] = useState('ALL');
   const [sector, setSector] = useState('ALL');
   const [branch, setBranch] = useState('ALL');
   const [warehouse, setWarehouse] = useState('ALL');
@@ -174,6 +175,10 @@ export default function ProductSearchCard({
 
   const categories = useMemo(
     () => distinct(products.map((product) => product.productCategory || product.category)),
+    [products]
+  );
+  const subcategories = useMemo(
+    () => distinct(products.map((product) => product.productSubCategory || textMeta(product, 'subcategory'))),
     [products]
   );
   const sectors = useMemo(
@@ -200,6 +205,7 @@ export default function ProductSearchCard({
   const filteredProducts = useMemo(() => {
     return products.filter((product) => {
       const productCategory = product.productCategory || product.category;
+      const productSubcategory = product.productSubCategory || textMeta(product, 'subcategory');
       const productSector = product.industrialSector || textMeta(product, 'sector');
       const productBranch = product.branch || product.branchId || branchName;
       const productWarehouse = product.warehouse || product.warehouseId || warehouseName;
@@ -211,6 +217,7 @@ export default function ProductSearchCard({
         productCategory === category ||
         product.productSubCategory === category ||
         productSector === category;
+      const matchesSubcategory = subcategory === 'ALL' || productSubcategory === subcategory;
       const matchesSector = sector === 'ALL' || productSector === sector;
       const matchesBranch = branch === 'ALL' || productBranch === branch;
       const matchesWarehouse = warehouse === 'ALL' || productWarehouse === warehouse;
@@ -260,9 +267,9 @@ export default function ProductSearchCard({
         (item) => textMeta(item, 'vendorSku')
       ]);
 
-      return matchesCategory && matchesSector && matchesBranch && matchesWarehouse && matchesBrand && matchesSupplier && matchesStock && matchesQuery;
+      return matchesCategory && matchesSubcategory && matchesSector && matchesBranch && matchesWarehouse && matchesBrand && matchesSupplier && matchesStock && matchesQuery;
     });
-  }, [branch, branchName, brand, category, products, query, sector, stockFilter, supplier, warehouse, warehouseName]);
+  }, [branch, branchName, brand, category, products, query, sector, stockFilter, subcategory, supplier, warehouse, warehouseName]);
 
   const setViewMode = (nextMode: ViewMode) => {
     setViewModeState(nextMode);
@@ -286,6 +293,7 @@ export default function ProductSearchCard({
   const clearSearch = () => {
     setQuery('');
     setCategory('ALL');
+    setSubcategory('ALL');
     setSector('ALL');
     setBranch('ALL');
     setWarehouse('ALL');
@@ -306,7 +314,7 @@ export default function ProductSearchCard({
   };
 
   const handleQuickCategory = (nextCategory: QuickCategory) => {
-    setCategory(nextCategory === 'ALL' ? 'ALL' : nextCategory);
+    setSector(nextCategory === 'ALL' ? 'ALL' : nextCategory);
     setMessage('');
   };
 
@@ -376,22 +384,6 @@ export default function ProductSearchCard({
           <RotateCcw size={16} aria-hidden="true" />
           Clear Search
         </button>
-      </div>
-
-      <div className="pos-quick-filter-row" aria-label="Category quick filters">
-        {quickCategories.map((item) => {
-          const isActive = item === 'ALL' ? category === 'ALL' : category === item;
-          return (
-            <button
-              key={item}
-              type="button"
-              className={`industrial-tab ${isActive ? 'active' : ''}`}
-              onClick={() => handleQuickCategory(item)}
-            >
-              {item === 'ALL' ? 'All' : item}
-            </button>
-          );
-        })}
       </div>
 
       <div className="pos-field-chooser sales-fields-card">
@@ -537,9 +529,25 @@ export default function ProductSearchCard({
                 <label>Shelf / Location<input value="" placeholder="Shelf search uses the main product search" readOnly /></label>
               </section>
               <section className="sales-drawer-section">
-                <h4>Product Classification</h4>
+                <h4>Sector / Category</h4>
+                <div className="sales-sector-button-grid" aria-label="Sector quick filters">
+                  {quickCategories.map((item) => {
+                    const isActive = item === 'ALL' ? sector === 'ALL' : sector === item;
+                    return (
+                      <button
+                        key={item}
+                        type="button"
+                        className={isActive ? 'active' : undefined}
+                        onClick={() => handleQuickCategory(item)}
+                      >
+                        {item === 'ALL' ? 'All' : item}
+                      </button>
+                    );
+                  })}
+                </div>
                 <label>Industrial Sector<select value={sector} onChange={(event) => setSector(event.target.value)}><option value="ALL">All Industrial Sectors</option>{sectors.map((item) => <option key={item} value={item}>{item}</option>)}</select></label>
                 <label>Category<select value={category} onChange={(event) => setCategory(event.target.value)}><option value="ALL">All Categories</option>{categories.map((item) => <option key={item} value={item}>{item}</option>)}</select></label>
+                <label>Subcategory<select value={subcategory} onChange={(event) => setSubcategory(event.target.value)}><option value="ALL">All Subcategories</option>{subcategories.map((item) => <option key={item} value={item}>{item}</option>)}</select></label>
                 <label>Stock Status<select value={stockFilter} onChange={(event) => setStockFilter(event.target.value as StockFilter)}><option value="ALL">All Stock</option><option value="IN_STOCK">In Stock</option><option value="LOW_STOCK">Low Stock</option><option value="OUT_OF_STOCK">Out of Stock</option></select></label>
               </section>
               <section className="sales-drawer-section">

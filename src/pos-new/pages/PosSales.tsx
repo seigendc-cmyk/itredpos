@@ -10,6 +10,7 @@ import SalesCartCard, {
   SalesPaymentMethod
 } from '../components/SalesCartCard';
 import ReceiptPreview80mm from '../components/ReceiptPreview80mm';
+import SalesReceiptReviewModal from '../components/SalesReceiptReviewModal';
 import { mockProducts, mockRecentSales } from '../mock/mockPosData';
 import { createAccountingPostingPlaceholder } from '../services/accountingService';
 import { biEventService } from '../services/biEventService';
@@ -22,6 +23,14 @@ import { createCustomerRequest, getCustomers, recordCustomerSelectedForSale } fr
 import { enqueueOfflineAction, getNetworkStatus } from '../services/offlineSyncService';
 import { getProductTotalAvailableStock } from '../services/stockBalanceService';
 import {
+  cancelHeldSalePlaceholder,
+  getHeldSales,
+  HeldSaleRecord,
+  holdCurrentSale,
+  markHeldSaleResumed,
+  reopenHeldSale
+} from '../services/salesService';
+import {
   CartItem,
   CustomerRecord,
   PaymentMode,
@@ -33,6 +42,7 @@ import {
   VATMode
 } from '../types';
 import { canPerformAction } from '../utils/posPermissions';
+import { matchesFreeOrderSearch } from '../utils/searchUtils';
 import { calculateVATExclusive, calculateVATInclusive } from '../utils/taxUtils';
 
 interface PosSalesProps {
@@ -42,15 +52,6 @@ interface PosSalesProps {
   onNavigate: (page: string) => void;
   activeShiftOperator: string | null;
   session?: PosSession | null;
-}
-
-interface HeldSale {
-  id: string;
-  customerName: string;
-  items: CartItem[];
-  total: number;
-  cashier: string;
-  time: string;
 }
 
 interface SalesAuditEvent {
@@ -151,14 +152,18 @@ export default function PosSales({
   const [deliveryPaymentMode, setDeliveryPaymentMode] = useState<SalesDeliveryPaymentMode>('Already Paid');
   const [vatMode, setVatMode] = useState<VATMode>('Inclusive');
   const [vatRate, setVatRate] = useState('15');
-  const [heldSales, setHeldSales] = useState<HeldSale[]>([]);
+  const [heldSales, setHeldSales] = useState<HeldSaleRecord[]>([]);
   const [recentSales, setRecentSales] = useState<Sale[]>(mockRecentSales.slice(0, 5));
   const [auditEvents, setAuditEvents] = useState<SalesAuditEvent[]>([]);
   const [statusMessage, setStatusMessage] = useState('');
   const [receiptPreview, setReceiptPreview] = useState<ReceiptPrintPreview | null>(null);
+  const [receiptReviewSale, setReceiptReviewSale] = useState<Sale | null>(null);
   const [preparedReceiptPreview, setPreparedReceiptPreview] = useState<ReceiptPrintPreview | null>(null);
   const [workspaceMenuOpen, setWorkspaceMenuOpen] = useState(false);
   const [workspaceDrawer, setWorkspaceDrawer] = useState<SalesWorkspaceDrawer>(null);
+  const [heldSaleSearch, setHeldSaleSearch] = useState('');
+  const [recentReceiptSearch, setRecentReceiptSearch] = useState('');
+  const [activitySearch, setActivitySearch] = useState('');
 
   useEffect(() => {
     const baseProducts = products.length > 0 ? products : DEFAULT_PRODUCTS;
@@ -183,6 +188,10 @@ export default function PosSales({
     getCustomers({ status: 'Active' }).then(setActiveCustomers).catch(() => setActiveCustomers([]));
   }, []);
 
+  useEffect(() => {
+    getHeldSales().then(setHeldSales).catch(() => setHeldSales([]));
+  }, []);
+
   const subtotal = useMemo(() => cart.reduce((sum, item) => sum + cartLineTotal(item), 0), [cart]);
   const lineDiscountTotal = useMemo(() => cart.reduce((sum, item) => {
     const base = (item.overriddenPrice ?? productPrice(item.product)) * item.quantity;
@@ -202,9 +211,12 @@ export default function PosSales({
   const creditSaleAllowed = paymentMethod === 'Credit / Account' || paymentMethod === 'Already Paid' || paymentMethod === 'No Payment Due' ||
     payments.some((payment) => ['Credit / Account', 'Already Paid', 'No Payment Due'].includes(payment.method));
   const canComplete = cart.length > 0 && (creditSaleAllowed || paymentReceived >= grandTotal);
+  const canCompleteWithPermission = canComplete && canPerformAction(roleName, 'sales.complete');
   const disableCompleteReason = cart.length === 0
     ? 'Cart is empty.'
-    : creditSaleAllowed || paymentReceived >= grandTotal
+    : !canPerformAction(roleName, 'sales.complete')
+      ? 'You do not have permission to complete a sale.'
+      : creditSaleAllowed || paymentReceived >= grandTotal
       ? ''
       : 'Payment is under the sale total.';
 
@@ -225,6 +237,8 @@ export default function PosSales({
       CUSTOMER_CREATED_PENDING: 'Customer Request Created',
       PAYMENT_METHOD_SELECTED: 'Payment Added',
       SALE_HELD: 'Sale Held',
+      HELD_SALE_REOPENED: 'Held Sale Reopened',
+      RECENT_RECEIPT_OPENED_FOR_REVIEW: 'Receipt Opened For Review',
       TRANSACTION_RESUMED: 'Sale Resumed',
       SALE_CANCELLED: 'Sale Cancelled',
       SALE_COMPLETED: 'Sale Completed',
@@ -256,6 +270,36 @@ export default function PosSales({
     setCustomerTaxNumber('');
     setCustomerNotes('');
   };
+
+  const filteredRecentSales = useMemo(() => recentSales.filter((sale) => matchesFreeOrderSearch(sale, recentReceiptSearch, [
+    'invoiceNo',
+    'customerName',
+    'paymentMethod',
+    'operator',
+    'terminal',
+    'status',
+    'total',
+    (row) => row.items.map((item) => item.name).join(' '),
+    (row) => row.items.map((item) => item.code).join(' ')
+  ])), [recentReceiptSearch, recentSales]);
+
+  const filteredHeldSales = useMemo(() => heldSales.filter((heldSale) => matchesFreeOrderSearch(heldSale, heldSaleSearch, [
+    'heldSaleNumber',
+    'customerName',
+    'customerPhone',
+    'heldBy',
+    'note',
+    'status',
+    'total',
+    (row) => row.items.map((item) => item.product.productName || item.product.name).join(' '),
+    (row) => row.items.map((item) => item.product.sku || item.product.code).join(' ')
+  ])), [heldSaleSearch, heldSales]);
+
+  const filteredAuditEvents = useMemo(() => auditEvents.filter((event) => matchesFreeOrderSearch(event, activitySearch, [
+    'eventType',
+    'message',
+    'time'
+  ])), [activitySearch, auditEvents]);
 
   const handleRemoveItem = (productId: string) => {
     const removedItem = cart.find((item) => item.product.id === productId);
@@ -750,28 +794,94 @@ export default function PosSales({
     }
   };
 
-  const handleHoldSale = () => {
+  const handleHoldSale = async () => {
     if (cart.length === 0) return;
-    const hold: HeldSale = {
-      id: makeId('HOLD'),
+    const hold = await holdCurrentSale({
+      customerMode,
+      selectedCustomerId,
       customerName,
+      customerPhone,
+      customerWhatsApp,
+      customerAddress,
+      customerTaxNumber,
+      customerNotes,
       items: cart,
       total: grandTotal,
-      cashier: staffName,
-      time: new Date().toLocaleString()
-    };
-    setHeldSales((current) => [hold, ...current].slice(0, 8));
+      heldBy: staffName,
+      heldAt: new Date().toLocaleString(),
+      note: paymentReference || customerNotes || deliveryNotes || 'Held from Sales Terminal.',
+      paymentMethod,
+      paymentAmount,
+      paymentReference,
+      payments,
+      deliveryMode,
+      deliveryAddress,
+      deliveryWhatsApp,
+      deliveryNotes,
+      deliveryFee,
+      deliveryPriority,
+      deliveryPaymentMode,
+      vatMode,
+      vatRate
+    });
+    setHeldSales(await getHeldSales());
     clearCartState();
     setStatusMessage('Sale held successfully.');
-    logEvent('SALE_HELD', `Held sale ${hold.id}.`);
+    logEvent('SALE_HELD', `Held sale ${hold.heldSaleNumber}.`);
   };
 
-  const handleResumeHeldSale = (heldSale: HeldSale) => {
-    setCart(heldSale.items);
-    setCustomerName(heldSale.customerName);
-    setHeldSales((current) => current.filter((item) => item.id !== heldSale.id));
-    setStatusMessage(`Resumed ${heldSale.id}.`);
-    logEvent('TRANSACTION_RESUMED', `Held sale ${heldSale.id} resumed.`);
+  const handleResumeHeldSale = async (heldSale: HeldSaleRecord) => {
+    if (!canPerformAction(roleName, 'sales.open') && !canPerformAction(roleName, 'sales.hold')) {
+      setStatusMessage('You do not have permission to reopen held sales.');
+      return;
+    }
+    const record = await reopenHeldSale(heldSale.id);
+    if (!record) {
+      setStatusMessage('Held sale could not be found.');
+      return;
+    }
+    setCart(record.items);
+    setCustomerMode(record.customerMode);
+    setSelectedCustomerId(record.selectedCustomerId || '');
+    setCustomerName(record.customerName);
+    setCustomerPhone(record.customerPhone || '');
+    setCustomerWhatsApp(record.customerWhatsApp || '');
+    setCustomerAddress(record.customerAddress || '');
+    setCustomerTaxNumber(record.customerTaxNumber || '');
+    setCustomerNotes(record.customerNotes || '');
+    setPaymentMethod(record.paymentMethod);
+    setPaymentAmount(record.paymentAmount || '');
+    setPaymentReference(record.paymentReference || '');
+    setPayments(record.payments || []);
+    setDeliveryMode(record.deliveryMode);
+    setDeliveryAddress(record.deliveryAddress || '');
+    setDeliveryWhatsApp(record.deliveryWhatsApp || '');
+    setDeliveryNotes(record.deliveryNotes || '');
+    setDeliveryFee(record.deliveryFee || '0');
+    setDeliveryPriority(record.deliveryPriority);
+    setDeliveryPaymentMode(record.deliveryPaymentMode);
+    setVatMode(record.vatMode);
+    setVatRate(record.vatRate);
+    await markHeldSaleResumed(record.id, staffName);
+    setHeldSales(await getHeldSales());
+    setStatusMessage('Held sale reopened into cart.');
+    logEvent('HELD_SALE_REOPENED', `Held sale ${record.heldSaleNumber} reopened into cart.`);
+  };
+
+  const handleCancelHeldSale = async (heldSale: HeldSaleRecord) => {
+    await cancelHeldSalePlaceholder(heldSale.id, staffName, 'Cancelled from Held Sales drawer');
+    setHeldSales(await getHeldSales());
+    setStatusMessage(`Cancel held sale placeholder recorded for ${heldSale.heldSaleNumber}.`);
+  };
+
+  const handleOpenReceiptReview = (sale: Sale) => {
+    if (!canPerformAction(roleName, 'sales.viewHistory') && !canPerformAction(roleName, 'sales.open')) {
+      setStatusMessage('You do not have permission to view receipt history.');
+      return;
+    }
+    setReceiptReviewSale(sale);
+    setStatusMessage('Receipt opened for review.');
+    logEvent('RECENT_RECEIPT_OPENED_FOR_REVIEW', `Receipt ${sale.invoiceNo} opened for read-only review.`);
   };
 
   const handleCancelSale = () => {
@@ -821,7 +931,7 @@ export default function PosSales({
             <History size={17} aria-hidden="true" />
             Sales History
           </button>
-          <button type="button" className="sci-pos-button sci-pos-button--primary" onClick={handleCompleteSale} disabled={!canComplete} title={disableCompleteReason}>
+          <button type="button" className="sci-pos-button sci-pos-button--primary" onClick={handleCompleteSale} disabled={!canCompleteWithPermission} title={disableCompleteReason}>
             <ShieldCheck size={17} aria-hidden="true" />
             Complete
           </button>
@@ -890,7 +1000,8 @@ export default function PosSales({
             changeDue,
             balanceDue
           }}
-          canComplete={canComplete}
+          canComplete={canCompleteWithPermission}
+          canReceivePayment={canPerformAction(roleName, 'sales.complete')}
           disableCompleteReason={disableCompleteReason}
           onCustomerModeChange={handleCustomerModeChange}
           onCustomerNameChange={setCustomerName}
@@ -909,6 +1020,11 @@ export default function PosSales({
           onPaymentReferenceChange={setPaymentReference}
           onAddPayment={handleAddPayment}
           onRemovePayment={(paymentId) => setPayments((current) => current.filter((payment) => payment.id !== paymentId))}
+          onClearPayments={() => {
+            setPayments([]);
+            setPaymentAmount('');
+            setPaymentReference('');
+          }}
           onDeliveryModeChange={setDeliveryMode}
           onDeliveryAddressChange={setDeliveryAddress}
           onDeliveryWhatsAppChange={setDeliveryWhatsApp}
@@ -953,46 +1069,54 @@ export default function PosSales({
             <div className="sales-drawer-body">
               {workspaceDrawer === 'recentReceipts' && (
                 <div className="sales-drawer-list">
-                  {recentSales.map((sale) => (
-                    <article key={sale.id} className="sales-drawer-row">
-                      <div><strong>{sale.invoiceNo}</strong><span>{sale.customerName || 'Walk-in Customer'} | {sale.paymentMethod} | {new Date(sale.date).toLocaleString()}</span></div>
+                  <p className="sales-drawer-note">Double-click a receipt to open read-only receipt review.</p>
+                  <label className="sales-drawer-search">Search Recent Receipts<input value={recentReceiptSearch} onChange={(event) => setRecentReceiptSearch(event.target.value)} placeholder="Search receipt, customer, payment, cashier, item, SKU..." /></label>
+                  {filteredRecentSales.map((sale) => (
+                    <article key={sale.id} className="sales-drawer-row" onDoubleClick={() => handleOpenReceiptReview(sale)}>
+                      <div><strong>{sale.invoiceNo}</strong><span>{sale.customerName || 'Walk-in Customer'} | {sale.items.length} item(s) | {sale.paymentMethod} | {new Date(sale.date).toLocaleString()}</span></div>
                       <b>{money(sale.total)}</b>
                       <small>{sale.status}</small>
                       <div className="pos-recent-receipt__actions">
-                        <button type="button" className="sci-pos-link-button" onClick={() => setStatusMessage(`View Receipt prepared for ${sale.invoiceNo}.`)}>View Receipt</button>
+                        <button type="button" className="sci-pos-link-button" onClick={() => handleOpenReceiptReview(sale)}>View Receipt</button>
                         <button type="button" className="sci-pos-link-button" onClick={() => setStatusMessage(`CAT Form placeholder opened for ${sale.invoiceNo}.`)}>Open CAT Form</button>
                         <button type="button" className="sci-pos-link-button" onClick={() => setStatusMessage(`Reprint placeholder prepared for ${sale.invoiceNo}.`)}>Reprint Placeholder</button>
+                        <button type="button" className="sci-pos-link-button" disabled={!canPerformAction(roleName, 'sales.open')} onClick={() => setStatusMessage(`Duplicate as New Sale placeholder prepared for ${sale.invoiceNo}.`)}>Duplicate as New Sale Placeholder</button>
                       </div>
                     </article>
                   ))}
+                  {filteredRecentSales.length === 0 && <div className="sci-pos-empty-cell">No recent receipts match the search.</div>}
                 </div>
               )}
               {workspaceDrawer === 'heldSales' && (
                 <div className="sales-drawer-list">
-                  {heldSales.map((heldSale) => (
-                    <article key={heldSale.id} className="sales-drawer-row">
-                      <div><strong>{heldSale.id}</strong><span>{heldSale.customerName} | {heldSale.items.length} item(s) | Held by {heldSale.cashier}</span></div>
+                  <p className="sales-drawer-note">Double-click a held sale to reopen it into the active cart.</p>
+                  <label className="sales-drawer-search">Search Held Sales<input value={heldSaleSearch} onChange={(event) => setHeldSaleSearch(event.target.value)} placeholder="Search hold no., customer, phone, note, SKU, product..." /></label>
+                  {filteredHeldSales.map((heldSale) => (
+                    <article key={heldSale.id} className="sales-drawer-row" onDoubleClick={() => { void handleResumeHeldSale(heldSale); setWorkspaceDrawer(null); }}>
+                      <div><strong>{heldSale.heldSaleNumber}</strong><span>{heldSale.customerName} | {heldSale.items.length} item(s) | Held by {heldSale.heldBy}</span></div>
                       <b>{money(heldSale.total)}</b>
-                      <small>{heldSale.time}</small>
+                      <small>{heldSale.heldAt} | {heldSale.status} | {heldSale.note || 'No note / reason'}</small>
                       <div className="pos-recent-receipt__actions">
-                        <button type="button" className="sci-pos-link-button" onClick={() => { handleResumeHeldSale(heldSale); setWorkspaceDrawer(null); }}><RotateCcw size={14} aria-hidden="true" /> Resume Sale Placeholder</button>
-                        <button type="button" className="sci-pos-link-button" onClick={() => { setHeldSales((current) => current.filter((item) => item.id !== heldSale.id)); setStatusMessage(`Cancel held sale placeholder recorded for ${heldSale.id}.`); }}>Cancel Held Sale Placeholder</button>
+                        <button type="button" className="sci-pos-link-button" disabled={heldSale.status !== 'Held'} onClick={() => { void handleResumeHeldSale(heldSale); setWorkspaceDrawer(null); }}><RotateCcw size={14} aria-hidden="true" /> Reopen Sale</button>
+                        <button type="button" className="sci-pos-link-button" onClick={() => setStatusMessage(`${heldSale.heldSaleNumber}: ${heldSale.note || 'No details note captured.'}`)}>View Details</button>
+                        <button type="button" className="sci-pos-link-button" disabled={heldSale.status !== 'Held'} onClick={() => { void handleCancelHeldSale(heldSale); }}>Cancel Held Sale Placeholder</button>
                       </div>
                     </article>
                   ))}
-                  {heldSales.length === 0 && <div className="sci-pos-empty-cell">No held sales.</div>}
+                  {filteredHeldSales.length === 0 && <div className="sci-pos-empty-cell">No held sales match the search.</div>}
                 </div>
               )}
               {workspaceDrawer === 'activityFeed' && (
                 <div className="pos-audit-feed sales-activity-drawer-feed">
-                  {auditEvents.map((event) => (
+                  <label className="sales-drawer-search">Search Sales Activity<input value={activitySearch} onChange={(event) => setActivitySearch(event.target.value)} placeholder="Search event, message, timestamp..." /></label>
+                  {filteredAuditEvents.map((event) => (
                     <div key={event.id}>
                       <strong>{eventTitle(event.eventType)}</strong>
                       <span>{event.message}</span>
                       <small>{event.time}</small>
                     </div>
                   ))}
-                  {auditEvents.length === 0 && <div className="sci-pos-empty-cell">No sale events recorded for this session.</div>}
+                  {filteredAuditEvents.length === 0 && <div className="sci-pos-empty-cell">No sale events match the search.</div>}
                 </div>
               )}
             </div>
@@ -1002,6 +1126,13 @@ export default function PosSales({
           </aside>
         </div>
       )}
+      <SalesReceiptReviewModal
+        sale={receiptReviewSale}
+        onClose={() => setReceiptReviewSale(null)}
+        onReprint={(sale) => setStatusMessage(`Reprint placeholder prepared for ${sale.invoiceNo}.`)}
+        onCatForm={(sale) => setStatusMessage(`CAT Form placeholder opened for ${sale.invoiceNo}.`)}
+        onDuplicate={(sale) => setStatusMessage(canPerformAction(roleName, 'sales.open') ? `Duplicate as New Sale placeholder prepared for ${sale.invoiceNo}.` : 'You do not have permission to duplicate this receipt.')}
+      />
     </div>
   );
 }
