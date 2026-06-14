@@ -68,6 +68,34 @@ export type PermissionKey =
   | 'cashControl.print'
   | 'cashControl.export'
   | 'cashControl.policy.manage'
+  | 'ownerDesk.view'
+  | 'ownerDesk.cashReconciliation.view'
+  | 'ownerDesk.cashReconciliation.reviewVariance'
+  | 'ownerDesk.cashReconciliation.markBalanced'
+  | 'ownerDesk.cashReconciliation.addOwnerNote'
+  | 'ownerDesk.cashReconciliation.print'
+  | 'ownerDesk.cashReconciliation.export'
+  | 'ownerDesk.cashReconciliation.escalate'
+  | 'ownerDesk.cashReconciliation.createBIWarning'
+  | 'ownerDesk.eodReconciliation.view'
+  | 'ownerDesk.eodReconciliation.manage'
+  | 'ownerDesk.paymentSummary.view'
+  | 'ownerDesk.paymentSummary.manage'
+  | 'ownerDesk.shiftClosing.view'
+  | 'ownerDesk.shiftClosing.manage'
+  | 'ownerDesk.inventoryClosing.view'
+  | 'ownerDesk.inventoryClosing.manage'
+  | 'ownerDesk.deliveryClosing.view'
+  | 'ownerDesk.deliveryClosing.manage'
+  | 'ownerDesk.biReview.view'
+  | 'ownerDesk.biReview.manage'
+  | 'ownerDesk.accountingDesk.view'
+  | 'ownerDesk.accountingDesk.manage'
+  | 'ownerDesk.print'
+  | 'ownerDesk.export'
+  | 'ownerDesk.escalate'
+  | 'ownerDesk.createBIWarning'
+  | 'ownerDesk.createTask'
   | 'customers.createRequest'
   | 'customers.createDirect'
   | 'customers.view'
@@ -437,6 +465,34 @@ const ALL_PERMISSIONS: PermissionKey[] = [
   'cashControl.print',
   'cashControl.export',
   'cashControl.policy.manage',
+  'ownerDesk.view',
+  'ownerDesk.cashReconciliation.view',
+  'ownerDesk.cashReconciliation.reviewVariance',
+  'ownerDesk.cashReconciliation.markBalanced',
+  'ownerDesk.cashReconciliation.addOwnerNote',
+  'ownerDesk.cashReconciliation.print',
+  'ownerDesk.cashReconciliation.export',
+  'ownerDesk.cashReconciliation.escalate',
+  'ownerDesk.cashReconciliation.createBIWarning',
+  'ownerDesk.eodReconciliation.view',
+  'ownerDesk.eodReconciliation.manage',
+  'ownerDesk.paymentSummary.view',
+  'ownerDesk.paymentSummary.manage',
+  'ownerDesk.shiftClosing.view',
+  'ownerDesk.shiftClosing.manage',
+  'ownerDesk.inventoryClosing.view',
+  'ownerDesk.inventoryClosing.manage',
+  'ownerDesk.deliveryClosing.view',
+  'ownerDesk.deliveryClosing.manage',
+  'ownerDesk.biReview.view',
+  'ownerDesk.biReview.manage',
+  'ownerDesk.accountingDesk.view',
+  'ownerDesk.accountingDesk.manage',
+  'ownerDesk.print',
+  'ownerDesk.export',
+  'ownerDesk.escalate',
+  'ownerDesk.createBIWarning',
+  'ownerDesk.createTask',
   'customers.createRequest',
   'customers.createDirect',
   'customers.view',
@@ -761,6 +817,16 @@ const ROLE_PERMISSIONS: Record<Role, PermissionKey[]> = {
     'cashControl.expense.create', 'cashControl.expense.approve', 'cashControl.cashDrop.create', 'cashControl.cashDrop.confirm',
     'cashControl.debtorPayments.view', 'cashControl.debtorPayments.linkDrawer', 'cashControl.deliveryCash.view', 'cashControl.deliveryCash.confirm',
     'cashControl.print', 'cashControl.export', 'cashControl.policy.manage',
+    'ownerDesk.view', 'ownerDesk.cashReconciliation.view', 'ownerDesk.cashReconciliation.reviewVariance',
+    'ownerDesk.cashReconciliation.escalate',
+    'ownerDesk.eodReconciliation.view', 'ownerDesk.eodReconciliation.manage',
+    'ownerDesk.paymentSummary.view', 'ownerDesk.paymentSummary.manage',
+    'ownerDesk.shiftClosing.view', 'ownerDesk.shiftClosing.manage',
+    'ownerDesk.inventoryClosing.view', 'ownerDesk.inventoryClosing.manage',
+    'ownerDesk.deliveryClosing.view', 'ownerDesk.deliveryClosing.manage',
+    'ownerDesk.biReview.view', 'ownerDesk.biReview.manage',
+    'ownerDesk.accountingDesk.view',
+    'ownerDesk.print', 'ownerDesk.export', 'ownerDesk.escalate', 'ownerDesk.createBIWarning', 'ownerDesk.createTask',
     'payment.capture',
     'customers.view', 'customers.createRequest', 'customers.createDirect', 'customers.edit', 'customers.suspend', 'customers.reactivate',
     'customers.notes.view', 'customers.notes.create', 'customers.purchaseHistory.view', 'customers.creditView', 'customers.credit.view', 'customers.credit.manage', 'customers.credit.setLimit', 'customers.credit.policyManage', 'customers.credit.suspend', 'customers.credit.recordPayment', 'customers.credit.writeOff', 'customers.credit.ageing.view', 'customers.credit.ageing.configure', 'customers.credit.statement.view', 'customers.credit.statement.print', 'customers.credit.statement.whatsapp', 'customers.debtorsDesk.view',

@@ -300,6 +300,17 @@ export async function recordEODActivity(
   return addActivity(eventType, message, operator);
 }
 
+export async function updateEODCashReconciliationRow(
+  rowId: string,
+  changes: Partial<EODCashReconciliation>
+): Promise<EODCashReconciliation[]> {
+  const rows = readList<EODCashReconciliation>(CASH_KEY, mockEODCashReconciliationRows).map((row) =>
+    row.id === rowId ? { ...row, ...changes } : row
+  );
+  saveList(CASH_KEY, rows);
+  return rows;
+}
+
 export async function markEODItemReviewed(itemId: string): Promise<EODActivityEvent[]> {
   const checklist = readList<EODChecklistItem>(CHECKLIST_KEY, mockEODChecklistItems).map((item) =>
     item.id === itemId ? { ...item, status: 'Passed' as const, reviewedBy: 'Admin User', notes: 'Marked reviewed locally.' } : item
