@@ -1,9 +1,14 @@
 import { FileDown, MessageCircle, Printer } from 'lucide-react';
 import { useMemo, useState } from 'react';
-import type { CustomerRecord } from '../types';
+import type { CustomerRecord, StatementAcknowledgementRecord, StatementAcknowledgementStatus } from '../types';
 import {
+  createStatementAcknowledgement,
   generateCustomerStatement,
+  getStatementAcknowledgements,
+  markStatementDisputed,
+  markStatementPaymentPromised,
   prepareDebtReminderWhatsAppMessage,
+  updateStatementAcknowledgementStatus,
   type CustomerStatementPayload
 } from '../services/customerCreditService';
 import CustomerStatementDocument from './CustomerStatementDocument';
@@ -14,6 +19,10 @@ interface CustomerStatementPanelProps {
   generatedBy: string;
   canPrint: boolean;
   canWhatsApp: boolean;
+  canAcknowledge?: boolean;
+  canDispute?: boolean;
+  onPromiseFromStatement?: (customerId: string, amount: number) => void;
+  onDisputeFromStatement?: (customerId: string) => void;
   onNotice: (message: string) => void;
 }
 
@@ -27,6 +36,10 @@ export default function CustomerStatementPanel({
   generatedBy,
   canPrint,
   canWhatsApp,
+  canAcknowledge = true,
+  canDispute = true,
+  onPromiseFromStatement,
+  onDisputeFromStatement,
   onNotice
 }: CustomerStatementPanelProps) {
   const [customerId, setCustomerId] = useState(selectedCustomerId);
@@ -39,8 +52,15 @@ export default function CustomerStatementPanel({
   const [includePayments, setIncludePayments] = useState(true);
   const [statementType, setStatementType] = useState<'Summary' | 'Detailed'>('Detailed');
   const [statement, setStatement] = useState<CustomerStatementPayload | null>(null);
+  const [acknowledgements, setAcknowledgements] = useState<StatementAcknowledgementRecord[]>([]);
+  const [ackNotes, setAckNotes] = useState('');
+  const [promisedAmount, setPromisedAmount] = useState(0);
+  const [promisedDate, setPromisedDate] = useState(new Date().toISOString().slice(0, 10));
 
   const selectedCustomer = useMemo(() => customers.find((customer) => customer.customerId === customerId) || null, [customerId, customers]);
+  const latestAcknowledgement = acknowledgements[0] || null;
+
+  const loadAcknowledgements = (id = customerId) => setAcknowledgements(id ? getStatementAcknowledgements({ customerId: id }) : []);
 
   const generate = async () => {
     if (!customerId) {
@@ -49,7 +69,27 @@ export default function CustomerStatementPanel({
     }
     const next = await generateCustomerStatement({ customerId, dateFrom, dateTo, includePaidDebts, includeOpenDebts, includePayments, statementType, generatedBy });
     setStatement(next);
+    setPromisedAmount(next.closingBalance);
+    loadAcknowledgements(customerId);
     onNotice('Customer statement generated locally.');
+  };
+
+  const createAcknowledgement = async (sentVia: string, sentTo: string, status: StatementAcknowledgementStatus = 'Sent') => {
+    if (!statement || !selectedCustomer) return null;
+    const ack = await createStatementAcknowledgement({
+      statementId: `${selectedCustomer.customerCode}-${dateFrom}-${dateTo}`,
+      customerId: selectedCustomer.customerId,
+      customerName: selectedCustomer.customerName,
+      statementPeriodFrom: dateFrom,
+      statementPeriodTo: dateTo,
+      sentVia,
+      sentTo,
+      status,
+      sentBy: generatedBy,
+      notes: ackNotes || `${sentVia} statement event recorded locally.`
+    });
+    loadAcknowledgements(selectedCustomer.customerId);
+    return ack;
   };
 
   const print = () => {
@@ -57,6 +97,7 @@ export default function CustomerStatementPanel({
       onNotice('Generate a statement before printing.');
       return;
     }
+    void createAcknowledgement('Print Dialog', selectedCustomer?.customerName || 'Printed', 'Sent');
     window.setTimeout(() => window.print(), 80);
   };
 
@@ -72,8 +113,28 @@ export default function CustomerStatementPanel({
       return;
     }
     const message = prepareDebtReminderWhatsAppMessage(selectedCustomer, statement.debts, 'Statement Summary');
+    void createAcknowledgement('WhatsApp Placeholder', phone, 'Sent');
     window.open(`https://wa.me/${normalized}?text=${encodeURIComponent(message)}`, '_blank', 'noopener,noreferrer');
     onNotice('Statement WhatsApp link prepared locally.');
+  };
+
+  const updateAck = async (status: StatementAcknowledgementStatus) => {
+    const ack = latestAcknowledgement || await createAcknowledgement('Manual', selectedCustomer?.customerName || 'Manual', status);
+    if (!ack) {
+      onNotice('Generate a statement before updating acknowledgement.');
+      return;
+    }
+    if (status === 'Disputed') {
+      await markStatementDisputed(ack.acknowledgementId, ackNotes || 'Customer disputed statement.');
+      onDisputeFromStatement?.(ack.customerId);
+    } else if (status === 'PaymentPromised') {
+      await markStatementPaymentPromised(ack.acknowledgementId, promisedAmount, promisedDate);
+      onPromiseFromStatement?.(ack.customerId, promisedAmount);
+    } else {
+      await updateStatementAcknowledgementStatus(ack.acknowledgementId, status, ackNotes || `${status} recorded locally.`);
+    }
+    loadAcknowledgements(ack.customerId);
+    onNotice(`Statement acknowledgement marked ${status}.`);
   };
 
   const exportCsv = () => {
@@ -116,6 +177,31 @@ export default function CustomerStatementPanel({
         <button type="button" className="sci-pos-button sci-pos-button--secondary" disabled={!canWhatsApp} onClick={sendWhatsApp}><MessageCircle size={15} />Send via WhatsApp</button>
         <button type="button" className="sci-pos-button sci-pos-button--secondary" onClick={exportCsv}>Export CSV</button>
       </div>
+      <section className="sci-pos-card statement-ack-panel">
+        <div className="sci-pos-card__bar"><div><p className="sci-pos-eyebrow">Acknowledgement</p><h2>Statement Evidence</h2></div><span>{latestAcknowledgement?.status || 'No record'}</span></div>
+        <div className="pos-credit-config-grid">
+          <label>Notes<input value={ackNotes} onChange={(event) => setAckNotes(event.target.value)} placeholder="Customer response / acknowledgement notes" /></label>
+          <label>Promised Amount<input type="number" value={promisedAmount} onChange={(event) => setPromisedAmount(Number(event.target.value))} /></label>
+          <label>Promised Date<input type="date" value={promisedDate} onChange={(event) => setPromisedDate(event.target.value)} /></label>
+        </div>
+        <div className="pos-new-customer-modal__actions">
+          <button type="button" className="pos-action-button pos-action-button-secondary" disabled={!canAcknowledge} onClick={() => void updateAck('Sent')}>Mark Sent</button>
+          <button type="button" className="pos-action-button pos-action-button-secondary" disabled={!canAcknowledge} onClick={() => void updateAck('Acknowledged')}>Mark Acknowledged</button>
+          <button type="button" className="pos-action-button pos-action-button-secondary" disabled={!canDispute} onClick={() => void updateAck('Disputed')}>Mark Disputed</button>
+          <button type="button" className="pos-action-button pos-action-button-secondary" disabled={!canAcknowledge} onClick={() => void updateAck('PaymentPromised')}>Customer Promised Payment</button>
+          <button type="button" className="pos-action-button pos-action-button-secondary" disabled={!canAcknowledge} onClick={() => void updateAck('ReconciliationRequested')}>Reconciliation Requested</button>
+          <button type="button" className="pos-action-button pos-action-button-secondary" disabled={!canAcknowledge} onClick={() => void updateAck('NoResponse')}>No Response</button>
+        </div>
+        <div className="collection-diary-table-scroll">
+          <table className="sci-pos-table collection-diary-table">
+            <thead><tr><th>Sent At</th><th>Via</th><th>To</th><th>Status</th><th>Notes</th></tr></thead>
+            <tbody>
+              {acknowledgements.map((ack) => <tr key={ack.acknowledgementId}><td>{new Date(ack.sentAt).toLocaleString()}</td><td>{ack.sentVia}</td><td>{ack.sentTo}</td><td>{ack.status}</td><td>{ack.notes}</td></tr>)}
+              {acknowledgements.length === 0 && <tr><td colSpan={5}>No statement acknowledgement history yet.</td></tr>}
+            </tbody>
+          </table>
+        </div>
+      </section>
       <CustomerStatementDocument statement={statement} />
     </section>
   );

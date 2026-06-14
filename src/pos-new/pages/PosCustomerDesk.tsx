@@ -23,6 +23,13 @@ import NewCustomerModal from '../components/NewCustomerModal';
 import CustomerCreditWorthinessPanel from '../components/CustomerCreditWorthinessPanel';
 import CustomerStatementPanel from '../components/CustomerStatementPanel';
 import DebtorsControlDeskPanel from '../components/DebtorsControlDeskPanel';
+import CollectionDiaryPanel from '../components/CollectionDiaryPanel';
+import CustomerCreditApplicationModal from '../components/CustomerCreditApplicationModal';
+import PromiseToPayModal from '../components/PromiseToPayModal';
+import DebtDisputeModal from '../components/DebtDisputeModal';
+import DebtorOpeningBalancesPanel from '../components/DebtorOpeningBalancesPanel';
+import DepositsAndCreditNotesPanel from '../components/DepositsAndCreditNotesPanel';
+import DebtorRiskHeatMapPanel from '../components/DebtorRiskHeatMapPanel';
 import RecordDebtPaymentModal from '../components/RecordDebtPaymentModal';
 import RowActionMenu, { RowActionMenuItem } from '../components/RowActionMenu';
 import {
@@ -35,6 +42,7 @@ import {
   CustomerCreditStatus,
   CustomerCreditWorthinessScore,
   CustomerDebtRecord,
+  DebtPaymentAllocationMethod,
   CustomerFilterState,
   CustomerNote,
   CustomerPurchaseHistoryRow,
@@ -51,13 +59,17 @@ import {
   calculateCustomerBehaviourAnalytics,
   calculateCustomerBuyingPreferences,
   calculateCustomerCreditWorthiness,
+  blockCustomerCredit,
   createCustomerCreditApprovalRequest,
   createCustomerCreditBIAdvice,
   getAgeingIntervalConfigs,
   getCustomerCreditActivityEvents,
   getCustomerCreditProfile,
+  requireCustomerDeposit,
+  releaseCustomerCredit,
   recordCustomerDebtPayment,
-  saveAgeingIntervalConfig
+  saveAgeingIntervalConfig,
+  setCustomerCashOnly
 } from '../services/customerCreditService';
 import {
   addCustomerNote,
@@ -87,9 +99,9 @@ interface PosCustomerDeskProps {
   onNavigate?: (page: string) => void;
 }
 
-type CustomerTab = 'Customer List' | 'Customer Requests' | 'Customer Profile' | 'Purchase History' | 'Credit & Ageing' | 'Debtors Control Desk' | 'Customer Statements' | 'Buying Behaviour' | 'Customer Notes' | 'Customer Activity';
+type CustomerTab = 'Customer List' | 'Customer Requests' | 'Customer Profile' | 'Purchase History' | 'Credit & Ageing' | 'Debtors Control Desk' | 'Collection Diary' | 'Customer Statements' | 'Deposits & Credit Notes' | 'Debtor Risk Heat Map' | 'Buying Behaviour' | 'Customer Notes' | 'Customer Activity';
 
-const tabs: CustomerTab[] = ['Customer List', 'Customer Requests', 'Customer Profile', 'Purchase History', 'Credit & Ageing', 'Debtors Control Desk', 'Customer Statements', 'Buying Behaviour', 'Customer Notes', 'Customer Activity'];
+const tabs: CustomerTab[] = ['Customer List', 'Customer Requests', 'Customer Profile', 'Purchase History', 'Credit & Ageing', 'Debtors Control Desk', 'Collection Diary', 'Customer Statements', 'Deposits & Credit Notes', 'Debtor Risk Heat Map', 'Buying Behaviour', 'Customer Notes', 'Customer Activity'];
 const customerTypes: Array<CustomerType | 'All'> = ['All', 'Walk-in', 'Individual', 'Business', 'Government', 'School', 'Fleet Customer', 'Dealer', 'Internal Account'];
 const customerStatuses: Array<CustomerStatus | 'All'> = ['All', 'Pending Approval', 'Active', 'Rejected', 'Duplicate', 'Suspended', 'Inactive'];
 const creditStatuses: Array<CustomerCreditStatus | 'All'> = ['All', 'Cash Only', 'Credit Allowed', 'Credit Suspended', 'Credit Review Required', 'Not Applicable'];
@@ -214,6 +226,11 @@ export default function PosCustomerDesk({ session, onNavigate }: PosCustomerDesk
   const [ageingDraft, setAgeingDraft] = useState<CustomerAgeingIntervalConfig | null>(null);
   const [paymentDebt, setPaymentDebt] = useState<CustomerDebtRecord | null>(null);
   const [selectedForSale, setSelectedForSale] = useState<SelectedCustomerForSaleBridge | null>(() => readSelectedCustomerForSaleBridge());
+  const [creditApplicationCustomer, setCreditApplicationCustomer] = useState<CustomerRecord | null>(null);
+  const [promiseCustomer, setPromiseCustomer] = useState<CustomerRecord | null>(null);
+  const [promiseDebt, setPromiseDebt] = useState<CustomerDebtRecord | null>(null);
+  const [disputeCustomer, setDisputeCustomer] = useState<CustomerRecord | null>(null);
+  const [disputeDebt, setDisputeDebt] = useState<CustomerDebtRecord | null>(null);
 
   const selectedCustomer = customers.find((customer) => customer.customerId === selectedCustomerId) || customers[0] || null;
   const canCreateDirect = hasPermission(roleName, 'customers.createDirect');
@@ -480,6 +497,10 @@ export default function PosCustomerDesk({ session, onNavigate }: PosCustomerDesk
       setPaymentDebt(debt);
       return;
     }
+    if (action === 'Add Promise to Pay') {
+      openPromiseToPay(customerById(debt.customerId), debt);
+      return;
+    }
     if (action === 'Open Customer Profile') {
       setSelectedCustomerId(debt.customerId);
       setActiveTab('Customer Profile');
@@ -513,8 +534,7 @@ export default function PosCustomerDesk({ session, onNavigate }: PosCustomerDesk
       return;
     }
     if (action === 'Mark Disputed') {
-      await createCustomerCreditBIAdvice('CUSTOMER_DEBT_DISPUTED', debt.customerName, `${debt.receiptNumber} marked disputed locally.`, 'Medium');
-      setNotice('Debt dispute logged locally.');
+      openDebtDispute(customerById(debt.customerId), debt);
       return;
     }
     if (action === 'Export Row') {
@@ -539,6 +559,7 @@ export default function PosCustomerDesk({ session, onNavigate }: PosCustomerDesk
     receivedByStaffId: string;
     branchId?: string;
     shiftId?: string;
+    allocationMethod?: DebtPaymentAllocationMethod;
   }) => {
     try {
       await recordCustomerDebtPayment(payload);
@@ -550,10 +571,60 @@ export default function PosCustomerDesk({ session, onNavigate }: PosCustomerDesk
     }
   };
 
+  const customerById = (customerId: string) => customers.find((customer) => customer.customerId === customerId) || null;
+
+  const openCreditApplication = (customer: CustomerRecord | null) => {
+    if (!customer || !requirePermission('customers.credit.application.view')) return;
+    setCreditApplicationCustomer(customer);
+  };
+
+  const openPromiseToPay = (customer: CustomerRecord | null, debt: CustomerDebtRecord | null = null) => {
+    if (!customer || !requirePermission('customers.promiseToPay.view')) return;
+    setPromiseCustomer(customer);
+    setPromiseDebt(debt);
+  };
+
+  const openDebtDispute = (customer: CustomerRecord | null, debt: CustomerDebtRecord | null = null) => {
+    if (!customer || !requirePermission('customers.debtDispute.view')) return;
+    setDisputeCustomer(customer);
+    setDisputeDebt(debt);
+  };
+
+  const handleCreditControlAction = async (customer: CustomerRecord, action: 'Block Credit' | 'Require Deposit' | 'Set Cash Only' | 'Release Credit') => {
+    try {
+      if (action === 'Block Credit') {
+        if (!requirePermission('customers.credit.block')) return;
+        await blockCustomerCredit(customer.customerId, 'Blocked locally from Customer Centre.', session.staffName);
+      }
+      if (action === 'Require Deposit') {
+        if (!requirePermission('customers.credit.depositRequired')) return;
+        await requireCustomerDeposit(customer.customerId, 'Deposit required before further credit sales.', session.staffName);
+      }
+      if (action === 'Set Cash Only') {
+        if (!requirePermission('customers.credit.cashOnly')) return;
+        await setCustomerCashOnly(customer.customerId, 'Set to cash-only locally from Customer Centre.', session.staffName);
+      }
+      if (action === 'Release Credit') {
+        if (!requirePermission('customers.credit.release')) return;
+        await releaseCustomerCredit(customer.customerId, 'Credit released locally after review.', session.staffName);
+      }
+      await refreshCreditPanels(customer.customerId);
+      setNotice(`${action} completed locally for ${customer.customerName}.`);
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : `${action} failed.`);
+    }
+  };
+
   const customerActionItems = (customer: CustomerRecord): RowActionMenuItem[] => [
     { label: 'View Customer', icon: <Eye size={15} />, onClick: () => handleProfile(customer), disabled: !hasPermission(roleName, 'customers.view') },
     { label: 'Edit Customer', icon: <Edit3 size={15} />, onClick: () => setEditCustomer(customer), disabled: !hasPermission(roleName, 'customers.edit') },
     ...(hasPermission(roleName, 'customers.useInSale') ? [{ label: 'Use in Sale', icon: <UserCheck size={15} />, onClick: () => void handleUseInSale(customer) }] : []),
+    { label: 'New Credit Application', icon: <FileText size={15} />, onClick: () => openCreditApplication(customer), disabled: !hasPermission(roleName, 'customers.credit.application.view') },
+    { label: 'Add Promise to Pay', icon: <FileText size={15} />, onClick: () => openPromiseToPay(customer), disabled: !hasPermission(roleName, 'customers.promiseToPay.view') },
+    { label: 'Block Credit', icon: <ShieldAlert size={15} />, onClick: () => void handleCreditControlAction(customer, 'Block Credit'), disabled: !hasPermission(roleName, 'customers.credit.block'), danger: true },
+    { label: 'Require Deposit', icon: <ShieldAlert size={15} />, onClick: () => void handleCreditControlAction(customer, 'Require Deposit'), disabled: !hasPermission(roleName, 'customers.credit.depositRequired') },
+    { label: 'Set Cash Only', icon: <ShieldAlert size={15} />, onClick: () => void handleCreditControlAction(customer, 'Set Cash Only'), disabled: !hasPermission(roleName, 'customers.credit.cashOnly') },
+    { label: 'Release Credit', icon: <RotateCcw size={15} />, onClick: () => void handleCreditControlAction(customer, 'Release Credit'), disabled: !hasPermission(roleName, 'customers.credit.release') },
     { label: 'View Purchase History', icon: <History size={15} />, onClick: () => { setSelectedCustomerId(customer.customerId); setActiveTab('Purchase History'); }, disabled: !hasPermission(roleName, 'customers.purchaseHistory.view') },
     { label: 'View Notes', icon: <MessageSquare size={15} />, onClick: () => { setSelectedCustomerId(customer.customerId); setActiveTab('Customer Notes'); }, disabled: !hasPermission(roleName, 'customers.notes.view') },
     { label: 'Add Note', icon: <Plus size={15} />, onClick: () => setQuickNoteCustomer(customer), disabled: !hasPermission(roleName, 'customers.notes.create') },
@@ -705,18 +776,21 @@ export default function PosCustomerDesk({ session, onNavigate }: PosCustomerDesk
 
       {activeTab === 'Credit & Ageing' && (
         selectedCustomer
-          ? <CreditAgeingTab
-              customer={selectedCustomer}
-              analysis={ageingAnalysis}
-              profile={creditProfile}
-              score={creditScore}
-              configs={ageingConfigs}
-              draft={ageingDraft}
-              canConfigure={hasPermission(roleName, 'customers.credit.ageing.configure')}
-              onDraftChange={setAgeingDraft}
-              onSaveConfig={handleSaveAgeingConfig}
-              onDebtAction={handleDebtAction}
-            />
+          ? <>
+              <CreditAgeingTab
+                customer={selectedCustomer}
+                analysis={ageingAnalysis}
+                profile={creditProfile}
+                score={creditScore}
+                configs={ageingConfigs}
+                draft={ageingDraft}
+                canConfigure={hasPermission(roleName, 'customers.credit.ageing.configure')}
+                onDraftChange={setAgeingDraft}
+                onSaveConfig={handleSaveAgeingConfig}
+                onDebtAction={handleDebtAction}
+              />
+              <DebtorOpeningBalancesPanel customers={customers} selectedCustomerId={selectedCustomer.customerId} staffName={session.staffName} canApprove={hasPermission(roleName, 'customers.debtors.openingBalance.approve')} onNotice={setNotice} onChanged={() => void refreshCreditPanels(selectedCustomer.customerId)} />
+            </>
           : <EmptyState title="No Customer Selected" message="Select a customer to view credit and ageing." />
       )}
 
@@ -731,11 +805,32 @@ export default function PosCustomerDesk({ session, onNavigate }: PosCustomerDesk
               canRecordPayment={hasPermission(roleName, 'customers.credit.recordPayment')}
               canWriteOff={hasPermission(roleName, 'customers.credit.writeOff')}
               onRecordPayment={(debt) => setPaymentDebt(debt)}
+              onCreatePromise={(debt) => openPromiseToPay(customerById(debt.customerId), debt)}
+              onCreateDispute={(debt) => openDebtDispute(customerById(debt.customerId), debt)}
+              onCreditApplication={(customerId) => openCreditApplication(customerById(customerId))}
               onOpenCustomerProfile={(customerId) => { setSelectedCustomerId(customerId); setActiveTab('Customer Profile'); }}
               onPrintStatement={(customerId) => { setSelectedCustomerId(customerId); setActiveTab('Customer Statements'); }}
               onNotice={setNotice}
             />
           : <EmptyState title="Restricted" message="You do not have permission to view Debtors Control Desk." />
+      )}
+
+      {activeTab === 'Collection Diary' && (
+        hasPermission(roleName, 'customers.collectionDiary.view')
+          ? <CollectionDiaryPanel
+              customers={customers}
+              staffName={session.staffName}
+              onOpenCustomer={(customerId) => { setSelectedCustomerId(customerId); setActiveTab('Customer Profile'); }}
+              onRecordPayment={(customerId) => {
+                const targetDebt = ageingAnalysis?.debts.find((debt) => debt.customerId === customerId && debt.outstandingAmount > 0) || null;
+                if (targetDebt) setPaymentDebt(targetDebt);
+                else setNotice('No open debt found for payment from diary.');
+              }}
+              onPromiseToPay={(customerId) => openPromiseToPay(customerById(customerId))}
+              onDispute={(customerId) => openDebtDispute(customerById(customerId))}
+              onNotice={setNotice}
+            />
+          : <EmptyState title="Restricted" message="You do not have permission to view the collection diary." />
       )}
 
       {activeTab === 'Customer Statements' && (
@@ -746,9 +841,25 @@ export default function PosCustomerDesk({ session, onNavigate }: PosCustomerDesk
               generatedBy={session.staffName}
               canPrint={hasPermission(roleName, 'customers.credit.statement.print')}
               canWhatsApp={hasPermission(roleName, 'customers.credit.statement.whatsapp')}
+              canAcknowledge={hasPermission(roleName, 'customers.statement.acknowledge')}
+              canDispute={hasPermission(roleName, 'customers.statement.dispute')}
+              onPromiseFromStatement={(customerId, amount) => openPromiseToPay(customerById(customerId), null)}
+              onDisputeFromStatement={(customerId) => openDebtDispute(customerById(customerId), null)}
               onNotice={setNotice}
             />
           : <EmptyState title="Restricted" message="You do not have permission to view customer statements." />
+      )}
+
+      {activeTab === 'Deposits & Credit Notes' && (
+        hasPermission(roleName, 'customers.deposit.view') || hasPermission(roleName, 'customers.creditNote.view')
+          ? <DepositsAndCreditNotesPanel customers={customers} selectedCustomerId={selectedCustomerId} staffName={session.staffName} canApprove={hasPermission(roleName, 'customers.creditNote.approve')} onNotice={setNotice} />
+          : <EmptyState title="Restricted" message="You do not have permission to view deposits and credit notes." />
+      )}
+
+      {activeTab === 'Debtor Risk Heat Map' && (
+        hasPermission(roleName, 'customers.debtorRiskHeatMap.view')
+          ? <DebtorRiskHeatMapPanel staffName={session.staffName} onOpenCustomer={(customerId) => { setSelectedCustomerId(customerId); setActiveTab('Customer Profile'); }} onNotice={setNotice} />
+          : <EmptyState title="Restricted" message="You do not have permission to view debtor risk heat map." />
       )}
 
       {activeTab === 'Buying Behaviour' && (
@@ -803,6 +914,33 @@ export default function PosCustomerDesk({ session, onNavigate }: PosCustomerDesk
       )}
 
       <RecordDebtPaymentModal debt={paymentDebt} receivedBy={session.staffName} onClose={() => setPaymentDebt(null)} onRecord={handleRecordDebtPayment} />
+      <CustomerCreditApplicationModal
+        open={Boolean(creditApplicationCustomer)}
+        customer={creditApplicationCustomer}
+        staffName={session.staffName}
+        canApprove={hasPermission(roleName, 'customers.credit.application.approve') && hasPermission(roleName, 'approvals.credit.approve')}
+        onClose={() => setCreditApplicationCustomer(null)}
+        onNotice={setNotice}
+        onSaved={() => void refreshCreditPanels(creditApplicationCustomer?.customerId || selectedCustomerId)}
+      />
+      <PromiseToPayModal
+        open={Boolean(promiseCustomer)}
+        customer={promiseCustomer}
+        debt={promiseDebt}
+        staffName={session.staffName}
+        onClose={() => { setPromiseCustomer(null); setPromiseDebt(null); }}
+        onNotice={setNotice}
+        onSaved={() => void refreshCreditPanels(promiseCustomer?.customerId || selectedCustomerId)}
+      />
+      <DebtDisputeModal
+        open={Boolean(disputeCustomer)}
+        customer={disputeCustomer}
+        debt={disputeDebt}
+        staffName={session.staffName}
+        onClose={() => { setDisputeCustomer(null); setDisputeDebt(null); }}
+        onNotice={setNotice}
+        onSaved={() => void refreshCreditPanels(disputeCustomer?.customerId || selectedCustomerId)}
+      />
     </div>
   );
 }
@@ -1006,6 +1144,7 @@ function DebtAgeingTable({ debts, customerStatus, onDebtAction }: { debts: Custo
   const actionItems = (debt: CustomerDebtRecord): RowActionMenuItem[] => [
     'View Debt',
     'Record Payment',
+    'Add Promise to Pay',
     'Send WhatsApp Reminder',
     'Open Customer Profile',
     'Mark Disputed',

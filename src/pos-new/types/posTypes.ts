@@ -2642,6 +2642,157 @@ export interface CollectionDiaryItem {
   outcomeNote?: string;
 }
 
+export type DebtorOpeningBalanceStatus = 'Draft' | 'PendingApproval' | 'Approved' | 'Posted' | 'Rejected' | 'Reversed';
+export type DebtPaymentAllocationMethod = 'OldestDebtFirst' | 'SelectedDebtOnly' | 'HighestOverdueFirst' | 'ManualAllocation' | 'AutoClearSmallBalances';
+export type CustomerDepositStatus = 'Received' | 'PartiallyApplied' | 'FullyApplied' | 'Refunded' | 'Reversed';
+export type CustomerDepositSource = 'Cash' | 'EcoCashPlaceholder' | 'InnbucksPlaceholder' | 'MukuruPlaceholder' | 'BankTransfer' | 'CardPlaceholder' | 'Other';
+export type CustomerCreditNoteStatus = 'Draft' | 'PendingApproval' | 'Approved' | 'PartiallyApplied' | 'FullyApplied' | 'Cancelled' | 'Reversed';
+export type BulkCollectionActionType = 'GenerateDueTodayReminders' | 'GenerateOverdueReminders' | 'PrintStatementBatch' | 'ExportDebtorsList' | 'CreateFollowUpTasks' | 'GenerateFinalNotices';
+export type DebtorPeriodLockStatus = 'Open' | 'Locked' | 'UnlockRequested' | 'TemporarilyUnlocked' | 'Closed';
+export type DebtorAdjustmentType = 'OpeningBalance' | 'AllocationCorrection' | 'DepositApplication' | 'CreditNoteApplication' | 'WriteOffAdjustment' | 'PeriodCorrection';
+
+export interface DebtorOpeningBalance {
+  openingBalanceId: string;
+  customerId: string;
+  customerName: string;
+  openingReference: string;
+  openingBalanceDate: string;
+  originalAmount: number;
+  paidAmount: number;
+  outstandingAmount: number;
+  dueDate: string;
+  ageingBucket: DebtAgeingBucket;
+  notes: string;
+  status: DebtorOpeningBalanceStatus;
+  importedBy: string;
+  importedAt: string;
+  approvedBy?: string;
+  approvedAt?: string;
+  rejectedBy?: string;
+  rejectedAt?: string;
+  rejectionReason?: string;
+  postedAt?: string;
+  reversedBy?: string;
+  reversedAt?: string;
+  reversalReason?: string;
+}
+
+export interface DebtPaymentAllocation {
+  allocationId: string;
+  paymentId: string;
+  customerId: string;
+  debtId: string;
+  debtReference: string;
+  allocatedAmount: number;
+  allocationMethod: DebtPaymentAllocationMethod;
+  allocatedBy: string;
+  allocatedAt: string;
+  notes: string;
+}
+
+export interface CustomerDepositRecord {
+  depositId: string;
+  depositNumber: string;
+  customerId: string;
+  customerName: string;
+  amountReceived: number;
+  amountApplied: number;
+  balance: number;
+  source: CustomerDepositSource;
+  paymentReference: string;
+  receivedBy: string;
+  receivedAt: string;
+  status: CustomerDepositStatus;
+  notes: string;
+  linkedSaleId?: string;
+  linkedDebtIds?: string[];
+  refundedAmount?: number;
+  refundedBy?: string;
+  refundedAt?: string;
+  refundReason?: string;
+}
+
+export interface CustomerCreditNote {
+  creditNoteId: string;
+  creditNoteNumber: string;
+  customerId: string;
+  customerName: string;
+  linkedSaleId?: string;
+  linkedDebtId?: string;
+  reason: string;
+  originalAmount: number;
+  amountApplied: number;
+  balance: number;
+  status: CustomerCreditNoteStatus;
+  createdBy: string;
+  createdAt: string;
+  approvedBy?: string;
+  approvedAt?: string;
+  appliedAt?: string;
+  notes: string;
+}
+
+export interface BulkCollectionBatch {
+  batchId: string;
+  batchNumber: string;
+  actionType: BulkCollectionActionType;
+  filterSummary: string;
+  customerCount: number;
+  debtCount: number;
+  totalAmount: number;
+  status: 'Preview' | 'Generated' | 'Completed' | 'Cancelled';
+  generatedBy: string;
+  generatedAt: string;
+  completedAt?: string;
+  notes: string;
+}
+
+export interface DebtorRiskHeatMapItem {
+  customerId: string;
+  customerName: string;
+  outstandingAmount: number;
+  overdueAmount: number;
+  ageingBucket: DebtAgeingBucket;
+  creditLimitUsagePercent: number;
+  brokenPromiseCount: number;
+  disputedAmount: number;
+  daysSinceLastPayment: number;
+  riskLevel: RiskLevel;
+  recommendedAction: string;
+}
+
+export interface DebtorPeriodLock {
+  periodLockId: string;
+  periodStart: string;
+  periodEnd: string;
+  status: DebtorPeriodLockStatus;
+  lockedBy?: string;
+  lockedAt?: string;
+  unlockRequestedBy?: string;
+  unlockRequestedAt?: string;
+  unlockReason?: string;
+  temporaryUnlockExpiresAt?: string;
+  closedBy?: string;
+  closedAt?: string;
+  notes: string;
+}
+
+export interface DebtorPeriodAdjustment {
+  adjustmentId: string;
+  periodLockId: string;
+  customerId: string;
+  debtId?: string;
+  adjustmentType: DebtorAdjustmentType;
+  amount: number;
+  reason: string;
+  approvalId?: string;
+  createdBy: string;
+  createdAt: string;
+  approvedBy?: string;
+  approvedAt?: string;
+  postedAt?: string;
+}
+
 export interface CustomerAgeingIntervalConfig {
   configId: string;
   name: string;
@@ -2869,7 +3020,27 @@ export interface CustomerActivityEvent {
     | 'DEBT_DISPUTE_RESOLVED'
     | 'COLLECTION_DIARY_ITEM_CREATED'
     | 'COLLECTION_DIARY_ITEM_COMPLETED'
-    | 'COLLECTION_DIARY_ITEM_ESCALATED';
+    | 'COLLECTION_DIARY_ITEM_ESCALATED'
+    | 'DEBTOR_OPENING_BALANCE_CREATED'
+    | 'DEBTOR_OPENING_BALANCE_APPROVED'
+    | 'DEBTOR_OPENING_BALANCE_POSTED'
+    | 'DEBTOR_OPENING_BALANCE_REVERSED'
+    | 'DEBT_PAYMENT_ALLOCATED'
+    | 'DEBT_PAYMENT_ALLOCATION_REVERSED'
+    | 'CUSTOMER_DEPOSIT_RECEIVED'
+    | 'CUSTOMER_DEPOSIT_APPLIED_TO_SALE'
+    | 'CUSTOMER_DEPOSIT_APPLIED_TO_DEBT'
+    | 'CUSTOMER_DEPOSIT_REFUNDED'
+    | 'CUSTOMER_CREDIT_NOTE_CREATED'
+    | 'CUSTOMER_CREDIT_NOTE_APPROVED'
+    | 'CUSTOMER_CREDIT_NOTE_APPLIED'
+    | 'CUSTOMER_CREDIT_NOTE_CANCELLED'
+    | 'BULK_COLLECTION_BATCH_CREATED'
+    | 'DEBTOR_PERIOD_LOCKED'
+    | 'DEBTOR_PERIOD_UNLOCK_REQUESTED'
+    | 'DEBTOR_PERIOD_TEMPORARILY_UNLOCKED'
+    | 'DEBTOR_PERIOD_CLOSED'
+    | 'DEBTOR_PERIOD_ADJUSTMENT_CREATED';
   user: string;
   notes: string;
 }

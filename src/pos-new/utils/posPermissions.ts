@@ -91,6 +91,47 @@ export type PermissionKey =
   | 'customers.credit.statement.print'
   | 'customers.credit.statement.whatsapp'
   | 'customers.debtorsDesk.view'
+  | 'customers.credit.application.view'
+  | 'customers.credit.application.create'
+  | 'customers.credit.application.approve'
+  | 'customers.credit.block'
+  | 'customers.credit.release'
+  | 'customers.credit.depositRequired'
+  | 'customers.credit.cashOnly'
+  | 'customers.promiseToPay.view'
+  | 'customers.promiseToPay.create'
+  | 'customers.promiseToPay.update'
+  | 'customers.collectionDiary.view'
+  | 'customers.collectionDiary.manage'
+  | 'customers.statement.acknowledge'
+  | 'customers.statement.dispute'
+  | 'customers.debtDispute.view'
+  | 'customers.debtDispute.manage'
+  | 'customers.debtors.openingBalance.view'
+  | 'customers.debtors.openingBalance.create'
+  | 'customers.debtors.openingBalance.approve'
+  | 'customers.debtors.openingBalance.post'
+  | 'customers.debtors.openingBalance.reverse'
+  | 'customers.debtors.paymentAllocation.view'
+  | 'customers.debtors.paymentAllocation.manage'
+  | 'customers.debtors.paymentAllocation.reverse'
+  | 'customers.deposit.view'
+  | 'customers.deposit.receive'
+  | 'customers.deposit.apply'
+  | 'customers.deposit.refund'
+  | 'customers.creditNote.view'
+  | 'customers.creditNote.create'
+  | 'customers.creditNote.approve'
+  | 'customers.creditNote.apply'
+  | 'customers.creditNote.cancel'
+  | 'customers.bulkCollections.view'
+  | 'customers.bulkCollections.generate'
+  | 'customers.bulkCollections.export'
+  | 'customers.debtorRiskHeatMap.view'
+  | 'customers.debtors.periodLock.view'
+  | 'customers.debtors.periodLock.lock'
+  | 'customers.debtors.periodLock.unlock'
+  | 'customers.debtors.periodLock.adjust'
   | 'customers.creditWorthiness.view'
   | 'customers.behaviourAnalytics.view'
   | 'customers.whatsappReminder'
@@ -363,6 +404,47 @@ const ALL_PERMISSIONS: PermissionKey[] = [
   'customers.credit.statement.print',
   'customers.credit.statement.whatsapp',
   'customers.debtorsDesk.view',
+  'customers.credit.application.view',
+  'customers.credit.application.create',
+  'customers.credit.application.approve',
+  'customers.credit.block',
+  'customers.credit.release',
+  'customers.credit.depositRequired',
+  'customers.credit.cashOnly',
+  'customers.promiseToPay.view',
+  'customers.promiseToPay.create',
+  'customers.promiseToPay.update',
+  'customers.collectionDiary.view',
+  'customers.collectionDiary.manage',
+  'customers.statement.acknowledge',
+  'customers.statement.dispute',
+  'customers.debtDispute.view',
+  'customers.debtDispute.manage',
+  'customers.debtors.openingBalance.view',
+  'customers.debtors.openingBalance.create',
+  'customers.debtors.openingBalance.approve',
+  'customers.debtors.openingBalance.post',
+  'customers.debtors.openingBalance.reverse',
+  'customers.debtors.paymentAllocation.view',
+  'customers.debtors.paymentAllocation.manage',
+  'customers.debtors.paymentAllocation.reverse',
+  'customers.deposit.view',
+  'customers.deposit.receive',
+  'customers.deposit.apply',
+  'customers.deposit.refund',
+  'customers.creditNote.view',
+  'customers.creditNote.create',
+  'customers.creditNote.approve',
+  'customers.creditNote.apply',
+  'customers.creditNote.cancel',
+  'customers.bulkCollections.view',
+  'customers.bulkCollections.generate',
+  'customers.bulkCollections.export',
+  'customers.debtorRiskHeatMap.view',
+  'customers.debtors.periodLock.view',
+  'customers.debtors.periodLock.lock',
+  'customers.debtors.periodLock.unlock',
+  'customers.debtors.periodLock.adjust',
   'customers.creditWorthiness.view',
   'customers.behaviourAnalytics.view',
   'customers.whatsappReminder',
@@ -569,7 +651,16 @@ const ROLE_PERMISSIONS: Record<Role, PermissionKey[]> = {
     'cashControl.print', 'cashControl.export', 'cashControl.policy.manage',
     'payment.capture',
     'customers.view', 'customers.createRequest', 'customers.createDirect', 'customers.edit', 'customers.suspend', 'customers.reactivate',
-    'customers.notes.view', 'customers.notes.create', 'customers.purchaseHistory.view', 'customers.creditView', 'customers.credit.view', 'customers.credit.manage', 'customers.credit.setLimit', 'customers.credit.policyManage', 'customers.credit.suspend', 'customers.credit.recordPayment', 'customers.credit.writeOff', 'customers.credit.ageing.view', 'customers.credit.ageing.configure', 'customers.credit.statement.view', 'customers.credit.statement.print', 'customers.credit.statement.whatsapp', 'customers.debtorsDesk.view', 'customers.creditWorthiness.view', 'customers.behaviourAnalytics.view', 'customers.whatsappReminder', 'customers.credit.export', 'customers.creditReview',
+    'customers.notes.view', 'customers.notes.create', 'customers.purchaseHistory.view', 'customers.creditView', 'customers.credit.view', 'customers.credit.manage', 'customers.credit.setLimit', 'customers.credit.policyManage', 'customers.credit.suspend', 'customers.credit.recordPayment', 'customers.credit.writeOff', 'customers.credit.ageing.view', 'customers.credit.ageing.configure', 'customers.credit.statement.view', 'customers.credit.statement.print', 'customers.credit.statement.whatsapp', 'customers.debtorsDesk.view',
+    'customers.credit.application.view', 'customers.credit.application.create', 'customers.credit.application.approve', 'customers.credit.block', 'customers.credit.release', 'customers.credit.depositRequired', 'customers.credit.cashOnly',
+    'customers.promiseToPay.view', 'customers.promiseToPay.create', 'customers.promiseToPay.update', 'customers.collectionDiary.view', 'customers.collectionDiary.manage', 'customers.statement.acknowledge', 'customers.statement.dispute', 'customers.debtDispute.view', 'customers.debtDispute.manage',
+    'customers.debtors.openingBalance.view', 'customers.debtors.openingBalance.create', 'customers.debtors.openingBalance.approve', 'customers.debtors.openingBalance.post', 'customers.debtors.openingBalance.reverse',
+    'customers.debtors.paymentAllocation.view', 'customers.debtors.paymentAllocation.manage', 'customers.debtors.paymentAllocation.reverse',
+    'customers.deposit.view', 'customers.deposit.receive', 'customers.deposit.apply', 'customers.deposit.refund',
+    'customers.creditNote.view', 'customers.creditNote.create', 'customers.creditNote.approve', 'customers.creditNote.apply', 'customers.creditNote.cancel',
+    'customers.bulkCollections.view', 'customers.bulkCollections.generate', 'customers.bulkCollections.export', 'customers.debtorRiskHeatMap.view',
+    'customers.debtors.periodLock.view', 'customers.debtors.periodLock.lock', 'customers.debtors.periodLock.unlock', 'customers.debtors.periodLock.adjust',
+    'customers.creditWorthiness.view', 'customers.behaviourAnalytics.view', 'customers.whatsappReminder', 'customers.credit.export', 'customers.creditReview',
     'customers.export', 'customers.whatsappMessage', 'customers.useInSale', 'customers.requests.create', 'customers.requests.approve', 'customers.approve',
     'inventory.view', 'inventory.import', 'inventory.approveImport', 'inventory.adjust', 'inventory.approveAdjustment',
     'productMaster.view', 'productMaster.create', 'productMaster.edit', 'productMaster.activate', 'productMaster.block', 'productMaster.export',
@@ -613,7 +704,11 @@ const ROLE_PERMISSIONS: Record<Role, PermissionKey[]> = {
     'cashControl.print', 'cashControl.export',
     'payment.capture',
     'customers.view', 'customers.createRequest', 'customers.createDirect', 'customers.edit', 'customers.notes.view', 'customers.notes.create',
-    'customers.useInSale', 'customers.requests.create', 'customers.creditView', 'customers.credit.view', 'customers.credit.ageing.view', 'customers.credit.statement.view', 'customers.debtorsDesk.view', 'customers.credit.recordPayment', 'customers.creditWorthiness.view', 'customers.behaviourAnalytics.view', 'customers.whatsappReminder',
+    'customers.useInSale', 'customers.requests.create', 'customers.creditView', 'customers.credit.view', 'customers.credit.ageing.view', 'customers.credit.statement.view', 'customers.debtorsDesk.view', 'customers.credit.recordPayment',
+    'customers.promiseToPay.view', 'customers.promiseToPay.create', 'customers.promiseToPay.update', 'customers.collectionDiary.view', 'customers.collectionDiary.manage', 'customers.debtDispute.view',
+    'customers.deposit.view', 'customers.deposit.apply', 'customers.bulkCollections.view', 'customers.bulkCollections.generate',
+    'customers.debtors.paymentAllocation.view', 'customers.debtors.paymentAllocation.manage',
+    'customers.creditWorthiness.view', 'customers.behaviourAnalytics.view', 'customers.whatsappReminder',
     'inventory.view',
     'productMaster.view', 'productMaster.create', 'productMaster.edit',
     'openingBalance.view', 'openingBalance.create',
@@ -646,7 +741,7 @@ const ROLE_PERMISSIONS: Record<Role, PermissionKey[]> = {
     'shift.view', 'shift.open', 'shift.close', 'terminal.history.view', 'shift.recovery.restore',
     'cashControl.view', 'cashControl.count',
     'payment.capture',
-    'customers.view', 'customers.createRequest', 'customers.createDirect', 'customers.useInSale', 'customers.requests.create',
+    'customers.view', 'customers.createRequest', 'customers.createDirect', 'customers.useInSale', 'customers.requests.create', 'customers.credit.view', 'customers.deposit.view', 'customers.deposit.apply',
     'delivery.view', 'delivery.create',
     'tasks.view',
     'bi.advice.view',
@@ -688,7 +783,14 @@ const ROLE_PERMISSIONS: Record<Role, PermissionKey[]> = {
     'customers.view', 'customers.notes.view', 'customers.purchaseHistory.view',
     'customers.creditView', 'customers.credit.view', 'customers.credit.recordPayment', 'customers.credit.ageing.view',
     'customers.credit.statement.view', 'customers.credit.statement.print', 'customers.credit.statement.whatsapp',
-    'customers.debtorsDesk.view', 'customers.creditWorthiness.view', 'customers.behaviourAnalytics.view',
+    'customers.debtorsDesk.view', 'customers.credit.application.view', 'customers.promiseToPay.view', 'customers.promiseToPay.create', 'customers.promiseToPay.update',
+    'customers.collectionDiary.view', 'customers.collectionDiary.manage', 'customers.statement.acknowledge', 'customers.statement.dispute', 'customers.debtDispute.view', 'customers.debtDispute.manage',
+    'customers.debtors.openingBalance.view', 'customers.debtors.openingBalance.create', 'customers.debtors.openingBalance.approve', 'customers.debtors.openingBalance.post',
+    'customers.debtors.paymentAllocation.view', 'customers.debtors.paymentAllocation.manage', 'customers.deposit.view', 'customers.deposit.receive', 'customers.deposit.apply', 'customers.deposit.refund',
+    'customers.creditNote.view', 'customers.creditNote.create', 'customers.creditNote.approve', 'customers.creditNote.apply', 'customers.creditNote.cancel',
+    'customers.bulkCollections.view', 'customers.bulkCollections.generate', 'customers.bulkCollections.export', 'customers.debtorRiskHeatMap.view',
+    'customers.debtors.periodLock.view', 'customers.debtors.periodLock.lock', 'customers.debtors.periodLock.adjust',
+    'customers.creditWorthiness.view', 'customers.behaviourAnalytics.view',
     'customers.whatsappReminder', 'customers.credit.export', 'customers.export',
     'payment.capture',
     'cashControl.view', 'cashControl.reconcile', 'cashControl.count', 'cashControl.varianceReview',
@@ -704,7 +806,8 @@ const ROLE_PERMISSIONS: Record<Role, PermissionKey[]> = {
   Viewer: [
     'customers.view', 'customers.notes.view', 'customers.purchaseHistory.view',
     'customers.credit.view', 'customers.credit.ageing.view', 'customers.credit.statement.view',
-    'customers.debtorsDesk.view', 'customers.creditWorthiness.view',
+    'customers.debtorsDesk.view', 'customers.credit.application.view', 'customers.promiseToPay.view', 'customers.collectionDiary.view', 'customers.debtDispute.view',
+    'customers.debtors.openingBalance.view', 'customers.debtors.paymentAllocation.view', 'customers.deposit.view', 'customers.creditNote.view', 'customers.bulkCollections.view', 'customers.debtorRiskHeatMap.view', 'customers.debtors.periodLock.view', 'customers.creditWorthiness.view',
     'cashControl.view', 'cashControl.debtorPayments.view', 'cashControl.deliveryCash.view',
     'reports.view', 'bi.view', 'bi.advice.view'
   ]

@@ -33,6 +33,8 @@ import {
 import RowActionMenu, { type RowActionMenuItem } from './RowActionMenu';
 import CustomerCreditWorthinessPanel from './CustomerCreditWorthinessPanel';
 import CustomerDebtLedgerModal from './CustomerDebtLedgerModal';
+import BulkCollectionActionsPanel from './BulkCollectionActionsPanel';
+import DebtorPeriodLockPanel from './DebtorPeriodLockPanel';
 
 interface DebtorsControlDeskPanelProps {
   customers: CustomerRecord[];
@@ -43,6 +45,9 @@ interface DebtorsControlDeskPanelProps {
   canRecordPayment: boolean;
   canWriteOff: boolean;
   onRecordPayment: (debt: CustomerDebtRecord) => void;
+  onCreatePromise?: (debt: CustomerDebtRecord) => void;
+  onCreateDispute?: (debt: CustomerDebtRecord) => void;
+  onCreditApplication?: (customerId: string) => void;
   onOpenCustomerProfile: (customerId: string) => void;
   onPrintStatement: (customerId: string) => void;
   onNotice: (message: string) => void;
@@ -65,6 +70,9 @@ export default function DebtorsControlDeskPanel({
   canRecordPayment,
   canWriteOff,
   onRecordPayment,
+  onCreatePromise,
+  onCreateDispute,
+  onCreditApplication,
   onOpenCustomerProfile,
   onPrintStatement,
   onNotice
@@ -139,12 +147,14 @@ export default function DebtorsControlDeskPanel({
   const actionItems = (row: DebtorsControlRow): RowActionMenuItem[] => [
     { label: 'View Debt', icon: <FileText size={15} />, onClick: () => void openLedger(row) },
     { label: 'Record Payment', icon: <FileText size={15} />, onClick: () => onRecordPayment(row), disabled: !canRecordPayment },
+    { label: 'Add Promise to Pay', icon: <FileText size={15} />, onClick: () => onCreatePromise?.(row), disabled: !onCreatePromise },
+    { label: 'New Credit Application', icon: <FileText size={15} />, onClick: () => onCreditApplication?.(row.customerId), disabled: !onCreditApplication },
     { label: 'Print Statement', icon: <FileText size={15} />, onClick: () => onPrintStatement(row.customerId) },
     { label: 'Send WhatsApp Reminder', icon: <MessageCircle size={15} />, onClick: () => void sendReminder(row) },
     { label: 'Open Customer Profile', icon: <FileText size={15} />, onClick: () => onOpenCustomerProfile(row.customerId) },
     { label: 'Create Follow-up Task', icon: <FileText size={15} />, onClick: () => { createDebtorsControlTask({ title: `Follow up ${row.customerName}`, customer: row.customerName, debtReference: row.receiptNumber, dueDate: new Date(Date.now() + 86400000).toISOString().slice(0, 10), assignedTo: 'Manager' }); onNotice('Payment follow-up task created locally.'); } },
     { label: 'Escalate to Manager', icon: <FileText size={15} />, onClick: () => { createDebtorsControlTask({ title: `Manager escalation - ${row.customerName}`, customer: row.customerName, debtReference: row.receiptNumber, dueDate: new Date().toISOString().slice(0, 10), assignedTo: 'Manager' }); onNotice('Manager escalation task created locally.'); } },
-    { label: 'Mark Disputed', icon: <FileText size={15} />, onClick: () => onNotice(`${row.receiptNumber} dispute placeholder logged locally.`) },
+    { label: 'Mark Disputed', icon: <FileText size={15} />, onClick: () => onCreateDispute ? onCreateDispute(row) : onNotice(`${row.receiptNumber} dispute placeholder logged locally.`) },
     { label: 'Request Write-Off', icon: <FileText size={15} />, onClick: () => void requestDebtWriteOff(row, staffName, roleName).then(() => { onNotice('Debt write-off approval request created locally.'); void load(); }), disabled: !canWriteOff, danger: true },
     { label: 'Export Row', icon: <FileText size={15} />, onClick: () => exportRow(row) }
   ];
@@ -241,6 +251,9 @@ export default function DebtorsControlDeskPanel({
       <div className="pos-credit-two-column">
         <CustomerCreditWorthinessPanel score={ledgerScore} profile={ledgerProfile} />
       </div>
+
+      <BulkCollectionActionsPanel filters={filters} staffName={staffName} onNotice={onNotice} />
+      <DebtorPeriodLockPanel staffName={staffName} customerId={selectedCustomerId} canManage={canManagePolicy} onNotice={onNotice} />
 
       <CustomerDebtLedgerModal
         open={ledgerOpen}

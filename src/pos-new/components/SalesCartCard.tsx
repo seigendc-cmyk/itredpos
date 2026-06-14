@@ -158,6 +158,10 @@ interface SalesCartCardProps {
     newBalance: number;
     dueDate: string;
     worthiness: CustomerCreditWorthinessScore;
+    brokenPromisesCount?: number;
+    lastPromiseStatus?: string;
+    statementAcknowledgementStatus?: string;
+    recommendedAction?: string;
   } | null;
   availableLoyaltyPoints: number;
   canComplete: boolean;
@@ -1014,7 +1018,11 @@ export default function SalesCartCard({
                     <div><span>Payment Terms Days</span><strong>{creditDecision.profile.paymentTermsDays}</strong></div>
                     <div><span>Due Date</span><strong>{new Date(creditDecision.dueDate).toLocaleDateString()}</strong></div>
                     <div><span>Credit Worthiness Grade</span><strong>{creditDecision.worthiness.grade}</strong></div>
+                    <div><span>Broken Promises</span><strong>{creditDecision.brokenPromisesCount ?? 0}</strong></div>
+                    <div><span>Last Promise</span><strong>{creditDecision.lastPromiseStatus || 'None'}</strong></div>
+                    <div><span>Statement Ack</span><strong>{creditDecision.statementAcknowledgementStatus || 'No record'}</strong></div>
                     <div><span>Decision</span><strong>{creditDecision.decision}</strong></div>
+                    <div><span>Recommended Action</span><strong>{creditDecision.recommendedAction || creditDecision.worthiness.recommendedAction}</strong></div>
                     <div className="sales-credit-decision__reasons"><span>{creditDecision.reasonList.join(' ')}</span></div>
                   </div>
                 )}

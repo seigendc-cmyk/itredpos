@@ -1,6 +1,7 @@
 import { X } from 'lucide-react';
-import { useState } from 'react';
-import type { CustomerDebtRecord } from '../types';
+import { useEffect, useState } from 'react';
+import type { CustomerDebtRecord, DebtPaymentAllocationMethod } from '../types';
+import { previewPaymentAllocation } from '../services/customerCreditService';
 
 interface RecordDebtPaymentModalProps {
   debt: CustomerDebtRecord | null;
@@ -16,6 +17,7 @@ interface RecordDebtPaymentModalProps {
     receivedByStaffId: string;
     branchId?: string;
     shiftId?: string;
+    allocationMethod?: DebtPaymentAllocationMethod;
   }) => Promise<void> | void;
 }
 
@@ -29,8 +31,18 @@ export default function RecordDebtPaymentModal({ debt, receivedBy, onClose, onRe
   const [reference, setReference] = useState('');
   const [notes, setNotes] = useState('');
   const [receivedDate, setReceivedDate] = useState(new Date().toISOString().slice(0, 10));
-  const [allocationMode, setAllocationMode] = useState('Selected Debt Only');
+  const [allocationMode, setAllocationMode] = useState<DebtPaymentAllocationMethod>('SelectedDebtOnly');
+  const [allocationPreview, setAllocationPreview] = useState<Array<{ debtReference: string; outstandingBefore: number; allocatedAmount: number; outstandingAfter: number; statusAfter: string }>>([]);
   const [error, setError] = useState('');
+
+  useEffect(() => {
+    const numericAmount = Number(amount);
+    if (!debt || !Number.isFinite(numericAmount) || numericAmount <= 0) {
+      setAllocationPreview([]);
+      return;
+    }
+    void previewPaymentAllocation(debt.customerId, numericAmount, allocationMode, debt.debtId).then(setAllocationPreview);
+  }, [amount, allocationMode, debt]);
 
   if (!debt) return null;
 
@@ -53,7 +65,8 @@ export default function RecordDebtPaymentModal({ debt, receivedBy, onClose, onRe
       notes,
       receivedByStaffId: receivedBy,
       branchId: debt.branchId,
-      shiftId: debt.shiftId
+      shiftId: debt.shiftId,
+      allocationMethod: allocationMode
     });
     clearForm();
   };
@@ -64,7 +77,7 @@ export default function RecordDebtPaymentModal({ debt, receivedBy, onClose, onRe
     setReference('');
     setNotes('');
     setReceivedDate(new Date().toISOString().slice(0, 10));
-    setAllocationMode('Selected Debt Only');
+    setAllocationMode('SelectedDebtOnly');
     setError('');
   };
 
@@ -90,8 +103,17 @@ export default function RecordDebtPaymentModal({ debt, receivedBy, onClose, onRe
           <label>Payment Method<select value={paymentMethod} onChange={(event) => setPaymentMethod(event.target.value)}><option>Cash</option><option>EcoCash Placeholder</option><option>Innbucks Placeholder</option><option>Mukuru Placeholder</option><option>ZIPIT Placeholder</option><option>Bank Transfer</option><option>Card Placeholder</option></select></label>
           <label>Reference / Confirmation Code<input value={reference} onChange={(event) => setReference(event.target.value)} placeholder="Receipt, bank, or mobile reference" /></label>
           <label>Received Date<input type="date" value={receivedDate} onChange={(event) => setReceivedDate(event.target.value)} /></label>
-          <label>Allocate Payment<select value={allocationMode} onChange={(event) => setAllocationMode(event.target.value)}><option>Selected Debt Only</option><option>Oldest Debt First</option><option>Manual Allocation Placeholder</option></select></label>
+          <label>Allocate Payment<select value={allocationMode} onChange={(event) => setAllocationMode(event.target.value as DebtPaymentAllocationMethod)}><option value="SelectedDebtOnly">Selected Debt Only</option><option value="OldestDebtFirst">Oldest Debt First</option><option value="HighestOverdueFirst">Highest Overdue First</option><option value="ManualAllocation">Manual Allocation</option><option value="AutoClearSmallBalances">Auto-Clear Small Balances</option></select></label>
           <label>Payment Notes<textarea rows={3} value={notes} onChange={(event) => setNotes(event.target.value)} placeholder={`Allocation: ${allocationMode}. Received date: ${receivedDate}.`} /></label>
+        </div>
+        <div className="collection-diary-table-scroll">
+          <table className="sci-pos-table collection-diary-table">
+            <thead><tr><th>Debt Reference</th><th>Outstanding Before</th><th>Allocated</th><th>Outstanding After</th><th>Status After</th></tr></thead>
+            <tbody>
+              {allocationPreview.map((row) => <tr key={row.debtReference}><td>{row.debtReference}</td><td>{money(row.outstandingBefore)}</td><td>{money(row.allocatedAmount)}</td><td>{money(row.outstandingAfter)}</td><td>{row.statusAfter}</td></tr>)}
+              {allocationPreview.length === 0 && <tr><td colSpan={5}>Enter a payment amount to preview allocation.</td></tr>}
+            </tbody>
+          </table>
         </div>
         <div className="pos-new-customer-modal__actions">
           <button type="button" className="sci-pos-button sci-pos-button--secondary" onClick={clearForm}>Clear</button>
