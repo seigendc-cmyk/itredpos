@@ -12,13 +12,17 @@ import {
   Plus,
   RotateCcw,
   Search,
+  ShoppingCart,
   ShieldAlert,
+  Trash2,
   UserCheck,
   UserPlus,
   X
 } from 'lucide-react';
 import NewCustomerModal from '../components/NewCustomerModal';
 import CustomerCreditWorthinessPanel from '../components/CustomerCreditWorthinessPanel';
+import CustomerStatementPanel from '../components/CustomerStatementPanel';
+import DebtorsControlDeskPanel from '../components/DebtorsControlDeskPanel';
 import RecordDebtPaymentModal from '../components/RecordDebtPaymentModal';
 import RowActionMenu, { RowActionMenuItem } from '../components/RowActionMenu';
 import {
@@ -69,6 +73,7 @@ import {
   markCustomerCreditReview,
   markCustomerDuplicate,
   reactivateCustomer,
+  recordCustomerSaleBridgeEvent,
   recordCustomerSelectedForSale,
   rejectCustomer,
   suspendCustomer,
@@ -82,14 +87,36 @@ interface PosCustomerDeskProps {
   onNavigate?: (page: string) => void;
 }
 
-type CustomerTab = 'Customer List' | 'Customer Requests' | 'Customer Profile' | 'Purchase History' | 'Credit & Ageing' | 'Buying Behaviour' | 'Customer Notes' | 'Customer Activity';
+type CustomerTab = 'Customer List' | 'Customer Requests' | 'Customer Profile' | 'Purchase History' | 'Credit & Ageing' | 'Debtors Control Desk' | 'Customer Statements' | 'Buying Behaviour' | 'Customer Notes' | 'Customer Activity';
 
-const tabs: CustomerTab[] = ['Customer List', 'Customer Requests', 'Customer Profile', 'Purchase History', 'Credit & Ageing', 'Buying Behaviour', 'Customer Notes', 'Customer Activity'];
+const tabs: CustomerTab[] = ['Customer List', 'Customer Requests', 'Customer Profile', 'Purchase History', 'Credit & Ageing', 'Debtors Control Desk', 'Customer Statements', 'Buying Behaviour', 'Customer Notes', 'Customer Activity'];
 const customerTypes: Array<CustomerType | 'All'> = ['All', 'Walk-in', 'Individual', 'Business', 'Government', 'School', 'Fleet Customer', 'Dealer', 'Internal Account'];
 const customerStatuses: Array<CustomerStatus | 'All'> = ['All', 'Pending Approval', 'Active', 'Rejected', 'Duplicate', 'Suspended', 'Inactive'];
 const creditStatuses: Array<CustomerCreditStatus | 'All'> = ['All', 'Cash Only', 'Credit Allowed', 'Credit Suspended', 'Credit Review Required', 'Not Applicable'];
 const sources: Array<CustomerSource | 'All'> = ['All', 'Walk-in', 'WhatsApp Catalogue', 'Commerce Access Hub', 'Referral', 'Phone Call', 'Facebook', 'Sales Terminal', 'Imported', 'Other'];
 const permissionBlockedMessage = 'You do not have permission to perform this action.';
+const SELECTED_CUSTOMER_FOR_SALE_KEY = 'itred-pos-selected-customer-for-sale';
+const SELECTED_CUSTOMER_FOR_SALE_SESSION_KEY = 'itred_pos_selected_customer_for_sale_v1';
+
+interface SelectedCustomerForSaleBridge {
+  customerId: string;
+  customerCode: string;
+  customerName: string;
+  customerType: CustomerType;
+  phone: string;
+  whatsapp: string;
+  email: string;
+  cityTown: string;
+  district: string;
+  suburb: string;
+  address: string;
+  taxNumber: string;
+  creditStatus: CustomerCreditStatus;
+  creditLimit?: number;
+  selectedAt: string;
+  selectedByStaffId: string;
+  source: 'Customer Centre';
+}
 
 function money(value?: number): string {
   return `USD ${(value || 0).toFixed(2)}`;
@@ -126,6 +153,41 @@ function exportCsv(filename: string, rows: string[][]) {
   URL.revokeObjectURL(url);
 }
 
+function readSelectedCustomerForSaleBridge(): SelectedCustomerForSaleBridge | null {
+  try {
+    const raw = localStorage.getItem(SELECTED_CUSTOMER_FOR_SALE_KEY) || sessionStorage.getItem(SELECTED_CUSTOMER_FOR_SALE_SESSION_KEY);
+    return raw ? JSON.parse(raw) as SelectedCustomerForSaleBridge : null;
+  } catch {
+    return null;
+  }
+}
+
+function writeSelectedCustomerForSaleBridge(payload: SelectedCustomerForSaleBridge): void {
+  try {
+    localStorage.setItem(SELECTED_CUSTOMER_FOR_SALE_KEY, JSON.stringify(payload));
+  } catch {
+    // Local bridge is best-effort.
+  }
+  try {
+    sessionStorage.setItem(SELECTED_CUSTOMER_FOR_SALE_SESSION_KEY, JSON.stringify(payload));
+  } catch {
+    // Session bridge is best-effort.
+  }
+}
+
+function clearSelectedCustomerForSaleBridge(): void {
+  try {
+    localStorage.removeItem(SELECTED_CUSTOMER_FOR_SALE_KEY);
+  } catch {
+    // Local bridge is best-effort.
+  }
+  try {
+    sessionStorage.removeItem(SELECTED_CUSTOMER_FOR_SALE_SESSION_KEY);
+  } catch {
+    // Session bridge is best-effort.
+  }
+}
+
 export default function PosCustomerDesk({ session, onNavigate }: PosCustomerDeskProps) {
   const roleName = session.role as Role;
   const [activeTab, setActiveTab] = useState<CustomerTab>('Customer List');
@@ -151,9 +213,12 @@ export default function PosCustomerDesk({ session, onNavigate }: PosCustomerDesk
   const [ageingConfigs, setAgeingConfigs] = useState<CustomerAgeingIntervalConfig[]>([]);
   const [ageingDraft, setAgeingDraft] = useState<CustomerAgeingIntervalConfig | null>(null);
   const [paymentDebt, setPaymentDebt] = useState<CustomerDebtRecord | null>(null);
+  const [selectedForSale, setSelectedForSale] = useState<SelectedCustomerForSaleBridge | null>(() => readSelectedCustomerForSaleBridge());
 
   const selectedCustomer = customers.find((customer) => customer.customerId === selectedCustomerId) || customers[0] || null;
   const canCreateDirect = hasPermission(roleName, 'customers.createDirect');
+  const canUseInSale = hasPermission(roleName, 'customers.useInSale');
+  const canOpenSalesTerminal = hasPermission(roleName, 'sales.open');
 
   const loadCustomers = async () => {
     const [rows, nextSummary] = await Promise.all([getCustomers(filters), getCustomerSummary(filters)]);
@@ -301,17 +366,47 @@ export default function PosCustomerDesk({ session, onNavigate }: PosCustomerDesk
     if (!requirePermission('customers.useInSale')) return;
     setSelectedCustomerId(customer.customerId);
     await recordCustomerSelectedForSale(customer.customerId, session.staffName);
-    try {
-      sessionStorage.setItem('itred_pos_selected_customer_for_sale_v1', JSON.stringify({
-        customerId: customer.customerId,
-        customerCode: customer.customerCode,
-        customerName: customer.customerName,
-        selectedAt: new Date().toISOString()
-      }));
-    } catch {
-      // Session storage is optional in local-only builds.
-    }
+    const payload: SelectedCustomerForSaleBridge = {
+      customerId: customer.customerId,
+      customerCode: customer.customerCode,
+      customerName: customer.customerName,
+      customerType: customer.customerType,
+      phone: customer.phone,
+      whatsapp: customer.whatsapp,
+      email: customer.email,
+      cityTown: customer.cityTown,
+      district: customer.district,
+      suburb: customer.suburb,
+      address: customer.deliveryAddress || customer.billingAddress,
+      taxNumber: customer.taxNumber,
+      creditStatus: customer.creditStatus,
+      creditLimit: customer.creditLimit,
+      selectedAt: new Date().toISOString(),
+      selectedByStaffId: session.staffName,
+      source: 'Customer Centre'
+    };
+    writeSelectedCustomerForSaleBridge(payload);
+    setSelectedForSale(payload);
+    await recordCustomerSaleBridgeEvent(customer.customerId, session.staffName, 'CUSTOMER_SELECTED_SALES_TERMINAL_CTA_SHOWN', 'Open Sales Terminal CTA shown after customer selection.');
     if (showNotice) setNotice(`${customer.customerName} selected for sale.`);
+  };
+
+  const handleOpenSalesTerminal = async () => {
+    if (!selectedForSale) return;
+    if (!canOpenSalesTerminal) {
+      setNotice('You do not have permission to open Sales Terminal.');
+      return;
+    }
+    await recordCustomerSaleBridgeEvent(selectedForSale.customerId, session.staffName, 'CUSTOMER_SELECTED_SALES_TERMINAL_OPENED', 'Open Sales Terminal CTA clicked from Customer Centre.');
+    onNavigate?.('SALES');
+  };
+
+  const handleClearSelectedForSale = async () => {
+    const current = selectedForSale;
+    clearSelectedCustomerForSaleBridge();
+    setSelectedForSale(null);
+    setNotice('Selected customer cleared.');
+    if (current) await recordCustomerSaleBridgeEvent(current.customerId, session.staffName, 'CUSTOMER_SELECTED_FOR_SALE_CLEARED', 'Selected customer for sale bridge cleared from Customer Centre.');
   };
 
   const handleWhatsApp = (customer: CustomerRecord) => {
@@ -442,6 +537,8 @@ export default function PosCustomerDesk({ session, onNavigate }: PosCustomerDesk
     reference: string;
     notes: string;
     receivedByStaffId: string;
+    branchId?: string;
+    shiftId?: string;
   }) => {
     try {
       await recordCustomerDebtPayment(payload);
@@ -456,7 +553,7 @@ export default function PosCustomerDesk({ session, onNavigate }: PosCustomerDesk
   const customerActionItems = (customer: CustomerRecord): RowActionMenuItem[] => [
     { label: 'View Customer', icon: <Eye size={15} />, onClick: () => handleProfile(customer), disabled: !hasPermission(roleName, 'customers.view') },
     { label: 'Edit Customer', icon: <Edit3 size={15} />, onClick: () => setEditCustomer(customer), disabled: !hasPermission(roleName, 'customers.edit') },
-    { label: 'Use in Sale', icon: <UserCheck size={15} />, onClick: () => void handleUseInSale(customer), disabled: !hasPermission(roleName, 'customers.useInSale') },
+    ...(hasPermission(roleName, 'customers.useInSale') ? [{ label: 'Use in Sale', icon: <UserCheck size={15} />, onClick: () => void handleUseInSale(customer) }] : []),
     { label: 'View Purchase History', icon: <History size={15} />, onClick: () => { setSelectedCustomerId(customer.customerId); setActiveTab('Purchase History'); }, disabled: !hasPermission(roleName, 'customers.purchaseHistory.view') },
     { label: 'View Notes', icon: <MessageSquare size={15} />, onClick: () => { setSelectedCustomerId(customer.customerId); setActiveTab('Customer Notes'); }, disabled: !hasPermission(roleName, 'customers.notes.view') },
     { label: 'Add Note', icon: <Plus size={15} />, onClick: () => setQuickNoteCustomer(customer), disabled: !hasPermission(roleName, 'customers.notes.create') },
@@ -488,17 +585,36 @@ export default function PosCustomerDesk({ session, onNavigate }: PosCustomerDesk
         </div>
         <div className="sci-page-header__actions">
           {canCreateDirect && (
-            <button type="button" className="sci-pos-button sci-pos-button--primary" onClick={() => setNewCustomerOpen(true)}>
+            <button type="button" className="pos-action-button pos-action-button-primary" onClick={() => setNewCustomerOpen(true)}>
               <UserPlus size={16} />New Customer
             </button>
           )}
-          <button type="button" className="sci-pos-button sci-pos-button--secondary" onClick={handleExport}>
+          <button type="button" className="pos-action-button pos-action-button-secondary" onClick={handleExport}>
             <FileDown size={16} />Export
           </button>
         </div>
       </header>
 
       {notice && <div className="sci-pos-alert" role="status">{notice}</div>}
+
+      {selectedForSale && canUseInSale && (
+        <section className="pos-selected-sale-cta-card" aria-label="Customer selected for sale">
+          <div className="pos-selected-sale-cta-card__icon"><ShoppingCart size={18} /></div>
+          <div className="pos-selected-sale-cta-card__body">
+            <span>Customer selected for sale:</span>
+            <strong>{selectedForSale.customerName}</strong>
+            <small>Open Sales Terminal to continue checkout with this customer.</small>
+          </div>
+          <div className="pos-selected-sale-cta-card__actions">
+            <button type="button" className="pos-action-button pos-action-button-primary" disabled={!canOpenSalesTerminal} title={canOpenSalesTerminal ? '' : 'You do not have permission to open Sales Terminal.'} onClick={() => void handleOpenSalesTerminal()}>
+              <ShoppingCart size={16} />Open Sales Terminal
+            </button>
+            <button type="button" className="pos-action-button pos-action-button-secondary" onClick={() => void handleClearSelectedForSale()}>
+              <Trash2 size={15} />Clear Selected Customer
+            </button>
+          </div>
+        </section>
+      )}
 
       <section className="pos-customer-summary-grid">
         {[
@@ -524,12 +640,24 @@ export default function PosCustomerDesk({ session, onNavigate }: PosCustomerDesk
             <p className="sci-pos-eyebrow">Filters</p>
             <h2>Customer Filters</h2>
           </div>
-          <button type="button" className="sci-pos-button sci-pos-button--secondary" onClick={() => setFiltersOpen((value) => !value)}>
+          <button type="button" className="pos-action-button pos-action-button-secondary" onClick={() => setFiltersOpen((value) => !value)}>
             <Search size={16} />{filtersOpen ? 'Hide Filters' : 'More Filters'}
           </button>
         </div>
         <div className="pos-customer-filter-primary">
-          <FilterInput label="Search" value={filters.search || ''} onChange={(value) => setFilters({ ...filters, search: value })} />
+          <label className="pos-customer-search-field">
+            <span>Search</span>
+            <span className="pos-search-bubble">
+              <input
+                className="pos-search-bubble-input"
+                type="search"
+                value={filters.search || ''}
+                onChange={(event) => setFilters({ ...filters, search: event.target.value })}
+                placeholder="Search by customer name, code, phone, WhatsApp, email, city, suburb, source, credit status, or debt status..."
+              />
+              <Search className="pos-search-bubble-icon" size={17} aria-hidden="true" />
+            </span>
+          </label>
         </div>
         <div className={`pos-customer-filter-grid ${filtersOpen ? 'pos-customer-filter-grid--open' : ''}`}>
           <FilterSelect label="Customer Type" value={filters.customerType || 'All'} options={customerTypes} onChange={(value) => setFilters({ ...filters, customerType: value as CustomerFilterState['customerType'] })} />
@@ -546,7 +674,7 @@ export default function PosCustomerDesk({ session, onNavigate }: PosCustomerDesk
 
       <div className="pos-shift-tabs pos-customer-tabs" role="tablist" aria-label="Customer Centre sections">
         {tabs.map((tab) => (
-          <button key={tab} type="button" className={`pos-shift-tab ${activeTab === tab ? 'pos-shift-tab--active' : ''}`} onClick={() => setActiveTab(tab)}>
+          <button key={tab} type="button" className={`pos-tab-button ${activeTab === tab ? 'pos-tab-button-active' : ''}`} onClick={() => setActiveTab(tab)}>
             {tab}
           </button>
         ))}
@@ -590,6 +718,37 @@ export default function PosCustomerDesk({ session, onNavigate }: PosCustomerDesk
               onDebtAction={handleDebtAction}
             />
           : <EmptyState title="No Customer Selected" message="Select a customer to view credit and ageing." />
+      )}
+
+      {activeTab === 'Debtors Control Desk' && (
+        hasPermission(roleName, 'customers.debtorsDesk.view')
+          ? <DebtorsControlDeskPanel
+              customers={customers}
+              selectedCustomerId={selectedCustomerId}
+              staffName={session.staffName}
+              roleName={roleName}
+              canManagePolicy={hasPermission(roleName, 'customers.credit.policyManage')}
+              canRecordPayment={hasPermission(roleName, 'customers.credit.recordPayment')}
+              canWriteOff={hasPermission(roleName, 'customers.credit.writeOff')}
+              onRecordPayment={(debt) => setPaymentDebt(debt)}
+              onOpenCustomerProfile={(customerId) => { setSelectedCustomerId(customerId); setActiveTab('Customer Profile'); }}
+              onPrintStatement={(customerId) => { setSelectedCustomerId(customerId); setActiveTab('Customer Statements'); }}
+              onNotice={setNotice}
+            />
+          : <EmptyState title="Restricted" message="You do not have permission to view Debtors Control Desk." />
+      )}
+
+      {activeTab === 'Customer Statements' && (
+        hasPermission(roleName, 'customers.credit.statement.view')
+          ? <CustomerStatementPanel
+              customers={customers}
+              selectedCustomerId={selectedCustomerId}
+              generatedBy={session.staffName}
+              canPrint={hasPermission(roleName, 'customers.credit.statement.print')}
+              canWhatsApp={hasPermission(roleName, 'customers.credit.statement.whatsapp')}
+              onNotice={setNotice}
+            />
+          : <EmptyState title="Restricted" message="You do not have permission to view customer statements." />
       )}
 
       {activeTab === 'Buying Behaviour' && (

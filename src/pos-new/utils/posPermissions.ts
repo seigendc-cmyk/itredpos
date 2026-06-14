@@ -52,6 +52,22 @@ export type PermissionKey =
   | 'shift.override'
   | 'cashDrawer.assign'
   | 'cashDrawer.release'
+  | 'cashControl.view'
+  | 'cashControl.reconcile'
+  | 'cashControl.count'
+  | 'cashControl.approve'
+  | 'cashControl.varianceReview'
+  | 'cashControl.expense.create'
+  | 'cashControl.expense.approve'
+  | 'cashControl.cashDrop.create'
+  | 'cashControl.cashDrop.confirm'
+  | 'cashControl.debtorPayments.view'
+  | 'cashControl.debtorPayments.linkDrawer'
+  | 'cashControl.deliveryCash.view'
+  | 'cashControl.deliveryCash.confirm'
+  | 'cashControl.print'
+  | 'cashControl.export'
+  | 'cashControl.policy.manage'
   | 'customers.createRequest'
   | 'customers.createDirect'
   | 'customers.view'
@@ -65,11 +81,16 @@ export type PermissionKey =
   | 'customers.credit.view'
   | 'customers.credit.manage'
   | 'customers.credit.setLimit'
+  | 'customers.credit.policyManage'
   | 'customers.credit.suspend'
   | 'customers.credit.recordPayment'
   | 'customers.credit.writeOff'
   | 'customers.credit.ageing.view'
   | 'customers.credit.ageing.configure'
+  | 'customers.credit.statement.view'
+  | 'customers.credit.statement.print'
+  | 'customers.credit.statement.whatsapp'
+  | 'customers.debtorsDesk.view'
   | 'customers.creditWorthiness.view'
   | 'customers.behaviourAnalytics.view'
   | 'customers.whatsappReminder'
@@ -179,6 +200,7 @@ export type PermissionKey =
   | 'tasks.close'
   | 'approvals.view'
   | 'approvals.approve'
+  | 'approvals.credit.approve'
   | 'approvals.reject'
   | 'hardware.configure'
   | 'payment.capture'
@@ -302,6 +324,22 @@ const ALL_PERMISSIONS: PermissionKey[] = [
   'shift.override',
   'cashDrawer.assign',
   'cashDrawer.release',
+  'cashControl.view',
+  'cashControl.reconcile',
+  'cashControl.count',
+  'cashControl.approve',
+  'cashControl.varianceReview',
+  'cashControl.expense.create',
+  'cashControl.expense.approve',
+  'cashControl.cashDrop.create',
+  'cashControl.cashDrop.confirm',
+  'cashControl.debtorPayments.view',
+  'cashControl.debtorPayments.linkDrawer',
+  'cashControl.deliveryCash.view',
+  'cashControl.deliveryCash.confirm',
+  'cashControl.print',
+  'cashControl.export',
+  'cashControl.policy.manage',
   'customers.createRequest',
   'customers.createDirect',
   'customers.view',
@@ -315,11 +353,16 @@ const ALL_PERMISSIONS: PermissionKey[] = [
   'customers.credit.view',
   'customers.credit.manage',
   'customers.credit.setLimit',
+  'customers.credit.policyManage',
   'customers.credit.suspend',
   'customers.credit.recordPayment',
   'customers.credit.writeOff',
   'customers.credit.ageing.view',
   'customers.credit.ageing.configure',
+  'customers.credit.statement.view',
+  'customers.credit.statement.print',
+  'customers.credit.statement.whatsapp',
+  'customers.debtorsDesk.view',
   'customers.creditWorthiness.view',
   'customers.behaviourAnalytics.view',
   'customers.whatsappReminder',
@@ -429,6 +472,7 @@ const ALL_PERMISSIONS: PermissionKey[] = [
   'tasks.close',
   'approvals.view',
   'approvals.approve',
+  'approvals.credit.approve',
   'approvals.reject',
   'hardware.configure',
   'payment.capture',
@@ -499,9 +543,11 @@ const ROLE_MENUS: Record<Role, PosPageId[]> = {
   SysAdmin: ['DASHBOARD', 'OWNER_DESK', 'SALES', 'SALES_HISTORY', 'CUSTOMER_CENTRE', 'DELIVERY', 'STOCK', 'TASK_DESK', 'APPROVALS', 'SHIFT', 'CASH', 'BI_DESK', 'SYNC_DESK', 'SETTINGS'],
   Manager: ['DASHBOARD', 'OWNER_DESK', 'SALES', 'SALES_HISTORY', 'CUSTOMER_CENTRE', 'DELIVERY', 'STOCK', 'TASK_DESK', 'APPROVALS', 'SHIFT', 'CASH', 'BI_DESK', 'SYNC_DESK', 'SETTINGS'],
   Supervisor: ['DASHBOARD', 'SALES', 'SALES_HISTORY', 'CUSTOMER_CENTRE', 'DELIVERY', 'STOCK', 'TASK_DESK', 'APPROVALS', 'SHIFT', 'CASH', 'BI_DESK', 'SYNC_DESK'],
-  Cashier: ['DASHBOARD', 'SALES', 'SALES_HISTORY', 'CUSTOMER_CENTRE', 'DELIVERY', 'SHIFT', 'TASK_DESK', 'SYNC_DESK'],
+  Cashier: ['DASHBOARD', 'SALES', 'SALES_HISTORY', 'CUSTOMER_CENTRE', 'DELIVERY', 'SHIFT', 'CASH', 'TASK_DESK', 'SYNC_DESK'],
   'Stock Controller': ['DASHBOARD', 'STOCK', 'TASK_DESK', 'APPROVALS', 'BI_DESK', 'SYNC_DESK'],
-  'Delivery Staff': ['DASHBOARD', 'DELIVERY', 'TASK_DESK', 'SYNC_DESK']
+  'Delivery Staff': ['DASHBOARD', 'DELIVERY', 'TASK_DESK', 'SYNC_DESK'],
+  Accountant: ['DASHBOARD', 'SALES_HISTORY', 'CUSTOMER_CENTRE', 'CASH', 'BI_DESK', 'SYNC_DESK'],
+  Viewer: ['DASHBOARD', 'CUSTOMER_CENTRE']
 };
 
 const ROLE_PERMISSIONS: Record<Role, PermissionKey[]> = {
@@ -517,9 +563,13 @@ const ROLE_PERMISSIONS: Record<Role, PermissionKey[]> = {
     'terminal.activate', 'terminal.deactivate', 'terminal.readinessCheck', 'terminal.history.view',
     'shift.view', 'shift.open', 'shift.close', 'shift.forceClose', 'shift.eodReport.view', 'shift.eodReport.print', 'shift.recovery.restore', 'shift.override',
     'cashDrawer.assign', 'cashDrawer.release',
+    'cashControl.view', 'cashControl.reconcile', 'cashControl.count', 'cashControl.approve', 'cashControl.varianceReview',
+    'cashControl.expense.create', 'cashControl.expense.approve', 'cashControl.cashDrop.create', 'cashControl.cashDrop.confirm',
+    'cashControl.debtorPayments.view', 'cashControl.debtorPayments.linkDrawer', 'cashControl.deliveryCash.view', 'cashControl.deliveryCash.confirm',
+    'cashControl.print', 'cashControl.export', 'cashControl.policy.manage',
     'payment.capture',
     'customers.view', 'customers.createRequest', 'customers.createDirect', 'customers.edit', 'customers.suspend', 'customers.reactivate',
-    'customers.notes.view', 'customers.notes.create', 'customers.purchaseHistory.view', 'customers.creditView', 'customers.credit.view', 'customers.credit.manage', 'customers.credit.setLimit', 'customers.credit.suspend', 'customers.credit.recordPayment', 'customers.credit.writeOff', 'customers.credit.ageing.view', 'customers.credit.ageing.configure', 'customers.creditWorthiness.view', 'customers.behaviourAnalytics.view', 'customers.whatsappReminder', 'customers.credit.export', 'customers.creditReview',
+    'customers.notes.view', 'customers.notes.create', 'customers.purchaseHistory.view', 'customers.creditView', 'customers.credit.view', 'customers.credit.manage', 'customers.credit.setLimit', 'customers.credit.policyManage', 'customers.credit.suspend', 'customers.credit.recordPayment', 'customers.credit.writeOff', 'customers.credit.ageing.view', 'customers.credit.ageing.configure', 'customers.credit.statement.view', 'customers.credit.statement.print', 'customers.credit.statement.whatsapp', 'customers.debtorsDesk.view', 'customers.creditWorthiness.view', 'customers.behaviourAnalytics.view', 'customers.whatsappReminder', 'customers.credit.export', 'customers.creditReview',
     'customers.export', 'customers.whatsappMessage', 'customers.useInSale', 'customers.requests.create', 'customers.requests.approve', 'customers.approve',
     'inventory.view', 'inventory.import', 'inventory.approveImport', 'inventory.adjust', 'inventory.approveAdjustment',
     'productMaster.view', 'productMaster.create', 'productMaster.edit', 'productMaster.activate', 'productMaster.block', 'productMaster.export',
@@ -537,7 +587,7 @@ const ROLE_PERMISSIONS: Record<Role, PermissionKey[]> = {
     'delivery.view', 'delivery.create', 'delivery.assign', 'delivery.track', 'delivery.verifyCode', 'delivery.complete', 'delivery.cancel', 'delivery.cashReview', 'delivery.providerManage', 'delivery.export',
     'audit.view', 'audit.export',
     'tasks.view', 'tasks.assign', 'tasks.close',
-    'approvals.view', 'approvals.approve', 'approvals.reject',
+    'approvals.view', 'approvals.approve', 'approvals.credit.approve', 'approvals.reject',
     'reports.view', 'reports.export',
     'accounting.view', 'accounting.review', 'accounting.approve', 'accounting.postPlaceholder', 'accounting.export',
     'inventoryAccounting.view', 'inventoryAccounting.review', 'inventoryAccounting.approve', 'inventoryAccounting.hold', 'inventoryAccounting.reject', 'inventoryAccounting.export',
@@ -557,9 +607,13 @@ const ROLE_PERMISSIONS: Record<Role, PermissionKey[]> = {
     'returns.request', 'returns.approve', 'creditNotes.request',
     'shift.view', 'shift.open', 'shift.close', 'shift.eodReport.view', 'terminal.readinessCheck', 'terminal.history.view', 'shift.recovery.restore',
     'cashDrawer.assign', 'cashDrawer.release',
+    'cashControl.view', 'cashControl.reconcile', 'cashControl.count', 'cashControl.varianceReview',
+    'cashControl.expense.create', 'cashControl.cashDrop.create', 'cashControl.debtorPayments.view',
+    'cashControl.debtorPayments.linkDrawer', 'cashControl.deliveryCash.view', 'cashControl.deliveryCash.confirm',
+    'cashControl.print', 'cashControl.export',
     'payment.capture',
     'customers.view', 'customers.createRequest', 'customers.createDirect', 'customers.edit', 'customers.notes.view', 'customers.notes.create',
-    'customers.useInSale', 'customers.requests.create', 'customers.creditView', 'customers.credit.view', 'customers.credit.ageing.view', 'customers.credit.recordPayment', 'customers.creditWorthiness.view', 'customers.behaviourAnalytics.view', 'customers.whatsappReminder',
+    'customers.useInSale', 'customers.requests.create', 'customers.creditView', 'customers.credit.view', 'customers.credit.ageing.view', 'customers.credit.statement.view', 'customers.debtorsDesk.view', 'customers.credit.recordPayment', 'customers.creditWorthiness.view', 'customers.behaviourAnalytics.view', 'customers.whatsappReminder',
     'inventory.view',
     'productMaster.view', 'productMaster.create', 'productMaster.edit',
     'openingBalance.view', 'openingBalance.create',
@@ -575,7 +629,7 @@ const ROLE_PERMISSIONS: Record<Role, PermissionKey[]> = {
     'delivery.broadcast', 'delivery.review',
     'delivery.view', 'delivery.assign', 'delivery.track', 'delivery.verifyCode', 'delivery.complete', 'delivery.cashReview',
     'tasks.view', 'tasks.assign', 'tasks.close',
-    'approvals.view', 'approvals.approve', 'approvals.reject',
+    'approvals.view', 'approvals.approve', 'approvals.credit.approve', 'approvals.reject',
     'reports.view',
     'accounting.view', 'accounting.review',
     'inventoryAccounting.view', 'inventoryAccounting.review',
@@ -590,6 +644,7 @@ const ROLE_PERMISSIONS: Record<Role, PermissionKey[]> = {
     'sales.miscellaneous.create',
     'returns.request', 'creditNotes.request',
     'shift.view', 'shift.open', 'shift.close', 'terminal.history.view', 'shift.recovery.restore',
+    'cashControl.view', 'cashControl.count',
     'payment.capture',
     'customers.view', 'customers.createRequest', 'customers.createDirect', 'customers.useInSale', 'customers.requests.create',
     'delivery.view', 'delivery.create',
@@ -622,10 +677,36 @@ const ROLE_PERMISSIONS: Record<Role, PermissionKey[]> = {
   ],
   'Delivery Staff': [
     'delivery.view', 'delivery.track', 'delivery.verifyCode', 'delivery.complete', 'delivery.cashReview',
+    'cashControl.deliveryCash.view', 'cashControl.deliveryCash.confirm',
     'customers.view',
     'tasks.view',
     'bi.advice.view',
     'sync.view', 'sync.run', 'sync.queue.view', 'sync.retry'
+  ],
+  Accountant: [
+    'sales.viewHistory', 'receipt.pdf',
+    'customers.view', 'customers.notes.view', 'customers.purchaseHistory.view',
+    'customers.creditView', 'customers.credit.view', 'customers.credit.recordPayment', 'customers.credit.ageing.view',
+    'customers.credit.statement.view', 'customers.credit.statement.print', 'customers.credit.statement.whatsapp',
+    'customers.debtorsDesk.view', 'customers.creditWorthiness.view', 'customers.behaviourAnalytics.view',
+    'customers.whatsappReminder', 'customers.credit.export', 'customers.export',
+    'payment.capture',
+    'cashControl.view', 'cashControl.reconcile', 'cashControl.count', 'cashControl.varianceReview',
+    'cashControl.expense.create', 'cashControl.cashDrop.create', 'cashControl.debtorPayments.view',
+    'cashControl.debtorPayments.linkDrawer', 'cashControl.deliveryCash.view', 'cashControl.print', 'cashControl.export',
+    'approvals.view',
+    'reports.view', 'reports.export',
+    'accounting.view', 'accounting.review', 'accounting.postPlaceholder', 'accounting.export',
+    'inventoryAccounting.view', 'inventoryAccounting.review', 'inventoryAccounting.export',
+    'bi.view', 'bi.advice.view', 'bi.advice.generate', 'bi.advice.createTask',
+    'sync.view', 'sync.run', 'sync.queue.view', 'sync.retry', 'sync.export'
+  ],
+  Viewer: [
+    'customers.view', 'customers.notes.view', 'customers.purchaseHistory.view',
+    'customers.credit.view', 'customers.credit.ageing.view', 'customers.credit.statement.view',
+    'customers.debtorsDesk.view', 'customers.creditWorthiness.view',
+    'cashControl.view', 'cashControl.debtorPayments.view', 'cashControl.deliveryCash.view',
+    'reports.view', 'bi.view', 'bi.advice.view'
   ]
 };
 

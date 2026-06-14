@@ -79,9 +79,22 @@ function normalize(value?: string): string {
   return (value || '').toLowerCase().trim();
 }
 
+function customerSearchAliases(customer: CustomerRecord): string {
+  const aliases: string[] = [];
+  if (customer.creditStatus === 'Credit Review Required') aliases.push('credit watch credit review');
+  if (customer.creditStatus === 'Credit Suspended') aliases.push('credit blocked suspended debt hold');
+  if (customer.currentBalance && customer.currentBalance > 0) aliases.push('debt debtor outstanding balance');
+  return aliases.join(' ');
+}
+
 function matchesSearch(customer: CustomerRecord, query?: string): boolean {
   const search = normalize(query);
   if (!search) return true;
+  const customerSearchFields = customer as CustomerRecord & {
+    address?: string;
+    creditWorthinessGrade?: string;
+    debtStatus?: string;
+  };
   const haystack = [
     customer.customerId,
     customer.customerCode,
@@ -93,12 +106,16 @@ function matchesSearch(customer: CustomerRecord, query?: string): boolean {
     customer.taxNumber,
     customer.billingAddress,
     customer.deliveryAddress,
+    customerSearchFields.address,
     customer.cityTown,
     customer.district,
     customer.suburb,
     customer.source,
     customer.status,
     customer.creditStatus,
+    customerSearchFields.creditWorthinessGrade,
+    customerSearchFields.debtStatus,
+    customerSearchAliases(customer),
     customer.notes
   ].join(' ').toLowerCase();
   return search.split(/\s+/).every((word) => haystack.includes(word));
@@ -362,6 +379,19 @@ export async function recordCustomerSelectedForSale(customerId: string, staffId:
     user: staffId,
     notes: 'Customer selected for Sales Terminal cart.'
   });
+}
+
+export async function recordCustomerSaleBridgeEvent(
+  customerId: string,
+  staffId: string,
+  eventType: Extract<CustomerActivityEvent['eventType'],
+    | 'CUSTOMER_SELECTED_SALES_TERMINAL_CTA_SHOWN'
+    | 'CUSTOMER_SELECTED_SALES_TERMINAL_OPENED'
+    | 'CUSTOMER_LOADED_FROM_CUSTOMER_CENTRE'
+    | 'CUSTOMER_SELECTED_FOR_SALE_CLEARED'>,
+  notes: string
+): Promise<CustomerActivityEvent[]> {
+  return recordCustomerActivity({ customerId, eventType, user: staffId, notes });
 }
 
 export async function exportCustomerListPlaceholder(filters: CustomerFilterState = {}): Promise<string> {

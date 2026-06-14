@@ -14,6 +14,8 @@ interface RecordDebtPaymentModalProps {
     reference: string;
     notes: string;
     receivedByStaffId: string;
+    branchId?: string;
+    shiftId?: string;
   }) => Promise<void> | void;
 }
 
@@ -26,6 +28,8 @@ export default function RecordDebtPaymentModal({ debt, receivedBy, onClose, onRe
   const [paymentMethod, setPaymentMethod] = useState('Cash');
   const [reference, setReference] = useState('');
   const [notes, setNotes] = useState('');
+  const [receivedDate, setReceivedDate] = useState(new Date().toISOString().slice(0, 10));
+  const [allocationMode, setAllocationMode] = useState('Selected Debt Only');
   const [error, setError] = useState('');
 
   if (!debt) return null;
@@ -47,11 +51,21 @@ export default function RecordDebtPaymentModal({ debt, receivedBy, onClose, onRe
       paymentMethod,
       reference,
       notes,
-      receivedByStaffId: receivedBy
+      receivedByStaffId: receivedBy,
+      branchId: debt.branchId,
+      shiftId: debt.shiftId
     });
+    clearForm();
+  };
+
+  const clearForm = () => {
     setAmount('');
+    setPaymentMethod('Cash');
     setReference('');
     setNotes('');
+    setReceivedDate(new Date().toISOString().slice(0, 10));
+    setAllocationMode('Selected Debt Only');
+    setError('');
   };
 
   return (
@@ -73,11 +87,14 @@ export default function RecordDebtPaymentModal({ debt, receivedBy, onClose, onRe
         </div>
         <div className="pos-record-debt-form">
           <label>Payment Amount<input type="number" min="0" max={debt.outstandingAmount} value={amount} onChange={(event) => setAmount(event.target.value)} /></label>
-          <label>Payment Method<select value={paymentMethod} onChange={(event) => setPaymentMethod(event.target.value)}><option>Cash</option><option>EcoCash</option><option>Swipe</option><option>Bank Transfer</option></select></label>
-          <label>Reference<input value={reference} onChange={(event) => setReference(event.target.value)} placeholder="Receipt, bank, or mobile reference" /></label>
-          <label>Notes<textarea rows={3} value={notes} onChange={(event) => setNotes(event.target.value)} /></label>
+          <label>Payment Method<select value={paymentMethod} onChange={(event) => setPaymentMethod(event.target.value)}><option>Cash</option><option>EcoCash Placeholder</option><option>Innbucks Placeholder</option><option>Mukuru Placeholder</option><option>ZIPIT Placeholder</option><option>Bank Transfer</option><option>Card Placeholder</option></select></label>
+          <label>Reference / Confirmation Code<input value={reference} onChange={(event) => setReference(event.target.value)} placeholder="Receipt, bank, or mobile reference" /></label>
+          <label>Received Date<input type="date" value={receivedDate} onChange={(event) => setReceivedDate(event.target.value)} /></label>
+          <label>Allocate Payment<select value={allocationMode} onChange={(event) => setAllocationMode(event.target.value)}><option>Selected Debt Only</option><option>Oldest Debt First</option><option>Manual Allocation Placeholder</option></select></label>
+          <label>Payment Notes<textarea rows={3} value={notes} onChange={(event) => setNotes(event.target.value)} placeholder={`Allocation: ${allocationMode}. Received date: ${receivedDate}.`} /></label>
         </div>
         <div className="pos-new-customer-modal__actions">
+          <button type="button" className="sci-pos-button sci-pos-button--secondary" onClick={clearForm}>Clear</button>
           <button type="button" className="sci-pos-button sci-pos-button--secondary" onClick={onClose}>Cancel</button>
           <button type="button" className="sci-pos-button sci-pos-button--primary" onClick={() => void submit()}>Record Payment</button>
         </div>

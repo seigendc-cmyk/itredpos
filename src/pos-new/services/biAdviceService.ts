@@ -271,6 +271,7 @@ function categoryFromTrigger(trigger: TriggerLike): BIAdviceCategory {
   const eventType = String(trigger.eventType || '');
   if (domain.includes('Cash') || eventType.includes('CASH')) return 'Cash Control';
   if (domain.includes('Delivery') || eventType.includes('DELIVERY')) return 'Delivery Verification';
+  if (domain.includes('Customer') || domain.includes('Credit') || eventType.includes('CREDIT') || eventType.includes('CUSTOMER_DEBT') || eventType.includes('OVERDUE')) return 'Customer and Credit Risk';
   if (domain.includes('Staff') || eventType.includes('LOGIN')) return 'Staff Behaviour';
   if (eventType.includes('PRICE')) return 'Pricing Control';
   if (domain.includes('Sales')) return 'Sales Integrity';
@@ -283,6 +284,7 @@ function recommendedActionFromCategory(category: BIAdviceCategory, trigger: Trig
   if (category === 'Cash Control') return 'Review Cash Variance';
   if (category === 'Delivery Verification') return 'Review Delivery';
   if (category === 'Staff Behaviour') return 'Review Staff Action';
+  if (category === 'Customer and Credit Risk') return eventType.includes('LIMIT') || eventType.includes('OVERDUE') ? 'Request Approval' : 'Create Task';
   if (category === 'Reorder Control') return 'Block Reorder';
   if (eventType.includes('STOCKTAKE') || eventType.includes('VARIANCE')) return 'Start Stocktake';
   if (eventType.includes('LOW_STOCK') || eventType.includes('REORDER')) return 'Create Purchase Reminder';

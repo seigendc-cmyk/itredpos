@@ -144,7 +144,7 @@ export interface TerminalControlEvent {
   createdAt: string;
 }
 
-export type Role = 'Owner' | 'SysAdmin' | 'Manager' | 'Cashier' | 'Stock Controller' | 'Supervisor' | 'Delivery Staff';
+export type Role = 'Owner' | 'SysAdmin' | 'Manager' | 'Cashier' | 'Stock Controller' | 'Supervisor' | 'Delivery Staff' | 'Accountant' | 'Viewer';
 
 export type Permission = string;
 
@@ -545,7 +545,7 @@ export interface BIManagementActivityEvent {
   createdAt: string;
 }
 
-export type PaymentMethod = 'Cash' | 'EcoCash' | 'Swipe' | 'Bank Transfer' | 'Split Payment' | 'CASH' | 'CARD' | 'NFC' | 'SPLIT';
+export type PaymentMethod = 'Cash' | 'EcoCash' | 'Swipe' | 'Bank Transfer' | 'Split Payment' | 'Credit Sale' | 'CASH' | 'CARD' | 'NFC' | 'SPLIT';
 
 export interface Product {
   id: string;
@@ -1172,6 +1172,201 @@ export interface CashMovement {
   amount: number;
   reason: string;
   operator: string;
+}
+
+export type CashMovementType =
+  | 'OpeningFloat'
+  | 'CashSale'
+  | 'CashDebtorPayment'
+  | 'CashDeliveryHandover'
+  | 'CashRefund'
+  | 'CashReturnRefund'
+  | 'CashDrop'
+  | 'DrawerExpense'
+  | 'PettyCashPayout'
+  | 'CashCorrection'
+  | 'CashVarianceAdjustment';
+
+export type CashMovementDirection = 'In' | 'Out' | 'Neutral';
+export type CashMovementSource = 'Sale' | 'DebtPayment' | 'Delivery' | 'Shift' | 'EOD' | 'Expense' | 'Refund' | 'ManualAdjustment' | 'Recovery';
+export type CashReconciliationStatus = 'Draft' | 'InProgress' | 'Balanced' | 'VarianceFound' | 'PendingReview' | 'Approved' | 'Rejected' | 'Closed';
+export type CashVarianceType = 'Short' | 'Over' | 'Balanced';
+export type CashEquivalencePolicy = 'PhysicalCashOnly' | 'IncludeMobileMoneyAsCashEquivalent' | 'IncludeBankTransferAsCashEquivalent' | 'IncludeCardAsCashEquivalent' | 'Custom';
+
+export interface CashDrawerMovement {
+  movementId: string;
+  movementNumber: string;
+  shiftId: string;
+  branchId: string;
+  branchName: string;
+  terminalId: string;
+  terminalName: string;
+  drawerId: string;
+  drawerName: string;
+  staffId: string;
+  staffName: string;
+  type: CashMovementType;
+  direction: CashMovementDirection;
+  source: CashMovementSource;
+  amount: number;
+  paymentMethod: string;
+  referenceId: string;
+  referenceNumber: string;
+  customerId?: string;
+  customerName?: string;
+  deliveryId?: string;
+  notes: string;
+  createdAt: string;
+  reviewed: boolean;
+  reviewedBy?: string;
+  reviewedAt?: string;
+}
+
+export interface CashDrawerCountLine {
+  denomination: string;
+  value: number;
+  count: number;
+  total: number;
+}
+
+export interface CashDrawerReconciliation {
+  reconciliationId: string;
+  shiftId: string;
+  branchId: string;
+  terminalId: string;
+  drawerId: string;
+  openingFloat: number;
+  cashSales: number;
+  cashDebtorPayments: number;
+  cashDeliveryHandovers: number;
+  cashRefunds: number;
+  drawerExpenses: number;
+  pettyCashPayouts: number;
+  cashDrops: number;
+  expectedCash: number;
+  countedCash: number;
+  variance: number;
+  varianceType: CashVarianceType;
+  status: CashReconciliationStatus;
+  notes: string;
+  preparedBy: string;
+  reviewedBy?: string;
+  createdAt: string;
+  closedAt?: string;
+}
+
+export interface CashVarianceRecord {
+  varianceId: string;
+  reconciliationId: string;
+  shiftId: string;
+  drawerId: string;
+  staffName: string;
+  expectedCash: number;
+  countedCash: number;
+  variance: number;
+  varianceType: CashVarianceType;
+  status: CashReconciliationStatus;
+  reviewNotes: string;
+  createdAt: string;
+}
+
+export interface DrawerExpenseRecord {
+  expenseId: string;
+  shiftId: string;
+  drawerId: string;
+  amount: number;
+  expenseType: string;
+  reason: string;
+  approvedBy?: string;
+  paidTo?: string;
+  notes: string;
+  createdBy: string;
+  createdAt: string;
+  status: CashReconciliationStatus;
+}
+
+export interface CashDropRecord {
+  cashDropId: string;
+  shiftId: string;
+  drawerId: string;
+  amount: number;
+  handedTo: string;
+  receivedBy: string;
+  reason: string;
+  notes: string;
+  createdBy: string;
+  createdAt: string;
+  status: CashReconciliationStatus;
+}
+
+export interface DebtorPaymentCashLink {
+  linkId: string;
+  paymentId: string;
+  debtId: string;
+  drawerId: string;
+  shiftId: string;
+  amount: number;
+  cashEquivalent: boolean;
+  createdAt: string;
+}
+
+export interface DeliveryCashHandoverRecord {
+  handoverId: string;
+  deliveryId: string;
+  shiftId: string;
+  drawerId: string;
+  customerName: string;
+  driverName: string;
+  cashExpected: number;
+  cashReceived: number;
+  difference: number;
+  handoverStatus: 'Pending' | 'Confirmed' | 'Queried' | 'Rejected';
+  receivedBy: string;
+  createdAt: string;
+  notes: string;
+}
+
+export interface CashControlActivityEvent {
+  eventId: string;
+  eventType: string;
+  message: string;
+  shiftId?: string;
+  drawerId?: string;
+  staffName: string;
+  createdAt: string;
+}
+
+export interface CashControlFilterState {
+  shiftId?: string;
+  branchId?: string;
+  terminalId?: string;
+  drawerId?: string;
+  staffName?: string;
+  dateFrom?: string;
+  dateTo?: string;
+  source?: CashMovementSource | 'All';
+  movementType?: CashMovementType | 'All';
+  status?: CashReconciliationStatus | 'All';
+  cashEquivalencePolicy?: CashEquivalencePolicy;
+}
+
+export interface CashControlSummary {
+  openingFloat: number;
+  cashSales: number;
+  cashDebtorPayments: number;
+  deliveryCashHandovers: number;
+  cashRefunds: number;
+  drawerExpenses: number;
+  pettyCashPayouts: number;
+  cashDrops: number;
+  expectedCash: number;
+  countedCash: number;
+  variance: number;
+  varianceType: CashVarianceType;
+  pendingReview: number;
+  highRiskAlerts: number;
+  debtorNonCashPayments: number;
+  deliveryCashPending: number;
 }
 
 export interface BIEvent {
@@ -2169,7 +2364,8 @@ export interface OperationalApprovalRequest {
   requestedAt: string;
   reason: string;
   context: string;
-  requiredPermission: 'approvals.approve' | 'approvals.reject';
+  approvalType?: string;
+  requiredPermission: 'approvals.approve' | 'approvals.reject' | 'approvals.credit.approve';
   approvedBy?: string;
   approvedAt?: string;
   rejectedBy?: string;
@@ -2282,6 +2478,9 @@ export interface CustomerDebtRecord {
   receiptNumber: string;
   saleId: string;
   saleDate: string;
+  saleTotal?: number;
+  initialSalePaidAmount?: number;
+  creditAmountCreated?: number;
   dueDate: string;
   originalAmount: number;
   paidAmount: number;
@@ -2292,6 +2491,7 @@ export interface CustomerDebtRecord {
   branchId: string;
   branchName: string;
   terminalId: string;
+  shiftId?: string;
   cashierStaffId: string;
   paymentTermsDays: number;
   notes: string;
@@ -2309,6 +2509,137 @@ export interface CustomerDebtPayment {
   notes: string;
   receivedByStaffId: string;
   receivedAt: string;
+  branchId?: string;
+  shiftId?: string;
+}
+
+export type CreditApplicationStatus = 'Draft' | 'Submitted' | 'PendingReview' | 'Approved' | 'Rejected' | 'Suspended' | 'ReviewDue';
+export type CustomerCreditControlStatus = 'CashOnly' | 'CreditAllowed' | 'CreditBlocked' | 'DepositRequired' | 'Suspended' | 'ManagerApprovalRequired' | 'UnderReview';
+export type PromiseToPayStatus = 'Pending' | 'Kept' | 'Broken' | 'Rescheduled' | 'Cancelled';
+export type PromiseToPayMethod = 'PhoneCall' | 'WhatsApp' | 'CustomerVisit' | 'Email' | 'InPerson' | 'Other';
+export type StatementAcknowledgementStatus = 'Sent' | 'Delivered' | 'Acknowledged' | 'Disputed' | 'ReconciliationRequested' | 'PaymentPromised' | 'NoResponse';
+export type DebtDisputeStatus = 'Open' | 'UnderReview' | 'Resolved' | 'Rejected' | 'Escalated';
+export type CollectionDiaryItemStatus = 'DueToday' | 'Pending' | 'Completed' | 'Overdue' | 'Escalated' | 'Cancelled';
+export type CollectionDiaryItemType = 'PaymentDue' | 'PromiseDue' | 'BrokenPromise' | 'StatementFollowUp' | 'ManagerCall' | 'CustomerVisit' | 'DisputeFollowUp' | 'CreditReview';
+
+export interface CustomerCreditApplication {
+  applicationId: string;
+  customerId: string;
+  customerName: string;
+  requestedCreditLimit: number;
+  approvedCreditLimit: number;
+  requestedPaymentTermsDays: number;
+  approvedPaymentTermsDays: number;
+  status: CreditApplicationStatus;
+  reasonForCreditRequest: string;
+  supportingNotes: string;
+  guarantorName?: string;
+  guarantorPhone?: string;
+  contactPersonName?: string;
+  contactPersonPhone?: string;
+  approvedBy?: string;
+  approvedAt?: string;
+  rejectedBy?: string;
+  rejectedAt?: string;
+  rejectionReason?: string;
+  reviewDate?: string;
+  createdBy: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface PromiseToPayRecord {
+  promiseId: string;
+  customerId: string;
+  customerName: string;
+  debtId?: string;
+  debtReference?: string;
+  promisedAmount: number;
+  promisedDate: string;
+  promiseMethod: PromiseToPayMethod;
+  status: PromiseToPayStatus;
+  capturedBy: string;
+  capturedAt: string;
+  followUpNote: string;
+  assignedTo?: string;
+  paymentId?: string;
+  rescheduledFromPromiseId?: string;
+  keptAt?: string;
+  brokenAt?: string;
+  brokenReason?: string;
+  updatedAt: string;
+}
+
+export interface CustomerCreditBlockRecord {
+  blockId: string;
+  customerId: string;
+  customerName: string;
+  previousStatus: CustomerCreditStatus | CustomerCreditControlStatus;
+  newStatus: CustomerCreditStatus | CustomerCreditControlStatus;
+  reason: string;
+  blockedBy: string;
+  blockedAt: string;
+  releaseRequestedBy?: string;
+  releasedBy?: string;
+  releasedAt?: string;
+  releaseReason?: string;
+  approvalId?: string;
+  active: boolean;
+}
+
+export interface StatementAcknowledgementRecord {
+  acknowledgementId: string;
+  statementId: string;
+  customerId: string;
+  customerName: string;
+  statementPeriodFrom: string;
+  statementPeriodTo: string;
+  sentVia: string;
+  sentTo: string;
+  status: StatementAcknowledgementStatus;
+  sentBy: string;
+  sentAt: string;
+  acknowledgedAt?: string;
+  disputeReason?: string;
+  promisedPaymentAmount?: number;
+  promisedPaymentDate?: string;
+  notes: string;
+  updatedAt: string;
+}
+
+export interface DebtDisputeRecord {
+  disputeId: string;
+  customerId: string;
+  customerName: string;
+  debtId: string;
+  debtReference: string;
+  disputedAmount: number;
+  reason: string;
+  status: DebtDisputeStatus;
+  openedBy: string;
+  openedAt: string;
+  assignedTo?: string;
+  resolutionNote?: string;
+  resolvedBy?: string;
+  resolvedAt?: string;
+}
+
+export interface CollectionDiaryItem {
+  diaryItemId: string;
+  customerId: string;
+  customerName: string;
+  debtId?: string;
+  debtReference?: string;
+  type: CollectionDiaryItemType;
+  priority: RiskLevel;
+  dueDate: string;
+  assignedTo: string;
+  status: CollectionDiaryItemStatus;
+  notes: string;
+  createdBy: string;
+  createdAt: string;
+  completedAt?: string;
+  outcomeNote?: string;
 }
 
 export interface CustomerAgeingIntervalConfig {
@@ -2509,10 +2840,36 @@ export interface CustomerActivityEvent {
     | 'CUSTOMER_SUSPENDED'
     | 'CUSTOMER_REACTIVATED'
     | 'CUSTOMER_SELECTED_FOR_SALE'
+    | 'CUSTOMER_SELECTED_SALES_TERMINAL_CTA_SHOWN'
+    | 'CUSTOMER_SELECTED_SALES_TERMINAL_OPENED'
+    | 'CUSTOMER_LOADED_FROM_CUSTOMER_CENTRE'
+    | 'CUSTOMER_SELECTED_FOR_SALE_CLEARED'
     | 'CUSTOMER_NOTE_ADDED'
     | 'CUSTOMER_PURCHASE_RECORDED'
     | 'CUSTOMER_SERVICE_RISK'
-    | 'CUSTOMER_CREDIT_REVIEW_REQUIRED';
+    | 'CUSTOMER_CREDIT_REVIEW_REQUIRED'
+    | 'CREDIT_APPLICATION_CREATED'
+    | 'CREDIT_APPLICATION_SUBMITTED'
+    | 'CREDIT_APPLICATION_APPROVED'
+    | 'CREDIT_APPLICATION_REJECTED'
+    | 'CUSTOMER_CREDIT_BLOCKED'
+    | 'CUSTOMER_CREDIT_RELEASE_REQUESTED'
+    | 'CUSTOMER_CREDIT_RELEASED'
+    | 'CUSTOMER_SET_CASH_ONLY'
+    | 'CUSTOMER_DEPOSIT_REQUIRED'
+    | 'PROMISE_TO_PAY_CREATED'
+    | 'PROMISE_TO_PAY_KEPT'
+    | 'PROMISE_TO_PAY_BROKEN'
+    | 'PROMISE_TO_PAY_RESCHEDULED'
+    | 'STATEMENT_SENT'
+    | 'STATEMENT_ACKNOWLEDGED'
+    | 'STATEMENT_DISPUTED'
+    | 'STATEMENT_PAYMENT_PROMISED'
+    | 'DEBT_DISPUTE_OPENED'
+    | 'DEBT_DISPUTE_RESOLVED'
+    | 'COLLECTION_DIARY_ITEM_CREATED'
+    | 'COLLECTION_DIARY_ITEM_COMPLETED'
+    | 'COLLECTION_DIARY_ITEM_ESCALATED';
   user: string;
   notes: string;
 }

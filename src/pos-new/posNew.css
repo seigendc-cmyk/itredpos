@@ -32,6 +32,13 @@
   --radius-panel: 2mm;
   --radius-control: 2mm;
   --radius-modal: 2mm;
+  --itred-orange: var(--sci-orange);
+  --card-inner-pad: 8px;
+  --card-label-color: var(--itred-orange, #f97316);
+  --card-label-weight: 400;
+  --card-label-line-height: 1.15;
+  --card-content-gap: 8px;
+  --card-section-gap: 10px;
 }
 
 /* Base resets & overall environment overlay under the light corporate theme */
@@ -90,6 +97,70 @@ th {
 }
 .industrial-font-sans {
   font-family: 'Public Sans', sans-serif;
+}
+
+/* Shared card primitives for 19AL-3 global spacing and label consistency. */
+.it-card {
+  border-radius: var(--radius-card);
+  box-sizing: border-box;
+  max-width: 100%;
+  min-width: 0;
+  overflow: hidden;
+  padding: var(--card-inner-pad);
+}
+
+.it-card-header {
+  align-items: center;
+  box-sizing: border-box;
+  display: flex;
+  gap: var(--card-content-gap);
+  min-width: 0;
+  padding: var(--card-inner-pad);
+}
+
+.it-card-body,
+.it-card-content,
+.it-card-section {
+  box-sizing: border-box;
+  display: grid;
+  gap: var(--card-content-gap);
+  min-width: 0;
+  padding: var(--card-inner-pad);
+}
+
+.it-card-section {
+  gap: var(--card-section-gap);
+}
+
+.it-card-grid {
+  box-sizing: border-box;
+  display: grid;
+  gap: var(--card-content-gap);
+  min-width: 0;
+}
+
+.it-card-label {
+  color: var(--card-label-color);
+  font-weight: var(--card-label-weight);
+  letter-spacing: 0.02em;
+  line-height: var(--card-label-line-height);
+}
+
+.it-card-title,
+.it-card-value {
+  color: var(--sci-text-strong);
+  line-height: 1.2;
+  max-width: 100%;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.it-card-metric {
+  box-sizing: border-box;
+  display: grid;
+  gap: var(--card-content-gap);
+  min-width: 0;
+  padding: var(--card-inner-pad);
 }
 
 /* Custom Scrollbar */
@@ -1990,6 +2061,7 @@ div[class*="border-t border-r border-amber"] {
   font-weight: 500;
 }
 .sales-cart-items-card {
+  display: none !important;
   min-height: 0;
 }
 .sales-cart-items-card .pos-cart-items {
@@ -2595,11 +2667,13 @@ div[class*="border-t border-r border-amber"] {
   background: #ffffff;
   padding: 0 0.65rem;
 }
+.pos-search-bubble,
 .sales-search-bubble {
   background: #eaf7ff;
   border: 1px solid #bfe8ff;
   border-radius: 999px;
   box-shadow: 0 8px 18px rgba(14, 116, 144, 0.12);
+  display: block;
   min-height: 2.7rem;
   padding: 0;
   position: relative;
@@ -2613,20 +2687,27 @@ div[class*="border-t border-r border-amber"] {
   font-size: var(--font-md);
   font-weight: 500;
 }
+.pos-search-bubble-input,
 .sales-search-input {
   background: transparent !important;
   border: 0 !important;
   border-radius: 999px;
   color: var(--sci-text-strong);
+  font-size: var(--font-sm);
+  font-weight: 500;
+  min-height: 2.45rem;
   outline: none !important;
   padding: 0.5rem calc(3mm + 28px) 0.5rem 0.9rem !important;
+  width: 100%;
 }
+.pos-search-bubble-input::placeholder,
 .sales-search-input::placeholder {
   color: #5f7381;
   opacity: 0.9;
   overflow: hidden;
   text-overflow: ellipsis;
 }
+.pos-search-bubble-icon,
 .sales-search-icon {
   color: #f59a4a;
   pointer-events: none;
@@ -2638,6 +2719,76 @@ div[class*="border-t border-r border-amber"] {
 .pos-search-input:focus-within {
   border-color: #f8b66b !important;
   box-shadow: 0 0 0 2px rgba(242, 154, 74, 0.2), 0 10px 22px rgba(14, 116, 144, 0.16) !important;
+}
+.pos-search-bubble:focus-within {
+  border-color: #f8b66b;
+  box-shadow: 0 0 0 2px rgba(242, 154, 74, 0.2), 0 10px 22px rgba(14, 116, 144, 0.16);
+}
+.pos-action-button {
+  align-items: center;
+  border-radius: var(--radius-card);
+  cursor: pointer;
+  display: inline-flex;
+  font-size: var(--font-xs);
+  font-weight: 600;
+  gap: 0.38rem;
+  justify-content: center;
+  line-height: 1.1;
+  min-height: 2.15rem;
+  padding: 0.42rem 0.65rem;
+  text-transform: uppercase;
+  transition: background 0.16s ease, border-color 0.16s ease, color 0.16s ease, box-shadow 0.16s ease;
+  white-space: nowrap;
+}
+.pos-action-button-primary {
+  background: var(--sci-orange);
+  border: 1px solid var(--sci-orange-dark);
+  color: #ffffff;
+}
+.pos-action-button-secondary {
+  background: #ffffff;
+  border: 1px solid var(--sci-border-strong);
+  color: var(--sci-text-strong);
+}
+.pos-action-button:hover:not(:disabled),
+.pos-action-button:focus-visible {
+  border-color: var(--sci-orange);
+  box-shadow: 0 0 0 2px rgba(242, 154, 74, 0.16);
+}
+.pos-action-button-secondary:hover:not(:disabled),
+.pos-action-button-secondary:focus-visible {
+  color: var(--sci-orange-dark);
+}
+.pos-action-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+.pos-tab-button {
+  background: #ffffff;
+  border: 1px solid var(--sci-border-strong);
+  border-bottom: 2px solid #aeb4bf;
+  border-radius: var(--radius-card);
+  color: var(--sci-text-strong);
+  cursor: pointer;
+  font-size: var(--font-xs);
+  font-weight: 600;
+  line-height: 1.05;
+  min-height: 2.15rem;
+  padding: 0.42rem 0.62rem;
+  text-transform: uppercase;
+}
+.pos-tab-button:hover {
+  border-bottom-color: var(--sci-orange);
+  color: var(--sci-orange-dark);
+}
+.pos-tab-button-active {
+  background: var(--sci-orange);
+  border-color: var(--sci-orange-dark);
+  color: #ffffff;
+}
+.pos-three-dot-action,
+.row-action-trigger {
+  border-radius: var(--radius-card);
 }
 .pos-form-grid label,
 .pos-search-controls label {
@@ -5843,21 +5994,71 @@ div[class*="border-t border-r border-amber"] {
   align-items: center;
   flex-wrap: wrap;
 }
+.pos-customer-centre .sci-pos-button {
+  border-radius: var(--radius-card);
+  font-size: var(--font-xs);
+  font-weight: 600;
+  gap: 0.38rem;
+  min-height: 2.15rem;
+  padding: 0.42rem 0.65rem;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.pos-customer-centre .sci-pos-button--primary {
+  background: var(--sci-orange);
+  border-color: var(--sci-orange-dark);
+  color: #ffffff;
+}
+.pos-customer-centre .sci-pos-button--secondary {
+  background: #ffffff;
+  border-color: var(--sci-border-strong);
+  color: var(--sci-text-strong);
+}
+.pos-customer-centre .sci-pos-button--secondary:hover:not(:disabled),
+.pos-customer-centre .sci-pos-button--secondary:focus-visible {
+  border-color: var(--sci-orange);
+  color: var(--sci-orange-dark);
+}
 .pos-customer-filter-card {
   overflow: hidden;
 }
-.pos-customer-filter-primary {
-  padding: 1rem 1rem 0;
+.pos-customer-filter-card .sci-pos-card__bar {
+  align-items: center;
+  background: var(--sci-charcoal);
+  border-bottom: 3px solid var(--sci-orange);
+  gap: 0.75rem;
+  padding: 0.7rem 0.85rem;
 }
-.pos-customer-filter-primary label {
-  color: var(--sci-text-strong);
+.pos-customer-filter-primary {
+  padding: 0.65rem 0.85rem 0.45rem;
+}
+.pos-customer-search-field {
+  color: var(--sci-orange);
   display: grid;
   font-size: var(--font-xs);
-  font-weight: 700;
+  font-weight: 500;
   gap: 0.3rem;
   text-transform: uppercase;
 }
-.pos-customer-filter-primary input,
+.pos-customer-search-field .pos-search-bubble {
+  text-transform: none;
+}
+.pos-customer-filter-grid {
+  display: none;
+  gap: 0.55rem;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  padding: 0.45rem 0.85rem 0.85rem;
+}
+.pos-customer-filter-grid label {
+  color: var(--sci-orange);
+  display: grid;
+  font-size: var(--font-xs);
+  font-weight: 500;
+  gap: 0.25rem;
+  text-transform: uppercase;
+}
+.pos-customer-filter-grid input,
+.pos-customer-filter-grid select,
 .pos-new-customer-grid input,
 .pos-new-customer-grid select,
 .pos-new-customer-grid textarea,
@@ -5870,15 +6071,36 @@ div[class*="border-t border-r border-amber"] {
   min-height: 2.5rem;
   padding: 0.55rem 0.7rem;
 }
-.pos-customer-filter-grid {
-  display: none;
-}
 .pos-customer-filter-grid--open {
   display: grid;
 }
+@media (max-width: 980px) {
+  .pos-customer-filter-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+@media (max-width: 620px) {
+  .pos-customer-filter-card .sci-pos-card__bar {
+    align-items: stretch;
+    flex-direction: column;
+  }
+  .pos-customer-filter-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .pos-action-button,
+  .pos-customer-centre .sci-pos-button {
+    width: 100%;
+    white-space: normal;
+  }
+}
 .pos-customer-tabs {
-  overflow-x: auto;
-  padding-bottom: 0.15rem;
+  background: transparent;
+  border: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  overflow-x: visible;
+  padding: 0;
 }
 .pos-customer-list-card {
   display: flex;
@@ -5890,9 +6112,10 @@ div[class*="border-t border-r border-amber"] {
 .pos-customer-list-scroll {
   flex: 1 1 auto;
   min-height: 0;
-  overflow-x: auto;
-  overflow-y: auto;
+  overflow: auto;
   overscroll-behavior: contain;
+  padding-bottom: 0.4rem;
+  position: relative;
 }
 .pos-customer-table,
 .customer-list-table {
@@ -6003,6 +6226,10 @@ div[class*="border-t border-r border-amber"] {
   position: relative;
   text-align: right;
   width: 3rem;
+}
+.pos-customer-row-actions .row-action-panel,
+.pos-customer-row-actions .row-action-panel--portal {
+  z-index: 95;
 }
 .pos-customer-empty,
 .pos-customer-empty-cell {
@@ -7101,8 +7328,675 @@ div[class*="border-t border-r border-amber"] {
   grid-column: 1 / -1;
 }
 
+.pos-selected-sale-cta-card {
+  align-items: center;
+  background: #fff;
+  border: 1px solid #f4b26a;
+  border-left: 5px solid #f97316;
+  border-radius: 2mm;
+  box-shadow: 0 8px 20px rgba(30, 34, 43, 0.08);
+  display: grid;
+  gap: 10px;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  padding: 10px 12px;
+}
+
+.pos-selected-sale-cta-card__icon {
+  align-items: center;
+  background: #fff7ed;
+  border: 1px solid #fed7aa;
+  border-radius: 2mm;
+  color: #c2410c;
+  display: inline-flex;
+  height: 36px;
+  justify-content: center;
+  width: 36px;
+}
+
+.pos-selected-sale-cta-card__body {
+  min-width: 0;
+}
+
+.pos-selected-sale-cta-card__body span,
+.pos-selected-sale-cta-card__body small {
+  color: #6b7280;
+  display: block;
+  font-size: 11px;
+  font-weight: 850;
+}
+
+.pos-selected-sale-cta-card__body strong {
+  color: #1e222b;
+  display: block;
+  font-size: 16px;
+  font-weight: 950;
+  overflow-wrap: anywhere;
+}
+
+.pos-selected-sale-cta-card__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.pos-customer-replace-modal {
+  background: #fff;
+  border: 2px solid #1e222b;
+  border-radius: 2mm;
+  box-shadow: 0 18px 60px rgba(15, 23, 42, 0.35);
+  max-width: 560px;
+  padding: 16px;
+  width: min(94vw, 560px);
+}
+
+.pos-debtors-control-desk,
+.pos-statement-panel {
+  display: grid;
+  gap: 14px;
+}
+
+.pos-debtors-summary-card {
+  border-left: 4px solid #f97316 !important;
+}
+
+.pos-debt-ledger-modal {
+  background: #f8fafc;
+  border: 2px solid #1e222b;
+  border-radius: 2mm;
+  box-shadow: 0 18px 60px rgba(15, 23, 42, 0.35);
+  max-height: 90vh;
+  max-width: 1040px;
+  overflow: auto;
+  padding: 16px;
+  width: min(96vw, 1040px);
+}
+
+.customer-statement-document {
+  background: #fff;
+  border: 1px solid #d7dae2;
+  color: #111827;
+  display: grid;
+  gap: 14px;
+  margin-top: 14px;
+  padding: 18px;
+}
+
+.customer-statement-document__header,
+.customer-statement-document__grid,
+.customer-statement-document__footer div {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: minmax(0, 1fr) minmax(220px, auto);
+}
+
+.customer-statement-document h1 {
+  color: #111827;
+  font-size: 22px;
+  font-weight: 950;
+  margin: 0;
+}
+
+.customer-statement-document p,
+.customer-statement-document span {
+  color: #1f2937;
+  font-size: 12px;
+  margin: 0;
+}
+
+.customer-statement-document strong {
+  color: #111827;
+  display: block;
+  font-size: 12px;
+  font-weight: 950;
+  text-transform: uppercase;
+}
+
+.customer-statement-document__table {
+  border-collapse: collapse;
+  font-size: 11px;
+  width: 100%;
+}
+
+.customer-statement-document__table th,
+.customer-statement-document__table td {
+  border: 1px solid #d1d5db;
+  padding: 6px;
+  text-align: left;
+  vertical-align: top;
+}
+
+.customer-statement-document__table th {
+  background: #f3f4f6;
+  color: #111827;
+  font-weight: 950;
+}
+
+.customer-statement-document__footer {
+  border-top: 1px solid #111827;
+  padding-top: 12px;
+}
+
+/* 19AL-3 global card typography, spacing and alignment normalization. */
+.terminal-overlay :where(
+  .sci-pos-card,
+  .sales-terminal-card,
+  .pos-product-search-card,
+  .pos-cart-card,
+  .sales-cart-session-card,
+  .sales-cart-mini-card,
+  .sales-cart-items-card,
+  .sales-cart-summary-card,
+  .floating-cart-card,
+  .sales-profit-card,
+  .checkout-payment-summary,
+  .pos-summary-box,
+  .pos-placeholder-card,
+  .pos-control-summary-grid > div,
+  .shift-status-card,
+  .shift-history-card,
+  .shift-eod-report-card,
+  .shift-start-step-card,
+  .shift-check-grid span,
+  .shift-eod-preview-grid > div,
+  .shift-history-detail-grid > div,
+  .bi-metric-card,
+  .bi-overview-panel,
+  .bi-text-panel,
+  .bi-ruleset-summary > div,
+  .bi-risk-output-grid > article,
+  .bi-ruleset-rules article,
+  .bi-trigger-card,
+  .bi-advice-flow-panel,
+  .bi-advice-flow-intro,
+  .bi-advice-summary-grid > div,
+  .bi-advice-table-card,
+  .bi-advice-narrative,
+  .bi-advice-action-list article,
+  .bi-management-domain-card,
+  .bi-management-action-grid article,
+  .bi-management-subpanel,
+  .bi-management-table-card,
+  .bi-management-ledger div,
+  .bi-activity-list > div,
+  .pos-approval-summary-grid > div,
+  .pos-customer-summary-grid > div,
+  .pos-customer-filter-card,
+  .pos-customer-list-card,
+  .pos-customer-profile-grid > div,
+  .pos-customer-note-form,
+  .pos-new-customer-modal,
+  .pos-selected-sale-cta-card,
+  .pos-customer-replace-modal,
+  .pos-statement-panel,
+  .pos-debtors-summary-card,
+  .customer-statement-document,
+  .industrial-section,
+  .industrial-card,
+  .industrial-metric-card,
+  .inventory-product-table-wrap,
+  .inventory-reports-centre,
+  .inventory-report-selector section,
+  .inventory-report-preview,
+  .inventory-report-activity,
+  .inventory-matches-card,
+  .product-master-card,
+  .sales-history-filter-card,
+  .sales-history-card,
+  [class*='-card'],
+  [class*='-panel'],
+  [class*='-summary'],
+  [class*='-metric'],
+  [class*='-tile'],
+  [class*='-stat']
+) {
+  box-sizing: border-box;
+  max-width: 100%;
+  min-width: 0;
+  padding: max(var(--card-inner-pad), 8px);
+}
+
+.terminal-overlay :where(
+  .sci-pos-card,
+  .sales-terminal-card,
+  .pos-product-search-card,
+  .pos-cart-card,
+  .sales-cart-session-card,
+  .sales-cart-mini-card,
+  .sales-cart-items-card,
+  .sales-cart-summary-card,
+  .floating-cart-card,
+  .sales-profit-card,
+  .pos-summary-box,
+  .shift-status-card,
+  .shift-history-card,
+  .shift-eod-report-card,
+  .bi-metric-card,
+  .bi-overview-panel,
+  .bi-text-panel,
+  .bi-trigger-card,
+  .bi-advice-flow-panel,
+  .bi-advice-table-card,
+  .bi-management-domain-card,
+  .bi-management-subpanel,
+  .bi-management-table-card,
+  .pos-customer-filter-card,
+  .pos-customer-list-card,
+  .industrial-section,
+  .industrial-card,
+  .industrial-metric-card,
+  .inventory-product-table-wrap,
+  .product-master-card,
+  .sales-history-card,
+  .sales-history-filter-card,
+  [class*='-card'],
+  [class*='-panel']
+) {
+  border-radius: var(--radius-card);
+}
+
+.terminal-overlay :where(
+  .sci-pos-card,
+  .sales-terminal-card,
+  .pos-cart-card,
+  .sales-cart-session-card,
+  .sales-cart-mini-card,
+  .sales-cart-items-card,
+  .sales-cart-summary-card,
+  .floating-cart-card,
+  .sales-profit-card,
+  .pos-summary-box,
+  .shift-status-card,
+  .bi-metric-card,
+  .bi-management-domain-card,
+  .industrial-card,
+  .industrial-metric-card,
+  .pos-customer-summary-grid > div,
+  .pos-customer-profile-grid > div,
+  .pos-credit-summary-grid > div,
+  .pos-credit-profile-grid > div,
+  .pos-record-debt-grid > div,
+  .sales-credit-decision > div,
+  [class*='-card'],
+  [class*='-panel']
+) > :where(*),
+.terminal-overlay :where(
+  .sci-pos-card,
+  .sales-terminal-card,
+  .pos-cart-card,
+  .sales-cart-session-card,
+  .sales-cart-mini-card,
+  .sales-cart-items-card,
+  .sales-cart-summary-card,
+  .floating-cart-card,
+  .sales-profit-card,
+  .pos-summary-box,
+  .shift-status-card,
+  .bi-metric-card,
+  .industrial-card,
+  .industrial-metric-card,
+  [class*='-card'],
+  [class*='-panel']
+) :where(p, span, small, strong, h1, h2, h3, h4, h5, h6, label, li, td, th, input, select, textarea, button) {
+  box-sizing: border-box;
+  max-width: 100%;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.terminal-overlay :where(
+  .sci-pos-eyebrow,
+  .sales-label,
+  .sales-cart-session-label,
+  .sales-cart-total-label,
+  .sales-cart-make-sale-label,
+  .pos-form-hint,
+  .pos-section-heading,
+  .pos-customer-summary-grid span,
+  .pos-customer-profile-grid span,
+  .pos-customer-filter-grid label,
+  .pos-customer-filter-primary label,
+  .pos-new-customer-grid label,
+  .pos-credit-summary-grid span,
+  .pos-credit-profile-grid span,
+  .pos-record-debt-grid span,
+  .sales-credit-decision span,
+  .pos-credit-config-grid label,
+  .pos-record-debt-form label,
+  .pos-control-summary-grid span,
+  .pos-control-summary-grid small,
+  .shift-status-card span,
+  .shift-status-card small,
+  .shift-modal-grid label,
+  .shift-checkbox-stack label,
+  .shift-eod-preview-grid span,
+  .shift-history-detail-grid span,
+  .bi-metric-card span,
+  .bi-metric-card small,
+  .bi-section-header span,
+  .bi-ruleset-summary span,
+  .bi-risk-output-grid span,
+  .bi-risk-output-grid small,
+  .bi-advice-summary-grid span,
+  .bi-advice-summary-grid small,
+  .bi-advice-filterbar label,
+  .bi-management-domain-card small,
+  .bi-management-action-grid article span,
+  .bi-management-action-grid article small,
+  .bi-management-ledger span,
+  .bi-activity-list span,
+  .industrial-section-subtitle,
+  .industrial-metric-card span,
+  .inventory-report-selector-grid span,
+  .inventory-report-filter-body label,
+  .inventory-report-preview-header span,
+  .inventory-report-summary-row span,
+  .sales-history-filter-card label,
+  .sales-history-card-header span,
+  .customer-statement-document strong,
+  [class*='label'],
+  [class*='eyebrow']
+) {
+  color: var(--card-label-color) !important;
+  font-weight: var(--card-label-weight) !important;
+  letter-spacing: 0.02em;
+  line-height: var(--card-label-line-height);
+}
+
+.terminal-overlay :where(
+  .inventory-product-table th,
+  .inventory-report-table-scroll th,
+  .inventory-report-print-table th,
+  .bi-trigger-table th,
+  .bi-advice-table th,
+  .shift-eod-report-table th,
+  .pos-customer-table th,
+  .customer-list-table th,
+  .pos-credit-debt-table th,
+  .customer-statement-document__table th,
+  .sales-history-table th,
+  table th
+) {
+  color: var(--card-label-color) !important;
+  font-weight: 500 !important;
+  letter-spacing: 0.02em;
+  line-height: var(--card-label-line-height);
+  padding: max(var(--card-inner-pad), 8px);
+  vertical-align: top;
+}
+
+.terminal-overlay :where(
+  .inventory-product-table td,
+  .inventory-report-table-scroll td,
+  .inventory-report-print-table td,
+  .bi-trigger-table td,
+  .bi-advice-table td,
+  .shift-eod-report-table td,
+  .pos-customer-table td,
+  .customer-list-table td,
+  .pos-credit-debt-table td,
+  .customer-statement-document__table td,
+  .sales-history-table td,
+  table td
+) {
+  box-sizing: border-box;
+  line-height: 1.25;
+  max-width: 100%;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  padding: max(var(--card-inner-pad), 8px);
+  vertical-align: top;
+}
+
+.terminal-overlay :where(
+  .pos-customer-summary-grid strong,
+  .pos-customer-profile-grid strong,
+  .pos-credit-summary-grid strong,
+  .pos-credit-profile-grid strong,
+  .pos-record-debt-grid strong,
+  .sales-credit-decision strong,
+  .shift-status-card strong,
+  .bi-metric-card strong,
+  .bi-ruleset-summary strong,
+  .bi-risk-output-grid strong,
+  .bi-advice-summary-grid strong,
+  .bi-management-domain-card strong,
+  .industrial-metric-card strong,
+  .sales-cart-total-value,
+  .sales-cart-footer-totals strong,
+  .sales-cart-compact-summary strong
+) {
+  line-height: 1.18;
+  max-width: 100%;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.terminal-overlay :where(
+  .sci-pos-card__bar,
+  .pos-frame-header,
+  .sales-cart-floating-header,
+  .sales-cart-mini-card__header,
+  .sales-drawer-header,
+  .shift-control-modal__header,
+  .bi-section-header,
+  .inventory-reports-header,
+  .sales-history-card-header,
+  .pos-new-customer-modal__header
+) {
+  box-sizing: border-box;
+  gap: var(--card-content-gap);
+  padding: max(var(--card-inner-pad), 8px);
+}
+
+.terminal-overlay :where(
+  .pos-form-grid label,
+  .pos-search-controls label,
+  .sales-drawer-section label,
+  .sales-profit-filters label,
+  .shift-modal-grid label,
+  .inventory-report-filter-body label,
+  .sales-history-return-form label,
+  .pos-customer-filter-grid label,
+  .pos-new-customer-grid label
+) {
+  align-content: start;
+  gap: 6px;
+  line-height: var(--card-label-line-height);
+  min-width: 0;
+}
+
+.cash-control-page {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+}
+
+.cash-control-tabs {
+  background: var(--sci-panel);
+  border: 1px solid var(--sci-border);
+  border-radius: var(--radius-card);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 8px;
+}
+
+.cash-control-tabs button {
+  background: var(--sci-panel-soft);
+  border: 1px solid var(--sci-border);
+  border-radius: var(--radius-control);
+  color: var(--sci-text);
+  cursor: pointer;
+  font-size: var(--font-xs);
+  font-weight: 500;
+  min-height: 32px;
+  padding: 7px 9px;
+  text-transform: uppercase;
+}
+
+.cash-control-tabs button.active {
+  background: var(--sci-charcoal-dark);
+  border-color: var(--sci-charcoal-dark);
+  color: #fff;
+}
+
+.cash-control-grid,
+.cash-recon-grid {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  min-width: 0;
+}
+
+.cash-control-card,
+.cash-recon-grid > div,
+.cash-recon-grid label {
+  background: var(--sci-panel);
+  border: 1px solid var(--sci-border);
+  border-left: 4px solid var(--sci-orange);
+  border-radius: var(--radius-card);
+  box-sizing: border-box;
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  padding: 8px;
+}
+
+.cash-control-card span,
+.cash-recon-grid span,
+.cash-recon-grid label,
+.cash-inline-form label {
+  color: var(--card-label-color);
+  font-size: var(--font-xs);
+  font-weight: var(--card-label-weight);
+  letter-spacing: 0.02em;
+  line-height: var(--card-label-line-height);
+  text-transform: uppercase;
+}
+
+.cash-control-card strong,
+.cash-recon-grid strong {
+  color: var(--sci-text-strong);
+  font-size: var(--font-lg);
+  line-height: 1.15;
+  overflow-wrap: anywhere;
+}
+
+.cash-control-panel {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+}
+
+.cash-control-table-scroll {
+  max-height: min(56vh, 520px);
+  min-width: 0;
+  overflow: auto;
+}
+
+.cash-control-table {
+  border-collapse: collapse;
+  font-size: var(--font-xs);
+  min-width: 920px;
+  width: 100%;
+}
+
+.cash-control-table th,
+.cash-control-table td {
+  border-bottom: 1px solid var(--sci-border);
+  line-height: 1.25;
+  padding: 8px;
+  text-align: left;
+  vertical-align: top;
+}
+
+.cash-control-table th {
+  color: var(--card-label-color);
+  font-weight: 500;
+  text-transform: uppercase;
+}
+
+.cash-control-table td {
+  color: var(--sci-text);
+  overflow-wrap: anywhere;
+}
+
+.cash-inline-form {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  align-items: end;
+}
+
+.cash-inline-form label,
+.cash-recon-grid label {
+  display: grid;
+}
+
+.cash-inline-form input,
+.cash-recon-grid input,
+.cash-recon-grid textarea {
+  background: #fff;
+  border: 1px solid var(--sci-border-strong);
+  border-radius: var(--radius-control);
+  color: var(--sci-text-strong);
+  font-size: var(--font-sm);
+  margin-top: 6px;
+  min-height: 34px;
+  padding: 8px;
+}
+
+.cash-control-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+@media print {
+  body * {
+    visibility: hidden !important;
+  }
+
+  #customer-statement-print-area,
+  #customer-statement-print-area * {
+    visibility: visible !important;
+  }
+
+  #customer-statement-print-area {
+    border: 0;
+    left: 0;
+    margin: 0;
+    padding: 0;
+    position: absolute;
+    top: 0;
+    width: 100%;
+  }
+}
+
 @media (max-width: 760px) {
   .pos-credit-two-column {
+    grid-template-columns: 1fr;
+  }
+
+  .pos-selected-sale-cta-card {
+    align-items: start;
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .pos-selected-sale-cta-card__actions {
+    grid-column: 1 / -1;
+    justify-content: stretch;
+  }
+
+  .pos-selected-sale-cta-card__actions .sci-pos-button {
+    flex: 1 1 180px;
+  }
+
+  .customer-statement-document__header,
+  .customer-statement-document__grid,
+  .customer-statement-document__footer div {
     grid-template-columns: 1fr;
   }
 }

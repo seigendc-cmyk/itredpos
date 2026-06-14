@@ -43,7 +43,7 @@ import {
   hasRecoverableShiftState,
   recoverShiftState
 } from '../services/shiftRecoveryService';
-import { createCustomerRequest, getCustomers, recordCustomerSelectedForSale } from '../services/customerService';
+import { createCustomerRequest, getCustomers, recordCustomerSaleBridgeEvent, recordCustomerSelectedForSale } from '../services/customerService';
 import { enqueueOfflineAction, getNetworkStatus } from '../services/offlineSyncService';
 import { getProductTotalAvailableStock } from '../services/stockBalanceService';
 import {
@@ -91,7 +91,29 @@ type SalesWorkspaceDrawer = 'recentReceipts' | 'heldSales' | 'activityFeed' | nu
 const DEFAULT_PRODUCTS = mockProducts;
 const VENDOR_ID = 'SCI-LOG-ZW';
 const SHIFT_START_INTENT_KEY = 'itred_pos_open_shift_start_wizard_v1';
+const SELECTED_CUSTOMER_FOR_SALE_KEY = 'itred-pos-selected-customer-for-sale';
+const SELECTED_CUSTOMER_FOR_SALE_SESSION_KEY = 'itred_pos_selected_customer_for_sale_v1';
 const paymentReferenceRequired = new Set<SalesPaymentMethod>(['EcoCash', 'Innbucks', 'Mukuru', 'ZIPIT', 'Bank Transfer', 'Card']);
+
+interface SelectedCustomerForSaleBridge {
+  customerId: string;
+  customerCode: string;
+  customerName: string;
+  customerType?: string;
+  phone?: string;
+  whatsapp?: string;
+  email?: string;
+  cityTown?: string;
+  district?: string;
+  suburb?: string;
+  address?: string;
+  taxNumber?: string;
+  creditStatus?: CustomerRecord['creditStatus'];
+  creditLimit?: number;
+  selectedAt: string;
+  selectedByStaffId?: string;
+  source?: 'Customer Centre';
+}
 
 function money(value: number): string {
   return `USD ${value.toFixed(2)}`;
@@ -129,6 +151,7 @@ function receiptPaymentMode(method: SalesPaymentMethod): PaymentMode {
 function salePaymentMethod(method: SalesPaymentMethod): Sale['paymentMethod'] {
   if (method === 'Cash') return 'CASH';
   if (method === 'Mixed Payment') return 'SPLIT';
+  if (method === 'Credit / Account') return 'Credit Sale';
   return 'CARD';
 }
 
@@ -139,6 +162,28 @@ function cartLineTotal(item: CartItem): number {
 
 function makeId(prefix: string): string {
   return `${prefix}-${Date.now()}-${Math.floor(1000 + Math.random() * 9000)}`;
+}
+
+function readSelectedCustomerForSaleBridge(): SelectedCustomerForSaleBridge | null {
+  try {
+    const raw = localStorage.getItem(SELECTED_CUSTOMER_FOR_SALE_KEY) || sessionStorage.getItem(SELECTED_CUSTOMER_FOR_SALE_SESSION_KEY);
+    return raw ? JSON.parse(raw) as SelectedCustomerForSaleBridge : null;
+  } catch {
+    return null;
+  }
+}
+
+function clearSelectedCustomerForSaleBridge(): void {
+  try {
+    localStorage.removeItem(SELECTED_CUSTOMER_FOR_SALE_KEY);
+  } catch {
+    // Local bridge is best-effort.
+  }
+  try {
+    sessionStorage.removeItem(SELECTED_CUSTOMER_FOR_SALE_SESSION_KEY);
+  } catch {
+    // Session bridge is best-effort.
+  }
 }
 
 export default function PosSales({
@@ -207,6 +252,8 @@ export default function PosSales({
   const [salesRecoveryDetailsOpen, setSalesRecoveryDetailsOpen] = useState(false);
   const [activitySearch, setActivitySearch] = useState('');
   const [creditDecision, setCreditDecision] = useState<CreditDecision | null>(null);
+  const [pendingBridgeCustomer, setPendingBridgeCustomer] = useState<SelectedCustomerForSaleBridge | null>(null);
+  const [bridgeCustomerChecked, setBridgeCustomerChecked] = useState(false);
 
   useEffect(() => {
     const baseProducts = products.length > 0 ? products : DEFAULT_PRODUCTS;
@@ -528,6 +575,40 @@ export default function PosSales({
     logEvent('CUSTOMER_SELECTED_FOR_SALE', `${customer.customerName} selected for sale.`);
   };
 
+  const applyBridgeCustomerToSale = async (bridgeCustomer: SelectedCustomerForSaleBridge) => {
+    const customer = activeCustomers.find((item) => item.customerId === bridgeCustomer.customerId);
+    setCustomerMode('Existing Customer');
+    setSelectedCustomerId(bridgeCustomer.customerId);
+    setCustomerName(customer?.customerName || bridgeCustomer.customerName);
+    setCustomerPhone(customer?.phone || bridgeCustomer.phone || '');
+    setCustomerWhatsApp(customer?.whatsapp || bridgeCustomer.whatsapp || bridgeCustomer.phone || '');
+    setCustomerAddress(customer?.deliveryAddress || customer?.billingAddress || bridgeCustomer.address || '');
+    setCustomerTaxNumber(customer?.taxNumber || bridgeCustomer.taxNumber || '');
+    const creditStatus = customer?.creditStatus || bridgeCustomer.creditStatus;
+    const balance = customer?.currentBalance;
+    setCustomerNotes(`${creditStatus || 'Customer loaded'}${balance ? ` - Balance ${money(balance)}` : bridgeCustomer.creditLimit ? ` - Limit ${money(bridgeCustomer.creditLimit)}` : ''}`);
+    clearSelectedCustomerForSaleBridge();
+    setPendingBridgeCustomer(null);
+    setStatusMessage('Customer loaded for sale.');
+    logEvent('CUSTOMER_LOADED_FROM_CUSTOMER_CENTRE', `${bridgeCustomer.customerName} loaded from Customer Centre.`);
+    await recordCustomerSaleBridgeEvent(bridgeCustomer.customerId, staffName, 'CUSTOMER_LOADED_FROM_CUSTOMER_CENTRE', 'Customer loaded into Sales Terminal cart from Customer Centre selection.');
+  };
+
+  useEffect(() => {
+    if (bridgeCustomerChecked || activeCustomers.length === 0) return;
+    const bridgeCustomer = readSelectedCustomerForSaleBridge();
+    setBridgeCustomerChecked(true);
+    if (!bridgeCustomer) return;
+    const currentHasDifferentCustomer = customerMode !== 'Walk-in Customer' && selectedCustomerId && selectedCustomerId !== bridgeCustomer.customerId;
+    if (currentHasDifferentCustomer) {
+      setPendingBridgeCustomer(bridgeCustomer);
+      setStatusMessage('A customer from Customer Centre is ready for this sale.');
+      return;
+    }
+    void applyBridgeCustomerToSale(bridgeCustomer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeCustomers.length, bridgeCustomerChecked]);
+
   const handleSaveCustomerRequest = async () => {
     if (!canPerformAction(roleName, 'customers.createRequest')) {
       setStatusMessage('You do not have permission to perform this action.');
@@ -793,12 +874,16 @@ export default function PosSales({
   };
 
   const handleApplyAccountPayment = () => {
-    if (!canPerformAction(roleName, 'sales.creditSale') && !canPerformAction(roleName, 'sales.accountSale') && !canPerformAction(roleName, 'customers.credit.view') && !canPerformAction(roleName, 'customers.creditView')) {
-      setStatusMessage('You do not have permission to apply account sale payment.');
+    if (!canPerformAction(roleName, 'sales.creditSale')) {
+      setStatusMessage('You do not have permission to sell on credit.');
       return;
     }
     if (customerMode === 'Walk-in Customer') {
-      setStatusMessage('Select a customer before applying account payment.');
+      setStatusMessage('Select a registered customer before selling on credit.');
+      return;
+    }
+    if (!selectedCustomerId) {
+      setStatusMessage('Select a customer before choosing Credit / Account.');
       return;
     }
     setPaymentMethod('Credit / Account');
@@ -830,6 +915,7 @@ export default function PosSales({
           customerName,
           requestedBy: staffName,
           requestedByRole: roleName,
+          approvalType: creditDecision.reasonList.some((reason) => reason.toLowerCase().includes('overdue')) ? 'OVERDUE_CUSTOMER_OVERRIDE' : 'CREDIT_SALE_OVERRIDE',
           branchId: branchIdFromName(branchName),
           branch: branchName,
           relatedRecord: selectedCustomerId || customerName,
@@ -907,7 +993,8 @@ export default function PosSales({
     if (insufficientLine) return `Insufficient stock for ${productName(insufficientLine.product)}.`;
     if (creditSaleRequested) {
       if (!canPerformAction(roleName, 'sales.creditSale')) return 'You do not have permission to sell on credit.';
-      if (customerMode === 'Walk-in Customer' || !selectedCustomerId) return 'Walk-in customer cannot buy on credit.';
+      if (customerMode === 'Walk-in Customer') return 'Select a registered customer before selling on credit.';
+      if (!selectedCustomerId) return 'Select a customer before choosing Credit / Account.';
       if (!creditDecision) return 'Credit decision is still loading. Try again in a moment.';
       if (creditDecision.decision === 'Blocked') return `Credit sale blocked. ${creditDecision.reasonList.join(' ')}`;
       if (creditDecision.decision === 'Requires Approval' && !canPerformAction(roleName, 'sales.creditSale.override')) return `Credit sale requires approval. ${creditDecision.reasonList.join(' ')}`;
@@ -1126,6 +1213,7 @@ export default function PosSales({
             customerName,
             requestedBy: staffName,
             requestedByRole: roleName,
+            approvalType: creditDecision.reasonList.some((reason) => reason.toLowerCase().includes('overdue')) ? 'OVERDUE_CUSTOMER_OVERRIDE' : 'CREDIT_SALE_OVERRIDE',
             branchId: branchIdFromName(branchName),
             branch: branchName,
             relatedRecord: receipt.receiptNumber,
@@ -1136,7 +1224,7 @@ export default function PosSales({
           });
         }
         if (creditDecision.profile.overdueBalance > 0) {
-          await createCustomerCreditBIAdvice('OVERDUE_CUSTOMER_WARNING', customerName, `${customerName} has overdue balance before new credit sale.`, 'High');
+          await createCustomerCreditBIAdvice('OVERDUE_CUSTOMER_TRYING_TO_BUY', customerName, `${customerName} has overdue balance before new credit sale.`, 'High');
         }
       }
       const network = await getNetworkStatus();
@@ -1770,7 +1858,7 @@ export default function PosSales({
           canApplyDiscount={canPerformAction(roleName, 'sales.discount')}
           canRedeemCredit={canPerformAction(roleName, 'sales.creditRedeem') || canPerformAction(roleName, 'customers.creditView')}
           canUseLoyalty={canPerformAction(roleName, 'sales.loyalty')}
-          canUseAccountSale={canPerformAction(roleName, 'sales.creditSale') || canPerformAction(roleName, 'sales.accountSale') || canPerformAction(roleName, 'customers.credit.view') || canPerformAction(roleName, 'customers.creditView')}
+          canUseAccountSale={canPerformAction(roleName, 'sales.creditSale')}
           canVoidCart={canPerformAction(roleName, 'sales.void')}
           canReprintReceipt={canPerformAction(roleName, 'sales.reprintReceipt')}
           canHoldSale={canPerformAction(roleName, 'sales.hold')}
@@ -1946,6 +2034,31 @@ export default function PosSales({
         }}
         onActivity={logEvent}
       />
+      {pendingBridgeCustomer && (
+        <div className="pos-modal-backdrop" role="presentation">
+          <section className="pos-customer-replace-modal" role="dialog" aria-modal="true" aria-labelledby="replace-cart-customer-title">
+            <div className="pos-new-customer-modal__header">
+              <div>
+                <p className="sci-pos-eyebrow">Customer Centre</p>
+                <h2 id="replace-cart-customer-title">Replace current cart customer?</h2>
+              </div>
+              <button type="button" className="sci-pos-icon-button" aria-label="Close replace customer modal" onClick={() => setPendingBridgeCustomer(null)}><X size={18} /></button>
+            </div>
+            <p className="pos-credit-empty-text">
+              {pendingBridgeCustomer.customerName} was selected in Customer Centre. The current sale already has {customerName || 'another customer'}.
+            </p>
+            <div className="pos-new-customer-modal__actions">
+              <button type="button" className="sci-pos-button sci-pos-button--primary" onClick={() => void applyBridgeCustomerToSale(pendingBridgeCustomer)}>Replace Customer</button>
+              <button type="button" className="sci-pos-button sci-pos-button--secondary" onClick={() => {
+                clearSelectedCustomerForSaleBridge();
+                setPendingBridgeCustomer(null);
+                setStatusMessage('Kept current cart customer.');
+              }}>Keep Current Customer</button>
+              <button type="button" className="sci-pos-button sci-pos-button--secondary" onClick={() => setPendingBridgeCustomer(null)}>Cancel</button>
+            </div>
+          </section>
+        </div>
+      )}
       <SalesProfitSnapshotCard
         open={profitSnapshotOpen}
         allowed={canViewProfitSnapshot}

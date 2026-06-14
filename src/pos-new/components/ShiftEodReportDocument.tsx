@@ -137,6 +137,25 @@ export default function ShiftEodReportDocument({ payload }: ShiftEodReportDocume
     { label: 'Notes', value: payload.cashVariance.notes }
   ];
 
+  const cashControlSummary: ReportRow[] = [
+    { label: 'Opening Float', value: money(payload.cashControl.openingFloat) },
+    { label: 'Cash Sales Received', value: money(payload.cashControl.cashSales) },
+    { label: 'Customer Debt Payments - Cash', value: money(payload.cashControl.cashDebtorPayments) },
+    { label: 'Delivery Cash Handovers', value: money(payload.cashControl.deliveryCashHandovers) },
+    { label: 'Cash Refunds', value: money(payload.cashControl.cashRefunds) },
+    { label: 'Drawer Expenses', value: money(payload.cashControl.drawerExpenses) },
+    { label: 'Petty Cash Payouts', value: money(payload.cashControl.pettyCashPayouts) },
+    { label: 'Cash Drops / Safe Drops', value: money(payload.cashControl.cashDrops) },
+    { label: 'Expected Physical Drawer Cash', value: money(payload.cashControl.expectedCash) },
+    { label: 'Counted Physical Cash', value: money(payload.cashControl.countedCash) },
+    { label: 'Cash Variance', value: money(payload.cashControl.variance) },
+    { label: 'Variance Type', value: payload.cashControl.varianceType },
+    { label: 'Pending Review Items', value: numberValue(payload.cashControl.pendingReview) },
+    { label: 'High Risk Cash Alerts', value: numberValue(payload.cashControl.highRiskAlerts) },
+    { label: 'Debtor Non-Cash Payments', value: money(payload.cashControl.debtorNonCashPayments) },
+    { label: 'Delivery Cash Pending', value: money(payload.cashControl.deliveryCashPending) }
+  ];
+
   const activitySummary: ReportRow[] = [
     { label: 'Sales Completed', value: numberValue(payload.activity.salesCompleted) },
     { label: 'Held Sales', value: numberValue(payload.activity.heldSales) },
@@ -179,17 +198,18 @@ export default function ShiftEodReportDocument({ payload }: ShiftEodReportDocume
         <ReportTable title="4. Payment Summary" rows={paymentSummary} />
         <ReportTable title="5. Cash Drawer Reconciliation" rows={drawerSummary} />
         <ReportTable title="6. Cash Variance Summary" rows={cashVarianceSummary} />
-        <ReportTable title="7. Shift Activity Summary" rows={activitySummary} />
+        <ReportTable title="7. Cash Control Settlement" rows={cashControlSummary} />
+        <ReportTable title="8. Shift Activity Summary" rows={activitySummary} />
 
         <section className="shift-eod-report-section">
-          <h2>8. Exceptions / Warnings</h2>
+          <h2>9. Exceptions / Warnings</h2>
           <ul className="shift-eod-exception-list">
             {payload.exceptions.map((exception) => <li key={exception}>{exception}</li>)}
           </ul>
         </section>
 
         <section className="shift-eod-report-section shift-eod-signatures">
-          <h2>9. Prepared By / Reviewed By / Approved By</h2>
+          <h2>10. Prepared By / Reviewed By / Approved By</h2>
           <SignatureRow label="Prepared By" value={payload.signatures.preparedBy} />
           <SignatureRow label="Reviewed By" value={payload.signatures.reviewedBy} />
           <SignatureRow label="Approved By" value={payload.signatures.approvedBy} />

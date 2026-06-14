@@ -412,7 +412,6 @@ export default function SalesCartCard({
   }, [customerSearch, existingCustomers]);
   const selectedCustomer = existingCustomers.find((customer) => customer.customerId === selectedCustomerId);
   const itemCount = cart.reduce((sum, item) => sum + item.quantity, 0);
-  const lastCartItem = cart[cart.length - 1];
   const paymentStatus = totals.paymentReceived <= 0
     ? 'No payment captured'
     : totals.balanceDue > 0
@@ -733,24 +732,6 @@ export default function SalesCartCard({
       </div>
 
       <div className="sales-cart-body">
-        <section className="sales-cart-mini-card sales-cart-items-card">
-          <div className="sales-cart-mini-card__header">
-            <div>
-              <ShoppingCart size={17} aria-hidden="true" />
-              <h3>Cart Items</h3>
-            </div>
-            <span>{itemCount} item(s)</span>
-          </div>
-          <div className="sales-cart-items-summary">
-            <span>Items <strong>{itemCount}</strong></span>
-            <span>Subtotal <strong>{money(totals.subtotal)}</strong></span>
-            <span>Last Added <strong>{lastCartItem ? `${lastCartItem.product.productName || lastCartItem.product.name} x${lastCartItem.quantity}` : 'None'}</strong></span>
-            <button type="button" className="sci-pos-button sci-pos-button--secondary" onClick={() => { startSalesOperation('Cart Items'); setCartItemsOpen(true); }} disabled={cart.length === 0}>
-              View / Edit Cart Items
-            </button>
-          </div>
-        </section>
-
         <section className="sales-cart-mini-card">
           <div className="sales-cart-mini-card__header">
             <div>

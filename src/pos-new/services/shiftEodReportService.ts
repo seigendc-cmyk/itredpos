@@ -1,5 +1,7 @@
 import { getCashDrawerAssignments, getShiftSessionControl, getTerminalControlEvents } from './terminalControlService';
-import type { CashDrawerAssignment, CashLog, Shift, ShiftSessionControl, TerminalControlEvent, Transaction } from '../types';
+import { getCashControlSummary } from './cashControlService';
+import { getCustomerCreditActivityEvents, getCustomerDebtPayments, getCustomerDebtRecords } from './customerCreditService';
+import type { CashControlSummary, CashDrawerAssignment, CashLog, CustomerDebtPayment, CustomerDebtRecord, Shift, ShiftSessionControl, TerminalControlEvent, Transaction } from '../types';
 
 export interface ShiftEodContext {
   vendorId: string;
@@ -12,6 +14,8 @@ export interface ShiftEodContext {
   roleName?: string;
   shift?: ShiftSessionControl | Shift | null;
   transactions?: Transaction[];
+  creditDebts?: CustomerDebtRecord[];
+  debtPayments?: CustomerDebtPayment[];
   cashLogs?: CashLog[];
   drawerAssignment?: CashDrawerAssignment | null;
   countedCash?: number;
@@ -77,6 +81,19 @@ export interface ShiftPaymentSummary {
   alreadyPaid: number;
 }
 
+export interface ShiftCreditSummary {
+  cashSales: number;
+  creditSalesCreated: number;
+  customerDebtPaymentsReceived: number;
+  partialCreditPayments: number;
+  newDebtCreatedToday: number;
+  debtPaymentsByMethod: Array<{ method: string; amount: number }>;
+  overduePaymentsReceived: number;
+  creditSaleApprovals: number;
+  debtWriteOffRequests: number;
+  outstandingCreditGeneratedByCashier: Array<{ cashier: string; amount: number }>;
+}
+
 export interface ShiftDrawerSummary {
   drawerId: string;
   assignedAt: string;
@@ -116,6 +133,8 @@ export interface ShiftEodPrintPayload {
   cashVariance: ShiftCashVarianceSummary;
   sales: ShiftSalesSummary;
   payments: ShiftPaymentSummary;
+  credit: ShiftCreditSummary;
+  cashControl: CashControlSummary;
   drawer: ShiftDrawerSummary;
   activity: ShiftActivitySummary;
   exceptions: string[];
@@ -127,6 +146,45 @@ export interface ShiftEodPrintPayload {
     cashReceivedBy: string;
   };
   pdfInstruction: string;
+}
+
+export async function generateShiftCreditSummary(input: ShiftEodContext | string): Promise<ShiftCreditSummary> {
+  const context = await resolveContext(input);
+  const today = shiftOpenedAt(context.shift).slice(0, 10);
+  const [storedDebts, storedPayments, creditEvents] = await Promise.all([getCustomerDebtRecords(), Promise.resolve(getCustomerDebtPayments()), getCustomerCreditActivityEvents()]);
+  const debts = context.creditDebts || storedDebts;
+  const payments = context.debtPayments || storedPayments;
+  const currentShiftId = shiftIdFrom(context);
+  const scopeDebtsByShift = Boolean(currentShiftId && debts.some((debt) => debt.shiftId));
+  const scopePaymentsByShift = Boolean(currentShiftId && payments.some((payment) => payment.shiftId));
+  const todaysDebts = debts.filter((debt) =>
+    (debt.createdAt.slice(0, 10) === today || debt.saleDate.slice(0, 10) === today) &&
+    (!scopeDebtsByShift || debt.shiftId === currentShiftId)
+  );
+  const todaysPayments = payments.filter((payment) =>
+    payment.receivedAt.slice(0, 10) === today &&
+    (!scopePaymentsByShift || payment.shiftId === currentShiftId)
+  );
+  const debtPaymentsByMethod = Array.from(new Set(todaysPayments.map((payment) => payment.paymentMethod))).map((method) => ({
+    method,
+    amount: todaysPayments.filter((payment) => payment.paymentMethod === method).reduce((sum, payment) => sum + payment.amount, 0)
+  }));
+  const outstandingCreditGeneratedByCashier = Array.from(new Set(todaysDebts.map((debt) => debt.cashierStaffId))).map((cashier) => ({
+    cashier,
+    amount: todaysDebts.filter((debt) => debt.cashierStaffId === cashier).reduce((sum, debt) => sum + debt.outstandingAmount, 0)
+  }));
+  return {
+    cashSales: cashSales(context.transactions),
+    creditSalesCreated: todaysDebts.reduce((sum, debt) => sum + (debt.creditAmountCreated ?? debt.outstandingAmount), 0),
+    customerDebtPaymentsReceived: todaysPayments.reduce((sum, payment) => sum + payment.amount, 0),
+    partialCreditPayments: todaysPayments.length,
+    newDebtCreatedToday: todaysDebts.reduce((sum, debt) => sum + (debt.creditAmountCreated ?? debt.outstandingAmount), 0),
+    debtPaymentsByMethod,
+    overduePaymentsReceived: todaysPayments.filter((payment) => debts.find((debt) => debt.debtId === payment.debtId && debt.overdueDays > 0)).reduce((sum, payment) => sum + payment.amount, 0),
+    creditSaleApprovals: creditEvents.filter((event) => event.dateTime.slice(0, 10) === today && event.eventType.includes('APPROVAL')).length,
+    debtWriteOffRequests: creditEvents.filter((event) => event.dateTime.slice(0, 10) === today && event.eventType === 'WRITE_OFF_REQUESTED').length,
+    outstandingCreditGeneratedByCashier
+  };
 }
 
 const DEFAULT_VENDOR_ID = 'SCI-LOG-ZW';
@@ -178,7 +236,7 @@ function openingFloat(shift: ShiftSessionControl | Shift | null | undefined): nu
 function expectedCash(context: ShiftEodContext): number {
   if (context.shift && isModernShift(context.shift)) return context.shift.expectedCash;
   if (context.shift && 'expectedCash' in context.shift) return context.shift.expectedCash;
-  return openingFloat(context.shift) + cashSales(context.transactions || []) + cashLogTotal(context.cashLogs || []);
+  return openingFloat(context.shift) + cashSales(context.transactions || []) + cashDebtPayments(context.debtPayments || []) + cashLogTotal(context.cashLogs || []);
 }
 
 function countedCash(context: ShiftEodContext): number {
@@ -193,9 +251,14 @@ function completedTransactions(transactions: Transaction[] = []): Transaction[] 
 }
 
 function cashSales(transactions: Transaction[] = []): number {
-  return completedTransactions(transactions)
-    .filter((transaction) => transaction.paymentMethod === 'CASH' || transaction.paymentMethod === 'Cash')
-    .reduce((sum, transaction) => sum + transaction.total, 0);
+  return completedTransactions(transactions).reduce((sum, transaction) => {
+    const method = transaction.paymentMethod;
+    if (method === 'CASH' || method === 'Cash') return sum + transaction.total;
+    if (method === 'Credit Sale' || method === 'SPLIT' || method === 'Split Payment') {
+      return sum + Math.max(0, (transaction.cashReceived || 0) - (transaction.changeGiven || 0));
+    }
+    return sum;
+  }, 0);
 }
 
 function cashLogTotal(cashLogs: CashLog[] = []): number {
@@ -204,6 +267,12 @@ function cashLogTotal(cashLogs: CashLog[] = []): number {
     if (log.type === 'PAY_OUT' || log.type === 'SAFE_DROP') return sum - log.amount;
     return sum;
   }, 0);
+}
+
+function cashDebtPayments(payments: CustomerDebtPayment[] = []): number {
+  return payments
+    .filter((payment) => payment.paymentMethod === 'Cash')
+    .reduce((sum, payment) => sum + payment.amount, 0);
 }
 
 function grossSales(transactions: Transaction[] = []): number {
@@ -384,12 +453,14 @@ export async function generateShiftActivitySummary(input: ShiftEodContext | stri
 
 export async function prepareShiftEodPrintPayload(input: ShiftEodContext | string): Promise<ShiftEodPrintPayload> {
   const context = contextFrom(input);
-  const [summary, vat, cashVariance, sales, payments, drawer, activity] = await Promise.all([
+  const [summary, vat, cashVariance, sales, payments, credit, cashControl, drawer, activity] = await Promise.all([
     generateShiftEodSummary(input),
     generateShiftVatSummary(input),
     generateShiftCashVarianceSummary(input),
     generateShiftSalesSummary(input),
     generateShiftPaymentSummary(input),
+    generateShiftCreditSummary(input),
+    getCashControlSummary({ shiftId: shiftIdFrom(context) }),
     generateShiftDrawerSummary(input),
     generateShiftActivitySummary(input)
   ]);
@@ -410,6 +481,8 @@ export async function prepareShiftEodPrintPayload(input: ShiftEodContext | strin
     cashVariance,
     sales,
     payments,
+    credit,
+    cashControl,
     drawer,
     activity,
     exceptions: buildExceptions(context, cashVariance, activity),
