@@ -79,7 +79,7 @@ import { mockProducts } from '../mock/mockPosData';
 import { canPerformAction } from '../utils/posPermissions';
 import { addLocalQueueItem } from '../utils/localQueueStore';
 import StockPanels from './StockPanels';
-import ProductImportForm from '../components/ProductImportForm';
+import InventoryImportMappingWizard from '../components/InventoryImportMappingWizard';
 import InventoryReportPrintView from '../components/InventoryReportPrintView';
 import RowActionMenu, { RowActionMenuItem } from '../components/RowActionMenu';
 import { normalizeProductNumericNumber } from '../utils/productNumberUtils';
@@ -3512,13 +3512,11 @@ export default function PosStock({
       )}
 
       {productImportPopupOpen && (
-        <ProductImportForm
+        <InventoryImportMappingWizard
           batch={selectedImportBatch}
           rows={productImportRows}
           mappings={productImportMappings}
-          templates={productImportTemplates}
           activity={productImportActivity}
-          openingBalanceDrafts={productImportOpeningDrafts}
           preview={productImportPreview}
           staffId={staffName}
           staffName={staffName}
@@ -3544,11 +3542,6 @@ export default function PosStock({
             if (!requireProductImportPermission('productImport.create')) return;
             await parseCSVTextPlaceholder(batchId, csvText);
             showProductImportNotice('CSV paste parsed locally.');
-            await loadProductImportDesk(productImportFilters, batchId);
-          }}
-          onUploadPlaceholder={async (batchId, fileName) => {
-            await parseExcelUploadPlaceholder(batchId, { fileName });
-            showProductImportNotice('Excel parser will be connected later. CSV paste/import is available for build-development.');
             await loadProductImportDesk(productImportFilters, batchId);
           }}
           onAutoMap={async (batchId, sectorCode) => {
@@ -3715,7 +3708,7 @@ function ProductImportDeskPanel({
           <h2 className="text-sm font-black uppercase">Import products from Excel/CSV, map columns, validate sector fields, and create product drafts.</h2>
           <p className="text-[10px] text-slate-300 uppercase mt-1">Product import does not directly post stock. Imported quantities become Opening Balance or Stock Adjustment drafts until posted.</p>
         </div>
-        <button type="button" className="px-3 py-2 bg-orange-600 text-white border border-orange-700 font-black uppercase text-[9px]" onClick={onNewBatch}>New Import Batch</button>
+        <button type="button" className="px-3 py-2 bg-orange-600 text-white border border-orange-700 font-black uppercase text-[9px]" onClick={onNewBatch}>Import Products</button>
       </div>
       {notice && <div className="border border-orange-200 bg-orange-50 text-orange-900 p-2 text-[10px] font-bold uppercase">{notice}</div>}
       <div className="grid grid-cols-2 md:grid-cols-5 xl:grid-cols-10 gap-3">

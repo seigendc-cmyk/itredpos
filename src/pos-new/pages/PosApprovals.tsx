@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import {
   Check,
   Download,
-  Eye,
+  FileText,
   Filter,
   MessageSquare,
   Printer,
@@ -14,6 +14,7 @@ import {
 } from 'lucide-react';
 import RowActionMenu, { RowActionMenuItem } from '../components/RowActionMenu';
 import ApprovalLiveChatPanel from '../components/ApprovalLiveChatPanel';
+import ApprovalDecisionFileModal, { ApprovalDecisionFileAction } from '../components/ApprovalDecisionFileModal';
 import {
   ApprovalNotificationChannel,
   ApprovalNotificationRecord,
@@ -33,6 +34,7 @@ import {
   escalateOperationalApproval,
   getOperationalApprovalEvents,
   getOperationalApprovals,
+  recordApprovalAuditEvent,
   recordApprovalExport,
   recordApprovalPrint,
   recordApprovalRelatedRecordOpen,
@@ -116,6 +118,8 @@ export default function PosApprovals({ session }: PosApprovalsProps) {
   const [riskFilter, setRiskFilter] = useState<RiskFilter>('All');
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedApprovalId, setSelectedApprovalId] = useState<string>('');
+  const [decisionFileOpen, setDecisionFileOpen] = useState(false);
+  const [chatModalOpen, setChatModalOpen] = useState(false);
   const [openActionMenuId, setOpenActionMenuId] = useState<string | null>(null);
   const [workflowMode, setWorkflowMode] = useState<WorkflowMode>(null);
   const [workflowNote, setWorkflowNote] = useState('');
@@ -141,6 +145,38 @@ export default function PosApprovals({ session }: PosApprovalsProps) {
 
   const can = (permission: PermissionKey) => hasPermission(roleName, permission);
 
+  const recordQueueEvent = async (eventType: 'APPROVAL_QUEUE_SEARCHED' | 'APPROVAL_QUEUE_FILTERED' | 'APPROVAL_QUEUE_PRINTED' | 'APPROVAL_QUEUE_EXPORTED', message: string) => {
+    await recordApprovalAuditEvent({
+      approvalId: selectedApproval?.id || selectedApprovalId || 'APPROVAL-QUEUE',
+      eventType,
+      operator,
+      message
+    });
+    const eventRows = await getOperationalApprovalEvents();
+    setEvents(eventRows);
+  };
+
+  const recordSearchIfNeeded = () => {
+    const term = searchTerm.trim();
+    if (!term) return;
+    void recordQueueEvent('APPROVAL_QUEUE_SEARCHED', `Approval queue searched for "${term}".`);
+  };
+
+  const setCategoryFilter = (category: 'All' | OperationalApprovalCategory) => {
+    setActiveCategory(category);
+    void recordQueueEvent('APPROVAL_QUEUE_FILTERED', `Approval queue category filter set to ${category}.`);
+  };
+
+  const setStatusQueueFilter = (status: StatusFilter) => {
+    setStatusFilter(status);
+    void recordQueueEvent('APPROVAL_QUEUE_FILTERED', `Approval queue status filter set to ${status}.`);
+  };
+
+  const setRiskQueueFilter = (risk: RiskFilter) => {
+    setRiskFilter(risk);
+    void recordQueueEvent('APPROVAL_QUEUE_FILTERED', `Approval queue risk filter set to ${risk}.`);
+  };
+
   const filteredApprovals = useMemo(() => approvals.filter((approval) => {
     const categoryMatch = activeCategory === 'All' || approval.category === activeCategory;
     const statusMatch = statusFilter === 'All' || approval.status === statusFilter;
@@ -148,14 +184,32 @@ export default function PosApprovals({ session }: PosApprovalsProps) {
     const haystack = [
       approval.id,
       approval.title,
+      approval.approvalType,
       approval.category,
       approval.requestedBy,
+      approval.requestedByRole,
+      approval.assignedReviewerName,
+      approval.relatedModule,
       approval.relatedRecord,
+      approval.relatedRecordId,
       approval.relatedRecordLabel,
       approval.branch,
+      approval.branchId,
+      approval.terminalId,
+      approval.amountOrValue,
+      approval.valueAmount,
+      approval.currency,
       approval.reason,
       approval.context,
-      approval.assignedReviewerName
+      approval.risk,
+      approval.status,
+      approval.priority,
+      approval.customerId,
+      approval.customerName,
+      approval.supplierId,
+      approval.supplierName,
+      approval.decisionNote,
+      approval.conditions?.join(' ')
     ].join(' ').toLowerCase();
     const searchMatch = searchTerm.trim().toLowerCase().split(/\s+/).every((part) => haystack.includes(part));
     return categoryMatch && statusMatch && riskMatch && searchMatch;
@@ -199,6 +253,14 @@ export default function PosApprovals({ session }: PosApprovalsProps) {
     };
     if (!guard(permissionByMode[mode])) return;
     setSelectedApprovalId(approval.id);
+    if (mode === 'notify') {
+      void recordApprovalAuditEvent({
+        approvalId: approval.id,
+        eventType: 'APPROVAL_NOTIFICATION_MODAL_OPENED',
+        operator,
+        message: `Notification modal opened for ${approval.id}.`
+      }).then(() => loadData());
+    }
     setWorkflowMode(mode);
     setWorkflowNote('');
     setReviewerName(approval.assignedReviewerName || operator);
@@ -209,7 +271,14 @@ export default function PosApprovals({ session }: PosApprovalsProps) {
     if (!guard('approvals.viewDetail')) return;
     setSelectedApprovalId(approval.id);
     await viewOperationalApproval(approval.id, operator);
-    await refresh(`${approval.id} detail loaded.`);
+    await recordApprovalAuditEvent({
+      approvalId: approval.id,
+      eventType: 'APPROVAL_DECISION_FILE_OPENED',
+      operator,
+      message: `Decision file opened for ${approval.id}.`
+    });
+    setDecisionFileOpen(true);
+    await refresh(`${approval.id} decision file loaded.`);
   };
 
   const handleStartReview = async (approval: OperationalApprovalRequest) => {
@@ -217,6 +286,19 @@ export default function PosApprovals({ session }: PosApprovalsProps) {
     setSelectedApprovalId(approval.id);
     await startOperationalApprovalReview(approval.id, operator);
     await refresh(`${approval.id} review started.`);
+  };
+
+  const openChat = async (approval: OperationalApprovalRequest) => {
+    if (!guard('approvals.liveChat.view')) return;
+    setSelectedApprovalId(approval.id);
+    setChatModalOpen(true);
+    await recordApprovalAuditEvent({
+      approvalId: approval.id,
+      eventType: 'APPROVAL_LIVE_CHAT_OPENED',
+      operator,
+      message: `Live chat opened for ${approval.id}.`
+    });
+    await refresh(`${approval.id} live chat opened.`);
   };
 
   const submitWorkflow = async () => {
@@ -256,6 +338,45 @@ export default function PosApprovals({ session }: PosApprovalsProps) {
     await refresh(`${approval.id} print preview opened.`);
   };
 
+  const printQueue = async () => {
+    if (!guard('approvals.print')) return;
+    const popup = window.open('', '_blank', 'width=980,height=720');
+    if (popup) {
+      popup.document.write(`<html><head><title>Approval Queue</title></head><body><h1>Approval Queue</h1><p>${filteredApprovals.length} visible approvals</p><table border="1" cellspacing="0" cellpadding="6"><thead><tr><th>ID</th><th>Type</th><th>Requester</th><th>Record</th><th>Value</th><th>Risk</th><th>Status</th><th>Due</th></tr></thead><tbody>${filteredApprovals.map((approval) => `<tr><td>${approval.id}</td><td>${approval.title || approval.category}</td><td>${approval.requestedBy}</td><td>${approval.relatedRecordLabel || approval.relatedRecord}</td><td>${approval.amountOrValue}</td><td>${approval.risk}</td><td>${approval.status}</td><td>${dateLabel(approval.dueAt)}</td></tr>`).join('')}</tbody></table></body></html>`);
+      popup.document.close();
+      popup.print();
+    }
+    await recordQueueEvent('APPROVAL_QUEUE_PRINTED', `Approval queue printed with ${filteredApprovals.length} visible approvals.`);
+    await refresh('Approval queue print preview opened.');
+  };
+
+  const exportApprovalRow = async (approval: OperationalApprovalRequest) => {
+    if (!guard('approvals.export')) return;
+    const csv = [
+      ['Approval ID', 'Type', 'Requested By', 'Related Record', 'Value', 'Risk', 'Status', 'Reviewer', 'Due At', 'Reason'].map(csvEscape).join(','),
+      [
+        approval.id,
+        approval.title || approval.category,
+        approval.requestedBy,
+        approval.relatedRecordLabel || approval.relatedRecord,
+        approval.amountOrValue,
+        approval.risk,
+        approval.status,
+        approval.assignedReviewerName || '',
+        approval.dueAt || '',
+        approval.reason
+      ].map(csvEscape).join(',')
+    ].join('\n');
+    const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8;' }));
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `${approval.id}-approval-row.csv`;
+    link.click();
+    URL.revokeObjectURL(url);
+    await recordApprovalExport(approval.id, operator);
+    await refresh(`${approval.id} exported.`);
+  };
+
   const exportApprovals = async () => {
     if (!guard('approvals.export')) return;
     const rows = filteredApprovals.map((approval) => [
@@ -279,7 +400,7 @@ export default function PosApprovals({ session }: PosApprovalsProps) {
     link.download = `approval-command-centre-${new Date().toISOString().slice(0, 10)}.csv`;
     link.click();
     URL.revokeObjectURL(url);
-    if (selectedApproval) await recordApprovalExport(selectedApproval.id, operator);
+    await recordQueueEvent('APPROVAL_QUEUE_EXPORTED', `Approval queue exported with ${filteredApprovals.length} visible approvals.`);
     await refresh('Approval queue exported.');
   };
 
@@ -291,18 +412,20 @@ export default function PosApprovals({ session }: PosApprovalsProps) {
   };
 
   const rowActions = (approval: OperationalApprovalRequest): RowActionMenuItem[] => [
-    { label: 'View Detail', icon: <Eye size={15} />, onClick: () => void handleView(approval), disabled: !can('approvals.viewDetail') },
+    { label: 'View Decision File', icon: <FileText size={15} />, onClick: () => void handleView(approval), disabled: !can('approvals.viewDetail') },
     { label: 'Start Review', icon: <ShieldCheck size={15} />, onClick: () => void handleStartReview(approval), disabled: !can('approvals.startReview') || approval.status === 'Approved' || approval.status === 'Rejected' },
     { label: 'Approve', icon: <Check size={15} />, onClick: () => openWorkflow(approval, 'approve'), disabled: !can('approvals.approve') || approval.status === 'Approved' || approval.status === 'Rejected' },
     { label: 'Reject', icon: <X size={15} />, onClick: () => openWorkflow(approval, 'reject'), disabled: !can('approvals.reject') || approval.status === 'Approved' || approval.status === 'Rejected', danger: true },
     { label: 'Request Info', icon: <MessageSquare size={15} />, onClick: () => openWorkflow(approval, 'info'), disabled: !can('approvals.requestInfo') },
     { label: 'Escalate', icon: <ShieldCheck size={15} />, onClick: () => openWorkflow(approval, 'escalate'), disabled: !can('approvals.escalate') },
     { label: 'Assign Reviewer', icon: <UserCheck size={15} />, onClick: () => openWorkflow(approval, 'assign'), disabled: !can('approvals.assignReviewer') },
-    { label: 'Send Notification', icon: <Send size={15} />, onClick: () => openWorkflow(approval, 'notify'), disabled: !can('approvals.sendNotification') },
+    { label: 'Notify', icon: <Send size={15} />, onClick: () => openWorkflow(approval, 'notify'), disabled: !can('approvals.sendNotification') },
+    { label: 'Open Live Chat', icon: <MessageSquare size={15} />, onClick: () => void openChat(approval), disabled: !can('approvals.liveChat.view') },
     { label: 'Create Task', onClick: () => openWorkflow(approval, 'task'), disabled: !can('approvals.createTask') },
     { label: 'Create BI Warning', onClick: () => openWorkflow(approval, 'bi'), disabled: !can('approvals.createBIWarning') },
     { label: 'Open Related Record', onClick: () => openWorkflow(approval, 'related'), disabled: !can('approvals.openRelatedRecord') },
-    { label: 'Print', icon: <Printer size={15} />, onClick: () => void printApproval(approval), disabled: !can('approvals.print') }
+    { label: 'Print Approval', icon: <Printer size={15} />, onClick: () => void printApproval(approval), disabled: !can('approvals.print') },
+    { label: 'Export Row', icon: <Download size={15} />, onClick: () => void exportApprovalRow(approval), disabled: !can('approvals.export') }
   ];
 
   if (!can('approvals.view')) {
@@ -319,9 +442,8 @@ export default function PosApprovals({ session }: PosApprovalsProps) {
         </div>
         <div className="sci-page-header__actions">
           <button type="button" className="sci-pos-button sci-pos-button--secondary" onClick={() => {
-            const approval = selectedApproval || filteredApprovals[0];
-            if (approval) void printApproval(approval);
-          }} disabled={!selectedApproval && filteredApprovals.length === 0}>
+            void printQueue();
+          }} disabled={filteredApprovals.length === 0}>
             <Printer size={16} aria-hidden="true" /> Print
           </button>
           <button type="button" className="sci-pos-button sci-pos-button--primary" onClick={() => void exportApprovals()}>
@@ -351,139 +473,101 @@ export default function PosApprovals({ session }: PosApprovalsProps) {
         </div>
         <div className="pos-approval-search-row">
           <Search size={17} aria-hidden="true" />
-          <input value={searchTerm} onChange={(event) => setSearchTerm(event.target.value)} placeholder="Search approval, requester, record, branch, reviewer" />
+          <input
+            value={searchTerm}
+            onChange={(event) => setSearchTerm(event.target.value)}
+            onBlur={recordSearchIfNeeded}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter') recordSearchIfNeeded();
+            }}
+            placeholder="Search approval, type, requester, reviewer, record, branch, terminal, risk, customer, supplier"
+          />
         </div>
         <div className="pos-approval-filter-row">
           {categories.map((category) => (
-            <button key={category} type="button" className={`pos-shift-tab ${activeCategory === category ? 'pos-shift-tab--active' : ''}`} onClick={() => setActiveCategory(category)}>
+            <button key={category} type="button" className={`pos-shift-tab ${activeCategory === category ? 'pos-shift-tab--active' : ''}`} onClick={() => setCategoryFilter(category)}>
               {category}
             </button>
           ))}
         </div>
         <div className="pos-approval-filter-row">
           {statusFilters.map((status) => (
-            <button key={status} type="button" className={`pos-shift-tab ${statusFilter === status ? 'pos-shift-tab--active' : ''}`} onClick={() => setStatusFilter(status)}>
+            <button key={status} type="button" className={`pos-shift-tab ${statusFilter === status ? 'pos-shift-tab--active' : ''}`} onClick={() => setStatusQueueFilter(status)}>
               {status}
             </button>
           ))}
           {riskFilters.map((risk) => (
-            <button key={risk} type="button" className={`pos-shift-tab ${riskFilter === risk ? 'pos-shift-tab--active' : ''}`} onClick={() => setRiskFilter(risk)}>
+            <button key={risk} type="button" className={`pos-shift-tab ${riskFilter === risk ? 'pos-shift-tab--active' : ''}`} onClick={() => setRiskQueueFilter(risk)}>
               {risk}
             </button>
           ))}
         </div>
       </section>
 
-      <div className="pos-approval-layout">
-        <section className="sci-pos-card">
-          <div className="sci-pos-card__bar">
-            <div>
-              <p className="sci-pos-eyebrow">Queue</p>
-              <h2>Approval Requests</h2>
-            </div>
-            <span className="sci-status-pill sci-status-pill--warning">{filteredApprovals.length} Visible</span>
+      <section className="sci-pos-card approval-queue-card">
+        <div className="sci-pos-card__bar">
+          <div>
+            <p className="sci-pos-eyebrow">Queue</p>
+            <h2>Approval Requests</h2>
           </div>
-          <div className="sci-pos-table-wrap">
-            <table className="sci-pos-table">
-              <thead>
-                <tr>
-                  <th>Approval ID</th>
-                  <th>Type</th>
-                  <th>Requested By</th>
-                  <th>Related Record</th>
-                  <th>Value</th>
-                  <th>Risk</th>
-                  <th>Status</th>
-                  <th>Due</th>
-                  <th>Action</th>
+          <span className="sci-status-pill sci-status-pill--warning">{filteredApprovals.length} Visible</span>
+        </div>
+        <div className="sci-pos-table-wrap approval-queue-table-shell">
+          <table className="sci-pos-table approval-queue-table">
+            <thead>
+              <tr>
+                <th>Approval ID</th>
+                <th>Type</th>
+                <th>Requested By</th>
+                <th>Related Record</th>
+                <th>Value</th>
+                <th>Risk</th>
+                <th>Status</th>
+                <th>Due</th>
+                <th>Action</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filteredApprovals.map((approval) => (
+                <tr key={approval.id} className={selectedApproval?.id === approval.id ? 'pos-approval-row--selected' : ''} onClick={() => void handleView(approval)}>
+                  <td className="sci-pos-table__strong">{approval.id}</td>
+                  <td>{approval.title || approval.category}</td>
+                  <td>{approval.requestedBy}</td>
+                  <td>{approval.relatedRecordLabel || approval.relatedRecord}</td>
+                  <td>{approval.amountOrValue}</td>
+                  <td><span className={`sci-status-pill ${riskClass(approval.risk)}`}>{approval.risk}</span></td>
+                  <td><span className={`sci-status-pill ${statusClass(approval.status)}`}>{approval.status}</span></td>
+                  <td>{dateLabel(approval.dueAt)}</td>
+                  <td className="approval-row-actions">
+                    <button
+                      type="button"
+                      className="approval-row-icon"
+                      title="View Decision File"
+                      aria-label={`View decision file for ${approval.id}`}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        void handleView(approval);
+                      }}
+                    >
+                      <FileText size={15} aria-hidden="true" />
+                    </button>
+                    <RowActionMenu
+                      ariaLabel={`Approval actions for ${approval.id}`}
+                      align="top"
+                      open={openActionMenuId === approval.id}
+                      onOpenChange={(open) => setOpenActionMenuId(open ? approval.id : null)}
+                      items={rowActions(approval)}
+                    />
+                  </td>
                 </tr>
-              </thead>
-              <tbody>
-                {filteredApprovals.map((approval) => (
-                  <tr key={approval.id} className={selectedApproval?.id === approval.id ? 'pos-approval-row--selected' : ''} onClick={() => setSelectedApprovalId(approval.id)}>
-                    <td className="sci-pos-table__strong">{approval.id}</td>
-                    <td>{approval.title || approval.category}</td>
-                    <td>{approval.requestedBy}</td>
-                    <td>{approval.relatedRecordLabel || approval.relatedRecord}</td>
-                    <td>{approval.amountOrValue}</td>
-                    <td><span className={`sci-status-pill ${riskClass(approval.risk)}`}>{approval.risk}</span></td>
-                    <td><span className={`sci-status-pill ${statusClass(approval.status)}`}>{approval.status}</span></td>
-                    <td>{dateLabel(approval.dueAt)}</td>
-                    <td>
-                      <RowActionMenu
-                        ariaLabel={`Approval actions for ${approval.id}`}
-                        align="top"
-                        open={openActionMenuId === approval.id}
-                        onOpenChange={(open) => setOpenActionMenuId(open ? approval.id : null)}
-                        items={rowActions(approval)}
-                      />
-                    </td>
-                  </tr>
-                ))}
-                {filteredApprovals.length === 0 && <tr><td colSpan={9} className="sci-pos-empty-cell">No approvals match the selected filters.</td></tr>}
-              </tbody>
-            </table>
-          </div>
-        </section>
+              ))}
+              {filteredApprovals.length === 0 && <tr><td colSpan={9} className="sci-pos-empty-cell">No approvals match the selected filters.</td></tr>}
+            </tbody>
+          </table>
+        </div>
+      </section>
 
-        <aside className="pos-approval-context">
-          {selectedApproval ? (
-            <>
-              <section className="sci-pos-card">
-                <div className="sci-pos-card__bar">
-                  <div>
-                    <p className="sci-pos-eyebrow">Decision File</p>
-                    <h2>{selectedApproval.id}</h2>
-                  </div>
-                  <span className={`sci-status-pill ${statusClass(selectedApproval.status)}`}>{selectedApproval.status}</span>
-                </div>
-                <div className="pos-approval-detail">
-                  <strong>{selectedApproval.title || selectedApproval.category}</strong>
-                  <span>{selectedApproval.context}</span>
-                  <dl>
-                    <div><dt>Branch</dt><dd>{selectedApproval.branch}</dd></div>
-                    <div><dt>Requested By</dt><dd>{selectedApproval.requestedBy} ({selectedApproval.requestedByRole})</dd></div>
-                    <div><dt>Reviewer</dt><dd>{selectedApproval.assignedReviewerName || 'Unassigned'}</dd></div>
-                    <div><dt>Related Module</dt><dd>{selectedApproval.relatedModule || 'Sales'}</dd></div>
-                    <div><dt>Related Record</dt><dd>{selectedApproval.relatedRecordLabel || selectedApproval.relatedRecord}</dd></div>
-                    <div><dt>Reason</dt><dd>{selectedApproval.reason}</dd></div>
-                    <div><dt>Requested</dt><dd>{dateLabel(selectedApproval.requestedAt)}</dd></div>
-                    <div><dt>Due</dt><dd>{dateLabel(selectedApproval.dueAt)}</dd></div>
-                  </dl>
-                  <div className="pos-approval-actions">
-                    <button type="button" className="sci-pos-button sci-pos-button--secondary" onClick={() => void handleStartReview(selectedApproval)} disabled={!can('approvals.startReview')}>
-                      Start Review
-                    </button>
-                    <button type="button" className="sci-pos-button sci-pos-button--primary" onClick={() => openWorkflow(selectedApproval, 'approve')} disabled={!can('approvals.approve') || selectedApproval.status === 'Approved'}>
-                      <Check size={16} aria-hidden="true" /> Approve
-                    </button>
-                    <button type="button" className="sci-pos-button sci-pos-button--danger" onClick={() => openWorkflow(selectedApproval, 'reject')} disabled={!can('approvals.reject') || selectedApproval.status === 'Rejected'}>
-                      <X size={16} aria-hidden="true" /> Reject
-                    </button>
-                    <button type="button" className="sci-pos-button sci-pos-button--secondary" onClick={() => openWorkflow(selectedApproval, 'info')}>Request Info</button>
-                    <button type="button" className="sci-pos-button sci-pos-button--secondary" onClick={() => openWorkflow(selectedApproval, 'notify')}>Notify</button>
-                  </div>
-                </div>
-              </section>
-
-              {can('approvals.liveChat.view') && (
-                <ApprovalLiveChatPanel
-                  approvalId={selectedApproval.id}
-                  staffId={staffId}
-                  staffName={operator}
-                  staffRole={roleName}
-                  canSend={can('approvals.liveChat.send')}
-                  onActivity={() => void loadData()}
-                />
-              )}
-            </>
-          ) : (
-            <section className="sci-pos-card"><div className="sci-pos-empty-cell">Select an approval to inspect.</div></section>
-          )}
-        </aside>
-      </div>
-
-      <div className="pos-approval-layout">
+      <div className="pos-approval-secondary-grid">
         <section className="sci-pos-card">
           <div className="sci-pos-card__bar"><div><p className="sci-pos-eyebrow">Audit Trail</p><h2>Approval Activity</h2></div></div>
           <div className="pos-audit-feed">
@@ -516,6 +600,50 @@ export default function PosApprovals({ session }: PosApprovalsProps) {
           </div>
         </section>
       </div>
+
+      {decisionFileOpen && selectedApproval && (
+        <ApprovalDecisionFileModal
+          approval={selectedApproval}
+          events={events}
+          notifications={notifications}
+          canStartReview={can('approvals.startReview')}
+          canApprove={can('approvals.approve')}
+          canReject={can('approvals.reject')}
+          canRequestInfo={can('approvals.requestInfo')}
+          canNotify={can('approvals.sendNotification')}
+          canOpenChat={can('approvals.liveChat.view')}
+          onClose={() => setDecisionFileOpen(false)}
+          onStartReview={() => void handleStartReview(selectedApproval)}
+          onAction={(action: ApprovalDecisionFileAction) => openWorkflow(selectedApproval, action)}
+          onPrint={() => void printApproval(selectedApproval)}
+          onExport={() => void exportApprovalRow(selectedApproval)}
+          onOpenChat={() => void openChat(selectedApproval)}
+        />
+      )}
+
+      {chatModalOpen && selectedApproval && (
+        <div className="pos-modal-backdrop">
+          <div className="pos-modal approval-chat-modal" role="dialog" aria-modal="true" aria-labelledby="approval-chat-title">
+            <div className="pos-modal__header">
+              <div>
+                <p className="sci-pos-eyebrow">{selectedApproval.id}</p>
+                <h2 id="approval-chat-title">Live Chat</h2>
+              </div>
+              <button type="button" className="sci-pos-button sci-pos-button--secondary" onClick={() => setChatModalOpen(false)}>Close</button>
+            </div>
+            <div className="pos-modal__body">
+              <ApprovalLiveChatPanel
+                approvalId={selectedApproval.id}
+                staffId={staffId}
+                staffName={operator}
+                staffRole={roleName}
+                canSend={can('approvals.liveChat.send')}
+                onActivity={() => void loadData()}
+              />
+            </div>
+          </div>
+        </div>
+      )}
 
       {workflowMode && selectedApproval && (
         <WorkflowModal

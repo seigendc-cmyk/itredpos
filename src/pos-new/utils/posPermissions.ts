@@ -245,6 +245,21 @@ export type PermissionKey =
   | 'customers.approve'
   | 'inventory.view'
   | 'inventory.import'
+  | 'inventory.import.view'
+  | 'inventory.import.create'
+  | 'inventory.import.map'
+  | 'inventory.import.template.view'
+  | 'inventory.import.template.manage'
+  | 'inventory.import.validate'
+  | 'inventory.import.submitApproval'
+  | 'inventory.import.approve'
+  | 'inventory.import.post'
+  | 'inventory.import.reject'
+  | 'inventory.import.cancel'
+  | 'inventory.import.export'
+  | 'inventory.import.print'
+  | 'inventory.import.createTask'
+  | 'inventory.import.createBIWarning'
   | 'inventory.approveImport'
   | 'inventory.adjust'
   | 'inventory.approveAdjustment'
@@ -744,6 +759,21 @@ const ALL_PERMISSIONS: PermissionKey[] = [
   'customers.approve',
   'inventory.view',
   'inventory.import',
+  'inventory.import.view',
+  'inventory.import.create',
+  'inventory.import.map',
+  'inventory.import.template.view',
+  'inventory.import.template.manage',
+  'inventory.import.validate',
+  'inventory.import.submitApproval',
+  'inventory.import.approve',
+  'inventory.import.post',
+  'inventory.import.reject',
+  'inventory.import.cancel',
+  'inventory.import.export',
+  'inventory.import.print',
+  'inventory.import.createTask',
+  'inventory.import.createBIWarning',
   'inventory.approveImport',
   'inventory.adjust',
   'inventory.approveAdjustment',
@@ -1057,7 +1087,11 @@ const ROLE_PERMISSIONS: Record<Role, PermissionKey[]> = {
     'customers.debtors.periodLock.view', 'customers.debtors.periodLock.lock', 'customers.debtors.periodLock.unlock', 'customers.debtors.periodLock.adjust',
     'customers.creditWorthiness.view', 'customers.behaviourAnalytics.view', 'customers.whatsappReminder', 'customers.credit.export', 'customers.creditReview',
     'customers.export', 'customers.whatsappMessage', 'customers.useInSale', 'customers.requests.create', 'customers.requests.approve', 'customers.approve',
-    'inventory.view', 'inventory.import', 'inventory.approveImport', 'inventory.adjust', 'inventory.approveAdjustment',
+    'inventory.view', 'inventory.import', 'inventory.import.view', 'inventory.import.create', 'inventory.import.map',
+    'inventory.import.template.view', 'inventory.import.template.manage', 'inventory.import.validate',
+    'inventory.import.submitApproval', 'inventory.import.approve', 'inventory.import.post', 'inventory.import.reject',
+    'inventory.import.cancel', 'inventory.import.export', 'inventory.import.print', 'inventory.import.createTask',
+    'inventory.import.createBIWarning', 'inventory.approveImport', 'inventory.adjust', 'inventory.approveAdjustment',
     'productMaster.view', 'productMaster.create', 'productMaster.edit', 'productMaster.activate', 'productMaster.block', 'productMaster.export',
     'openingBalance.view', 'openingBalance.create', 'openingBalance.approve', 'openingBalance.post', 'openingBalance.cancel',
     'stockBalances.view', 'stockBalances.adjust', 'stockBalances.transfer',
@@ -1114,6 +1148,9 @@ const ROLE_PERMISSIONS: Record<Role, PermissionKey[]> = {
     'bi.actionPoints.view', 'bi.actionPoints.manage', 'bi.reorderProtection.view', 'bi.reorderProtection.override',
     'bi.shelfStocktake.assign', 'bi.cashRisk.view', 'bi.staffRisk.view', 'bi.taxReadiness.view', 'bi.profitSnapshot.view', 'bi.reorderBlock.review', 'bi.reorderBlock.override',
     'sync.view', 'sync.run', 'sync.queue.view', 'sync.retry', 'sync.batch.create', 'sync.batch.run', 'sync.conflict.view', 'sync.conflict.resolve', 'sync.conflict.hold', 'sync.export', 'sync.clearSynced',
+    'inventory.import.view', 'inventory.import.create', 'inventory.import.map', 'inventory.import.template.view',
+    'inventory.import.validate', 'inventory.import.submitApproval', 'inventory.import.approve', 'inventory.import.post',
+    'inventory.import.export', 'inventory.import.print', 'inventory.import.createTask', 'inventory.import.createBIWarning',
     'productImport.view', 'productImport.create', 'productImport.map', 'productImport.validate', 'productImport.approve', 'productImport.import', 'productImport.export'
   ],
   Supervisor: [
@@ -1165,6 +1202,8 @@ const ROLE_PERMISSIONS: Record<Role, PermissionKey[]> = {
     'bi.view', 'bi.review', 'bi.riskReview', 'bi.advice.view', 'bi.advice.generate', 'bi.advice.resolve', 'bi.advice.createTask',
     'bi.actionPoints.view', 'bi.shelfStocktake.assign', 'bi.reorderProtection.view', 'bi.reorderBlock.review',
     'sync.view', 'sync.run', 'sync.queue.view', 'sync.retry', 'sync.batch.create', 'sync.conflict.view', 'sync.conflict.hold',
+    'inventory.import.view', 'inventory.import.create', 'inventory.import.map', 'inventory.import.template.view',
+    'inventory.import.validate', 'inventory.import.submitApproval', 'inventory.import.export', 'inventory.import.print',
     'productImport.view', 'productImport.create', 'productImport.map', 'productImport.validate', 'productImport.export'
   ],
   Cashier: [
@@ -1184,7 +1223,10 @@ const ROLE_PERMISSIONS: Record<Role, PermissionKey[]> = {
   ],
   'Stock Controller': [
     'sales.viewHistory',
-    'inventory.view', 'inventory.import', 'inventory.adjust',
+    'inventory.view', 'inventory.import', 'inventory.import.view', 'inventory.import.create', 'inventory.import.map',
+    'inventory.import.template.view', 'inventory.import.validate', 'inventory.import.submitApproval',
+    'inventory.import.export', 'inventory.import.print', 'inventory.import.createTask', 'inventory.import.createBIWarning',
+    'inventory.adjust',
     'productMaster.view', 'productMaster.create', 'productMaster.edit', 'productMaster.export',
     'openingBalance.view', 'openingBalance.create',
     'stockBalances.view', 'stockBalances.adjust', 'stockBalances.transfer',

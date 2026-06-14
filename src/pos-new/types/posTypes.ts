@@ -2665,6 +2665,13 @@ export type OperationalApprovalEventType =
   | 'APPROVAL_MORE_INFO_REQUESTED'
   | 'APPROVAL_ESCALATED'
   | 'APPROVAL_REVIEWER_ASSIGNED'
+  | 'APPROVAL_DECISION_FILE_OPENED'
+  | 'APPROVAL_QUEUE_SEARCHED'
+  | 'APPROVAL_QUEUE_FILTERED'
+  | 'APPROVAL_LIVE_CHAT_OPENED'
+  | 'APPROVAL_NOTIFICATION_MODAL_OPENED'
+  | 'APPROVAL_QUEUE_PRINTED'
+  | 'APPROVAL_QUEUE_EXPORTED'
   | 'APPROVAL_NOTIFICATION_PREPARED'
   | 'APPROVAL_NOTIFICATION_SENT_LOCAL'
   | 'APPROVAL_CHAT_MESSAGE_SENT'
@@ -5488,6 +5495,113 @@ export interface ProductImportFilterState {
   dateFrom?: string;
   dateTo?: string;
   search?: string;
+}
+
+export type InventoryImportBatchStatus = 'Draft' | 'Mapped' | 'Validated' | 'PendingApproval' | 'Approved' | 'Posted' | 'Rejected' | 'Cancelled' | 'Failed';
+export type InventoryImportFileType = 'CSV' | 'ExcelPlaceholder' | 'ManualPaste' | 'Unknown';
+export type InventoryImportRowStatus = 'Ready' | 'Warning' | 'Error' | 'Duplicate' | 'Skipped' | 'Posted';
+export type InventoryImportSeverity = 'Info' | 'Warning' | 'Error' | 'Critical';
+export type InventoryImportAction = 'CreateNewProduct' | 'UpdateExistingProduct' | 'CreateOpeningStock' | 'UpdateStockBalance' | 'CreateSupplierPlaceholder' | 'CreateCategoryPlaceholder' | 'SkipRow' | 'NeedsReview';
+export type InventoryFieldType = 'Required' | 'Recommended' | 'Optional' | 'MotorSpares' | 'Financial' | 'System';
+export type InventoryImportValidationType = 'Text' | 'Number' | 'Money' | 'Quantity' | 'Date' | 'Boolean' | 'Enum' | 'Tags';
+export type InventoryImportTargetDomain = 'Product' | 'Stock' | 'Supplier' | 'Pricing' | 'Tax' | 'MotorSpares' | 'Location' | 'Financial';
+
+export interface InventoryImportFieldDefinition {
+  fieldKey: string;
+  fieldLabel: string;
+  fieldType: InventoryFieldType;
+  required: boolean;
+  description: string;
+  acceptedAliases: string[];
+  sampleValue: string;
+  validationType: InventoryImportValidationType;
+  targetDomain: InventoryImportTargetDomain;
+}
+
+export interface InventoryImportColumn {
+  columnIndex: number;
+  columnLetter: string;
+  sourceColumnName: string;
+  sampleValues: string[];
+  detectedFieldKey?: string;
+  mappedFieldKey?: string;
+  confidenceScore: number;
+  ignored: boolean;
+  notes: string;
+}
+
+export interface InventoryImportMappingTemplate {
+  templateId: string;
+  templateName: string;
+  sector: string;
+  description: string;
+  mappings: Array<{ sourceColumnName: string; targetFieldKey: string }>;
+  startRow: number;
+  createdBy: string;
+  createdAt: string;
+  updatedAt: string;
+  defaultTemplate: boolean;
+}
+
+export interface InventoryImportBatch {
+  batchId: string;
+  batchNumber: string;
+  fileName: string;
+  fileType: InventoryImportFileType;
+  sheetName?: string;
+  startRow: number;
+  status: InventoryImportBatchStatus;
+  templateId?: string;
+  templateName?: string;
+  totalRows: number;
+  validRows: number;
+  warningRows: number;
+  errorRows: number;
+  duplicateRows: number;
+  skippedRows: number;
+  postedRows: number;
+  createdBy: string;
+  createdAt: string;
+  submittedBy?: string;
+  submittedAt?: string;
+  approvedBy?: string;
+  approvedAt?: string;
+  postedBy?: string;
+  postedAt?: string;
+  rejectedBy?: string;
+  rejectedAt?: string;
+  rejectionReason?: string;
+  notes: string;
+}
+
+export interface InventoryImportRowPreview {
+  rowId: string;
+  batchId: string;
+  rowNumber: number;
+  sourceData: Record<string, string>;
+  mappedData: Record<string, string | number | undefined>;
+  status: InventoryImportRowStatus;
+  action: InventoryImportAction;
+  matchedProductId?: string;
+  matchedProductName?: string;
+  warnings: string[];
+  errors: string[];
+  duplicateScore: number;
+  estimatedStockValue: number;
+  notes: string;
+}
+
+export interface InventoryImportValidationIssue {
+  issueId: string;
+  batchId: string;
+  rowId?: string;
+  rowNumber?: number;
+  fieldKey?: string;
+  severity: InventoryImportSeverity;
+  code: string;
+  message: string;
+  recommendedAction: string;
+  createdAt: string;
 }
 
 export type EODCheckStatus =
