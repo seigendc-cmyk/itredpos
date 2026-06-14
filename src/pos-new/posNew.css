@@ -574,6 +574,122 @@ main {
   background: #f8fafc;
   cursor: not-allowed;
 }
+.pos-sidebar-menu {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(249, 115, 22, 0.6) rgba(15, 23, 42, 0.6);
+}
+.pos-sidebar-group {
+  border: 1px solid transparent;
+  border-radius: var(--radius-card);
+}
+.pos-sidebar-group-header {
+  align-items: center;
+  background: transparent;
+  border: 1px solid transparent;
+  border-left: 2px solid transparent;
+  border-radius: var(--radius-card);
+  color: #cbd5e1;
+  cursor: pointer;
+  display: flex;
+  gap: 0.55rem;
+  min-height: 2.25rem;
+  outline: 0;
+  padding: 0.45rem 0.55rem;
+  text-align: left;
+  transition: background-color 120ms ease, border-color 120ms ease, color 120ms ease;
+  width: 100%;
+}
+.pos-sidebar-group-header:hover,
+.pos-sidebar-group-header:focus-visible {
+  background: rgba(15, 23, 42, 0.92);
+  border-color: rgba(249, 115, 22, 0.35);
+  color: #f8fafc;
+}
+.pos-sidebar-group-active .pos-sidebar-group-header {
+  border-left-color: var(--sci-orange);
+  color: #ffffff;
+}
+.pos-sidebar-group-open .pos-sidebar-group-header {
+  background: #111827;
+  border-color: rgba(249, 115, 22, 0.45);
+}
+.pos-sidebar-group-header svg {
+  color: #94a3b8;
+}
+.pos-sidebar-group-active .pos-sidebar-group-header svg,
+.pos-sidebar-group-open .pos-sidebar-group-header svg {
+  color: var(--sci-orange);
+}
+.pos-sidebar-group-label {
+  flex: 1;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.pos-sidebar-active-marker {
+  background: var(--sci-orange);
+  display: inline-block;
+  height: 6px;
+  width: 6px;
+}
+.pos-sidebar-chevron {
+  color: #64748b;
+  transition: transform 120ms ease;
+}
+.pos-sidebar-group-open .pos-sidebar-chevron {
+  transform: rotate(180deg);
+}
+.pos-sidebar-submenu {
+  display: grid;
+  gap: 0.18rem;
+  margin: 0.25rem 0 0.4rem;
+  padding-left: 0.65rem;
+}
+.pos-sidebar-subitem {
+  align-items: center;
+  background: transparent;
+  border: 1px solid transparent;
+  border-left: 2px solid rgba(71, 85, 105, 0.7);
+  border-radius: var(--radius-card);
+  color: #94a3b8;
+  cursor: pointer;
+  display: flex;
+  gap: 0.5rem;
+  min-height: 2rem;
+  outline: 0;
+  padding: 0.4rem 0.5rem 0.4rem 0.7rem;
+  text-align: left;
+  width: 100%;
+}
+.pos-sidebar-subitem:hover,
+.pos-sidebar-subitem:focus-visible {
+  background: rgba(30, 41, 59, 0.86);
+  border-left-color: rgba(249, 115, 22, 0.7);
+  color: #ffffff;
+}
+.pos-sidebar-subitem svg {
+  color: #64748b;
+}
+.pos-sidebar-subitem-active {
+  background: rgba(249, 115, 22, 0.14);
+  border-left-color: var(--sci-orange);
+  color: #ffffff;
+}
+.pos-sidebar-subitem-active svg {
+  color: var(--sci-orange);
+}
+.pos-sidebar-subitem span {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  min-width: 0;
+  text-transform: uppercase;
+}
 .approval-action-menu-host {
   display: inline-flex;
   justify-content: center;
@@ -2763,24 +2879,44 @@ div[class*="border-t border-r border-amber"] {
   cursor: not-allowed;
   opacity: 0.55;
 }
+.pos-page-submenu,
+.pos-customer-tabs,
+.creditors-tabs,
+.cash-control-tabs,
+.bi-tab-bar,
+.owner-desk-tabbar,
+.inventory-group-tab-row,
+.inventory-child-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+.pos-page-submenu {
+  background: var(--sci-panel);
+  border: 1px solid var(--sci-border);
+  border-radius: var(--radius-card);
+  padding: 0.45rem;
+}
+.pos-page-submenu-item,
 .pos-tab-button {
   background: #ffffff;
   border: 1px solid var(--sci-border-strong);
-  border-bottom: 2px solid #aeb4bf;
   border-radius: var(--radius-card);
   color: var(--sci-text-strong);
   cursor: pointer;
   font-size: var(--font-xs);
   font-weight: 600;
   line-height: 1.05;
-  min-height: 2.15rem;
-  padding: 0.42rem 0.62rem;
+  min-height: 2rem;
+  padding: 0.36rem 0.58rem;
   text-transform: uppercase;
 }
+.pos-page-submenu-item:hover,
 .pos-tab-button:hover {
-  border-bottom-color: var(--sci-orange);
+  border-color: var(--sci-orange);
   color: var(--sci-orange-dark);
 }
+.pos-page-submenu-item-active,
 .pos-tab-button-active {
   background: var(--sci-orange);
   border-color: var(--sci-orange-dark);
@@ -9390,6 +9526,75 @@ div[class*="border-t border-r border-amber"] {
 
 .owner-financial-summary {
   page-break-inside: avoid;
+}
+.creditors-tabs,
+.cash-control-tabs,
+.bi-tab-bar,
+.owner-desk-tabbar,
+.inventory-group-tabs,
+.pos-customer-tabs {
+  background: var(--sci-panel) !important;
+  border: 1px solid var(--sci-border) !important;
+  border-radius: var(--radius-card) !important;
+  box-shadow: none !important;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  overflow-x: visible;
+  padding: 0.45rem !important;
+}
+.inventory-group-tab-row,
+.inventory-child-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+.creditors-tabs button,
+.cash-control-tabs button,
+.bi-tab,
+.owner-desk-tab,
+.pos-owner-tab,
+.inventory-group-tab,
+.inventory-child-tab,
+.industrial-tab,
+.shift-history-tabs button {
+  background: #ffffff !important;
+  border: 1px solid var(--sci-border-strong) !important;
+  border-radius: var(--radius-card) !important;
+  color: var(--sci-text-strong) !important;
+  cursor: pointer;
+  font-size: var(--font-xs);
+  font-weight: 600 !important;
+  line-height: 1.1;
+  min-height: 2rem;
+  padding: 0.35rem 0.58rem !important;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.creditors-tabs button:hover,
+.cash-control-tabs button:hover,
+.bi-tab:hover,
+.owner-desk-tab:hover,
+.pos-owner-tab:hover,
+.inventory-group-tab:hover,
+.inventory-child-tab:hover,
+.industrial-tab:hover,
+.shift-history-tabs button:hover {
+  border-color: var(--sci-orange) !important;
+  color: var(--sci-orange-dark) !important;
+}
+.creditors-tabs button.active,
+.cash-control-tabs button.active,
+.bi-tab-active,
+.owner-desk-tab--active,
+.pos-owner-tab.active,
+.inventory-group-tab--active,
+.inventory-child-tab--active,
+.industrial-tab.active,
+.shift-history-tabs button.active {
+  background: var(--sci-orange) !important;
+  border-color: var(--sci-orange-dark) !important;
+  color: #ffffff !important;
 }
 
 @media print {
