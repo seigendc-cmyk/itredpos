@@ -102,6 +102,70 @@ export async function getCOAAccounts(): Promise<COAAccount[]> {
   return readList<COAAccount>(COA_KEY, mockCOAAccounts);
 }
 
+export async function recordAccountingActivity(
+  eventType: AccountingActivityEventType,
+  message: string,
+  operator = 'Admin User'
+): Promise<AccountingActivityEvent[]> {
+  return addActivity(eventType, message, operator);
+}
+
+export async function updateCOAAccountPlaceholder(
+  accountId: string,
+  changes: Partial<COAAccount>,
+  operator = 'Admin User',
+  eventType: AccountingActivityEventType = 'COA_ACCOUNT_DRAFT_EDITED'
+): Promise<{ accounts: COAAccount[]; activity: AccountingActivityEvent[]; account: COAAccount | null }> {
+  let updated: COAAccount | null = null;
+  const accounts = readList<COAAccount>(COA_KEY, mockCOAAccounts).map((account) => {
+    if (account.id !== accountId) return account;
+    updated = { ...account, ...changes, updatedAt: new Date().toISOString() };
+    return updated;
+  });
+  saveList(COA_KEY, accounts);
+  const label = updated ? `${updated.accountCode} ${updated.accountName}` : accountId;
+  const activity = addActivity(eventType, `${label} updated locally.`, operator);
+  return { accounts, activity, account: updated };
+}
+
+export async function markCOAAccountInactivePlaceholder(
+  accountId: string,
+  reason: string,
+  operator = 'Admin User'
+): Promise<{ accounts: COAAccount[]; activity: AccountingActivityEvent[]; account: COAAccount | null }> {
+  return updateCOAAccountPlaceholder(accountId, { status: 'Inactive', inactiveReason: reason, notes: reason }, operator, 'COA_ACCOUNT_MARKED_INACTIVE');
+}
+
+export async function reactivateCOAAccountPlaceholder(
+  accountId: string,
+  status: COAAccount['status'],
+  reason: string,
+  operator = 'Admin User'
+): Promise<{ accounts: COAAccount[]; activity: AccountingActivityEvent[]; account: COAAccount | null }> {
+  return updateCOAAccountPlaceholder(accountId, { status, inactiveReason: '', notes: reason }, operator, 'COA_ACCOUNT_REACTIVATED');
+}
+
+export async function createCOAReplacementPlaceholder(
+  sourceAccount: COAAccount,
+  operator = 'Admin User'
+): Promise<{ accounts: COAAccount[]; activity: AccountingActivityEvent[]; account: COAAccount }> {
+  const accounts = readList<COAAccount>(COA_KEY, mockCOAAccounts);
+  const replacement: COAAccount = {
+    ...sourceAccount,
+    id: `COA-REPL-${Date.now()}`,
+    accountCode: `${sourceAccount.accountCode}-R`,
+    accountName: `${sourceAccount.accountName} Replacement`,
+    status: 'Draft',
+    notes: `Replacement placeholder created for ${sourceAccount.accountCode}.`,
+    createdBy: operator,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString()
+  };
+  const next = saveList(COA_KEY, [replacement, ...accounts]);
+  const activity = addActivity('COA_ACCOUNT_REPLACEMENT_CREATED', `${replacement.accountCode} replacement account created locally.`, operator);
+  return { accounts: next, activity, account: replacement };
+}
+
 export async function getSalesAccountingSummary(filters: AccountingFilters): Promise<SalesAccountingSummary[]> {
   return mockSalesAccountingSummaryRows.filter((row) =>
     branchMatch(row.branch, filters.branch) &&

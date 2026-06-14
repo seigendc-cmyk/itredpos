@@ -91,6 +91,14 @@ export type PermissionKey =
   | 'ownerDesk.biReview.manage'
   | 'ownerDesk.accountingDesk.view'
   | 'ownerDesk.accountingDesk.manage'
+  | 'ownerDesk.accountingDesk.coa.view'
+  | 'ownerDesk.accountingDesk.coa.create'
+  | 'ownerDesk.accountingDesk.coa.editDraft'
+  | 'ownerDesk.accountingDesk.coa.markInactive'
+  | 'ownerDesk.accountingDesk.coa.reactivate'
+  | 'ownerDesk.accountingDesk.coa.print'
+  | 'ownerDesk.accountingDesk.coa.export'
+  | 'ownerDesk.accountingDesk.coa.addNote'
   | 'ownerDesk.print'
   | 'ownerDesk.export'
   | 'ownerDesk.escalate'
@@ -488,6 +496,14 @@ const ALL_PERMISSIONS: PermissionKey[] = [
   'ownerDesk.biReview.manage',
   'ownerDesk.accountingDesk.view',
   'ownerDesk.accountingDesk.manage',
+  'ownerDesk.accountingDesk.coa.view',
+  'ownerDesk.accountingDesk.coa.create',
+  'ownerDesk.accountingDesk.coa.editDraft',
+  'ownerDesk.accountingDesk.coa.markInactive',
+  'ownerDesk.accountingDesk.coa.reactivate',
+  'ownerDesk.accountingDesk.coa.print',
+  'ownerDesk.accountingDesk.coa.export',
+  'ownerDesk.accountingDesk.coa.addNote',
   'ownerDesk.print',
   'ownerDesk.export',
   'ownerDesk.escalate',
@@ -826,6 +842,7 @@ const ROLE_PERMISSIONS: Record<Role, PermissionKey[]> = {
     'ownerDesk.deliveryClosing.view', 'ownerDesk.deliveryClosing.manage',
     'ownerDesk.biReview.view', 'ownerDesk.biReview.manage',
     'ownerDesk.accountingDesk.view',
+    'ownerDesk.accountingDesk.coa.view',
     'ownerDesk.print', 'ownerDesk.export', 'ownerDesk.escalate', 'ownerDesk.createBIWarning', 'ownerDesk.createTask',
     'payment.capture',
     'customers.view', 'customers.createRequest', 'customers.createDirect', 'customers.edit', 'customers.suspend', 'customers.reactivate',
@@ -1004,6 +1021,8 @@ const ROLE_PERMISSIONS: Record<Role, PermissionKey[]> = {
     'reports.supplierStatements.view', 'reports.supplierStatements.print', 'reports.supplierStatements.export',
     'reports.ownerFinancialControl.view', 'reports.audit.view', 'reports.audit.export',
     'accounting.view', 'accounting.review', 'accounting.postPlaceholder', 'accounting.export',
+    'ownerDesk.accountingDesk.view', 'ownerDesk.accountingDesk.coa.view', 'ownerDesk.accountingDesk.coa.create',
+    'ownerDesk.accountingDesk.coa.editDraft', 'ownerDesk.accountingDesk.coa.print', 'ownerDesk.accountingDesk.coa.export',
     'inventoryAccounting.view', 'inventoryAccounting.review', 'inventoryAccounting.export',
     'creditors.view', 'creditors.supplierProfile.view',
     'creditors.supplierBill.view', 'creditors.supplierBill.create', 'creditors.supplierBill.post', 'creditors.supplierBill.dispute',

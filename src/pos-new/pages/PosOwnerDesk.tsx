@@ -69,6 +69,7 @@ import {
 } from '../services/eodService';
 import {
   createAccountingPostingPlaceholder,
+  createCOAReplacementPlaceholder,
   exportAccountingReportPlaceholder,
   getAccountingActivityEvents,
   getAccountingReadinessChecks,
@@ -80,9 +81,15 @@ import {
   getSalesAccountingSummary,
   getVATSummary,
   markAccountingPostingReviewed,
-  reverseAccountingPostingPlaceholder
+  markCOAAccountInactivePlaceholder,
+  reactivateCOAAccountPlaceholder,
+  recordAccountingActivity,
+  reverseAccountingPostingPlaceholder,
+  updateCOAAccountPlaceholder
 } from '../services/accountingService';
 import InventoryAccountingReadinessForm from '../components/InventoryAccountingReadinessForm';
+import COAAccountDetailModal from '../components/COAAccountDetailModal';
+import COAAccountEditDraftModal from '../components/COAAccountEditDraftModal';
 import {
   approveInventoryAccountingRecord,
   exportInventoryAccountingPlaceholder,
@@ -133,6 +140,7 @@ type AccountingTab =
 type CashModalMode = 'review' | 'note' | 'detail' | 'shift' | 'movements' | 'markBalanced';
 type OwnerDeskActionMode = 'detail' | 'note' | 'reconcile' | 'notReady' | 'forceClose' | 'print';
 type OwnerDeskActionDomain = 'EOD Readiness' | 'Payment Summary' | 'Shift Closing' | 'Inventory Closing' | 'Delivery Closing' | 'BI Review' | 'Accounting Desk';
+type COAAccountModalMode = 'detail' | 'edit' | 'inactive' | 'reactivate' | 'note';
 
 interface OwnerDeskActionModalState {
   domain: OwnerDeskActionDomain;
@@ -295,6 +303,10 @@ export default function PosOwnerDesk({ session }: PosOwnerDeskProps) {
   const [deliverySearch, setDeliverySearch] = useState('');
   const [biSearch, setBISearch] = useState('');
   const [accountingSearch, setAccountingSearch] = useState('');
+  const [openCOAMenuId, setOpenCOAMenuId] = useState<string | null>(null);
+  const [selectedCOAAccount, setSelectedCOAAccount] = useState<COAAccount | null>(null);
+  const [coaModalMode, setCOAModalMode] = useState<COAAccountModalMode | null>(null);
+  const [coaReason, setCOAReason] = useState('');
 
   const staffName = session?.staffName || 'Admin User';
   const currentRole = toOwnerDeskRole(session?.role);
@@ -750,6 +762,105 @@ export default function PosOwnerDesk({ session }: PosOwnerDeskProps) {
     showFeedback('success', 'New COA account form placeholder recorded locally.');
   };
 
+  const openCOAModal = async (account: COAAccount, mode: COAAccountModalMode) => {
+    setSelectedCOAAccount(account);
+    setCOAModalMode(mode);
+    setCOAReason(account.notes || '');
+    if (mode === 'detail') {
+      setAccountingActivity(await recordAccountingActivity('COA_ACCOUNT_VIEWED', `${account.accountCode} account detail opened locally.`, staffName));
+    }
+  };
+
+  const closeCOAModal = () => {
+    setSelectedCOAAccount(null);
+    setCOAModalMode(null);
+    setCOAReason('');
+  };
+
+  const handleCOAEditSave = async (changes: Partial<COAAccount>) => {
+    if (!selectedCOAAccount) return;
+    const result = await updateCOAAccountPlaceholder(selectedCOAAccount.id, changes, staffName, 'COA_ACCOUNT_DRAFT_EDITED');
+    setCOAAccounts(result.accounts);
+    setAccountingActivity(result.activity);
+    closeCOAModal();
+    showFeedback('success', `${changes.accountCode || selectedCOAAccount.accountCode} draft updated locally.`);
+  };
+
+  const handleCOAMarkInactive = async () => {
+    if (!selectedCOAAccount) return;
+    const reason = coaReason.trim();
+    if (!reason) {
+      showFeedback('error', 'Reason / owner note is required before marking inactive.');
+      return;
+    }
+    const result = await markCOAAccountInactivePlaceholder(selectedCOAAccount.id, reason, staffName);
+    setCOAAccounts(result.accounts);
+    setAccountingActivity(result.activity);
+    closeCOAModal();
+    showFeedback('success', `${selectedCOAAccount.accountCode} marked inactive locally.`);
+  };
+
+  const handleCOAReactivate = async (account: COAAccount) => {
+    const reason = coaReason.trim();
+    if (!reason) {
+      showFeedback('error', 'Reason / owner note is required before reactivation.');
+      return;
+    }
+    const result = await reactivateCOAAccountPlaceholder(account.id, 'Draft', reason, staffName);
+    setCOAAccounts(result.accounts);
+    setAccountingActivity(result.activity);
+    closeCOAModal();
+    showFeedback('success', `${account.accountCode} reactivated as Draft locally.`);
+  };
+
+  const handleCOAOwnerNote = async () => {
+    if (!selectedCOAAccount) return;
+    const note = coaReason.trim();
+    if (!note) {
+      showFeedback('error', 'Owner note is required.');
+      return;
+    }
+    const result = await updateCOAAccountPlaceholder(selectedCOAAccount.id, { notes: note }, staffName, 'COA_ACCOUNT_OWNER_NOTE_ADDED');
+    setCOAAccounts(result.accounts);
+    setAccountingActivity(result.activity);
+    closeCOAModal();
+    showFeedback('success', `${selectedCOAAccount.accountCode} owner note saved locally.`);
+  };
+
+  const handleCOACreateReplacement = async (account: COAAccount) => {
+    const result = await createCOAReplacementPlaceholder(account, staffName);
+    setCOAAccounts(result.accounts);
+    setAccountingActivity(result.activity);
+    showFeedback('success', `${result.account.accountCode} replacement draft created locally.`);
+  };
+
+  const handleCOAPrint = async (account: COAAccount) => {
+    const fields = coaAccountFields(account);
+    const printWindow = window.open('', '_blank', 'width=760,height=900');
+    if (!printWindow) {
+      showFeedback('error', 'Print window was blocked by the browser.');
+      return;
+    }
+    printWindow.document.write(buildOwnerDeskPrintHtml('COA Account Detail', `${account.accountCode} ${account.accountName}`, fields));
+    printWindow.document.close();
+    printWindow.focus();
+    printWindow.print();
+    setAccountingActivity(await recordAccountingActivity('COA_ACCOUNT_DETAIL_PRINTED', `${account.accountCode} account detail printed locally.`, staffName));
+  };
+
+  const handleCOAExport = async (account: COAAccount) => {
+    const fields = coaAccountFields(account);
+    const csv = `${fields.map(([label]) => `"${label.replace(/"/g, '""')}"`).join(',')}\n${fields.map(([, value]) => `"${value.replace(/"/g, '""')}"`).join(',')}`;
+    const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8;' }));
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `coa-account-${account.accountCode}.csv`;
+    link.click();
+    URL.revokeObjectURL(url);
+    setAccountingActivity(await recordAccountingActivity('COA_ACCOUNT_ROW_EXPORTED', `${account.accountCode} account row exported locally.`, staffName));
+    showFeedback('success', `${account.accountCode} export prepared locally.`);
+  };
+
   const refreshInventoryAccounting = async (readinessId?: string) => {
     const [nextRows, nextSummary, nextActivity] = await Promise.all([
       getInventoryAccountingReadinessRecords(inventoryAccountingFilters),
@@ -1195,14 +1306,14 @@ export default function PosOwnerDesk({ session }: PosOwnerDeskProps) {
 
       {activeTab === 'Accounting Desk' && (
         <div className="space-y-5">
-          <div className="industrial-toolbar">
+          <div className="pos-page-action-menu pos-compact-tab-row">
             {accountingTabs.map((tab) => (
               <button
                 key={tab}
                 onClick={() => setActiveAccountingTab(tab)}
-                className={`industrial-tab ${
+                className={`pos-page-action-tab pos-owner-tab ${
                   activeAccountingTab === tab
-                    ? 'active'
+                    ? 'pos-page-action-tab-active'
                     : ''
                 }`}
               >
@@ -1225,17 +1336,39 @@ export default function PosOwnerDesk({ session }: PosOwnerDeskProps) {
                 </div>
               </Panel>
               <Panel title="Chart of Accounts Placeholder" icon={<DollarSign className="w-4 h-4 text-orange-500" />}>
-                <Table>
-                  <thead><tr><Th>Account Code</Th><Th>Account Name</Th><Th>Account Type</Th><Th>Linked Domain</Th><Th>Status</Th><Th>Action</Th></tr></thead>
+                <div className="owner-desk-scroll-body pos-custom-scroll">
+                  <table className="owner-desk-table coa-account-table">
+                  <thead><tr><th>Account Code</th><th>Account Name</th><th>Account Type</th><th>Linked Domain</th><th>Status</th><th>Action</th></tr></thead>
                   <tbody>
                     {coaAccounts.map((account) => (
-                      <tr key={account.id} className="border-t border-slate-100 hover:bg-slate-50">
-                        <Td strong>{account.accountCode}</Td><Td>{account.accountName}</Td><Td>{account.accountType}</Td><Td>{account.linkedDomain}</Td><Td><Badge value={account.status} /></Td>
-                        <Td><div className="flex gap-1"><SmallAction onClick={() => undefined}>View</SmallAction><SmallAction onClick={() => undefined}>Edit Draft</SmallAction><SmallAction onClick={() => undefined}>Mark Inactive</SmallAction></div></Td>
+                      <tr key={account.id}>
+                        <td><strong>{account.accountCode}</strong></td>
+                        <td className="owner-desk-wrap-cell">{account.accountName}<span>{account.notes || 'Accounting readiness placeholder'}</span></td>
+                        <td>{account.accountType}</td>
+                        <td>{account.linkedDomain}</td>
+                        <td><Badge value={account.status} /></td>
+                        <td className="owner-desk-row-actions">
+                          <COAAccountActionMenu
+                            account={account}
+                            openId={openCOAMenuId}
+                            setOpenId={setOpenCOAMenuId}
+                            can={(permission) => hasCashPermission(permission)}
+                            onView={() => void openCOAModal(account, 'detail')}
+                            onEditDraft={() => void openCOAModal(account, 'edit')}
+                            onViewMapping={() => void openCOAModal(account, 'detail')}
+                            onMarkInactive={() => void openCOAModal(account, 'inactive')}
+                            onReactivate={() => void openCOAModal(account, 'reactivate')}
+                            onReplacement={() => void handleCOACreateReplacement(account)}
+                            onAddNote={() => void openCOAModal(account, 'note')}
+                            onPrint={() => void handleCOAPrint(account)}
+                            onExport={() => void handleCOAExport(account)}
+                          />
+                        </td>
                       </tr>
                     ))}
                   </tbody>
-                </Table>
+                  </table>
+                </div>
               </Panel>
             </div>
           )}
@@ -1576,6 +1709,38 @@ export default function PosOwnerDesk({ session }: PosOwnerDeskProps) {
           onNoteChange={setOwnerActionNote}
           onClose={() => setOwnerActionModal(null)}
           onSave={() => void handleOwnerActionNoteSave()}
+        />
+      )}
+
+      {selectedCOAAccount && coaModalMode === 'detail' && (
+        <COAAccountDetailModal
+          account={selectedCOAAccount}
+          onClose={closeCOAModal}
+          onEditDraft={() => setCOAModalMode('edit')}
+          onMarkInactive={() => setCOAModalMode('inactive')}
+          onAddNote={() => setCOAModalMode('note')}
+          onPrint={() => void handleCOAPrint(selectedCOAAccount)}
+          onExport={() => void handleCOAExport(selectedCOAAccount)}
+        />
+      )}
+
+      {selectedCOAAccount && coaModalMode === 'edit' && (
+        <COAAccountEditDraftModal
+          account={selectedCOAAccount}
+          accounts={coaAccounts}
+          onClose={closeCOAModal}
+          onSave={(changes) => void handleCOAEditSave(changes)}
+        />
+      )}
+
+      {selectedCOAAccount && (coaModalMode === 'inactive' || coaModalMode === 'reactivate' || coaModalMode === 'note') && (
+        <COAAccountReasonModal
+          account={selectedCOAAccount}
+          mode={coaModalMode}
+          reason={coaReason}
+          onReasonChange={setCOAReason}
+          onClose={closeCOAModal}
+          onConfirm={coaModalMode === 'inactive' ? () => void handleCOAMarkInactive() : coaModalMode === 'note' ? () => void handleCOAOwnerNote() : () => void handleCOAReactivate(selectedCOAAccount)}
         />
       )}
     </div>
@@ -2184,6 +2349,109 @@ function OwnerDeskRowActionMenu({
   );
 }
 
+function COAAccountActionMenu({
+  account,
+  openId,
+  setOpenId,
+  can,
+  onView,
+  onEditDraft,
+  onViewMapping,
+  onMarkInactive,
+  onReactivate,
+  onReplacement,
+  onAddNote,
+  onPrint,
+  onExport
+}: {
+  account: COAAccount;
+  openId: string | null;
+  setOpenId: (id: string | null) => void;
+  can: (permission: PermissionKey) => boolean;
+  onView: () => void;
+  onEditDraft: () => void;
+  onViewMapping: () => void;
+  onMarkInactive: () => void;
+  onReactivate: () => void;
+  onReplacement: () => void;
+  onAddNote: () => void;
+  onPrint: () => void;
+  onExport: () => void;
+}) {
+  const isDraft = account.status === 'Draft';
+  const isInactive = account.status === 'Inactive';
+  return (
+    <OwnerDeskRowActionMenu
+      id={`coa-${account.id}`}
+      openId={openId}
+      setOpenId={setOpenId}
+      ariaLabel={`COA account actions for ${account.accountCode}`}
+      items={[
+        can('ownerDesk.accountingDesk.coa.view') && { label: 'View Account Detail', icon: <Eye className="w-3.5 h-3.5" />, onClick: onView },
+        isDraft && can('ownerDesk.accountingDesk.coa.editDraft') && { label: 'Edit Draft', icon: <FileText className="w-3.5 h-3.5" />, onClick: onEditDraft },
+        !isDraft && can('ownerDesk.accountingDesk.coa.view') && { label: 'View Mapping', icon: <FileText className="w-3.5 h-3.5" />, onClick: onViewMapping },
+        !isInactive && can('ownerDesk.accountingDesk.coa.markInactive') && { label: 'Mark Inactive', icon: <XCircle className="w-3.5 h-3.5" />, onClick: onMarkInactive },
+        isInactive && can('ownerDesk.accountingDesk.coa.reactivate') && { label: 'Reactivate Placeholder', icon: <RefreshCw className="w-3.5 h-3.5" />, onClick: onReactivate },
+        can('ownerDesk.accountingDesk.coa.create') && { label: 'Create Replacement Account', icon: <ClipboardCheck className="w-3.5 h-3.5" />, onClick: onReplacement },
+        can('ownerDesk.accountingDesk.coa.addNote') && { label: 'Add Owner Note', icon: <StickyNote className="w-3.5 h-3.5" />, onClick: onAddNote },
+        can('ownerDesk.accountingDesk.coa.print') && { label: 'Print Account Detail', icon: <Printer className="w-3.5 h-3.5" />, onClick: onPrint },
+        can('ownerDesk.accountingDesk.coa.export') && { label: 'Export Row', icon: <Download className="w-3.5 h-3.5" />, onClick: onExport }
+      ]}
+    />
+  );
+}
+
+function COAAccountReasonModal({
+  account,
+  mode,
+  reason,
+  onReasonChange,
+  onClose,
+  onConfirm
+}: {
+  account: COAAccount;
+  mode: Exclude<COAAccountModalMode, 'detail' | 'edit'>;
+  reason: string;
+  onReasonChange: (value: string) => void;
+  onClose: () => void;
+  onConfirm: () => void;
+}) {
+  const title = mode === 'inactive' ? 'Mark COA Account Inactive' : mode === 'reactivate' ? 'Reactivate COA Placeholder' : 'Add COA Owner Note';
+  const actionLabel = mode === 'inactive' ? 'Confirm Mark Inactive' : mode === 'reactivate' ? 'Confirm Reactivate' : 'Save Owner Note';
+  return (
+    <div className="owner-cash-modal-backdrop" role="dialog" aria-modal="true" aria-label={title}>
+      <div className="owner-cash-modal coa-account-modal">
+        <div className="owner-cash-modal-header">
+          <div>
+            <span>Accounting readiness preview only. Not final posted accounts.</span>
+            <h3>{title}</h3>
+          </div>
+          <button type="button" onClick={onClose}>Close</button>
+        </div>
+        <div className="owner-cash-modal-body pos-custom-scroll">
+          <div className="owner-cash-detail-grid">
+            <InfoBox label="Account Code" value={account.accountCode} />
+            <InfoBox label="Account Name" value={account.accountName} />
+            <InfoBox label="Current Status" value={account.status} />
+            <InfoBox label="Linked Domain" value={account.linkedDomain} />
+          </div>
+          {mode === 'inactive' && (
+            <div className="owner-cash-warning">This will prevent this placeholder account from being used in new accounting-readiness mappings. Existing history remains visible.</div>
+          )}
+          <label className="owner-cash-note-field">
+            <span>Reason / Owner Note</span>
+            <textarea value={reason} onChange={(event) => onReasonChange(event.target.value)} rows={5} placeholder="Enter reason or owner note" />
+          </label>
+        </div>
+        <div className="owner-cash-modal-actions">
+          <button type="button" className="industrial-primary-button" onClick={onConfirm}>{actionLabel}</button>
+          <button type="button" className="industrial-secondary-button" onClick={onClose}>Cancel</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function ActionButton({ children, icon, onClick }: { children: React.ReactNode; icon: React.ReactNode; onClick: () => void }) {
   return (
     <button onClick={onClick} className="industrial-primary-button w-full min-h-[48px] justify-start text-left">
@@ -2247,6 +2515,23 @@ function paymentFields(row: EODPaymentSummary): Array<[string, string]> {
     ['Reconciled', displayAmount(row.declaredOrConfirmed)],
     ['Variance', displayAmount(row.variance)],
     ['Status', row.status]
+  ];
+}
+
+function coaAccountFields(account: COAAccount): Array<[string, string]> {
+  return [
+    ['Account Code', account.accountCode],
+    ['Account Name', account.accountName],
+    ['Account Type', account.accountType],
+    ['Linked Domain', account.linkedDomain],
+    ['Status', account.status],
+    ['Notes', account.notes || 'No notes recorded'],
+    ['Created By', account.createdBy || 'Owner Desk'],
+    ['Created At', account.createdAt || 'Local placeholder seed'],
+    ['Updated At', account.updatedAt || 'No local update'],
+    ['Used In Accounting Readiness Areas', `${account.linkedDomain} readiness preview`],
+    ['Linked Transaction Domains', `${account.linkedDomain}, EOD Accounting, Owner Desk Accounting Preview`],
+    ['Audit / Activity History', account.inactiveReason || account.notes || 'Visible in local accounting readiness history']
   ];
 }
 

@@ -7272,6 +7272,98 @@ div[class*="border-t border-r border-amber"] {
   padding: 0.7rem 0.85rem;
 }
 
+.coa-account-table {
+  min-width: 760px;
+}
+
+.coa-account-table th:last-child,
+.coa-account-table td:last-child {
+  width: 48px;
+  text-align: center;
+}
+
+.coa-account-modal {
+  width: min(900px, 90vw);
+  max-height: 90vh;
+}
+
+.coa-account-modal-section {
+  background: #ffffff;
+  border: 1px solid var(--sci-border);
+  border-radius: var(--radius-card);
+  display: grid;
+  gap: 0.35rem;
+  padding: 0.65rem;
+}
+
+.coa-account-modal-section span,
+.coa-edit-grid label > span {
+  color: var(--sci-orange-dark);
+  font-size: 9px;
+  font-weight: 500;
+  text-transform: uppercase;
+}
+
+.coa-account-modal-section p {
+  color: var(--sci-text-strong);
+  font-size: 11px;
+  font-weight: 600;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.coa-account-chip-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.coa-account-chip-row b {
+  background: #fff7ed;
+  border: 1px solid rgba(242, 106, 27, 0.35);
+  border-radius: var(--radius-control);
+  color: var(--sci-orange-dark);
+  font-size: 10px;
+  font-weight: 650;
+  padding: 0.25rem 0.45rem;
+  text-transform: uppercase;
+}
+
+.coa-edit-grid {
+  display: grid;
+  gap: 0.55rem;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.coa-edit-grid label {
+  display: grid;
+  gap: 0.25rem;
+  min-width: 0;
+}
+
+.coa-edit-grid-wide {
+  grid-column: 1 / -1;
+}
+
+.coa-edit-grid input,
+.coa-edit-grid select,
+.coa-edit-grid textarea {
+  background: #ffffff;
+  border: 1px solid var(--sci-border-strong);
+  border-radius: var(--radius-control);
+  color: var(--sci-text-strong);
+  font-size: 11px;
+  font-weight: 600;
+  min-height: 2rem;
+  padding: 0.45rem 0.5rem;
+  width: 100%;
+}
+
+.coa-edit-grid textarea {
+  min-height: 7rem;
+  resize: vertical;
+}
+
 .industrial-section label > span,
 .industrial-section .it-card-label {
   color: var(--sci-orange-dark) !important;

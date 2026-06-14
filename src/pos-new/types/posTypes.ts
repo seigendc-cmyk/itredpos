@@ -5669,6 +5669,10 @@ export interface COAAccount {
   linkedDomain: string;
   status: COAAccountStatus;
   notes?: string;
+  createdBy?: string;
+  createdAt?: string;
+  updatedAt?: string;
+  inactiveReason?: string;
 }
 
 export interface AccountingPostingLine {
@@ -5938,6 +5942,14 @@ export interface InventoryValuationSnapshot {
 }
 
 export type AccountingActivityEventType =
+  | 'COA_ACCOUNT_VIEWED'
+  | 'COA_ACCOUNT_DRAFT_EDITED'
+  | 'COA_ACCOUNT_MARKED_INACTIVE'
+  | 'COA_ACCOUNT_REACTIVATED'
+  | 'COA_ACCOUNT_OWNER_NOTE_ADDED'
+  | 'COA_ACCOUNT_DETAIL_PRINTED'
+  | 'COA_ACCOUNT_ROW_EXPORTED'
+  | 'COA_ACCOUNT_REPLACEMENT_CREATED'
   | 'SALES_POSTING_REVIEWED'
   | 'PAYMENT_POSTING_REVIEWED'
   | 'CASHBOOK_ENTRY_CREATED'
