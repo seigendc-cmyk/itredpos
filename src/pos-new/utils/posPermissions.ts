@@ -23,6 +23,8 @@ export type PermissionKey =
   | 'sales.duplicateReceipt'
   | 'sales.paymentDetail.view'
   | 'sales.creditRedeem'
+  | 'sales.creditSale'
+  | 'sales.creditSale.override'
   | 'sales.loyalty'
   | 'sales.accountSale'
   | 'sales.profitSnapshot.view'
@@ -60,6 +62,18 @@ export type PermissionKey =
   | 'customers.notes.create'
   | 'customers.purchaseHistory.view'
   | 'customers.creditView'
+  | 'customers.credit.view'
+  | 'customers.credit.manage'
+  | 'customers.credit.setLimit'
+  | 'customers.credit.suspend'
+  | 'customers.credit.recordPayment'
+  | 'customers.credit.writeOff'
+  | 'customers.credit.ageing.view'
+  | 'customers.credit.ageing.configure'
+  | 'customers.creditWorthiness.view'
+  | 'customers.behaviourAnalytics.view'
+  | 'customers.whatsappReminder'
+  | 'customers.credit.export'
   | 'customers.creditReview'
   | 'customers.export'
   | 'customers.whatsappMessage'
@@ -259,6 +273,8 @@ const ALL_PERMISSIONS: PermissionKey[] = [
   'sales.duplicateReceipt',
   'sales.paymentDetail.view',
   'sales.creditRedeem',
+  'sales.creditSale',
+  'sales.creditSale.override',
   'sales.loyalty',
   'sales.accountSale',
   'sales.profitSnapshot.view',
@@ -296,6 +312,18 @@ const ALL_PERMISSIONS: PermissionKey[] = [
   'customers.notes.create',
   'customers.purchaseHistory.view',
   'customers.creditView',
+  'customers.credit.view',
+  'customers.credit.manage',
+  'customers.credit.setLimit',
+  'customers.credit.suspend',
+  'customers.credit.recordPayment',
+  'customers.credit.writeOff',
+  'customers.credit.ageing.view',
+  'customers.credit.ageing.configure',
+  'customers.creditWorthiness.view',
+  'customers.behaviourAnalytics.view',
+  'customers.whatsappReminder',
+  'customers.credit.export',
   'customers.creditReview',
   'customers.export',
   'customers.whatsappMessage',
@@ -482,7 +510,7 @@ const ROLE_PERMISSIONS: Record<Role, PermissionKey[]> = {
   Manager: [
     'sales.open', 'sales.create', 'sales.complete', 'sales.hold', 'sales.viewHistory', 'sales.discount', 'sales.priceOverride', 'sales.void', 'sales.reprintReceipt', 'receipt.pdf', 'receipt.whatsappShare',
     'sales.return', 'sales.creditNote', 'sales.duplicateReceipt', 'sales.paymentDetail.view',
-    'sales.creditRedeem', 'sales.loyalty', 'sales.accountSale',
+    'sales.creditRedeem', 'sales.creditSale', 'sales.creditSale.override', 'sales.loyalty', 'sales.accountSale',
     'sales.profitSnapshot.view', 'sales.profitSnapshot.generate', 'sales.profitSnapshot.export', 'sales.profitSnapshot.print',
     'sales.miscellaneous.create', 'sales.miscellaneous.review', 'sales.miscellaneous.approve',
     'returns.request', 'returns.approve', 'creditNotes.request', 'creditNotes.approve',
@@ -491,7 +519,7 @@ const ROLE_PERMISSIONS: Record<Role, PermissionKey[]> = {
     'cashDrawer.assign', 'cashDrawer.release',
     'payment.capture',
     'customers.view', 'customers.createRequest', 'customers.createDirect', 'customers.edit', 'customers.suspend', 'customers.reactivate',
-    'customers.notes.view', 'customers.notes.create', 'customers.purchaseHistory.view', 'customers.creditView', 'customers.creditReview',
+    'customers.notes.view', 'customers.notes.create', 'customers.purchaseHistory.view', 'customers.creditView', 'customers.credit.view', 'customers.credit.manage', 'customers.credit.setLimit', 'customers.credit.suspend', 'customers.credit.recordPayment', 'customers.credit.writeOff', 'customers.credit.ageing.view', 'customers.credit.ageing.configure', 'customers.creditWorthiness.view', 'customers.behaviourAnalytics.view', 'customers.whatsappReminder', 'customers.credit.export', 'customers.creditReview',
     'customers.export', 'customers.whatsappMessage', 'customers.useInSale', 'customers.requests.create', 'customers.requests.approve', 'customers.approve',
     'inventory.view', 'inventory.import', 'inventory.approveImport', 'inventory.adjust', 'inventory.approveAdjustment',
     'productMaster.view', 'productMaster.create', 'productMaster.edit', 'productMaster.activate', 'productMaster.block', 'productMaster.export',
@@ -524,14 +552,14 @@ const ROLE_PERMISSIONS: Record<Role, PermissionKey[]> = {
   Supervisor: [
     'sales.open', 'sales.create', 'sales.complete', 'sales.hold', 'sales.viewHistory', 'sales.discount', 'sales.priceOverride', 'sales.void', 'sales.reprintReceipt', 'receipt.whatsappShare',
     'sales.return', 'sales.paymentDetail.view',
-    'sales.loyalty',
+    'sales.creditSale', 'sales.creditSale.override', 'sales.loyalty',
     'sales.miscellaneous.create', 'sales.miscellaneous.review',
     'returns.request', 'returns.approve', 'creditNotes.request',
     'shift.view', 'shift.open', 'shift.close', 'shift.eodReport.view', 'terminal.readinessCheck', 'terminal.history.view', 'shift.recovery.restore',
     'cashDrawer.assign', 'cashDrawer.release',
     'payment.capture',
     'customers.view', 'customers.createRequest', 'customers.createDirect', 'customers.edit', 'customers.notes.view', 'customers.notes.create',
-    'customers.useInSale', 'customers.requests.create', 'customers.creditView',
+    'customers.useInSale', 'customers.requests.create', 'customers.creditView', 'customers.credit.view', 'customers.credit.ageing.view', 'customers.credit.recordPayment', 'customers.creditWorthiness.view', 'customers.behaviourAnalytics.view', 'customers.whatsappReminder',
     'inventory.view',
     'productMaster.view', 'productMaster.create', 'productMaster.edit',
     'openingBalance.view', 'openingBalance.create',
@@ -558,7 +586,7 @@ const ROLE_PERMISSIONS: Record<Role, PermissionKey[]> = {
   ],
   Cashier: [
     'sales.open', 'sales.create', 'sales.complete', 'sales.hold', 'sales.viewHistory', 'sales.reprintReceipt', 'receipt.whatsappShare',
-    'sales.paymentDetail.view',
+    'sales.paymentDetail.view', 'sales.creditSale',
     'sales.miscellaneous.create',
     'returns.request', 'creditNotes.request',
     'shift.view', 'shift.open', 'shift.close', 'terminal.history.view', 'shift.recovery.restore',

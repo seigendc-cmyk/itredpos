@@ -18,10 +18,19 @@ import {
   X
 } from 'lucide-react';
 import NewCustomerModal from '../components/NewCustomerModal';
+import CustomerCreditWorthinessPanel from '../components/CustomerCreditWorthinessPanel';
+import RecordDebtPaymentModal from '../components/RecordDebtPaymentModal';
 import RowActionMenu, { RowActionMenuItem } from '../components/RowActionMenu';
 import {
+  CustomerAgeingAnalysis,
+  CustomerAgeingIntervalConfig,
   CustomerActivityEvent,
+  CustomerBehaviourAnalytics,
+  CustomerBuyingPreferenceProfile,
+  CustomerCreditProfile,
   CustomerCreditStatus,
+  CustomerCreditWorthinessScore,
+  CustomerDebtRecord,
   CustomerFilterState,
   CustomerNote,
   CustomerPurchaseHistoryRow,
@@ -33,6 +42,19 @@ import {
   PosSession,
   Role
 } from '../types';
+import {
+  calculateCustomerAgeingAnalysis,
+  calculateCustomerBehaviourAnalytics,
+  calculateCustomerBuyingPreferences,
+  calculateCustomerCreditWorthiness,
+  createCustomerCreditApprovalRequest,
+  createCustomerCreditBIAdvice,
+  getAgeingIntervalConfigs,
+  getCustomerCreditActivityEvents,
+  getCustomerCreditProfile,
+  recordCustomerDebtPayment,
+  saveAgeingIntervalConfig
+} from '../services/customerCreditService';
 import {
   addCustomerNote,
   approveCustomer,
@@ -60,9 +82,9 @@ interface PosCustomerDeskProps {
   onNavigate?: (page: string) => void;
 }
 
-type CustomerTab = 'Customer List' | 'Customer Requests' | 'Customer Profile' | 'Purchase History' | 'Customer Notes' | 'Customer Activity';
+type CustomerTab = 'Customer List' | 'Customer Requests' | 'Customer Profile' | 'Purchase History' | 'Credit & Ageing' | 'Buying Behaviour' | 'Customer Notes' | 'Customer Activity';
 
-const tabs: CustomerTab[] = ['Customer List', 'Customer Requests', 'Customer Profile', 'Purchase History', 'Customer Notes', 'Customer Activity'];
+const tabs: CustomerTab[] = ['Customer List', 'Customer Requests', 'Customer Profile', 'Purchase History', 'Credit & Ageing', 'Buying Behaviour', 'Customer Notes', 'Customer Activity'];
 const customerTypes: Array<CustomerType | 'All'> = ['All', 'Walk-in', 'Individual', 'Business', 'Government', 'School', 'Fleet Customer', 'Dealer', 'Internal Account'];
 const customerStatuses: Array<CustomerStatus | 'All'> = ['All', 'Pending Approval', 'Active', 'Rejected', 'Duplicate', 'Suspended', 'Inactive'];
 const creditStatuses: Array<CustomerCreditStatus | 'All'> = ['All', 'Cash Only', 'Credit Allowed', 'Credit Suspended', 'Credit Review Required', 'Not Applicable'];
@@ -121,6 +143,14 @@ export default function PosCustomerDesk({ session, onNavigate }: PosCustomerDesk
   const [notice, setNotice] = useState('');
   const [newCustomerOpen, setNewCustomerOpen] = useState(false);
   const [editCustomer, setEditCustomer] = useState<CustomerRecord | null>(null);
+  const [ageingAnalysis, setAgeingAnalysis] = useState<CustomerAgeingAnalysis | null>(null);
+  const [creditProfile, setCreditProfile] = useState<CustomerCreditProfile | null>(null);
+  const [creditScore, setCreditScore] = useState<CustomerCreditWorthinessScore | null>(null);
+  const [buyingPreferences, setBuyingPreferences] = useState<CustomerBuyingPreferenceProfile | null>(null);
+  const [behaviourAnalytics, setBehaviourAnalytics] = useState<CustomerBehaviourAnalytics | null>(null);
+  const [ageingConfigs, setAgeingConfigs] = useState<CustomerAgeingIntervalConfig[]>([]);
+  const [ageingDraft, setAgeingDraft] = useState<CustomerAgeingIntervalConfig | null>(null);
+  const [paymentDebt, setPaymentDebt] = useState<CustomerDebtRecord | null>(null);
 
   const selectedCustomer = customers.find((customer) => customer.customerId === selectedCustomerId) || customers[0] || null;
   const canCreateDirect = hasPermission(roleName, 'customers.createDirect');
@@ -133,14 +163,38 @@ export default function PosCustomerDesk({ session, onNavigate }: PosCustomerDesk
   };
 
   const loadSelectedDetails = async (customerId: string) => {
-    const [historyRows, noteRows, activityRows] = await Promise.all([
+    const [historyRows, noteRows, activityRows, profile, score, analysis, configs, preferences, behaviour, creditEvents] = await Promise.all([
       getCustomerPurchaseHistory(customerId),
       getCustomerNotes(customerId),
-      getCustomerActivityEvents(customerId)
+      getCustomerActivityEvents(customerId),
+      getCustomerCreditProfile(customerId),
+      calculateCustomerCreditWorthiness(customerId),
+      calculateCustomerAgeingAnalysis({ customerId }),
+      Promise.resolve(getAgeingIntervalConfigs()),
+      calculateCustomerBuyingPreferences(customerId),
+      calculateCustomerBehaviourAnalytics(customerId),
+      getCustomerCreditActivityEvents({ customerId })
     ]);
     setHistory(historyRows);
     setNotes(noteRows);
-    setActivity(activityRows);
+    setActivity([
+      ...creditEvents.map((event) => ({
+        id: event.id,
+        customerId: event.customerId,
+        dateTime: event.dateTime,
+        eventType: 'CUSTOMER_CREDIT_REVIEW_REQUIRED' as const,
+        user: event.user,
+        notes: `${event.eventType}: ${event.notes}`
+      })),
+      ...activityRows
+    ]);
+    setCreditProfile(profile);
+    setCreditScore(score);
+    setAgeingAnalysis(analysis);
+    setAgeingConfigs(configs);
+    setAgeingDraft(configs.find((config) => config.active) || configs[0] || null);
+    setBuyingPreferences(preferences);
+    setBehaviourAnalytics(behaviour);
   };
 
   useEffect(() => {
@@ -308,6 +362,97 @@ export default function PosCustomerDesk({ session, onNavigate }: PosCustomerDesk
     setNotice(await exportCustomerListPlaceholder(filters));
   };
 
+  const refreshCreditPanels = async (customerId = selectedCustomerId) => {
+    if (!customerId) return;
+    await loadSelectedDetails(customerId);
+  };
+
+  const handleSaveAgeingConfig = async () => {
+    if (!ageingDraft) return;
+    if (!requirePermission('customers.credit.ageing.configure')) return;
+    try {
+      saveAgeingIntervalConfig(ageingDraft);
+      await refreshCreditPanels();
+      setNotice('Ageing interval config saved locally.');
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : 'Ageing config validation failed.');
+    }
+  };
+
+  const handleDebtAction = async (debt: CustomerDebtRecord, action: string) => {
+    if (action === 'Record Payment') {
+      if (!requirePermission('customers.credit.recordPayment')) return;
+      setPaymentDebt(debt);
+      return;
+    }
+    if (action === 'Open Customer Profile') {
+      setSelectedCustomerId(debt.customerId);
+      setActiveTab('Customer Profile');
+      return;
+    }
+    if (action === 'Send WhatsApp Reminder') {
+      if (!requirePermission('customers.whatsappReminder')) return;
+      setNotice(`Local WhatsApp reminder prepared for ${debt.customerName}: ${money(debt.outstandingAmount)} due ${new Date(debt.dueDate).toLocaleDateString()}.`);
+      return;
+    }
+    if (action === 'Escalate to Manager' || action === 'Mark Written Off') {
+      if (action === 'Mark Written Off' && !requirePermission('customers.credit.writeOff')) return;
+      await createCustomerCreditApprovalRequest({
+        customerName: debt.customerName,
+        requestedBy: session.staffName,
+        requestedByRole: roleName,
+        branchId: debt.branchId,
+        branch: debt.branchName,
+        relatedRecord: debt.receiptNumber,
+        amountOrValue: money(debt.outstandingAmount),
+        risk: action === 'Mark Written Off' ? 'High' : 'Medium',
+        reason: action,
+        context: `${action} requested locally from Customer Centre.`
+      });
+      setNotice(`${action} approval request created locally.`);
+      return;
+    }
+    if (action === 'Create Follow-up Task') {
+      await createCustomerCreditBIAdvice('CUSTOMER_CREDIT_FOLLOW_UP_TASK', debt.customerName, `Follow up ${debt.customerName} for ${money(debt.outstandingAmount)} on ${debt.receiptNumber}.`, 'Medium');
+      setNotice('Follow-up task placeholder created in BI Advice Flow.');
+      return;
+    }
+    if (action === 'Mark Disputed') {
+      await createCustomerCreditBIAdvice('CUSTOMER_DEBT_DISPUTED', debt.customerName, `${debt.receiptNumber} marked disputed locally.`, 'Medium');
+      setNotice('Debt dispute logged locally.');
+      return;
+    }
+    if (action === 'Export Row') {
+      if (!requirePermission('customers.credit.export')) return;
+      exportCsv(`${debt.receiptNumber}-debt.csv`, [
+        ['Customer', 'Receipt', 'Sale Date', 'Due Date', 'Original', 'Paid', 'Outstanding', 'Overdue Days', 'Ageing Bucket', 'Status'],
+        [debt.customerName, debt.receiptNumber, debt.saleDate, debt.dueDate, String(debt.originalAmount), String(debt.paidAmount), String(debt.outstandingAmount), String(debt.overdueDays), debt.ageingBucket, debt.status]
+      ]);
+      setNotice('Debt row exported.');
+      return;
+    }
+    setNotice(`${action} opened locally for ${debt.receiptNumber}.`);
+  };
+
+  const handleRecordDebtPayment = async (payload: {
+    debtId: string;
+    customerId: string;
+    amount: number;
+    paymentMethod: string;
+    reference: string;
+    notes: string;
+    receivedByStaffId: string;
+  }) => {
+    try {
+      await recordCustomerDebtPayment(payload);
+      setPaymentDebt(null);
+      await refreshCreditPanels(payload.customerId);
+      setNotice('Debt payment recorded locally.');
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : 'Debt payment could not be recorded.');
+    }
+  };
+
   const customerActionItems = (customer: CustomerRecord): RowActionMenuItem[] => [
     { label: 'View Customer', icon: <Eye size={15} />, onClick: () => handleProfile(customer), disabled: !hasPermission(roleName, 'customers.view') },
     { label: 'Edit Customer', icon: <Edit3 size={15} />, onClick: () => setEditCustomer(customer), disabled: !hasPermission(roleName, 'customers.edit') },
@@ -430,6 +575,29 @@ export default function PosCustomerDesk({ session, onNavigate }: PosCustomerDesk
           : <EmptyState title="No Customer Selected" message="Select a customer to view purchase history." />
       )}
 
+      {activeTab === 'Credit & Ageing' && (
+        selectedCustomer
+          ? <CreditAgeingTab
+              customer={selectedCustomer}
+              analysis={ageingAnalysis}
+              profile={creditProfile}
+              score={creditScore}
+              configs={ageingConfigs}
+              draft={ageingDraft}
+              canConfigure={hasPermission(roleName, 'customers.credit.ageing.configure')}
+              onDraftChange={setAgeingDraft}
+              onSaveConfig={handleSaveAgeingConfig}
+              onDebtAction={handleDebtAction}
+            />
+          : <EmptyState title="No Customer Selected" message="Select a customer to view credit and ageing." />
+      )}
+
+      {activeTab === 'Buying Behaviour' && (
+        selectedCustomer
+          ? <BuyingBehaviourTab preferences={buyingPreferences} behaviour={behaviourAnalytics} />
+          : <EmptyState title="No Customer Selected" message="Select a customer to view buying behaviour." />
+      )}
+
       {activeTab === 'Customer Notes' && (
         selectedCustomer
           ? <section className="sci-pos-card">
@@ -474,6 +642,8 @@ export default function PosCustomerDesk({ session, onNavigate }: PosCustomerDesk
           </section>
         </div>
       )}
+
+      <RecordDebtPaymentModal debt={paymentDebt} receivedBy={session.staffName} onClose={() => setPaymentDebt(null)} onRecord={handleRecordDebtPayment} />
     </div>
   );
 }
@@ -565,6 +735,185 @@ function CustomerProfile({ customer, actionItems }: { customer: CustomerRecord; 
     <section className="sci-pos-card">
       <div className="sci-pos-card__bar"><div><p className="sci-pos-eyebrow">Profile</p><h2>Customer Profile</h2></div><RowActionMenu ariaLabel={`Actions for ${customer.customerName}`} open={open} items={actionItems} onOpenChange={setOpen} /></div>
       <div className="pos-customer-profile-grid">{rows.map(([label, value]) => <div key={label}><span>{label}</span><strong>{value}</strong></div>)}</div>
+    </section>
+  );
+}
+
+function CreditAgeingTab({
+  customer,
+  analysis,
+  profile,
+  score,
+  configs,
+  draft,
+  canConfigure,
+  onDraftChange,
+  onSaveConfig,
+  onDebtAction
+}: {
+  customer: CustomerRecord;
+  analysis: CustomerAgeingAnalysis | null;
+  profile: CustomerCreditProfile | null;
+  score: CustomerCreditWorthinessScore | null;
+  configs: CustomerAgeingIntervalConfig[];
+  draft: CustomerAgeingIntervalConfig | null;
+  canConfigure: boolean;
+  onDraftChange: (config: CustomerAgeingIntervalConfig) => void;
+  onSaveConfig: () => void;
+  onDebtAction: (debt: CustomerDebtRecord, action: string) => void | Promise<void>;
+}) {
+  const summary = analysis || {
+    totalCreditCustomers: 0,
+    totalOutstanding: 0,
+    current: 0,
+    dueSoon: 0,
+    overdue1: 0,
+    overdue2: 0,
+    overdue3: 0,
+    overdue4: 0,
+    severeOverdue: 0,
+    overdueCustomers: 0,
+    blockedCustomers: 0,
+    debts: []
+  };
+  const updateDraft = (field: keyof CustomerAgeingIntervalConfig, value: string | boolean) => {
+    if (!draft) return;
+    onDraftChange({ ...draft, [field]: typeof value === 'boolean' || field === 'name' ? value : Number(value) });
+  };
+  return (
+    <div className="pos-credit-ageing-layout">
+      <section className="pos-credit-summary-grid">
+        {[
+          ['Total Credit Customers', summary.totalCreditCustomers],
+          ['Total Outstanding', money(summary.totalOutstanding)],
+          ['Current', money(summary.current)],
+          ['1-30 Days', money(summary.overdue1)],
+          ['31-60 Days', money(summary.overdue2)],
+          ['61-90 Days', money(summary.overdue3)],
+          ['91-120 Days', money(summary.overdue4)],
+          ['120+ Days', money(summary.severeOverdue)],
+          ['Overdue Customers', summary.overdueCustomers],
+          ['Blocked Customers', summary.blockedCustomers]
+        ].map(([label, value]) => <div key={label}><span>{label}</span><strong>{value}</strong></div>)}
+      </section>
+
+      <div className="pos-credit-two-column">
+        <section className="sci-pos-card pos-credit-panel">
+          <div className="sci-pos-card__bar"><div><p className="sci-pos-eyebrow">Credit Profile</p><h2>{customer.customerName}</h2></div><ShieldAlert size={18} /></div>
+          <div className="pos-credit-profile-grid">
+            {[
+              ['Credit Status', profile?.creditStatus || customer.creditStatus],
+              ['Credit Limit', money(profile?.creditLimit ?? customer.creditLimit)],
+              ['Current Balance', money(profile?.currentBalance ?? customer.currentBalance)],
+              ['Available Credit', money(profile?.availableCredit)],
+              ['Overdue Balance', money(profile?.overdueBalance)],
+              ['Payment Terms', `${profile?.paymentTermsDays || 30} days`],
+              ['Last Payment', profile?.lastPaymentDate ? dateLabel(profile.lastPaymentDate) : 'None'],
+              ['Last Credit Sale', profile?.lastCreditSaleDate ? dateLabel(profile.lastCreditSaleDate) : 'None']
+            ].map(([label, value]) => <div key={label}><span>{label}</span><strong>{value}</strong></div>)}
+          </div>
+        </section>
+        <CustomerCreditWorthinessPanel score={score} profile={profile} />
+      </div>
+
+      <section className="sci-pos-card pos-credit-config-card">
+        <div className="sci-pos-card__bar"><div><p className="sci-pos-eyebrow">Ageing Intervals</p><h2>Credit Ageing Config</h2></div><span>{configs.length} config(s)</span></div>
+        {draft && (
+          <div className="pos-credit-config-grid">
+            <label>Config Name<input disabled={!canConfigure} value={draft.name} onChange={(event) => updateDraft('name', event.target.value)} /></label>
+            <label>Current / Due Soon Days<input disabled={!canConfigure} type="number" value={draft.currentMaxDays} onChange={(event) => updateDraft('currentMaxDays', event.target.value)} /></label>
+            <label>Bucket 1 From<input disabled={!canConfigure} type="number" value={draft.bucket1From} onChange={(event) => updateDraft('bucket1From', event.target.value)} /></label>
+            <label>Bucket 1 To<input disabled={!canConfigure} type="number" value={draft.bucket1To} onChange={(event) => updateDraft('bucket1To', event.target.value)} /></label>
+            <label>Bucket 2 From<input disabled={!canConfigure} type="number" value={draft.bucket2From} onChange={(event) => updateDraft('bucket2From', event.target.value)} /></label>
+            <label>Bucket 2 To<input disabled={!canConfigure} type="number" value={draft.bucket2To} onChange={(event) => updateDraft('bucket2To', event.target.value)} /></label>
+            <label>Bucket 3 From<input disabled={!canConfigure} type="number" value={draft.bucket3From} onChange={(event) => updateDraft('bucket3From', event.target.value)} /></label>
+            <label>Bucket 3 To<input disabled={!canConfigure} type="number" value={draft.bucket3To} onChange={(event) => updateDraft('bucket3To', event.target.value)} /></label>
+            <label>Bucket 4 From<input disabled={!canConfigure} type="number" value={draft.bucket4From} onChange={(event) => updateDraft('bucket4From', event.target.value)} /></label>
+            <label>Bucket 4 To<input disabled={!canConfigure} type="number" value={draft.bucket4To} onChange={(event) => updateDraft('bucket4To', event.target.value)} /></label>
+            <label>Severe From<input disabled={!canConfigure} type="number" value={draft.severeFrom} onChange={(event) => updateDraft('severeFrom', event.target.value)} /></label>
+            <label className="pos-credit-checkbox"><input disabled={!canConfigure} type="checkbox" checked={draft.active} onChange={(event) => updateDraft('active', event.target.checked)} /> Set as Active</label>
+            <button type="button" className="sci-pos-button sci-pos-button--primary" disabled={!canConfigure} onClick={onSaveConfig}>Save Config</button>
+          </div>
+        )}
+      </section>
+
+      <DebtAgeingTable debts={summary.debts} customerStatus={profile?.creditStatus || customer.creditStatus} onDebtAction={onDebtAction} />
+    </div>
+  );
+}
+
+function DebtAgeingTable({ debts, customerStatus, onDebtAction }: { debts: CustomerDebtRecord[]; customerStatus: string; onDebtAction: (debt: CustomerDebtRecord, action: string) => void | Promise<void> }) {
+  const [openMenuId, setOpenMenuId] = useState('');
+  const actionItems = (debt: CustomerDebtRecord): RowActionMenuItem[] => [
+    'View Debt',
+    'Record Payment',
+    'Send WhatsApp Reminder',
+    'Open Customer Profile',
+    'Mark Disputed',
+    'Mark Written Off',
+    'Create Follow-up Task',
+    'Escalate to Manager',
+    'Export Row'
+  ].map((label) => ({ label, icon: <FileText size={15} />, onClick: () => void onDebtAction(debt, label), danger: label === 'Mark Written Off' }));
+  return (
+    <section className="sci-pos-card pos-credit-debt-card">
+      <div className="sci-pos-card__bar"><div><p className="sci-pos-eyebrow">Debt Ageing</p><h2>Customer Debt Table</h2></div><span>{debts.length} debt(s)</span></div>
+      <div className="pos-credit-debt-scroll">
+        <table className="sci-pos-table pos-credit-debt-table">
+          <thead><tr>{['Customer', 'Receipt', 'Sale Date', 'Due Date', 'Original Amount', 'Paid', 'Outstanding', 'Overdue Days', 'Ageing Bucket', 'Credit Status', 'Action'].map((heading) => <th key={heading}>{heading}</th>)}</tr></thead>
+          <tbody>
+            {debts.map((debt) => (
+              <tr key={debt.debtId}>
+                <td>{debt.customerName}</td>
+                <td>{debt.receiptNumber}</td>
+                <td>{new Date(debt.saleDate).toLocaleDateString()}</td>
+                <td>{new Date(debt.dueDate).toLocaleDateString()}</td>
+                <td>{money(debt.originalAmount)}</td>
+                <td>{money(debt.paidAmount)}</td>
+                <td>{money(debt.outstandingAmount)}</td>
+                <td>{debt.overdueDays}</td>
+                <td>{debt.ageingBucket}</td>
+                <td>{customerStatus}</td>
+                <td className="pos-customer-row-actions"><RowActionMenu ariaLabel={`Debt actions for ${debt.receiptNumber}`} open={openMenuId === debt.debtId} items={actionItems(debt)} onOpenChange={(open) => setOpenMenuId(open ? debt.debtId : '')} /></td>
+              </tr>
+            ))}
+            {debts.length === 0 && <EmptyTableRow colSpan={11} label="No debt records found for this customer." />}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  );
+}
+
+function BuyingBehaviourTab({ preferences, behaviour }: { preferences: CustomerBuyingPreferenceProfile | null; behaviour: CustomerBehaviourAnalytics | null }) {
+  const suggestedOffer = behaviour?.segment === 'Dormant'
+    ? 'Send follow-up reminder'
+    : behaviour?.segment === 'DiscountDriven'
+      ? 'Offer controlled bundle pricing'
+      : behaviour?.segment === 'SlowPayer' || behaviour?.segment === 'CreditRisk'
+        ? 'Require deposit before credit'
+        : 'Send service reminder';
+  const rows = [
+    ['Top Categories', preferences?.topCategories.join(', ') || 'None'],
+    ['Top Products', preferences?.topProducts.join(', ') || 'None'],
+    ['Preferred Brands', preferences?.preferredBrands.join(', ') || 'None'],
+    ['Average Basket Value', money(preferences?.averageBasketValue)],
+    ['Purchase Frequency', preferences?.purchaseFrequency || 'None'],
+    ['Last Purchase Date', preferences?.lastPurchaseDate ? dateLabel(preferences.lastPurchaseDate) : 'None'],
+    ['Payment Preference', preferences?.preferredPaymentMethod || 'None'],
+    ['Discount Sensitivity', preferences?.priceSensitivity || 'None'],
+    ['Return Rate', `${Math.round((behaviour?.returnRate || 0) * 100)}%`],
+    ['Credit Usage Rate', `${Math.round((behaviour?.creditUsageRate || 0) * 100)}%`],
+    ['Customer Segment', behaviour?.segment || 'New'],
+    ['Suggested Offer / Reminder', suggestedOffer]
+  ];
+  return (
+    <section className="sci-pos-card pos-buying-behaviour-card">
+      <div className="sci-pos-card__bar"><div><p className="sci-pos-eyebrow">Buying Behaviour</p><h2>Customer Analytics</h2></div><History size={18} /></div>
+      <div className="pos-credit-profile-grid">
+        {rows.map(([label, value]) => <div key={label}><span>{label}</span><strong>{value}</strong></div>)}
+      </div>
+      {behaviour && <div className="pos-credit-reasons"><span>Repeat purchases: {behaviour.repeatPurchaseCount}</span><span>Days since last purchase: {behaviour.daysSinceLastPurchase}</span><span>Reliability: {behaviour.paymentReliabilityScore}/100</span><span>{behaviour.notes}</span></div>}
     </section>
   );
 }

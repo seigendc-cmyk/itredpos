@@ -54,11 +54,22 @@ export default function ReceiptPreview80mm({ preview }: ReceiptPreview80mmProps)
             <strong>USD {payment.amount.toFixed(2)}</strong>
           </div>
         ))}
-        <div className="flex justify-between"><span>Change Due</span><strong>USD 0.00</strong></div>
+        {receipt.creditDetails && (
+          <>
+            <div className="flex justify-between"><span>Payment Type</span><strong>Account / Credit</strong></div>
+            <div className="flex justify-between"><span>Paid</span><strong>USD {receipt.creditDetails.paidAmount.toFixed(2)}</strong></div>
+            <div className="flex justify-between"><span>Balance Due</span><strong>USD {receipt.creditDetails.balanceDue.toFixed(2)}</strong></div>
+            <div className="flex justify-between"><span>Due Date</span><strong>{new Date(receipt.creditDetails.dueDate).toLocaleDateString()}</strong></div>
+            <div className="flex justify-between"><span>Terms</span><strong>{receipt.creditDetails.creditTermsDays} days</strong></div>
+            <div className="flex justify-between"><span>Account Balance</span><strong>USD {receipt.creditDetails.outstandingAccountBalance.toFixed(2)}</strong></div>
+          </>
+        )}
+        {!receipt.creditDetails && <div className="flex justify-between"><span>Change Due</span><strong>USD 0.00</strong></div>}
       </div>
 
       <div className="pt-3 text-center text-[8px] space-y-1">
         <div className="font-black uppercase">Fiscalization: {receipt.fiscalizationStatus}</div>
+        {receipt.creditDetails && <div>{receipt.creditDetails.reminderNote}</div>}
         <div>{receipt.businessDetails.footerMessage}</div>
       </div>
     </div>

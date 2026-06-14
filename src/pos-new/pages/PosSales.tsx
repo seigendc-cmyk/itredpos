@@ -31,6 +31,13 @@ import { canSellInventoryItems as canSellInventoryItemsForSession, logTerminalCo
 import { createMiscellaneousSaleAdvice } from '../services/biAdviceService';
 import { routeBIAdviceToDesk } from '../services/biAdviceRoutingService';
 import {
+  canCustomerBuyOnCredit,
+  createCustomerCreditApprovalRequest,
+  createCustomerCreditBIAdvice,
+  createCustomerDebtFromCreditSale,
+  type CreditDecision
+} from '../services/customerCreditService';
+import {
   clearShiftRecoveryState,
   getShiftRecoveryState,
   hasRecoverableShiftState,
@@ -199,6 +206,7 @@ export default function PosSales({
   const [salesRecoveryFound, setSalesRecoveryFound] = useState(hasRecoverableShiftState());
   const [salesRecoveryDetailsOpen, setSalesRecoveryDetailsOpen] = useState(false);
   const [activitySearch, setActivitySearch] = useState('');
+  const [creditDecision, setCreditDecision] = useState<CreditDecision | null>(null);
 
   useEffect(() => {
     const baseProducts = products.length > 0 ? products : DEFAULT_PRODUCTS;
@@ -243,11 +251,16 @@ export default function PosSales({
   const grandTotalBeforeCredit = vatMode === 'Exclusive' ? taxableSubtotal + taxTotal + parsedDeliveryFee : taxableSubtotal + parsedDeliveryFee;
   const grandTotal = Math.max(0, grandTotalBeforeCredit - creditRedemptionAmount - loyaltyRedemptionAmount);
   const paymentReceived = payments.reduce((sum, payment) => sum + payment.amount, 0);
+  const nonCreditPaymentReceived = payments.filter((payment) => payment.method !== 'Credit / Account').reduce((sum, payment) => sum + payment.amount, 0);
   const changeDue = Math.max(0, paymentReceived - grandTotal);
   const balanceDue = Math.max(0, grandTotal - paymentReceived);
-  const creditSaleAllowed = paymentMethod === 'Credit / Account' || paymentMethod === 'Already Paid' || (paymentMethod === 'No Payment Due' && grandTotal === 0) ||
-    payments.some((payment) => payment.method === 'Credit / Account' || payment.method === 'Already Paid' || (payment.method === 'No Payment Due' && grandTotal === 0));
-  const canComplete = cart.length > 0 && (creditSaleAllowed || paymentReceived >= grandTotal);
+  const creditSaleRequested = paymentMethod === 'Credit / Account' || payments.some((payment) => payment.method === 'Credit / Account');
+  const creditDebtAmount = creditSaleRequested ? Math.max(0, grandTotal - nonCreditPaymentReceived) : 0;
+  const creditSaleAllowed = paymentMethod === 'Already Paid' || (paymentMethod === 'No Payment Due' && grandTotal === 0) ||
+    payments.some((payment) => payment.method === 'Already Paid' || (payment.method === 'No Payment Due' && grandTotal === 0)) ||
+    (creditSaleRequested && creditDecision?.decision === 'Allowed' && canPerformAction(roleName, 'sales.creditSale'));
+  const creditSaleOverrideAllowed = creditSaleRequested && creditDecision?.decision === 'Requires Approval' && canPerformAction(roleName, 'sales.creditSale.override');
+  const canComplete = cart.length > 0 && (creditSaleAllowed || creditSaleOverrideAllowed || paymentReceived >= grandTotal);
   const canCompleteWithPermission = canComplete && canPerformAction(roleName, 'sales.complete');
   const canViewProfitSnapshot = canPerformAction(roleName, 'sales.profitSnapshot.view');
   const canGenerateProfitSnapshot = canPerformAction(roleName, 'sales.profitSnapshot.generate');
@@ -266,7 +279,7 @@ export default function PosSales({
     ? 'Cart is empty.'
     : !canPerformAction(roleName, 'sales.complete')
       ? 'You do not have permission to complete a sale.'
-      : creditSaleAllowed || paymentReceived >= grandTotal
+      : creditSaleAllowed || creditSaleOverrideAllowed || paymentReceived >= grandTotal
       ? ''
       : 'Payment is under the sale total.';
 
@@ -449,6 +462,22 @@ export default function PosSales({
   const selectedCustomer = activeCustomers.find((customer) => customer.customerId === selectedCustomerId);
   const availableCustomerCredit = customerMode === 'Walk-in Customer' ? 0 : Math.max(25, 300 - Math.abs(selectedCustomer?.currentBalance || 0));
   const availableLoyaltyPoints = customerMode === 'Walk-in Customer' ? 0 : Math.max(100, Math.floor((selectedCustomer?.currentBalance || 0) + customerName.length * 18));
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!creditSaleRequested || !selectedCustomerId || creditDebtAmount <= 0) {
+      setCreditDecision(null);
+      return;
+    }
+    canCustomerBuyOnCredit(selectedCustomerId, creditDebtAmount).then((decision) => {
+      if (!cancelled) setCreditDecision(decision);
+    }).catch(() => {
+      if (!cancelled) setCreditDecision(null);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [creditDebtAmount, creditSaleRequested, selectedCustomerId]);
 
   const resetSaleReductions = () => {
     setCartDiscountAmount(0);
@@ -764,7 +793,7 @@ export default function PosSales({
   };
 
   const handleApplyAccountPayment = () => {
-    if (!canPerformAction(roleName, 'sales.accountSale') && !canPerformAction(roleName, 'customers.creditView')) {
+    if (!canPerformAction(roleName, 'sales.creditSale') && !canPerformAction(roleName, 'sales.accountSale') && !canPerformAction(roleName, 'customers.credit.view') && !canPerformAction(roleName, 'customers.creditView')) {
       setStatusMessage('You do not have permission to apply account sale payment.');
       return;
     }
@@ -784,6 +813,42 @@ export default function PosSales({
     }
     if (paymentMethod === 'Credit / Account' && customerMode === 'Walk-in Customer') {
       setStatusMessage('Select a customer account before capturing account payment.');
+      return;
+    }
+    if (paymentMethod === 'Credit / Account') {
+      if (!canPerformAction(roleName, 'sales.creditSale')) {
+        setStatusMessage('You do not have permission to sell on credit.');
+        return;
+      }
+      if (creditDecision?.decision === 'Blocked') {
+        setStatusMessage(`Credit sale blocked. ${creditDecision.reasonList.join(' ')}`);
+        return;
+      }
+      if (creditDecision?.decision === 'Requires Approval' && !canPerformAction(roleName, 'sales.creditSale.override')) {
+        setStatusMessage(`Credit sale requires Owner/Manager approval. ${creditDecision.reasonList.join(' ')}`);
+        void createCustomerCreditApprovalRequest({
+          customerName,
+          requestedBy: staffName,
+          requestedByRole: roleName,
+          branchId: branchIdFromName(branchName),
+          branch: branchName,
+          relatedRecord: selectedCustomerId || customerName,
+          amountOrValue: money(creditDebtAmount),
+          risk: 'High',
+          reason: 'Risky credit sale requires approval.',
+          context: creditDecision.reasonList.join(' ')
+        });
+        return;
+      }
+      setPayments((current) => current.some((payment) => payment.method === 'Credit / Account') ? current : [{
+        id: makeId('PAY'),
+        method: paymentMethod,
+        amount: 0,
+        reference: paymentReference.trim() || `Account balance ${money(creditDebtAmount)}`
+      }, ...current]);
+      setPaymentAmount('');
+      setPaymentReference('');
+      logEvent('PAYMENT_CAPTURED', `Account credit line added for balance ${money(creditDebtAmount)}.`);
       return;
     }
     if (paymentMethod === 'Already Paid' && paymentReference.trim().length === 0) {
@@ -840,9 +905,15 @@ export default function PosSales({
       return productStock(currentProduct) < item.quantity;
     });
     if (insufficientLine) return `Insufficient stock for ${productName(insufficientLine.product)}.`;
-    if (!creditSaleAllowed && paymentReceived < grandTotal) return 'Payment is under the sale total.';
+    if (creditSaleRequested) {
+      if (!canPerformAction(roleName, 'sales.creditSale')) return 'You do not have permission to sell on credit.';
+      if (customerMode === 'Walk-in Customer' || !selectedCustomerId) return 'Walk-in customer cannot buy on credit.';
+      if (!creditDecision) return 'Credit decision is still loading. Try again in a moment.';
+      if (creditDecision.decision === 'Blocked') return `Credit sale blocked. ${creditDecision.reasonList.join(' ')}`;
+      if (creditDecision.decision === 'Requires Approval' && !canPerformAction(roleName, 'sales.creditSale.override')) return `Credit sale requires approval. ${creditDecision.reasonList.join(' ')}`;
+    }
+    if (!creditSaleAllowed && !creditSaleOverrideAllowed && paymentReceived < grandTotal) return 'Payment is under the sale total.';
     if ((paymentMethod === 'Already Paid' || payments.some((payment) => payment.method === 'Already Paid')) && !paymentReference.trim() && !payments.some((payment) => payment.method === 'Already Paid' && payment.reference)) return 'Already Paid requires a payment note or reference.';
-    if ((paymentMethod === 'Credit / Account' || payments.some((payment) => payment.method === 'Credit / Account')) && customerMode === 'Walk-in Customer' && !paymentReference.trim()) return 'Credit / Account requires a selected customer or confirmation note.';
     if ((paymentMethod === 'No Payment Due' || payments.some((payment) => payment.method === 'No Payment Due')) && grandTotal > 0) return 'No Payment Due is only available for zero-balance sales.';
     return null;
   };
@@ -991,6 +1062,15 @@ export default function PosSales({
       }));
 
       const selectedCustomer = activeCustomers.find((customer) => customer.customerId === selectedCustomerId);
+      const nonCreditPaymentLines = payments.filter((payment) => payment.method !== 'Credit / Account');
+      const receiptPaymentLines = creditSaleRequested
+        ? [
+            ...nonCreditPaymentLines.map((payment) => ({ method: payment.method, amount: payment.amount, reference: payment.reference })),
+            { method: 'Credit / Account', amount: 0, reference: `Balance due ${money(creditDebtAmount)}` }
+          ]
+        : payments.length > 0
+          ? payments.map((payment) => ({ method: payment.method, amount: payment.amount, reference: payment.reference }))
+          : [{ method: paymentMethod, amount: grandTotal, reference: paymentReference.trim() || undefined }];
       const receipt = await createReceiptFromSale({
         sale,
         vendorId: VENDOR_ID,
@@ -1009,13 +1089,56 @@ export default function PosSales({
         customerBillingAddress: selectedCustomer?.billingAddress || customerAddress,
         customerDeliveryAddress: deliveryAddress || selectedCustomer?.deliveryAddress || customerAddress,
         customerCreditStatus: selectedCustomer?.creditStatus,
-        paymentMode: receiptPaymentMode(payments[0]?.method || paymentMethod),
-        paymentLines: payments.length > 0
-          ? payments.map((payment) => ({ method: payment.method, amount: payment.amount, reference: payment.reference }))
-          : [{ method: paymentMethod, amount: grandTotal, reference: paymentReference.trim() || undefined }],
+        paymentMode: creditSaleRequested ? 'Credit Sale' : receiptPaymentMode(payments[0]?.method || paymentMethod),
+        paymentLines: receiptPaymentLines,
+        creditDetails: creditSaleRequested && creditDecision ? {
+          paymentType: 'Account / Credit',
+          paidAmount: nonCreditPaymentReceived,
+          balanceDue: creditDebtAmount,
+          dueDate: creditDecision.dueDate,
+          creditTermsDays: creditDecision.profile.paymentTermsDays,
+          outstandingAccountBalance: creditDecision.newBalance,
+          reminderNote: 'Please settle your account balance by the due date.'
+        } : undefined,
         vatMode,
         vatRate: parsedVatRate
       });
+      if (creditSaleRequested && selectedCustomer && creditDebtAmount > 0 && creditDecision) {
+        await createCustomerDebtFromCreditSale({
+          customerId: selectedCustomer.customerId,
+          customerName,
+          receiptId: receipt.id,
+          receiptNumber: receipt.receiptNumber,
+          saleId: sale.id,
+          saleDate: now,
+          saleTotal: grandTotal,
+          paidAmount: nonCreditPaymentReceived,
+          creditAmount: creditDebtAmount,
+          branchId: branchIdFromName(branchName),
+          branchName,
+          terminalId: terminalName,
+          cashierStaffId: staffName,
+          paymentTermsDays: creditDecision.profile.paymentTermsDays,
+          notes: creditSaleOverrideAllowed ? 'Credit sale completed with local manager override.' : 'Credit sale completed within local rules.'
+        });
+        if (creditSaleOverrideAllowed) {
+          await createCustomerCreditApprovalRequest({
+            customerName,
+            requestedBy: staffName,
+            requestedByRole: roleName,
+            branchId: branchIdFromName(branchName),
+            branch: branchName,
+            relatedRecord: receipt.receiptNumber,
+            amountOrValue: money(creditDebtAmount),
+            risk: 'High',
+            reason: 'Credit override used at Sales Terminal.',
+            context: creditDecision.reasonList.join(' ')
+          });
+        }
+        if (creditDecision.profile.overdueBalance > 0) {
+          await createCustomerCreditBIAdvice('OVERDUE_CUSTOMER_WARNING', customerName, `${customerName} has overdue balance before new credit sale.`, 'High');
+        }
+      }
       const network = await getNetworkStatus();
       const shouldQueueOffline = network === 'Offline' || network === 'Unstable';
       const queueStatus = shouldQueueOffline ? 'Queued' : 'Ready To Sync';
@@ -1043,7 +1166,7 @@ export default function PosSales({
         entityId: receipt.receiptNumber,
         entityNumber: receipt.receiptNumber,
         operationType: 'CREATE_PAYMENT',
-        payload: { receiptNumber: receipt.receiptNumber, amount: grandTotal, paymentMode: receiptPaymentMode(payments[0]?.method || paymentMethod), payments },
+        payload: { receiptNumber: receipt.receiptNumber, amount: creditSaleRequested ? nonCreditPaymentReceived : grandTotal, paymentMode: creditSaleRequested ? 'Credit Sale' : receiptPaymentMode(payments[0]?.method || paymentMethod), payments: receiptPaymentLines },
         status: queueStatus,
         notes: 'Payment sync placeholder queued locally.'
       });
@@ -1079,7 +1202,7 @@ export default function PosSales({
             invoiceNo,
             total: grandTotal,
             customerName,
-            paymentMethod: receiptPaymentMode(payments[0]?.method || paymentMethod)
+            paymentMethod: creditSaleRequested ? 'Credit Sale' : receiptPaymentMode(payments[0]?.method || paymentMethod)
           }
         });
         if (hasMiscellaneousLines) {
@@ -1640,13 +1763,14 @@ export default function PosSales({
           receiptNote={receiptNote}
           cartDeliveryNote={cartDeliveryNote}
           availableCredit={availableCustomerCredit}
+          creditDecision={creditDecision}
           availableLoyaltyPoints={availableLoyaltyPoints}
           canComplete={canCompleteWithPermission}
           canReceivePayment={canPerformAction(roleName, 'payment.capture') || canPerformAction(roleName, 'sales.complete')}
           canApplyDiscount={canPerformAction(roleName, 'sales.discount')}
           canRedeemCredit={canPerformAction(roleName, 'sales.creditRedeem') || canPerformAction(roleName, 'customers.creditView')}
           canUseLoyalty={canPerformAction(roleName, 'sales.loyalty')}
-          canUseAccountSale={canPerformAction(roleName, 'sales.accountSale') || canPerformAction(roleName, 'customers.creditView')}
+          canUseAccountSale={canPerformAction(roleName, 'sales.creditSale') || canPerformAction(roleName, 'sales.accountSale') || canPerformAction(roleName, 'customers.credit.view') || canPerformAction(roleName, 'customers.creditView')}
           canVoidCart={canPerformAction(roleName, 'sales.void')}
           canReprintReceipt={canPerformAction(roleName, 'sales.reprintReceipt')}
           canHoldSale={canPerformAction(roleName, 'sales.hold')}

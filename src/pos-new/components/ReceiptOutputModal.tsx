@@ -95,6 +95,8 @@ export default function ReceiptOutputModal({
             <div><span>Total</span><strong>{formatReceiptCurrency(receipt.grandTotal)}</strong></div>
             <div><span>Paid</span><strong>{formatReceiptCurrency(paid)}</strong></div>
             <div><span>{change > 0 ? 'Change Due' : 'Balance'}</span><strong>{formatReceiptCurrency(change > 0 ? change : balance)}</strong></div>
+            {receipt.creditDetails && <div><span>Due Date</span><strong>{new Date(receipt.creditDetails.dueDate).toLocaleDateString()}</strong></div>}
+            {receipt.creditDetails && <div><span>Account Balance</span><strong>{formatReceiptCurrency(receipt.creditDetails.outstandingAccountBalance)}</strong></div>}
           </div>
 
           <ReceiptPrintDocument preview={preview} instruction={printInstruction} />
@@ -106,6 +108,15 @@ export default function ReceiptOutputModal({
             ))}
             <strong>Payment method(s)</strong>
             {payments.map((payment) => <span key={payment.id}>{payment.paymentMode} - {formatReceiptCurrency(payment.amount)}</span>)}
+            {receipt.creditDetails && (
+              <>
+                <strong>Account / Credit Sale</strong>
+                <span>Paid: {formatReceiptCurrency(receipt.creditDetails.paidAmount)}</span>
+                <span>Balance Due: {formatReceiptCurrency(receipt.creditDetails.balanceDue)}</span>
+                <span>Credit Terms: {receipt.creditDetails.creditTermsDays} days</span>
+                <span>{receipt.creditDetails.reminderNote}</span>
+              </>
+            )}
             {receipt.customer.deliveryAddress && (
               <>
                 <strong>Delivery / iDeliver details</strong>

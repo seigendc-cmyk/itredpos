@@ -14,7 +14,7 @@ import {
   XCircle
 } from 'lucide-react';
 import { useMemo, useState } from 'react';
-import { CartItem, CustomerRecord, VATMode } from '../types';
+import { CartItem, CustomerCreditProfile, CustomerCreditWorthinessScore, CustomerRecord, VATMode } from '../types';
 import FloatingCartItemsCard from './FloatingCartItemsCard';
 
 export type SalesPaymentMethod =
@@ -150,6 +150,15 @@ interface SalesCartCardProps {
   receiptNote: string;
   cartDeliveryNote: string;
   availableCredit: number;
+  creditDecision?: {
+    decision: 'Allowed' | 'Requires Approval' | 'Blocked';
+    reasonList: string[];
+    profile: CustomerCreditProfile;
+    saleTotal: number;
+    newBalance: number;
+    dueDate: string;
+    worthiness: CustomerCreditWorthinessScore;
+  } | null;
   availableLoyaltyPoints: number;
   canComplete: boolean;
   canReceivePayment: boolean;
@@ -289,6 +298,7 @@ export default function SalesCartCard({
   receiptNote,
   cartDeliveryNote,
   availableCredit,
+  creditDecision,
   availableLoyaltyPoints,
   canComplete,
   canReceivePayment,
@@ -1011,6 +1021,22 @@ export default function SalesCartCard({
                   <div><span>Cash Tendered</span><strong>{money(Number(paymentAmount) || 0)}</strong></div>
                   <div><span>Change Due</span><strong>{money(totals.changeDue)}</strong></div>
                 </div>
+                {paymentMethod === 'Credit / Account' && creditDecision && (
+                  <div className={`sales-credit-decision sales-credit-decision--${creditDecision.decision.toLowerCase().replace(/\s+/g, '-')}`}>
+                    <div><span>Customer</span><strong>{customerName || 'No customer'}</strong></div>
+                    <div><span>Credit Status</span><strong>{creditDecision.profile.creditStatus}</strong></div>
+                    <div><span>Credit Limit</span><strong>{money(creditDecision.profile.creditLimit)}</strong></div>
+                    <div><span>Current Balance</span><strong>{money(creditDecision.profile.currentBalance)}</strong></div>
+                    <div><span>Available Credit</span><strong>{money(creditDecision.profile.availableCredit)}</strong></div>
+                    <div><span>Sale Total</span><strong>{money(creditDecision.saleTotal)}</strong></div>
+                    <div><span>New Balance</span><strong>{money(creditDecision.newBalance)}</strong></div>
+                    <div><span>Payment Terms Days</span><strong>{creditDecision.profile.paymentTermsDays}</strong></div>
+                    <div><span>Due Date</span><strong>{new Date(creditDecision.dueDate).toLocaleDateString()}</strong></div>
+                    <div><span>Credit Worthiness Grade</span><strong>{creditDecision.worthiness.grade}</strong></div>
+                    <div><span>Decision</span><strong>{creditDecision.decision}</strong></div>
+                    <div className="sales-credit-decision__reasons"><span>{creditDecision.reasonList.join(' ')}</span></div>
+                  </div>
+                )}
                 <div className="pos-payment-lines">
                   {payments.length === 0 ? (
                     <span>No payment captured.</span>

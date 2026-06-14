@@ -58,6 +58,8 @@ export default function ReceiptPrintDocument({ preview, mode = 'screen', instruc
         <div><span>Total</span><strong>{formatReceiptCurrency(receipt.grandTotal)}</strong></div>
         <div><span>Paid</span><strong>{formatReceiptCurrency(paid)}</strong></div>
         <div><span>{changeDue > 0 ? 'Change Due' : 'Balance'}</span><strong>{formatReceiptCurrency(changeDue > 0 ? changeDue : balanceDue)}</strong></div>
+        {receipt.creditDetails && <div><span>Due Date</span><strong>{new Date(receipt.creditDetails.dueDate).toLocaleDateString()}</strong></div>}
+        {receipt.creditDetails && <div><span>Account Balance</span><strong>{formatReceiptCurrency(receipt.creditDetails.outstandingAccountBalance)}</strong></div>}
       </div>
 
       <div className="receipt-print-payments">
@@ -66,6 +68,15 @@ export default function ReceiptPrintDocument({ preview, mode = 'screen', instruc
           <p key={payment.id}>{payment.paymentMode}: {formatReceiptCurrency(payment.amount)}{payment.reference ? ` (${payment.reference})` : ''}</p>
         ))}
       </div>
+
+      {receipt.creditDetails && (
+        <div className="receipt-print-delivery">
+          <strong>Account / Credit Sale</strong>
+          <p>Paid: {formatReceiptCurrency(receipt.creditDetails.paidAmount)} | Balance Due: {formatReceiptCurrency(receipt.creditDetails.balanceDue)}</p>
+          <p>Credit Terms: {receipt.creditDetails.creditTermsDays} days | Due: {new Date(receipt.creditDetails.dueDate).toLocaleDateString()}</p>
+          <p>{receipt.creditDetails.reminderNote}</p>
+        </div>
+      )}
 
       {receipt.customer.deliveryAddress && (
         <div className="receipt-print-delivery">

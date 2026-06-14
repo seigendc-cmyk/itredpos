@@ -59,6 +59,7 @@ export interface ReceiptSalePayload {
   customerCreditStatus?: ReceiptRecord['customer']['creditStatus'];
   paymentMode: PaymentMode;
   paymentLines?: Array<{ method: string; amount: number; reference?: string }>;
+  creditDetails?: ReceiptRecord['creditDetails'];
   vatMode?: VATMode;
   vatRate?: number;
 }
@@ -216,6 +217,7 @@ export async function createReceiptFromSale(payload: ReceiptSalePayload): Promis
     vatTotal: taxSummary.vatAmount,
     grandTotal: payload.sale.total,
     paymentMode: payload.paymentMode,
+    creditDetails: payload.creditDetails,
     status: 'Completed',
     fiscalizationStatus: 'Disabled In Development',
     fiscalReferencePlaceholder: `FISC-DEV-${receiptNumber}`,
@@ -285,6 +287,8 @@ export function prepareReceiptWhatsAppMessage(receipt: ReceiptRecord, phone: str
     `Thank you for shopping with ${receipt.businessDetails.businessName}.`,
     `Receipt ${receipt.receiptNumber}, ${new Date(receipt.dateTime).toLocaleDateString()}.`,
     `Total ${formatReceiptCurrency(receipt.grandTotal)}.`,
+    receipt.creditDetails ? `Balance due ${formatReceiptCurrency(receipt.creditDetails.balanceDue)} by ${new Date(receipt.creditDetails.dueDate).toLocaleDateString()}.` : '',
+    receipt.creditDetails ? 'Please settle your account by the due date.' : '',
     `Payment status: ${status}.`,
     receipt.customer.deliveryAddress ? `Delivery: ${receipt.customer.deliveryAddress}.` : '',
     'Please keep this message for your records.'

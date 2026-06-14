@@ -2205,11 +2205,199 @@ export type CustomerType =
   | 'Internal Account';
 
 export type CustomerCreditStatus =
+  | 'NotAllowed'
+  | 'Review'
+  | 'Approved'
+  | 'Suspended'
+  | 'Blocked'
+  | 'OverLimit'
+  | 'Overdue'
+  | 'Watchlist'
   | 'Cash Only'
   | 'Credit Allowed'
   | 'Credit Suspended'
   | 'Credit Review Required'
   | 'Not Applicable';
+
+export type CreditSaleStatus =
+  | 'Open'
+  | 'PartiallyPaid'
+  | 'Paid'
+  | 'Overdue'
+  | 'WrittenOff'
+  | 'Disputed'
+  | 'Cancelled';
+
+export type DebtAgeingBucket =
+  | 'Current'
+  | 'DueSoon'
+  | 'Overdue1'
+  | 'Overdue2'
+  | 'Overdue3'
+  | 'Overdue4'
+  | 'SevereOverdue';
+
+export type CreditWorthinessGrade =
+  | 'Excellent'
+  | 'Good'
+  | 'Fair'
+  | 'Watch'
+  | 'Risky'
+  | 'Blocked';
+
+export type CustomerBehaviourSegment =
+  | 'New'
+  | 'Repeat'
+  | 'Loyal'
+  | 'HighValue'
+  | 'DiscountDriven'
+  | 'SlowPayer'
+  | 'ReturnRisk'
+  | 'Dormant'
+  | 'Seasonal'
+  | 'CreditRisk';
+
+export interface CustomerCreditProfile {
+  customerId: string;
+  creditStatus: CustomerCreditStatus;
+  creditLimit: number;
+  availableCredit: number;
+  currentBalance: number;
+  overdueBalance: number;
+  paymentTermsDays: number;
+  defaultAgeingIntervalConfigId: string;
+  lastPaymentDate?: string;
+  lastCreditSaleDate?: string;
+  creditNotes: string;
+  approvedBy?: string;
+  approvedAt?: string;
+  blockedReason?: string;
+}
+
+export interface CustomerDebtRecord {
+  debtId: string;
+  customerId: string;
+  customerName: string;
+  receiptId: string;
+  receiptNumber: string;
+  saleId: string;
+  saleDate: string;
+  dueDate: string;
+  originalAmount: number;
+  paidAmount: number;
+  outstandingAmount: number;
+  overdueDays: number;
+  ageingBucket: DebtAgeingBucket;
+  status: CreditSaleStatus;
+  branchId: string;
+  branchName: string;
+  terminalId: string;
+  cashierStaffId: string;
+  paymentTermsDays: number;
+  notes: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CustomerDebtPayment {
+  paymentId: string;
+  debtId: string;
+  customerId: string;
+  amount: number;
+  paymentMethod: PaymentMode | string;
+  reference: string;
+  notes: string;
+  receivedByStaffId: string;
+  receivedAt: string;
+}
+
+export interface CustomerAgeingIntervalConfig {
+  configId: string;
+  name: string;
+  currentMaxDays: number;
+  bucket1From: number;
+  bucket1To: number;
+  bucket2From: number;
+  bucket2To: number;
+  bucket3From: number;
+  bucket3To: number;
+  bucket4From: number;
+  bucket4To: number;
+  severeFrom: number;
+  active: boolean;
+}
+
+export interface CustomerAgeingAnalysis {
+  totalCreditCustomers: number;
+  totalOutstanding: number;
+  current: number;
+  dueSoon: number;
+  overdue1: number;
+  overdue2: number;
+  overdue3: number;
+  overdue4: number;
+  severeOverdue: number;
+  overdueCustomers: number;
+  blockedCustomers: number;
+  debts: CustomerDebtRecord[];
+}
+
+export interface CustomerCreditWorthinessScore {
+  customerId: string;
+  grade: CreditWorthinessGrade;
+  score: number;
+  reasonList: string[];
+  totalPurchases: number;
+  totalCreditSales: number;
+  totalPaid: number;
+  outstandingBalance: number;
+  overdueBalance: number;
+  averageDaysToPay: number;
+  latePaymentCount: number;
+  returnCount: number;
+  discountDependenceScore: number;
+  lastActivityDate: string;
+  recommendedCreditLimit: number;
+  recommendedAction: string;
+}
+
+export interface CustomerBuyingPreferenceProfile {
+  customerId: string;
+  topCategories: string[];
+  topProducts: string[];
+  preferredBrands: string[];
+  averageBasketValue: number;
+  purchaseFrequency: string;
+  preferredPaymentMethod: string;
+  preferredBranch: string;
+  preferredSalesPeriod: string;
+  priceSensitivity: string;
+  lastPurchaseDate: string;
+}
+
+export interface CustomerBehaviourAnalytics {
+  customerId: string;
+  segment: CustomerBehaviourSegment;
+  repeatPurchaseCount: number;
+  daysSinceLastPurchase: number;
+  totalLifetimeValue: number;
+  averageBasketValue: number;
+  returnRate: number;
+  discountUsageRate: number;
+  creditUsageRate: number;
+  paymentReliabilityScore: number;
+  notes: string;
+}
+
+export interface CustomerCreditActivityEvent {
+  id: string;
+  customerId: string;
+  dateTime: string;
+  eventType: string;
+  user: string;
+  notes: string;
+  relatedRecord?: string;
+}
 
 export type CustomerSource =
   | 'Walk-in'
@@ -5227,6 +5415,15 @@ export interface ReceiptRecord {
   vatTotal: number;
   grandTotal: number;
   paymentMode: PaymentMode;
+  creditDetails?: {
+    paymentType: 'Account / Credit';
+    paidAmount: number;
+    balanceDue: number;
+    dueDate: string;
+    creditTermsDays: number;
+    outstandingAccountBalance: number;
+    reminderNote: string;
+  };
   status: ReceiptStatus;
   fiscalizationStatus: FiscalizationStatus;
   fiscalReferencePlaceholder?: string;

@@ -6955,3 +6955,154 @@ div[class*="border-t border-r border-amber"] {
     display: none !important;
   }
 }
+.pos-credit-ageing-layout {
+  display: grid;
+  gap: 14px;
+}
+
+.pos-credit-summary-grid,
+.pos-credit-profile-grid,
+.pos-record-debt-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(135px, 1fr));
+  gap: 8px;
+}
+
+.pos-credit-summary-grid > div,
+.pos-credit-profile-grid > div,
+.pos-record-debt-grid > div,
+.sales-credit-decision > div {
+  border: 1px solid #d7dae2;
+  background: #fff;
+  border-radius: 2mm;
+  padding: 8px;
+  min-width: 0;
+}
+
+.pos-credit-summary-grid span,
+.pos-credit-profile-grid span,
+.pos-record-debt-grid span,
+.sales-credit-decision span {
+  display: block;
+  color: #6b7280;
+  font-size: 10px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.pos-credit-summary-grid strong,
+.pos-credit-profile-grid strong,
+.pos-record-debt-grid strong,
+.sales-credit-decision strong {
+  display: block;
+  color: #1e222b;
+  font-size: 12px;
+  font-weight: 950;
+  overflow-wrap: anywhere;
+}
+
+.pos-credit-two-column {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 14px;
+}
+
+.pos-credit-config-grid,
+.pos-record-debt-form {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 10px;
+}
+
+.pos-credit-config-grid label,
+.pos-record-debt-form label {
+  color: #1e222b;
+  font-size: 10px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.pos-credit-checkbox {
+  align-items: center;
+  display: flex;
+  gap: 8px;
+}
+
+.pos-credit-debt-scroll {
+  max-height: 360px;
+  overflow: auto;
+}
+
+.pos-credit-debt-table {
+  min-width: 1120px;
+  font-size: 11px;
+}
+
+.pos-credit-debt-table th {
+  color: #c2410c;
+  font-size: 9px;
+  white-space: nowrap;
+}
+
+.pos-credit-reasons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.pos-credit-reasons span {
+  border: 1px solid #f59e0b;
+  border-radius: 2mm;
+  color: #7c2d12;
+  font-size: 10px;
+  font-weight: 900;
+  padding: 5px 7px;
+}
+
+.pos-credit-empty-text {
+  color: #6b7280;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.pos-record-debt-modal {
+  background: #f8fafc;
+  border: 2px solid #1e222b;
+  border-radius: 2mm;
+  box-shadow: 0 18px 60px rgba(15, 23, 42, 0.35);
+  max-width: 720px;
+  padding: 16px;
+  width: min(94vw, 720px);
+}
+
+.sales-credit-decision {
+  border: 1px solid #f59e0b;
+  border-radius: 2mm;
+  display: grid;
+  gap: 6px;
+  grid-template-columns: repeat(auto-fit, minmax(125px, 1fr));
+  padding: 8px;
+}
+
+.sales-credit-decision--blocked {
+  border-color: #dc2626;
+}
+
+.sales-credit-decision--requires-approval {
+  border-color: #f59e0b;
+}
+
+.sales-credit-decision--allowed {
+  border-color: #16a34a;
+}
+
+.sales-credit-decision__reasons {
+  grid-column: 1 / -1;
+}
+
+@media (max-width: 760px) {
+  .pos-credit-two-column {
+    grid-template-columns: 1fr;
+  }
+}
