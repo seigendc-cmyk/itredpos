@@ -247,6 +247,21 @@ export type PermissionKey =
   | 'payment.capture'
   | 'reports.view'
   | 'reports.export'
+  | 'reports.creditors.view'
+  | 'reports.creditors.print'
+  | 'reports.creditors.export'
+  | 'reports.cogsReserve.view'
+  | 'reports.cogsReserve.print'
+  | 'reports.cogsReserve.export'
+  | 'reports.purchaseDiscipline.view'
+  | 'reports.purchaseDiscipline.print'
+  | 'reports.purchaseDiscipline.export'
+  | 'reports.supplierStatements.view'
+  | 'reports.supplierStatements.print'
+  | 'reports.supplierStatements.export'
+  | 'reports.ownerFinancialControl.view'
+  | 'reports.audit.view'
+  | 'reports.audit.export'
   | 'accounting.view'
   | 'accounting.post'
   | 'accounting.review'
@@ -601,6 +616,21 @@ const ALL_PERMISSIONS: PermissionKey[] = [
   'payment.capture',
   'reports.view',
   'reports.export',
+  'reports.creditors.view',
+  'reports.creditors.print',
+  'reports.creditors.export',
+  'reports.cogsReserve.view',
+  'reports.cogsReserve.print',
+  'reports.cogsReserve.export',
+  'reports.purchaseDiscipline.view',
+  'reports.purchaseDiscipline.print',
+  'reports.purchaseDiscipline.export',
+  'reports.supplierStatements.view',
+  'reports.supplierStatements.print',
+  'reports.supplierStatements.export',
+  'reports.ownerFinancialControl.view',
+  'reports.audit.view',
+  'reports.audit.export',
   'accounting.view',
   'accounting.post',
   'accounting.review',
@@ -762,6 +792,11 @@ const ROLE_PERMISSIONS: Record<Role, PermissionKey[]> = {
     'tasks.view', 'tasks.assign', 'tasks.close',
     'approvals.view', 'approvals.approve', 'approvals.credit.approve', 'approvals.reject',
     'reports.view', 'reports.export',
+    'reports.creditors.view', 'reports.creditors.print', 'reports.creditors.export',
+    'reports.cogsReserve.view', 'reports.cogsReserve.print', 'reports.cogsReserve.export',
+    'reports.purchaseDiscipline.view', 'reports.purchaseDiscipline.print', 'reports.purchaseDiscipline.export',
+    'reports.supplierStatements.view', 'reports.supplierStatements.print', 'reports.supplierStatements.export',
+    'reports.ownerFinancialControl.view', 'reports.audit.view', 'reports.audit.export',
     'accounting.view', 'accounting.review', 'accounting.approve', 'accounting.postPlaceholder', 'accounting.export',
     'inventoryAccounting.view', 'inventoryAccounting.review', 'inventoryAccounting.approve', 'inventoryAccounting.hold', 'inventoryAccounting.reject', 'inventoryAccounting.export',
     'creditors.view', 'creditors.supplierProfile.view', 'creditors.supplierProfile.manage',
@@ -819,6 +854,7 @@ const ROLE_PERMISSIONS: Record<Role, PermissionKey[]> = {
     'tasks.view', 'tasks.assign', 'tasks.close',
     'approvals.view', 'approvals.approve', 'approvals.credit.approve', 'approvals.reject',
     'reports.view',
+    'reports.creditors.view', 'reports.cogsReserve.view', 'reports.purchaseDiscipline.view', 'reports.supplierStatements.view', 'reports.audit.view',
     'accounting.view', 'accounting.review',
     'inventoryAccounting.view', 'inventoryAccounting.review',
     'bi.view', 'bi.review', 'bi.riskReview', 'bi.advice.view', 'bi.advice.generate', 'bi.advice.resolve', 'bi.advice.createTask',
@@ -857,6 +893,7 @@ const ROLE_PERMISSIONS: Record<Role, PermissionKey[]> = {
     'tasks.view',
     'approvals.view',
     'reports.view',
+    'reports.creditors.view', 'reports.cogsReserve.view', 'reports.purchaseDiscipline.view', 'reports.supplierStatements.view',
     'accounting.view',
     'inventoryAccounting.view',
     'creditors.view', 'creditors.supplierProfile.view', 'creditors.supplierBill.view', 'creditors.supplierBill.create',
@@ -895,6 +932,11 @@ const ROLE_PERMISSIONS: Record<Role, PermissionKey[]> = {
     'cashControl.debtorPayments.linkDrawer', 'cashControl.deliveryCash.view', 'cashControl.print', 'cashControl.export',
     'approvals.view',
     'reports.view', 'reports.export',
+    'reports.creditors.view', 'reports.creditors.print', 'reports.creditors.export',
+    'reports.cogsReserve.view', 'reports.cogsReserve.print', 'reports.cogsReserve.export',
+    'reports.purchaseDiscipline.view', 'reports.purchaseDiscipline.print', 'reports.purchaseDiscipline.export',
+    'reports.supplierStatements.view', 'reports.supplierStatements.print', 'reports.supplierStatements.export',
+    'reports.ownerFinancialControl.view', 'reports.audit.view', 'reports.audit.export',
     'accounting.view', 'accounting.review', 'accounting.postPlaceholder', 'accounting.export',
     'inventoryAccounting.view', 'inventoryAccounting.review', 'inventoryAccounting.export',
     'creditors.view', 'creditors.supplierProfile.view',
@@ -915,7 +957,7 @@ const ROLE_PERMISSIONS: Record<Role, PermissionKey[]> = {
     'cashControl.view', 'cashControl.debtorPayments.view', 'cashControl.deliveryCash.view',
     'creditors.view', 'creditors.supplierProfile.view', 'creditors.supplierBill.view', 'creditors.ageing.view', 'creditors.statement.view', 'cogsReserve.view', 'purchaseCommitments.view',
     'purchaseDiscipline.view', 'purchaseDiscipline.risk.view', 'purchaseDiscipline.commitments.view', 'purchaseDiscipline.rules.view', 'purchaseDiscipline.cogsBuying.view',
-    'reports.view', 'bi.view', 'bi.advice.view'
+    'reports.view', 'reports.creditors.view', 'reports.cogsReserve.view', 'reports.purchaseDiscipline.view', 'reports.supplierStatements.view', 'reports.audit.view', 'bi.view', 'bi.advice.view'
   ]
 };
 

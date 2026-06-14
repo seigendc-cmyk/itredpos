@@ -9,10 +9,11 @@ import PurchaseCommitmentsPanel from '../components/PurchaseCommitmentsPanel';
 import SupplierStatementsPanel from '../components/SupplierStatementsPanel';
 import SupplierReturnsCreditNotesPanel from '../components/SupplierReturnsCreditNotesPanel';
 import CreditorBIWarningsPanel from '../components/CreditorBIWarningsPanel';
+import FinancialControlReportsPanel from '../components/FinancialControlReportsPanel';
 
-type TabId = 'Supplier List' | 'Supplier Credit Profiles' | 'Supplier Bills / Invoices' | 'Creditors Ageing' | 'Supplier Payments' | 'COGS Reserve' | 'Purchase Commitments' | 'Supplier Statements' | 'Supplier Returns / Credit Notes' | 'Creditor BI Warnings' | 'Activity / Audit';
+type TabId = 'Supplier List' | 'Supplier Credit Profiles' | 'Supplier Bills / Invoices' | 'Creditors Ageing' | 'Supplier Payments' | 'COGS Reserve' | 'Purchase Commitments' | 'Supplier Statements' | 'Supplier Returns / Credit Notes' | 'Financial Reports' | 'Creditor BI Warnings' | 'Activity / Audit';
 
-const tabs: TabId[] = ['Supplier List', 'Supplier Credit Profiles', 'Supplier Bills / Invoices', 'Creditors Ageing', 'Supplier Payments', 'COGS Reserve', 'Purchase Commitments', 'Supplier Statements', 'Supplier Returns / Credit Notes', 'Creditor BI Warnings', 'Activity / Audit'];
+const tabs: TabId[] = ['Supplier List', 'Supplier Credit Profiles', 'Supplier Bills / Invoices', 'Creditors Ageing', 'Supplier Payments', 'COGS Reserve', 'Purchase Commitments', 'Supplier Statements', 'Supplier Returns / Credit Notes', 'Financial Reports', 'Creditor BI Warnings', 'Activity / Audit'];
 
 export default function PosCreditors({ session }: { session?: PosSession }) {
   const [activeTab, setActiveTab] = useState<TabId>('Supplier Credit Profiles');
@@ -40,6 +41,7 @@ export default function PosCreditors({ session }: { session?: PosSession }) {
       {activeTab === 'Purchase Commitments' && <PurchaseCommitmentsPanel />}
       {activeTab === 'Supplier Statements' && <SupplierStatementsPanel />}
       {activeTab === 'Supplier Returns / Credit Notes' && <SupplierReturnsCreditNotesPanel />}
+      {activeTab === 'Financial Reports' && <FinancialControlReportsPanel session={session} />}
       {activeTab === 'Creditor BI Warnings' && <CreditorBIWarningsPanel />}
       {activeTab === 'Activity / Audit' && (
         <section className="creditors-panel">
