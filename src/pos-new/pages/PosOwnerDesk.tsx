@@ -86,6 +86,7 @@ import {
   reactivateCOAAccountPlaceholder,
   recordAccountingActivity,
   reverseAccountingPostingPlaceholder,
+  updatePaymentAccountingSummaryRow,
   updateCOAAccountPlaceholder
 } from '../services/accountingService';
 import { getFinancialPositionSummary, validateFinancialActivityMappings } from '../services/financialControlService';
@@ -143,6 +144,8 @@ type CashModalMode = 'review' | 'note' | 'detail' | 'shift' | 'movements' | 'mar
 type OwnerDeskActionMode = 'detail' | 'note' | 'reconcile' | 'notReady' | 'forceClose' | 'print';
 type OwnerDeskActionDomain = 'EOD Readiness' | 'Payment Summary' | 'Shift Closing' | 'Inventory Closing' | 'Delivery Closing' | 'BI Review' | 'Accounting Desk';
 type COAAccountModalMode = 'detail' | 'edit' | 'inactive' | 'reactivate' | 'note';
+type PaymentPostingModalMode = 'settle' | 'receipts' | 'variance' | 'detail' | 'note' | 'task' | 'bi';
+type PaymentVarianceType = 'Short' | 'Over' | 'Timing Difference' | 'Refund Mismatch' | 'Settlement Pending' | 'Control Account Mapping Issue' | 'Other';
 
 interface OwnerDeskActionModalState {
   domain: OwnerDeskActionDomain;
@@ -185,6 +188,11 @@ const paymentModes: Array<PaymentMode | 'All'> = ['All', 'Cash', 'EcoCash', 'Swi
 const accountTypes: AccountType[] = ['Asset', 'Liability', 'Equity', 'Income', 'Cost of Sales', 'Expense', 'Tax', 'Control'];
 const cashMovementTypes = ['All Movement Types', 'Opening Float', 'Cash Sale', 'Cash In', 'Cash Out', 'Refund', 'Banking', 'Owner Withdrawal', 'Petty Cash', 'Cash Variance'];
 const vatModes = ['All VAT Modes', 'Inclusive', 'Exclusive', 'Not VAT Registered'];
+const paymentSettlementStatuses = ['All Settlement Statuses', 'Settled', 'Pending', 'Variance', 'Under Review'];
+const postingStatuses = ['All Posting Statuses', 'Draft', 'Posted', 'Posted Preview', 'Ready for Review', 'Pending Review', 'Reversed'];
+const varianceStatuses = ['All Variance Statuses', 'Variance Only', 'No Variance', 'Pending Variance'];
+const paymentVarianceTypes: PaymentVarianceType[] = ['Short', 'Over', 'Timing Difference', 'Refund Mismatch', 'Settlement Pending', 'Control Account Mapping Issue', 'Other'];
+const riskLevels: Array<'Low' | 'Medium' | 'High' | 'Critical'> = ['Low', 'Medium', 'High', 'Critical'];
 
 const statusClass: Record<string, string> = {
   Passed: 'bg-emerald-50 text-emerald-800 border-emerald-300',
@@ -212,9 +220,11 @@ const statusClass: Record<string, string> = {
   Inactive: 'bg-slate-100 text-slate-700 border-slate-300',
   Draft: 'bg-slate-100 text-slate-700 border-slate-300',
   'Pending Review': 'bg-amber-50 text-amber-900 border-amber-300',
+  'Ready for Review': 'bg-cyan-50 text-cyan-800 border-cyan-300',
+  'Posted Preview': 'bg-emerald-50 text-emerald-800 border-emerald-300',
   Reversed: 'bg-slate-100 text-slate-700 border-slate-300',
   Settled: 'bg-emerald-50 text-emerald-800 border-emerald-300',
-  Placeholder: 'bg-orange-50 text-orange-800 border-orange-300',
+  'Under Review': 'bg-orange-50 text-orange-800 border-orange-300',
   Reserved: 'bg-emerald-50 text-emerald-800 border-emerald-300',
   Used: 'bg-blue-50 text-blue-800 border-blue-300',
   'Misuse Risk': 'bg-rose-50 text-rose-800 border-rose-300',
@@ -283,6 +293,13 @@ export default function PosOwnerDesk({ session }: PosOwnerDeskProps) {
   const [terminal, setTerminal] = useState('All Terminals');
   const [cashier, setCashier] = useState('All Staff');
   const [paymentMode, setPaymentMode] = useState<PaymentMode | 'All'>('All');
+  const [paymentPostingModeFilter, setPaymentPostingModeFilter] = useState('All Payment Modes');
+  const [paymentSettlementFilter, setPaymentSettlementFilter] = useState('All Settlement Statuses');
+  const [paymentPostingStatusFilter, setPaymentPostingStatusFilter] = useState('All Posting Statuses');
+  const [paymentControlAccountFilter, setPaymentControlAccountFilter] = useState('All Control Accounts');
+  const [paymentVarianceStatusFilter, setPaymentVarianceStatusFilter] = useState('All Variance Statuses');
+  const [paymentMinAmount, setPaymentMinAmount] = useState('');
+  const [paymentMaxAmount, setPaymentMaxAmount] = useState('');
   const [salesAccount, setSalesAccount] = useState('All Sales Accounts');
   const [cashAccount, setCashAccount] = useState('All Cash Accounts');
   const [movementType, setMovementType] = useState('All Movement Types');
@@ -311,6 +328,14 @@ export default function PosOwnerDesk({ session }: PosOwnerDeskProps) {
   const [selectedCOAAccount, setSelectedCOAAccount] = useState<COAAccount | null>(null);
   const [coaModalMode, setCOAModalMode] = useState<COAAccountModalMode | null>(null);
   const [coaReason, setCOAReason] = useState('');
+  const [openPaymentPostingMenuId, setOpenPaymentPostingMenuId] = useState<string | null>(null);
+  const [paymentPostingModal, setPaymentPostingModal] = useState<{ mode: PaymentPostingModalMode; row: PaymentAccountingSummary } | null>(null);
+  const [paymentSettlementForm, setPaymentSettlementForm] = useState({ settlementDate: '2026-06-09', settlementReference: '', settledBy: 'Admin User', note: '' });
+  const [paymentVarianceForm, setPaymentVarianceForm] = useState<{ amount: string; type: PaymentVarianceType; riskLevel: 'Low' | 'Medium' | 'High' | 'Critical'; note: string; assignTo: string }>({ amount: '', type: 'Short', riskLevel: 'Medium', note: '', assignTo: '' });
+  const [paymentOwnerNote, setPaymentOwnerNote] = useState('');
+  const [paymentTaskForm, setPaymentTaskForm] = useState({ title: 'Review payment posting variance', issueType: 'Payment variance review', dueDate: '2026-06-10', assignedTo: 'Accountant', notes: '' });
+  const [paymentBIForm, setPaymentBIForm] = useState({ rule: 'PAYMENT_POSTING_VARIANCE_REVIEW', priority: 'High', assignedDesk: 'Accounting Desk', narrative: '' });
+  const [paymentReceiptSearch, setPaymentReceiptSearch] = useState('');
 
   const staffName = session?.staffName || 'Admin User';
   const currentRole = toOwnerDeskRole(session?.role);
@@ -385,6 +410,48 @@ export default function PosOwnerDesk({ session }: PosOwnerDeskProps) {
   const filteredSalesAccountingRows = useMemo(() => salesAccountingRows.filter((row) =>
     matchesOwnerDeskSearch(accountingSearch, [row.receiptNo, row.branch, row.terminal, row.cashier, row.salesAccount, row.postingStatus, money(row.netSale)])
   ), [accountingSearch, salesAccountingRows]);
+
+  const paymentControlAccountOptions = useMemo(() => ['All Control Accounts', ...Array.from(new Set(paymentAccountingRows.map((row) => cleanPaymentPostingLabel(row.controlAccount))))], [paymentAccountingRows]);
+  const paymentModeOptions = useMemo(() => ['All Payment Modes', ...Array.from(new Set(paymentAccountingRows.map((row) => String(row.paymentMode))))], [paymentAccountingRows]);
+  const filteredPaymentAccountingRows = useMemo(() => {
+    const minAmount = Number(paymentMinAmount);
+    const maxAmount = Number(paymentMaxAmount);
+    const hasMin = paymentMinAmount.trim() !== '' && Number.isFinite(minAmount);
+    const hasMax = paymentMaxAmount.trim() !== '' && Number.isFinite(maxAmount);
+    return paymentAccountingRows.filter((row) => {
+      const varianceText = typeof row.variance === 'number' ? displayAmount(row.variance) : row.variance;
+      const notes = row.ownerNote || '';
+      const activityText = accountingActivity.filter((event) => event.message.includes(String(row.paymentMode))).map((event) => event.message).join(' ');
+      const cleanControl = cleanPaymentPostingLabel(row.controlAccount);
+      const varianceMatches =
+        paymentVarianceStatusFilter === 'All Variance Statuses' ||
+        (paymentVarianceStatusFilter === 'Variance Only' && typeof row.variance === 'number' && row.variance !== 0) ||
+        (paymentVarianceStatusFilter === 'No Variance' && row.variance === 0) ||
+        (paymentVarianceStatusFilter === 'Pending Variance' && row.variance === 'Pending');
+
+      return (
+        (paymentPostingModeFilter === 'All Payment Modes' || row.paymentMode === paymentPostingModeFilter) &&
+        (paymentSettlementFilter === 'All Settlement Statuses' || row.settlementStatus === paymentSettlementFilter) &&
+        (paymentPostingStatusFilter === 'All Posting Statuses' || row.postingStatus === paymentPostingStatusFilter) &&
+        (paymentControlAccountFilter === 'All Control Accounts' || cleanControl === paymentControlAccountFilter) &&
+        varianceMatches &&
+        (!hasMin || row.netAmount >= minAmount) &&
+        (!hasMax || row.netAmount <= maxAmount) &&
+        matchesOwnerDeskSearch(accountingSearch, [String(row.paymentMode), cleanControl, row.settlementStatus, row.postingStatus, varianceText, notes, activityText, money(row.netAmount)])
+      );
+    });
+  }, [accountingActivity, accountingSearch, paymentAccountingRows, paymentControlAccountFilter, paymentMaxAmount, paymentMinAmount, paymentPostingModeFilter, paymentPostingStatusFilter, paymentSettlementFilter, paymentVarianceStatusFilter]);
+
+  const paymentPostingActiveFilters = [
+    accountingSearch,
+    paymentPostingModeFilter !== 'All Payment Modes' ? paymentPostingModeFilter : '',
+    paymentSettlementFilter !== 'All Settlement Statuses' ? paymentSettlementFilter : '',
+    paymentPostingStatusFilter !== 'All Posting Statuses' ? paymentPostingStatusFilter : '',
+    paymentControlAccountFilter !== 'All Control Accounts' ? paymentControlAccountFilter : '',
+    paymentVarianceStatusFilter !== 'All Variance Statuses' ? paymentVarianceStatusFilter : '',
+    paymentMinAmount,
+    paymentMaxAmount
+  ].filter(Boolean).length;
 
   useEffect(() => {
     void loadEOD();
@@ -463,6 +530,165 @@ export default function PosOwnerDesk({ session }: PosOwnerDeskProps) {
   };
 
   const hasCashPermission = (permission: PermissionKey) => canPerformAction(currentRole, permission);
+
+  const canPaymentPosting = (permission: PermissionKey) => hasCashPermission(permission);
+
+  const refreshPaymentRows = (rows: PaymentAccountingSummary[]) => {
+    setPaymentAccountingRows(rows);
+  };
+
+  const recordPaymentPostingActivity = async (eventType: Parameters<typeof recordAccountingActivity>[0], message: string, type: FeedbackType = 'success') => {
+    setAccountingActivity(await recordAccountingActivity(eventType, message, staffName));
+    showFeedback(type, message);
+  };
+
+  const openPaymentPostingModal = async (mode: PaymentPostingModalMode, row: PaymentAccountingSummary) => {
+    setPaymentPostingModal({ mode, row });
+    setPaymentReceiptSearch('');
+    if (mode === 'settle') {
+      setPaymentSettlementForm({
+        settlementDate: row.settlementDate || businessDate,
+        settlementReference: row.settlementReference || `SET-${row.id.replace('ACC-PAY-', '')}`,
+        settledBy: row.settledBy || staffName,
+        note: row.ownerNote || ''
+      });
+    }
+    if (mode === 'variance') {
+      const varianceAmount = typeof row.variance === 'number' ? Math.abs(row.variance) : 0;
+      setPaymentVarianceForm({
+        amount: varianceAmount ? String(varianceAmount) : '',
+        type: row.variance && row.variance !== 'Pending' && row.variance < 0 ? 'Short' : 'Over',
+        riskLevel: row.riskLevel || (varianceAmount > 20 ? 'High' : 'Medium'),
+        note: row.ownerNote || '',
+        assignTo: row.assignedTo || 'Accountant'
+      });
+    }
+    if (mode === 'note') setPaymentOwnerNote(row.ownerNote || '');
+    if (mode === 'task') setPaymentTaskForm({ title: 'Review payment posting variance', issueType: 'Payment variance review', dueDate: '2026-06-10', assignedTo: row.assignedTo || 'Accountant', notes: row.ownerNote || '' });
+    if (mode === 'bi') setPaymentBIForm({ rule: row.settlementStatus === 'Pending' ? 'PAYMENT_SETTLEMENT_PENDING_REVIEW' : 'PAYMENT_POSTING_VARIANCE_REVIEW', priority: row.riskLevel || 'High', assignedDesk: 'Accounting Desk', narrative: row.ownerNote || `${row.paymentMode} payment posting requires review.` });
+    if (mode === 'detail') await recordPaymentPostingActivity('PAYMENT_MODE_DETAIL_VIEWED', `Payment mode detail viewed for ${row.paymentMode}.`);
+    if (mode === 'receipts') await recordPaymentPostingActivity('PAYMENT_MODE_RECEIPTS_VIEWED', `Receipts viewed for ${row.paymentMode}.`);
+  };
+
+  const updatePaymentRow = async (row: PaymentAccountingSummary, changes: Partial<PaymentAccountingSummary>, eventType: Parameters<typeof recordAccountingActivity>[0], message: string, type: FeedbackType = 'success') => {
+    const result = await updatePaymentAccountingSummaryRow(row.id, changes, staffName, eventType, message);
+    refreshPaymentRows(result.rows);
+    setPaymentPostingModal((current) => current && current.row.id === row.id && result.row ? { ...current, row: result.row } : current);
+    setAccountingActivity(result.activity);
+    showFeedback(type, message);
+  };
+
+  const handlePaymentMarkSettled = async () => {
+    if (!paymentPostingModal) return;
+    const row = paymentPostingModal.row;
+    const varianceValue = typeof row.variance === 'number' ? row.variance : 0;
+    if (varianceValue !== 0 && !paymentSettlementForm.note.trim()) {
+      showFeedback('warning', 'Settlement note is required when a variance exists.');
+      return;
+    }
+    await updatePaymentRow(row, {
+      settlementStatus: 'Settled',
+      postingStatus: varianceValue === 0 ? 'Ready for Review' : 'Pending Review',
+      settlementDate: paymentSettlementForm.settlementDate,
+      settlementReference: paymentSettlementForm.settlementReference,
+      settledBy: paymentSettlementForm.settledBy,
+      ownerNote: paymentSettlementForm.note
+    }, 'PAYMENT_MODE_MARKED_SETTLED', `${row.paymentMode} marked settled for accounting readiness.`, 'success');
+    setPaymentPostingModal(null);
+  };
+
+  const handlePaymentReopenSettlement = async (row: PaymentAccountingSummary) => {
+    await updatePaymentRow(row, { settlementStatus: 'Under Review', postingStatus: 'Pending Review' }, 'PAYMENT_SETTLEMENT_REOPENED', `${row.paymentMode} settlement review reopened.`, 'warning');
+  };
+
+  const handlePaymentFlagVariance = async (createBI = false, createTask = false) => {
+    if (!paymentPostingModal) return;
+    const row = paymentPostingModal.row;
+    const varianceAmount = Number(paymentVarianceForm.amount);
+    if (!Number.isFinite(varianceAmount) || varianceAmount <= 0) {
+      showFeedback('warning', 'Variance amount is required.');
+      return;
+    }
+    if ((paymentVarianceForm.riskLevel === 'High' || paymentVarianceForm.riskLevel === 'Critical') && !paymentVarianceForm.note.trim()) {
+      showFeedback('warning', 'Explanation is required for High or Critical variance.');
+      return;
+    }
+    const signedVariance = paymentVarianceForm.type === 'Short' ? -Math.abs(varianceAmount) : Math.abs(varianceAmount);
+    await updatePaymentRow(row, {
+      settlementStatus: 'Variance',
+      postingStatus: 'Pending Review',
+      variance: signedVariance,
+      varianceType: paymentVarianceForm.type,
+      riskLevel: paymentVarianceForm.riskLevel,
+      ownerNote: paymentVarianceForm.note,
+      assignedTo: paymentVarianceForm.assignTo
+    }, 'PAYMENT_MODE_VARIANCE_FLAGGED', `${row.paymentMode} variance flagged for ${displayAmount(signedVariance)}.`, 'warning');
+    if (createBI) await recordPaymentPostingActivity('PAYMENT_POSTING_BI_WARNING_CREATED', `PAYMENT_POSTING_VARIANCE_REVIEW BI warning created for ${row.paymentMode}.`, 'warning');
+    if (createTask) await recordPaymentPostingActivity('PAYMENT_POSTING_TASK_CREATED', `Accounting task created to review ${row.paymentMode} payment variance.`, 'success');
+    setPaymentPostingModal(null);
+  };
+
+  const handlePaymentSaveNote = async () => {
+    if (!paymentPostingModal) return;
+    if (!paymentOwnerNote.trim()) {
+      showFeedback('warning', 'Owner note cannot be blank.');
+      return;
+    }
+    await updatePaymentRow(paymentPostingModal.row, { ownerNote: paymentOwnerNote }, 'PAYMENT_POSTING_OWNER_NOTE_ADDED', `Owner note added to ${paymentPostingModal.row.paymentMode} payment posting.`, 'success');
+    setPaymentPostingModal(null);
+  };
+
+  const handlePaymentCreateTask = async () => {
+    if (!paymentPostingModal) return;
+    await updatePaymentRow(paymentPostingModal.row, { ownerNote: paymentTaskForm.notes, assignedTo: paymentTaskForm.assignedTo, postingStatus: 'Pending Review' }, 'PAYMENT_POSTING_TASK_CREATED', `${paymentTaskForm.title} task created for ${paymentPostingModal.row.paymentMode}.`, 'success');
+    setPaymentPostingModal(null);
+  };
+
+  const handlePaymentCreateBIWarning = async () => {
+    if (!paymentPostingModal) return;
+    await updatePaymentRow(paymentPostingModal.row, { ownerNote: paymentBIForm.narrative, riskLevel: paymentBIForm.priority as PaymentAccountingSummary['riskLevel'], postingStatus: 'Pending Review' }, 'PAYMENT_POSTING_BI_WARNING_CREATED', `${paymentBIForm.rule} BI warning created for ${paymentPostingModal.row.paymentMode}.`, 'warning');
+    setPaymentPostingModal(null);
+  };
+
+  const handlePaymentPrint = async (row: PaymentAccountingSummary) => {
+    const html = paymentSummaryPrintHtml(row);
+    const printWindow = window.open('', '_blank', 'width=900,height=720');
+    if (!printWindow) {
+      showFeedback('warning', 'Print window was blocked. Allow pop-ups to print the payment summary.');
+      return;
+    }
+    printWindow.document.write(html);
+    printWindow.document.close();
+    printWindow.focus();
+    printWindow.print();
+    await recordPaymentPostingActivity('PAYMENT_POSTING_SUMMARY_PRINTED', `Payment summary print prepared for ${row.paymentMode}.`);
+  };
+
+  const handlePaymentExport = async (row: PaymentAccountingSummary) => {
+    const csv = [
+      ['Payment Mode', 'Receipts', 'Gross Amount', 'Refunds', 'Net Amount', 'Control Account', 'Settlement Status', 'Variance', 'Posting Status', 'Note'],
+      [row.paymentMode, row.receiptCount, row.grossAmount, row.refunds, row.netAmount, cleanPaymentPostingLabel(row.controlAccount), row.settlementStatus, row.variance, row.postingStatus, row.ownerNote || '']
+    ].map((line) => line.map((value) => `"${String(value).replace(/"/g, '""')}"`).join(',')).join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `payment-posting-${String(row.paymentMode).replace(/\s+/g, '-').toLowerCase()}.csv`;
+    link.click();
+    URL.revokeObjectURL(url);
+    await recordPaymentPostingActivity('PAYMENT_POSTING_ROW_EXPORTED', `Payment posting row export prepared for ${row.paymentMode}.`);
+  };
+
+  const clearPaymentPostingFilters = () => {
+    setAccountingSearch('');
+    setPaymentPostingModeFilter('All Payment Modes');
+    setPaymentSettlementFilter('All Settlement Statuses');
+    setPaymentPostingStatusFilter('All Posting Statuses');
+    setPaymentControlAccountFilter('All Control Accounts');
+    setPaymentVarianceStatusFilter('All Variance Statuses');
+    setPaymentMinAmount('');
+    setPaymentMaxAmount('');
+  };
 
   const addCashActivity = async (eventType: Parameters<typeof recordEODActivity>[0], message: string, type: FeedbackType = 'success') => {
     setActivity(await recordEODActivity(eventType, message, staffName));
@@ -1424,17 +1650,61 @@ export default function PosOwnerDesk({ session }: PosOwnerDeskProps) {
 
           {activeAccountingTab === 'Payment Posting' && (
             <Panel title="Payment Posting Summary" icon={<DollarSign className="w-4 h-4 text-orange-500" />}>
-              <Table>
-                <thead><tr><Th>Payment Mode</Th><Th>Receipts</Th><Th>Gross Amount</Th><Th>Refunds</Th><Th>Net Amount</Th><Th>Control Account</Th><Th>Settlement Status</Th><Th>Variance</Th><Th>Posting Status</Th><Th>Action</Th></tr></thead>
-                <tbody>
-                  {paymentAccountingRows.map((row) => (
-                    <tr key={row.id} className="border-t border-slate-100 hover:bg-slate-50">
-                      <Td strong>{row.paymentMode}</Td><Td>{row.receiptCount}</Td><Td>{money(row.grossAmount)}</Td><Td>{money(row.refunds)}</Td><Td>{money(row.netAmount)}</Td><Td>{row.controlAccount}</Td><Td><Badge value={row.settlementStatus} /></Td><Td>{displayAmount(row.variance)}</Td><Td><Badge value={row.postingStatus} /></Td>
-                      <Td><div className="flex gap-1"><SmallAction onClick={() => handleAccountingReviewed(row.id)}>Mark Settled Placeholder</SmallAction><SmallAction onClick={() => undefined}>View Receipts</SmallAction><SmallAction onClick={() => undefined}>Flag Variance</SmallAction></div></Td>
-                    </tr>
-                  ))}
-                </tbody>
-              </Table>
+              <div className="mb-3 text-[10px] text-slate-500 uppercase tracking-wider">Accounting readiness preview only. Not final posted accounts.</div>
+              <OwnerDeskFilterBar
+                search={accountingSearch}
+                onSearch={setAccountingSearch}
+                activeCount={paymentPostingActiveFilters}
+                onClear={clearPaymentPostingFilters}
+                filters={[
+                  { label: 'Payment Mode', value: paymentPostingModeFilter, options: paymentModeOptions, onChange: setPaymentPostingModeFilter },
+                  { label: 'Settlement Status', value: paymentSettlementFilter, options: paymentSettlementStatuses, onChange: setPaymentSettlementFilter },
+                  { label: 'Posting Status', value: paymentPostingStatusFilter, options: postingStatuses, onChange: setPaymentPostingStatusFilter },
+                  { label: 'Control Account', value: paymentControlAccountFilter, options: paymentControlAccountOptions, onChange: setPaymentControlAccountFilter },
+                  { label: 'Variance Status', value: paymentVarianceStatusFilter, options: varianceStatuses, onChange: setPaymentVarianceStatusFilter }
+                ]}
+              />
+              <div className="owner-desk-filter-row owner-desk-filter-row--compact">
+                <Input label="Min Amount" value={paymentMinAmount} onChange={setPaymentMinAmount} />
+                <Input label="Max Amount" value={paymentMaxAmount} onChange={setPaymentMaxAmount} />
+              </div>
+              <div className="owner-desk-scroll-body owner-desk-scroll-body--tall pos-custom-scroll">
+                <table className="industrial-table owner-payment-posting-table">
+                  <thead><tr><Th>Payment Mode</Th><Th>Receipts</Th><Th>Gross Amount</Th><Th>Refunds</Th><Th>Net Amount</Th><Th>Control Account</Th><Th>Settlement Status</Th><Th>Variance</Th><Th>Posting Status</Th><Th>Action</Th></tr></thead>
+                  <tbody>
+                    {filteredPaymentAccountingRows.map((row) => (
+                      <tr key={row.id} className="border-t border-slate-100 hover:bg-slate-50">
+                        <Td strong>{row.paymentMode}</Td>
+                        <Td>{row.receiptCount}</Td>
+                        <Td>{money(row.grossAmount)}</Td>
+                        <Td>{money(row.refunds)}</Td>
+                        <Td>{money(row.netAmount)}</Td>
+                        <Td><span className="owner-desk-wrap-cell">{cleanPaymentPostingLabel(row.controlAccount)}</span></Td>
+                        <Td><Badge value={row.settlementStatus} /></Td>
+                        <Td>{displayAmount(row.variance)}</Td>
+                        <Td><Badge value={row.postingStatus} /></Td>
+                        <Td>
+                          <PaymentPostingActionMenu
+                            row={row}
+                            openId={openPaymentPostingMenuId}
+                            setOpenId={setOpenPaymentPostingMenuId}
+                            can={canPaymentPosting}
+                            onSettle={() => void openPaymentPostingModal('settle', row)}
+                            onReceipts={() => void openPaymentPostingModal('receipts', row)}
+                            onVariance={() => void openPaymentPostingModal('variance', row)}
+                            onDetail={() => void openPaymentPostingModal('detail', row)}
+                            onNote={() => void openPaymentPostingModal('note', row)}
+                            onBI={() => void openPaymentPostingModal('bi', row)}
+                            onTask={() => void openPaymentPostingModal('task', row)}
+                            onPrint={() => void handlePaymentPrint(row)}
+                            onExport={() => void handlePaymentExport(row)}
+                          />
+                        </Td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             </Panel>
           )}
 
@@ -1758,6 +2028,38 @@ export default function PosOwnerDesk({ session }: PosOwnerDeskProps) {
           onConfirm={coaModalMode === 'inactive' ? () => void handleCOAMarkInactive() : coaModalMode === 'note' ? () => void handleCOAOwnerNote() : () => void handleCOAReactivate(selectedCOAAccount)}
         />
       )}
+
+      {paymentPostingModal && (
+        <PaymentPostingModal
+          modal={paymentPostingModal}
+          settlementForm={paymentSettlementForm}
+          setSettlementForm={setPaymentSettlementForm}
+          varianceForm={paymentVarianceForm}
+          setVarianceForm={setPaymentVarianceForm}
+          ownerNote={paymentOwnerNote}
+          setOwnerNote={setPaymentOwnerNote}
+          taskForm={paymentTaskForm}
+          setTaskForm={setPaymentTaskForm}
+          biForm={paymentBIForm}
+          setBIForm={setPaymentBIForm}
+          receiptSearch={paymentReceiptSearch}
+          setReceiptSearch={setPaymentReceiptSearch}
+          activity={accountingActivity}
+          onClose={() => setPaymentPostingModal(null)}
+          onSettle={handlePaymentMarkSettled}
+          onReopen={() => void handlePaymentReopenSettlement(paymentPostingModal.row)}
+          onSaveVariance={() => void handlePaymentFlagVariance(false, false)}
+          onSaveVarianceBI={() => void handlePaymentFlagVariance(true, false)}
+          onSaveVarianceTask={() => void handlePaymentFlagVariance(false, true)}
+          onSaveNote={handlePaymentSaveNote}
+          onCreateTask={handlePaymentCreateTask}
+          onCreateBI={handlePaymentCreateBIWarning}
+          onPrint={() => void handlePaymentPrint(paymentPostingModal.row)}
+          onExport={() => void handlePaymentExport(paymentPostingModal.row)}
+          onOpenNested={(mode) => void openPaymentPostingModal(mode, paymentPostingModal.row)}
+          onReceiptAction={(message) => void recordPaymentPostingActivity('PAYMENT_MODE_RECEIPTS_VIEWED', message)}
+        />
+      )}
     </div>
   );
 }
@@ -1927,6 +2229,15 @@ function Input({ label, value, onChange }: { label: string; value: string; onCha
   );
 }
 
+function Textarea({ label, value, onChange }: { label: string; value: string; onChange: (value: string) => void }) {
+  return (
+    <label className="space-y-1 block">
+      <span className="block text-[8px] uppercase font-black text-slate-500">{label}</span>
+      <textarea value={value} onChange={(event) => onChange(event.target.value)} className="w-full min-h-[96px] border border-[#b1b5c2] bg-white px-2 py-2 text-[10px] font-bold text-[#1e222b]" />
+    </label>
+  );
+}
+
 function InfoBox({ label, value }: { label: string; value: string }) {
   return (
     <div className="bg-slate-50 border border-[#b1b5c2] p-2 min-h-[48px]">
@@ -1956,6 +2267,274 @@ function PaymentActionGroup({ id, onReview }: { id: string; onReview: (id: strin
       <SmallAction onClick={() => undefined}>View Receipts</SmallAction>
       <SmallAction onClick={() => onReview(id)}>Mark Reviewed</SmallAction>
       <SmallAction onClick={() => undefined}>Flag Variance</SmallAction>
+    </div>
+  );
+}
+
+function PaymentPostingActionMenu({
+  row,
+  openId,
+  setOpenId,
+  can,
+  onSettle,
+  onReceipts,
+  onVariance,
+  onDetail,
+  onNote,
+  onBI,
+  onTask,
+  onPrint,
+  onExport
+}: {
+  row: PaymentAccountingSummary;
+  openId: string | null;
+  setOpenId: (id: string | null) => void;
+  can: (permission: PermissionKey) => boolean;
+  onSettle: () => void;
+  onReceipts: () => void;
+  onVariance: () => void;
+  onDetail: () => void;
+  onNote: () => void;
+  onBI: () => void;
+  onTask: () => void;
+  onPrint: () => void;
+  onExport: () => void;
+}) {
+  const alreadySettled = row.settlementStatus === 'Settled';
+  const items: Array<RowActionMenuItem | false> = [
+    can('ownerDesk.accountingDesk.paymentPosting.markSettled') && { label: alreadySettled ? 'View Settlement' : 'Mark Settled', icon: <CheckCircle2 className="w-3.5 h-3.5" />, onClick: onSettle },
+    can('ownerDesk.accountingDesk.paymentPosting.viewReceipts') && { label: 'View Receipts', icon: <FileText className="w-3.5 h-3.5" />, onClick: onReceipts },
+    can('ownerDesk.accountingDesk.paymentPosting.flagVariance') && { label: 'Flag Variance', icon: <AlertTriangle className="w-3.5 h-3.5" />, onClick: onVariance },
+    can('ownerDesk.accountingDesk.paymentPosting.view') && { label: 'View Payment Mode Detail', icon: <Eye className="w-3.5 h-3.5" />, onClick: onDetail },
+    can('ownerDesk.accountingDesk.paymentPosting.addNote') && { label: 'Add Owner Note', icon: <StickyNote className="w-3.5 h-3.5" />, onClick: onNote },
+    can('ownerDesk.accountingDesk.paymentPosting.createBIWarning') && { label: 'Create BI Warning', icon: <Flag className="w-3.5 h-3.5" />, onClick: onBI },
+    can('ownerDesk.accountingDesk.paymentPosting.createTask') && { label: 'Create Accounting Task', icon: <ClipboardCheck className="w-3.5 h-3.5" />, onClick: onTask },
+    can('ownerDesk.accountingDesk.paymentPosting.print') && { label: 'Print Payment Summary', icon: <Printer className="w-3.5 h-3.5" />, onClick: onPrint },
+    can('ownerDesk.accountingDesk.paymentPosting.export') && { label: 'Export Row', icon: <Download className="w-3.5 h-3.5" />, onClick: onExport }
+  ];
+  return (
+    <OwnerDeskRowActionMenu
+      id={`payment-posting-${row.id}`}
+      openId={openId}
+      setOpenId={setOpenId}
+      ariaLabel={`Payment posting actions for ${row.paymentMode}`}
+      items={items}
+    />
+  );
+}
+
+function PaymentPostingModal({
+  modal,
+  settlementForm,
+  setSettlementForm,
+  varianceForm,
+  setVarianceForm,
+  ownerNote,
+  setOwnerNote,
+  taskForm,
+  setTaskForm,
+  biForm,
+  setBIForm,
+  receiptSearch,
+  setReceiptSearch,
+  activity,
+  onClose,
+  onSettle,
+  onReopen,
+  onSaveVariance,
+  onSaveVarianceBI,
+  onSaveVarianceTask,
+  onSaveNote,
+  onCreateTask,
+  onCreateBI,
+  onPrint,
+  onExport,
+  onOpenNested,
+  onReceiptAction
+}: {
+  modal: { mode: PaymentPostingModalMode; row: PaymentAccountingSummary };
+  settlementForm: { settlementDate: string; settlementReference: string; settledBy: string; note: string };
+  setSettlementForm: (value: { settlementDate: string; settlementReference: string; settledBy: string; note: string }) => void;
+  varianceForm: { amount: string; type: PaymentVarianceType; riskLevel: 'Low' | 'Medium' | 'High' | 'Critical'; note: string; assignTo: string };
+  setVarianceForm: (value: { amount: string; type: PaymentVarianceType; riskLevel: 'Low' | 'Medium' | 'High' | 'Critical'; note: string; assignTo: string }) => void;
+  ownerNote: string;
+  setOwnerNote: (value: string) => void;
+  taskForm: { title: string; issueType: string; dueDate: string; assignedTo: string; notes: string };
+  setTaskForm: (value: { title: string; issueType: string; dueDate: string; assignedTo: string; notes: string }) => void;
+  biForm: { rule: string; priority: string; assignedDesk: string; narrative: string };
+  setBIForm: (value: { rule: string; priority: string; assignedDesk: string; narrative: string }) => void;
+  receiptSearch: string;
+  setReceiptSearch: (value: string) => void;
+  activity: AccountingActivityEvent[];
+  onClose: () => void;
+  onSettle: () => void;
+  onReopen: () => void;
+  onSaveVariance: () => void;
+  onSaveVarianceBI: () => void;
+  onSaveVarianceTask: () => void;
+  onSaveNote: () => void;
+  onCreateTask: () => void;
+  onCreateBI: () => void;
+  onPrint: () => void;
+  onExport: () => void;
+  onOpenNested: (mode: PaymentPostingModalMode) => void;
+  onReceiptAction: (message: string) => void;
+}) {
+  const { mode, row } = modal;
+  const receipts = buildPaymentReceipts(row).filter((receipt) =>
+    matchesOwnerDeskSearch(receiptSearch, [receipt.receiptNo, receipt.cashier, receipt.customer, money(receipt.netAmount), receipt.settlementStatus, displayAmount(receipt.variance)])
+  );
+  const title =
+    mode === 'settle' ? 'Mark Payment Mode Settled' :
+    mode === 'receipts' ? 'Receipts for Payment Mode' :
+    mode === 'variance' ? 'Flag Payment Variance' :
+    mode === 'detail' ? 'Payment Mode Detail' :
+    mode === 'note' ? 'Add Owner Note' :
+    mode === 'task' ? 'Create Accounting Task' :
+    'Create BI Warning';
+  const rowActivity = activity.filter((event) => event.message.includes(String(row.paymentMode))).slice(0, 6);
+
+  return (
+    <div className="fixed inset-0 z-[70] bg-slate-950/60 flex items-center justify-center p-4">
+      <div className="bg-white border-2 border-[#1e222b] shadow-2xl w-full max-w-6xl max-h-[90vh] overflow-hidden flex flex-col">
+        <div className="p-4 border-b border-[#b1b5c2] flex items-center justify-between gap-3">
+          <div>
+            <h3 className="text-sm font-black uppercase tracking-wider text-[#1e222b]">{title}</h3>
+            <p className="text-[10px] text-slate-500 uppercase">Accounting readiness preview only. Not final posted accounts.</p>
+          </div>
+          <button className="industrial-secondary-button text-[10px]" onClick={onClose}>Close</button>
+        </div>
+        <div className="p-4 overflow-y-auto pos-custom-scroll space-y-4">
+          <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-8 gap-2">
+            <InfoBox label="Payment Mode" value={String(row.paymentMode)} />
+            <InfoBox label="Receipts" value={String(row.receiptCount)} />
+            <InfoBox label="Gross Amount" value={money(row.grossAmount)} />
+            <InfoBox label="Refunds" value={money(row.refunds)} />
+            <InfoBox label="Net Amount" value={money(row.netAmount)} />
+            <InfoBox label="Control Account" value={cleanPaymentPostingLabel(row.controlAccount)} />
+            <InfoBox label="Settlement Status" value={row.settlementStatus} />
+            <InfoBox label="Variance" value={displayAmount(row.variance)} />
+          </div>
+
+          {mode === 'settle' && (
+            <div className="space-y-3">
+              {row.settlementStatus === 'Settled' && (
+                <div className="bg-emerald-50 border border-emerald-200 text-emerald-900 p-3 text-xs font-bold">
+                  This payment mode is settled for readiness review. You can reopen settlement review if permitted.
+                </div>
+              )}
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-2">
+                <Input label="Settlement Date" value={settlementForm.settlementDate} onChange={(value) => setSettlementForm({ ...settlementForm, settlementDate: value })} />
+                <Input label="Settlement Reference" value={settlementForm.settlementReference} onChange={(value) => setSettlementForm({ ...settlementForm, settlementReference: value })} />
+                <Input label="Settled By" value={settlementForm.settledBy} onChange={(value) => setSettlementForm({ ...settlementForm, settledBy: value })} />
+                <InfoBox label="Posting Status" value={row.postingStatus} />
+              </div>
+              <Textarea label="Owner / Accounting Note" value={settlementForm.note} onChange={(value) => setSettlementForm({ ...settlementForm, note: value })} />
+              <div className="flex flex-wrap gap-2">
+                <SmallAction onClick={onSettle}>Confirm Settlement</SmallAction>
+                {row.settlementStatus === 'Settled' && <SmallAction onClick={onReopen}>Reopen Settlement Review</SmallAction>}
+              </div>
+            </div>
+          )}
+
+          {mode === 'receipts' && (
+            <div className="space-y-3">
+              <Input label="Receipt Search" value={receiptSearch} onChange={setReceiptSearch} />
+              <div className="max-h-[48vh] overflow-auto pos-custom-scroll border border-[#b1b5c2]">
+                <table className="industrial-table">
+                  <thead><tr><Th>Receipt No.</Th><Th>Date / Time</Th><Th>Cashier</Th><Th>Customer</Th><Th>Gross Amount</Th><Th>Refunds</Th><Th>Net Amount</Th><Th>Payment Mode</Th><Th>Settlement Status</Th><Th>Variance</Th><Th>Action</Th></tr></thead>
+                  <tbody>
+                    {receipts.map((receipt) => (
+                      <tr key={receipt.receiptNo}>
+                        <Td strong>{receipt.receiptNo}</Td><Td>{timeOnly(receipt.dateTime)}</Td><Td>{receipt.cashier}</Td><Td>{receipt.customer}</Td><Td>{money(receipt.grossAmount)}</Td><Td>{money(receipt.refunds)}</Td><Td>{money(receipt.netAmount)}</Td><Td>{receipt.paymentMode}</Td><Td><Badge value={receipt.settlementStatus} /></Td><Td>{displayAmount(receipt.variance)}</Td>
+                        <Td><div className="flex flex-wrap gap-1"><SmallAction onClick={() => onReceiptAction(`Receipt ${receipt.receiptNo} viewed locally for ${row.paymentMode}.`)}>View Receipt</SmallAction><SmallAction onClick={() => onReceiptAction(`CAT opened locally for ${receipt.receiptNo}.`)}>Open CAT</SmallAction><SmallAction onClick={() => onReceiptAction(`Receipt print prepared locally for ${receipt.receiptNo}.`)}>Print Receipt</SmallAction><SmallAction onClick={() => onReceiptAction(`Receipt note added locally for ${receipt.receiptNo}.`)}>Add Note</SmallAction><SmallAction onClick={() => onReceiptAction(`Receipt row export prepared locally for ${receipt.receiptNo}.`)}>Export Row</SmallAction></div></Td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {mode === 'variance' && (
+            <div className="space-y-3">
+              <div className="grid grid-cols-1 md:grid-cols-5 gap-2">
+                <Input label="Variance Amount" value={varianceForm.amount} onChange={(value) => setVarianceForm({ ...varianceForm, amount: value })} />
+                <Select label="Variance Type" value={varianceForm.type} onChange={(value) => setVarianceForm({ ...varianceForm, type: value as PaymentVarianceType })} options={paymentVarianceTypes} />
+                <Select label="Risk Level" value={varianceForm.riskLevel} onChange={(value) => setVarianceForm({ ...varianceForm, riskLevel: value as 'Low' | 'Medium' | 'High' | 'Critical' })} options={riskLevels} />
+                <Input label="Assign To" value={varianceForm.assignTo} onChange={(value) => setVarianceForm({ ...varianceForm, assignTo: value })} />
+                <InfoBox label="Current Status" value={row.settlementStatus} />
+              </div>
+              <Textarea label="Explanation / Owner Note" value={varianceForm.note} onChange={(value) => setVarianceForm({ ...varianceForm, note: value })} />
+              <div className="flex flex-wrap gap-2">
+                <SmallAction onClick={onSaveVariance}>Save Variance Flag</SmallAction>
+                <SmallAction onClick={onSaveVarianceBI}>Create BI Warning</SmallAction>
+                <SmallAction onClick={onSaveVarianceTask}>Create Accounting Task</SmallAction>
+              </div>
+            </div>
+          )}
+
+          {mode === 'detail' && (
+            <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+              <div className="space-y-3">
+                <InfoBox label="Linked COA Account" value={cleanPaymentPostingLabel(row.controlAccount)} />
+                <InfoBox label="Readiness Mapping" value={row.controlAccount.includes('Suspense') ? 'Review required' : 'Mapped'} />
+                <InfoBox label="Notes" value={row.ownerNote || 'No owner note recorded'} />
+                <div className="flex flex-wrap gap-2">
+                  <SmallAction onClick={() => onOpenNested('settle')}>Mark Settled</SmallAction>
+                  <SmallAction onClick={() => onOpenNested('receipts')}>View Receipts</SmallAction>
+                  <SmallAction onClick={() => onOpenNested('variance')}>Flag Variance</SmallAction>
+                  <SmallAction onClick={() => onOpenNested('note')}>Add Owner Note</SmallAction>
+                  <SmallAction onClick={onPrint}>Print</SmallAction>
+                </div>
+              </div>
+              <div className="border border-[#b1b5c2] p-3">
+                <h4 className="text-[10px] font-black uppercase text-slate-700">Activity History</h4>
+                <div className="mt-2 space-y-2 max-h-[220px] overflow-y-auto pos-custom-scroll">
+                  {rowActivity.length ? rowActivity.map((event) => <div key={event.id} className="text-[10px] border-b border-slate-100 pb-2"><strong>{humanizeEventName(event.eventType)}</strong><p>{event.message}</p></div>) : <p className="text-xs text-slate-500">No payment activity recorded yet.</p>}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {mode === 'note' && (
+            <div className="space-y-3">
+              <Textarea label="Owner Note" value={ownerNote} onChange={setOwnerNote} />
+              <SmallAction onClick={onSaveNote}>Save Note</SmallAction>
+            </div>
+          )}
+
+          {mode === 'task' && (
+            <div className="space-y-3">
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-2">
+                <Input label="Title" value={taskForm.title} onChange={(value) => setTaskForm({ ...taskForm, title: value })} />
+                <Input label="Issue Type" value={taskForm.issueType} onChange={(value) => setTaskForm({ ...taskForm, issueType: value })} />
+                <Input label="Due Date" value={taskForm.dueDate} onChange={(value) => setTaskForm({ ...taskForm, dueDate: value })} />
+                <Input label="Assigned Role / Staff" value={taskForm.assignedTo} onChange={(value) => setTaskForm({ ...taskForm, assignedTo: value })} />
+              </div>
+              <Textarea label="Task Notes" value={taskForm.notes} onChange={(value) => setTaskForm({ ...taskForm, notes: value })} />
+              <SmallAction onClick={onCreateTask}>Create Accounting Task</SmallAction>
+            </div>
+          )}
+
+          {mode === 'bi' && (
+            <div className="space-y-3">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
+                <Input label="BI Rule" value={biForm.rule} onChange={(value) => setBIForm({ ...biForm, rule: value })} />
+                <Input label="Priority" value={biForm.priority} onChange={(value) => setBIForm({ ...biForm, priority: value })} />
+                <Input label="Assigned Desk" value={biForm.assignedDesk} onChange={(value) => setBIForm({ ...biForm, assignedDesk: value })} />
+              </div>
+              <Textarea label="Narrative / Business Risk / Recommended Action" value={biForm.narrative} onChange={(value) => setBIForm({ ...biForm, narrative: value })} />
+              <SmallAction onClick={onCreateBI}>Create BI Warning</SmallAction>
+            </div>
+          )}
+
+          <div className="flex justify-end gap-2 border-t border-slate-200 pt-3">
+            <SmallAction onClick={onExport}>Export Row</SmallAction>
+            <SmallAction onClick={onClose}>Close</SmallAction>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
@@ -2491,6 +3070,77 @@ function money(value: number): string {
 
 function displayAmount(value: number | string): string {
   return typeof value === 'number' ? money(value) : value;
+}
+
+function cleanPaymentPostingLabel(value: string): string {
+  return value
+    .replace(/placeholder/gi, '')
+    .replace('Split by payment components', 'Split by Payment Components')
+    .replace('Customer Receivables', 'Customer Receivables Control')
+    .replace(/\s{2,}/g, ' ')
+    .trim();
+}
+
+interface PaymentPostingReceiptRow {
+  receiptNo: string;
+  dateTime: string;
+  cashier: string;
+  customer: string;
+  grossAmount: number;
+  refunds: number;
+  netAmount: number;
+  paymentMode: string;
+  settlementStatus: PaymentAccountingSummary['settlementStatus'];
+  variance: number | 'Pending';
+}
+
+function buildPaymentReceipts(row: PaymentAccountingSummary): PaymentPostingReceiptRow[] {
+  const count = Math.max(1, Math.min(row.receiptCount, 12));
+  const baseNet = row.netAmount / count;
+  const baseGross = row.grossAmount / count;
+  return Array.from({ length: count }, (_, index) => {
+    const receiptIndex = index + 1;
+    const variance = receiptIndex === 1 ? row.variance : 0;
+    return {
+      receiptNo: `RCT-${String(900 + receiptIndex).padStart(4, '0')}`,
+      dateTime: `2026-06-09T${String(8 + (index % 9)).padStart(2, '0')}:${String((index * 7) % 60).padStart(2, '0')}:00Z`,
+      cashier: index % 3 === 0 ? 'Mary Cashier' : index % 3 === 1 ? 'Tawanda Supervisor' : 'Admin User',
+      customer: row.paymentMode === 'Credit Sale' ? 'Customer Account Sale' : index % 2 === 0 ? 'Walk-in Customer' : 'Registered Customer',
+      grossAmount: Number(baseGross.toFixed(2)),
+      refunds: receiptIndex === count ? Number(row.refunds.toFixed(2)) : 0,
+      netAmount: Number(baseNet.toFixed(2)),
+      paymentMode: String(row.paymentMode),
+      settlementStatus: row.settlementStatus,
+      variance
+    };
+  });
+}
+
+function paymentSummaryPrintHtml(row: PaymentAccountingSummary): string {
+  const account = cleanPaymentPostingLabel(row.controlAccount);
+  return `<!doctype html><html><head><title>Payment Summary ${row.paymentMode}</title><style>
+    body{font-family:Arial,sans-serif;background:#fff;color:#111;margin:32px}
+    h1{font-size:20px;text-transform:uppercase;margin:0 0 4px}
+    p{font-size:12px;color:#444;margin:0 0 18px}
+    table{width:100%;border-collapse:collapse;font-size:12px}
+    th,td{border:1px solid #999;padding:8px;text-align:left}
+    th{background:#f1f5f9;text-transform:uppercase}
+  </style></head><body>
+    <h1>Payment Posting Summary</h1>
+    <p>Accounting readiness preview only. Not final posted accounts.</p>
+    <table><tbody>
+      <tr><th>Payment Mode</th><td>${row.paymentMode}</td></tr>
+      <tr><th>Receipts</th><td>${row.receiptCount}</td></tr>
+      <tr><th>Gross Amount</th><td>${money(row.grossAmount)}</td></tr>
+      <tr><th>Refunds</th><td>${money(row.refunds)}</td></tr>
+      <tr><th>Net Amount</th><td>${money(row.netAmount)}</td></tr>
+      <tr><th>Control Account</th><td>${account}</td></tr>
+      <tr><th>Settlement Status</th><td>${row.settlementStatus}</td></tr>
+      <tr><th>Variance</th><td>${displayAmount(row.variance)}</td></tr>
+      <tr><th>Posting Status</th><td>${row.postingStatus}</td></tr>
+      <tr><th>Owner Note</th><td>${row.ownerNote || 'None'}</td></tr>
+    </tbody></table>
+  </body></html>`;
 }
 
 function matchesOwnerDeskSearch(search: string, values: Array<string | number | undefined>): boolean {

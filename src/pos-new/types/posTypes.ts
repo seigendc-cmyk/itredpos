@@ -5650,6 +5650,8 @@ export type COAAccountStatus = 'Active' | 'Inactive' | 'Draft';
 export type PostingStatus =
   | 'Draft'
   | 'Posted'
+  | 'Posted Preview'
+  | 'Ready for Review'
   | 'Pending Review'
   | 'Reversed';
 
@@ -5972,9 +5974,16 @@ export interface PaymentAccountingSummary {
   refunds: number;
   netAmount: number;
   controlAccount: string;
-  settlementStatus: 'Settled' | 'Pending' | 'Variance' | 'Placeholder';
+  settlementStatus: 'Settled' | 'Pending' | 'Variance' | 'Under Review';
   variance: number | 'Pending';
   postingStatus: PostingStatus;
+  settlementDate?: string;
+  settlementReference?: string;
+  settledBy?: string;
+  ownerNote?: string;
+  varianceType?: string;
+  riskLevel?: RiskLevel;
+  assignedTo?: string;
 }
 
 export interface COGSReserveSummary {
@@ -6187,6 +6196,16 @@ export type AccountingActivityEventType =
   | 'COA_ACCOUNT_REPLACEMENT_CREATED'
   | 'SALES_POSTING_REVIEWED'
   | 'PAYMENT_POSTING_REVIEWED'
+  | 'PAYMENT_MODE_MARKED_SETTLED'
+  | 'PAYMENT_MODE_RECEIPTS_VIEWED'
+  | 'PAYMENT_MODE_VARIANCE_FLAGGED'
+  | 'PAYMENT_MODE_DETAIL_VIEWED'
+  | 'PAYMENT_POSTING_OWNER_NOTE_ADDED'
+  | 'PAYMENT_POSTING_TASK_CREATED'
+  | 'PAYMENT_POSTING_BI_WARNING_CREATED'
+  | 'PAYMENT_POSTING_SUMMARY_PRINTED'
+  | 'PAYMENT_POSTING_ROW_EXPORTED'
+  | 'PAYMENT_SETTLEMENT_REOPENED'
   | 'CASHBOOK_ENTRY_CREATED'
   | 'VAT_SUMMARY_VIEWED'
   | 'COGS_RESERVED'

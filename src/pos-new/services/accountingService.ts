@@ -49,6 +49,7 @@ export interface AccountingPostingPlaceholderPayload {
 const COA_KEY = 'itred_pos_accounting_coa';
 const POSTINGS_KEY = 'itred_pos_accounting_postings';
 const ACTIVITY_KEY = 'itred_pos_accounting_activity';
+const PAYMENT_SUMMARY_KEY = 'itred_pos_accounting_payment_summary';
 
 function readList<T>(key: string, fallback: T[]): T[] {
   const raw = localStorage.getItem(key);
@@ -176,7 +177,25 @@ export async function getSalesAccountingSummary(filters: AccountingFilters): Pro
 }
 
 export async function getPaymentAccountingSummary(_filters: AccountingFilters): Promise<PaymentAccountingSummary[]> {
-  return mockPaymentAccountingSummaryRows;
+  return readList<PaymentAccountingSummary>(PAYMENT_SUMMARY_KEY, mockPaymentAccountingSummaryRows);
+}
+
+export async function updatePaymentAccountingSummaryRow(
+  rowId: string,
+  changes: Partial<PaymentAccountingSummary>,
+  operator = 'Admin User',
+  eventType: AccountingActivityEventType = 'PAYMENT_POSTING_REVIEWED',
+  message?: string
+): Promise<{ rows: PaymentAccountingSummary[]; activity: AccountingActivityEvent[]; row: PaymentAccountingSummary | null }> {
+  let updated: PaymentAccountingSummary | null = null;
+  const rows = readList<PaymentAccountingSummary>(PAYMENT_SUMMARY_KEY, mockPaymentAccountingSummaryRows).map((row) => {
+    if (row.id !== rowId) return row;
+    updated = { ...row, ...changes };
+    return updated;
+  });
+  saveList(PAYMENT_SUMMARY_KEY, rows);
+  const activity = addActivity(eventType, message || `${updated?.paymentMode || rowId} payment posting readiness updated locally.`, operator);
+  return { rows, activity, row: updated };
 }
 
 export async function getCashbookEntries(filters: AccountingFilters): Promise<CashbookEntry[]> {

@@ -2940,9 +2940,9 @@ export const mockPaymentAccountingSummaryRows: PaymentAccountingSummary[] = [
   { id: 'ACC-PAY-002', paymentMode: 'EcoCash', receiptCount: 8, grossAmount: 320, refunds: 0, netAmount: 320, controlAccount: '1010 EcoCash Control', settlementStatus: 'Settled', variance: 0, postingStatus: 'Posted' },
   { id: 'ACC-PAY-003', paymentMode: 'Swipe', receiptCount: 5, grossAmount: 215, refunds: 0, netAmount: 215, controlAccount: '1020 Swipe/Card Control', settlementStatus: 'Settled', variance: 0, postingStatus: 'Posted' },
   { id: 'ACC-PAY-004', paymentMode: 'Bank Transfer', receiptCount: 3, grossAmount: 480, refunds: 0, netAmount: 460, controlAccount: '1030 Bank Transfer Control', settlementStatus: 'Pending', variance: 'Pending', postingStatus: 'Draft' },
-  { id: 'ACC-PAY-005', paymentMode: 'Split Payment', receiptCount: 2, grossAmount: 210, refunds: 0, netAmount: 200, controlAccount: 'Split by payment components placeholder', settlementStatus: 'Placeholder', variance: 0, postingStatus: 'Draft' },
-  { id: 'ACC-PAY-006', paymentMode: 'Credit Sale', receiptCount: 1, grossAmount: 90, refunds: 0, netAmount: 90, controlAccount: '1300 Customer Receivables Placeholder', settlementStatus: 'Pending', variance: 0, postingStatus: 'Draft' },
-  { id: 'ACC-PAY-007', paymentMode: 'Store Credit', receiptCount: 1, grossAmount: 42, refunds: 0, netAmount: 42, controlAccount: '9000 Suspense / Review Account', settlementStatus: 'Placeholder', variance: 0, postingStatus: 'Pending Review' }
+  { id: 'ACC-PAY-005', paymentMode: 'Split Payment', receiptCount: 2, grossAmount: 210, refunds: 0, netAmount: 200, controlAccount: 'Split by Payment Components', settlementStatus: 'Under Review', variance: 0, postingStatus: 'Draft' },
+  { id: 'ACC-PAY-006', paymentMode: 'Credit Sale', receiptCount: 1, grossAmount: 90, refunds: 0, netAmount: 90, controlAccount: '1300 Customer Receivables Control', settlementStatus: 'Pending', variance: 0, postingStatus: 'Draft' },
+  { id: 'ACC-PAY-007', paymentMode: 'Store Credit', receiptCount: 1, grossAmount: 42, refunds: 0, netAmount: 42, controlAccount: '9000 Suspense / Review Account', settlementStatus: 'Under Review', variance: 0, postingStatus: 'Pending Review' }
 ];
 
 export const mockCashbookEntries: CashbookEntry[] = [

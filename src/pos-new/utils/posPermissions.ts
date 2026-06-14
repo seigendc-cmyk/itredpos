@@ -105,6 +105,15 @@ export type PermissionKey =
   | 'ownerDesk.biReview.manage'
   | 'ownerDesk.accountingDesk.view'
   | 'ownerDesk.accountingDesk.manage'
+  | 'ownerDesk.accountingDesk.paymentPosting.view'
+  | 'ownerDesk.accountingDesk.paymentPosting.markSettled'
+  | 'ownerDesk.accountingDesk.paymentPosting.viewReceipts'
+  | 'ownerDesk.accountingDesk.paymentPosting.flagVariance'
+  | 'ownerDesk.accountingDesk.paymentPosting.addNote'
+  | 'ownerDesk.accountingDesk.paymentPosting.createTask'
+  | 'ownerDesk.accountingDesk.paymentPosting.createBIWarning'
+  | 'ownerDesk.accountingDesk.paymentPosting.print'
+  | 'ownerDesk.accountingDesk.paymentPosting.export'
   | 'ownerDesk.accountingDesk.coa.view'
   | 'ownerDesk.accountingDesk.coa.create'
   | 'ownerDesk.accountingDesk.coa.editDraft'
@@ -524,6 +533,15 @@ const ALL_PERMISSIONS: PermissionKey[] = [
   'ownerDesk.biReview.manage',
   'ownerDesk.accountingDesk.view',
   'ownerDesk.accountingDesk.manage',
+  'ownerDesk.accountingDesk.paymentPosting.view',
+  'ownerDesk.accountingDesk.paymentPosting.markSettled',
+  'ownerDesk.accountingDesk.paymentPosting.viewReceipts',
+  'ownerDesk.accountingDesk.paymentPosting.flagVariance',
+  'ownerDesk.accountingDesk.paymentPosting.addNote',
+  'ownerDesk.accountingDesk.paymentPosting.createTask',
+  'ownerDesk.accountingDesk.paymentPosting.createBIWarning',
+  'ownerDesk.accountingDesk.paymentPosting.print',
+  'ownerDesk.accountingDesk.paymentPosting.export',
   'ownerDesk.accountingDesk.coa.view',
   'ownerDesk.accountingDesk.coa.create',
   'ownerDesk.accountingDesk.coa.editDraft',
@@ -871,6 +889,10 @@ const ROLE_PERMISSIONS: Record<Role, PermissionKey[]> = {
     'ownerDesk.biReview.view', 'ownerDesk.biReview.manage',
     'ownerDesk.accountingDesk.view',
     'ownerDesk.accountingDesk.coa.view',
+    'ownerDesk.accountingDesk.paymentPosting.view', 'ownerDesk.accountingDesk.paymentPosting.viewReceipts',
+    'ownerDesk.accountingDesk.paymentPosting.flagVariance', 'ownerDesk.accountingDesk.paymentPosting.addNote',
+    'ownerDesk.accountingDesk.paymentPosting.createTask', 'ownerDesk.accountingDesk.paymentPosting.createBIWarning',
+    'ownerDesk.accountingDesk.paymentPosting.print', 'ownerDesk.accountingDesk.paymentPosting.export',
     'ownerDesk.print', 'ownerDesk.export', 'ownerDesk.escalate', 'ownerDesk.createBIWarning', 'ownerDesk.createTask',
     'payment.capture',
     'customers.view', 'customers.createRequest', 'customers.createDirect', 'customers.edit', 'customers.suspend', 'customers.reactivate',
@@ -1051,6 +1073,11 @@ const ROLE_PERMISSIONS: Record<Role, PermissionKey[]> = {
     'accounting.view', 'accounting.review', 'accounting.postPlaceholder', 'accounting.export',
     'ownerDesk.accountingDesk.view', 'ownerDesk.accountingDesk.coa.view', 'ownerDesk.accountingDesk.coa.create',
     'ownerDesk.accountingDesk.coa.editDraft', 'ownerDesk.accountingDesk.coa.print', 'ownerDesk.accountingDesk.coa.export',
+    'ownerDesk.accountingDesk.paymentPosting.view', 'ownerDesk.accountingDesk.paymentPosting.markSettled',
+    'ownerDesk.accountingDesk.paymentPosting.viewReceipts', 'ownerDesk.accountingDesk.paymentPosting.flagVariance',
+    'ownerDesk.accountingDesk.paymentPosting.addNote', 'ownerDesk.accountingDesk.paymentPosting.createTask',
+    'ownerDesk.accountingDesk.paymentPosting.createBIWarning', 'ownerDesk.accountingDesk.paymentPosting.print',
+    'ownerDesk.accountingDesk.paymentPosting.export',
     'inventoryAccounting.view', 'inventoryAccounting.review', 'inventoryAccounting.export',
     'creditors.view', 'creditors.supplierProfile.view',
     'creditors.supplierBill.view', 'creditors.supplierBill.create', 'creditors.supplierBill.post', 'creditors.supplierBill.dispute',
