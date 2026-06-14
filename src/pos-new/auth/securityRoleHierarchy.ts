@@ -237,6 +237,11 @@ const directRolePermissions: Record<SecurityRoleKey, string[]> = {
     'approvals.approveLowRisk',
     'reports.view',
     'sync.view',
+    'helpDesk.view',
+    'helpDesk.print',
+    'helpDesk.copy',
+    'helpDesk.reportIssue',
+    'helpDesk.openFunctionLinks',
     'bi.view',
     'bi.riskReview',
     'bi.advice.view',
@@ -317,6 +322,11 @@ const directRolePermissions: Record<SecurityRoleKey, string[]> = {
     'taskDesk.complete',
     'taskDesk.openRelatedRecord',
     'sync.view',
+    'helpDesk.view',
+    'helpDesk.print',
+    'helpDesk.copy',
+    'helpDesk.reportIssue',
+    'helpDesk.openFunctionLinks',
     'customers.creditView',
     'businessRegistration.view',
     'businessRegistration.dashboardView',
@@ -374,7 +384,12 @@ const directRolePermissions: Record<SecurityRoleKey, string[]> = {
     'bi.reorderBlock.review',
     'sync.view',
     'sync.retry',
-    'sync.batch.create'
+    'sync.batch.create',
+    'helpDesk.view',
+    'helpDesk.print',
+    'helpDesk.copy',
+    'helpDesk.reportIssue',
+    'helpDesk.openFunctionLinks'
   ],
   Cashier: [
     'dashboard.view',
@@ -395,7 +410,11 @@ const directRolePermissions: Record<SecurityRoleKey, string[]> = {
     'taskDesk.startReview',
     'taskDesk.addNote',
     'taskDesk.complete',
-    'sync.view'
+    'sync.view',
+    'helpDesk.view',
+    'helpDesk.copy',
+    'helpDesk.reportIssue',
+    'helpDesk.openFunctionLinks'
   ],
   DeliveryStaff: [
     'dashboard.view',
@@ -409,13 +428,18 @@ const directRolePermissions: Record<SecurityRoleKey, string[]> = {
     'taskDesk.startReview',
     'taskDesk.addNote',
     'taskDesk.complete',
-    'sync.view'
+    'sync.view',
+    'helpDesk.view',
+    'helpDesk.copy',
+    'helpDesk.reportIssue',
+    'helpDesk.openFunctionLinks'
   ],
   Viewer: [
     'dashboard.view',
     'reports.view',
     'audit.view',
-    'businessProfile.view'
+    'businessProfile.view',
+    'helpDesk.view'
   ]
 };
 

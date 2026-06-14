@@ -10,6 +10,7 @@ export type PermissionArea =
   | 'Reports'
   | 'Approvals'
   | 'Sync'
+  | 'Help Desk'
   | 'Settings'
   | 'Staff Access'
   | 'Hardware'

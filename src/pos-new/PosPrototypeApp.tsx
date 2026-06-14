@@ -19,6 +19,7 @@ import PosApprovals from './pages/PosApprovals';
 import PosCustomerDesk from './pages/PosCustomerDesk';
 import PosCreditors from './pages/PosCreditors';
 import PosPurchaseDiscipline from './pages/PosPurchaseDiscipline';
+import PosHelpDesk from './pages/PosHelpDesk';
 import { 
   Product, 
   Transaction, 
@@ -890,6 +891,13 @@ export default function PosPrototypeApp() {
       {activePage === 'SYNC_DESK' && (
         <PosSyncDesk 
           session={activeSession}
+        />
+      )}
+
+      {activePage === 'HELP_DESK' && (
+        <PosHelpDesk
+          session={activeSession}
+          onNavigate={(page) => setActivePage(page)}
         />
       )}
 

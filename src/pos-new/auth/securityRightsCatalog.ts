@@ -318,6 +318,12 @@ export const securityRightsCatalog: SecurityPermissionRight[] = [
   right('Sync', 'sync.export', accountant, 'Export sync reports.'),
   right('Sync', 'sync.clearSynced', owner, 'Clear synced local queue records.'),
 
+  right('Help Desk', 'helpDesk.view', viewer, 'View the in-app Help Desk Book.'),
+  right('Help Desk', 'helpDesk.print', ['Owner', 'SysAdmin', 'Manager', 'Supervisor', 'Accountant', 'StockController'], 'Print local help articles.'),
+  right('Help Desk', 'helpDesk.copy', ['Owner', 'SysAdmin', 'Manager', 'Supervisor', 'Accountant', 'StockController', 'Cashier', 'DeliveryStaff'], 'Copy local help guidance text.'),
+  right('Help Desk', 'helpDesk.reportIssue', ['Owner', 'SysAdmin', 'Manager', 'Supervisor', 'Accountant', 'StockController', 'Cashier', 'DeliveryStaff'], 'Report a local/mock help content issue.'),
+  right('Help Desk', 'helpDesk.openFunctionLinks', ['Owner', 'SysAdmin', 'Manager', 'Supervisor', 'Accountant', 'StockController', 'Cashier', 'DeliveryStaff'], 'Open related POS functions from help articles.'),
+
   right('Settings', 'settings.view', manager, 'View Settings.'),
   right('Settings', 'settings.business.edit', owner, 'Edit business settings.'),
   right('Settings', 'settings.hardware.edit', owner, 'Edit hardware settings.'),

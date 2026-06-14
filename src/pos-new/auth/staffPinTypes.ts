@@ -56,6 +56,7 @@ export type RoleMenuKey =
   | 'approvals'
   | 'biDesk'
   | 'syncDesk'
+  | 'helpDesk'
   | 'reports'
   | 'accountingFinance'
   | 'financialControl'

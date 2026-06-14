@@ -2576,6 +2576,7 @@ export type PosPageId =
   | 'FINANCIAL_CONTROL'
   | 'BI_DESK'
   | 'SYNC_DESK'
+  | 'HELP_DESK'
   | 'SETTINGS';
 
 export interface AuditEvent {

@@ -8,6 +8,7 @@ import {
   Clock,
   DollarSign,
   History,
+  HelpCircle,
   Landmark,
   Layers,
   ListChecks,
@@ -89,6 +90,7 @@ const sidebarGroups: SidebarGroup[] = [
     items: [
       { id: 'BI_DESK', label: 'BI Desk', icon: BarChart2 },
       { id: 'SYNC_DESK', label: 'Sync Desk', icon: RefreshCw },
+      { id: 'HELP_DESK', label: 'Help Desk', icon: HelpCircle },
       { id: 'SETTINGS', label: 'Settings', icon: Settings }
     ]
   }

@@ -24,6 +24,7 @@ export const roleMenuDefinitions: RoleMenuDefinition[] = [
   { menuKey: 'approvals', menuLabel: 'Approvals', group: 'Control', pageId: 'APPROVALS' },
   { menuKey: 'biDesk', menuLabel: 'BI Desk', group: 'Control', pageId: 'BI_DESK' },
   { menuKey: 'syncDesk', menuLabel: 'Sync Desk', group: 'Control', pageId: 'SYNC_DESK' },
+  { menuKey: 'helpDesk', menuLabel: 'Help Desk', group: 'Control', pageId: 'HELP_DESK' },
   { menuKey: 'reports', menuLabel: 'Reports', group: 'Control', pageId: 'BI_DESK' },
   { menuKey: 'accountingFinance', menuLabel: 'Accounting Finance', group: 'Control', pageId: 'CASH' },
   { menuKey: 'financialControl', menuLabel: 'Financial Control', group: 'Control', pageId: 'FINANCIAL_CONTROL' },
