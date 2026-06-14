@@ -2573,6 +2573,7 @@ export type PosPageId =
   | 'APPROVALS'
   | 'SHIFT'
   | 'CASH'
+  | 'FINANCIAL_CONTROL'
   | 'BI_DESK'
   | 'SYNC_DESK'
   | 'SETTINGS';
@@ -5673,6 +5674,240 @@ export interface COAAccount {
   createdAt?: string;
   updatedAt?: string;
   inactiveReason?: string;
+}
+
+export type FinancialControlAccountType =
+  | 'Cash'
+  | 'Bank'
+  | 'MobileMoney'
+  | 'CardControl'
+  | 'ReceivablesControl'
+  | 'PayablesControl'
+  | 'InventoryControl'
+  | 'COGSReserveControl'
+  | 'VATReserveControl'
+  | 'CustomerDepositControl'
+  | 'SupplierDepositControl'
+  | 'ExpenseControl'
+  | 'RevenueControl'
+  | 'ContraControl'
+  | 'OwnerFundsControl'
+  | 'SuspenseControl';
+
+export type FinancialActivityType =
+  | 'SaleRevenue'
+  | 'SaleCashReceipt'
+  | 'SaleMobileReceipt'
+  | 'SaleCardReceipt'
+  | 'SaleBankReceipt'
+  | 'CreditSaleReceivable'
+  | 'DebtorPaymentReceipt'
+  | 'CustomerDepositReceived'
+  | 'CustomerDepositApplied'
+  | 'SupplierBillCreated'
+  | 'SupplierPaymentMade'
+  | 'COGSRecoveredFromSale'
+  | 'COGSReserveUsed'
+  | 'DrawerExpense'
+  | 'CashDrop'
+  | 'Refund'
+  | 'Return'
+  | 'CreditNoteApplied'
+  | 'OpeningBalance'
+  | 'InventoryAssetMovement'
+  | 'VATCollected'
+  | 'VATInputPlaceholder'
+  | 'VATReserveMovement'
+  | 'OwnerInjection'
+  | 'OwnerDrawing'
+  | 'Adjustment';
+
+export type FinancialActivitySource =
+  | 'SalesTerminal'
+  | 'Debtors'
+  | 'Creditors'
+  | 'CashControl'
+  | 'Inventory'
+  | 'COGSReserve'
+  | 'PurchaseDiscipline'
+  | 'OwnerDesk'
+  | 'EOD'
+  | 'ManualPlaceholder';
+
+export type CashPlanInflowType =
+  | 'ActualCash'
+  | 'ActualBank'
+  | 'ActualMobile'
+  | 'DebtorDueToday'
+  | 'DebtorPromise'
+  | 'ExpectedDebtorPayment'
+  | 'OwnerInjectionPlaceholder'
+  | 'DepositExpected'
+  | 'OtherExpected';
+
+export type CashPlanOutflowType =
+  | 'SupplierPaymentDue'
+  | 'SupplierPaymentOverdue'
+  | 'DrawerExpensePlanned'
+  | 'PurchaseCommitment'
+  | 'COGSReserveRequirement'
+  | 'VATReserveRequirement'
+  | 'RefundExpected'
+  | 'DeliveryCashSettlement'
+  | 'OwnerDrawingRequest'
+  | 'OtherPlanned';
+
+export type CashPlanConfidence = 'Confirmed' | 'High' | 'Medium' | 'Low' | 'Risky' | 'Disputed';
+export type FinancialDecisionStatus = 'Draft' | 'PendingOwnerDecision' | 'Approved' | 'Rejected' | 'ConvertedToTask' | 'ConvertedToApproval' | 'ExecutedBySourceModule' | 'Cancelled';
+export type ProfitabilityViewMode = 'CashBasis' | 'AccrualReadiness' | 'HybridManagement';
+
+export interface FinancialControlAccount {
+  accountId: string;
+  coaAccountId: string;
+  accountCode: string;
+  accountName: string;
+  accountType: FinancialControlAccountType;
+  linkedDomain: string;
+  currency: string;
+  openingBalance: number;
+  currentBalance: number;
+  restrictedBalance: number;
+  availableBalance: number;
+  active: boolean;
+  protected: boolean;
+  notes: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface FinancialActivityRecord {
+  activityId: string;
+  activityNumber: string;
+  activityDate: string;
+  type: FinancialActivityType;
+  source: FinancialActivitySource;
+  sourceReferenceId: string;
+  sourceReferenceNumber: string;
+  description: string;
+  debitAccountId?: string;
+  debitAccountName?: string;
+  creditAccountId?: string;
+  creditAccountName?: string;
+  amount: number;
+  currency: string;
+  cashImpact: number;
+  bankImpact: number;
+  reserveImpact: number;
+  profitImpact: number;
+  restrictedCashImpact: number;
+  status: string;
+  staffId?: string;
+  staffName?: string;
+  notes: string;
+  createdAt: string;
+}
+
+export interface FinancialPositionSummary {
+  totalCashOnHand: number;
+  totalBankBalancePlaceholder: number;
+  totalMobileMoneyPlaceholder: number;
+  totalCardControlPlaceholder: number;
+  grossCashPosition: number;
+  lessCOGSReserve: number;
+  lessVATReserve: number;
+  lessCustomerDeposits: number;
+  lessCommittedSupplierPayments: number;
+  freeUsableCash: number;
+  debtorsOutstanding: number;
+  creditorsOutstanding: number;
+  purchaseCommitments: number;
+  reserveShortfall: number;
+  netControlPosition: number;
+  generatedAt: string;
+}
+
+export interface CashPlanForecast {
+  forecastId: string;
+  periodFrom: string;
+  periodTo: string;
+  openingCashPosition: number;
+  confirmedInflows: number;
+  expectedInflows: number;
+  riskyInflows: number;
+  confirmedOutflows: number;
+  plannedOutflows: number;
+  reserveRequirements: number;
+  supplierPaymentPressure: number;
+  debtorCollectionExpectation: number;
+  projectedFreeCash: number;
+  projectedReserveShortfall: number;
+  projectedCashGap: number;
+  confidence: CashPlanConfidence;
+  recommendedOwnerAction: string;
+  generatedAt: string;
+}
+
+export interface CashPlanLine {
+  lineId: string;
+  forecastId: string;
+  date: string;
+  type: 'Inflow' | 'Outflow';
+  inflowType?: CashPlanInflowType;
+  outflowType?: CashPlanOutflowType;
+  description: string;
+  sourceReferenceId?: string;
+  sourceReferenceNumber?: string;
+  amount: number;
+  confidence: CashPlanConfidence;
+  includedInFreeCash: boolean;
+  restricted: boolean;
+  notes: string;
+}
+
+export interface ProfitabilitySummary {
+  periodFrom: string;
+  periodTo: string;
+  grossSales: number;
+  discounts: number;
+  returns: number;
+  netSales: number;
+  cogs: number;
+  grossProfit: number;
+  operatingExpenses: number;
+  drawerExpenses: number;
+  deliveryCosts: number;
+  cashShortages: number;
+  adjustments: number;
+  netOperatingProfit: number;
+  cashSales: number;
+  creditSales: number;
+  debtorCollections: number;
+  cashProfitIndicator: number;
+  accrualProfitIndicator: number;
+  grossMarginPercent: number;
+  netMarginPercent: number;
+  generatedAt: string;
+}
+
+export interface OwnerFinancialDecision {
+  decisionId: string;
+  decisionNumber: string;
+  decisionDate: string;
+  decisionType: 'PaySupplier' | 'HoldSupplierPayment' | 'ProtectReserve' | 'ChaseDebtor' | 'BlockExpense' | 'ApproveExpense' | 'DelayPurchase' | 'ApprovePurchase' | 'InjectOwnerFunds' | 'ReduceDrawings' | 'Other';
+  title: string;
+  narrative: string;
+  amount: number;
+  sourceModule: FinancialActivitySource;
+  sourceReferenceId?: string;
+  riskLevel: RiskLevel;
+  recommendedAction: string;
+  status: FinancialDecisionStatus;
+  approvedBy?: string;
+  approvedAt?: string;
+  rejectedBy?: string;
+  rejectedAt?: string;
+  executionNote?: string;
+  createdAt: string;
 }
 
 export interface AccountingPostingLine {

@@ -6,6 +6,7 @@ import PosSales from './pages/PosSales';
 import PosStock from './pages/PosStock';
 import PosShift from './pages/PosShift';
 import PosCash from './pages/PosCash';
+import PosFinancialControl from './pages/PosFinancialControl';
 import PosBIDesk from './pages/PosBIDesk';
 import PosSettings from './pages/PosSettings';
 import PosStaffAccess from './pages/PosStaffAccess';
@@ -870,6 +871,10 @@ export default function PosPrototypeApp() {
           transactions={transactions}
           session={activeSession}
         />
+      )}
+
+      {activePage === 'FINANCIAL_CONTROL' && (
+        <PosFinancialControl session={activeSession} />
       )}
 
       {activePage === 'BI_DESK' && (

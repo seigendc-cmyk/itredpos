@@ -68,6 +68,20 @@ export type PermissionKey =
   | 'cashControl.print'
   | 'cashControl.export'
   | 'cashControl.policy.manage'
+  | 'financialControl.view'
+  | 'financialControl.accounts.view'
+  | 'financialControl.accounts.manage'
+  | 'financialControl.moneyIn.view'
+  | 'financialControl.moneyOut.view'
+  | 'financialControl.cashPlan.view'
+  | 'financialControl.cashPlan.manage'
+  | 'financialControl.profitability.view'
+  | 'financialControl.reserveProtection.view'
+  | 'financialControl.ownerDecisions.view'
+  | 'financialControl.ownerDecisions.manage'
+  | 'financialControl.bi.view'
+  | 'financialControl.print'
+  | 'financialControl.export'
   | 'ownerDesk.view'
   | 'ownerDesk.cashReconciliation.view'
   | 'ownerDesk.cashReconciliation.reviewVariance'
@@ -473,6 +487,20 @@ const ALL_PERMISSIONS: PermissionKey[] = [
   'cashControl.print',
   'cashControl.export',
   'cashControl.policy.manage',
+  'financialControl.view',
+  'financialControl.accounts.view',
+  'financialControl.accounts.manage',
+  'financialControl.moneyIn.view',
+  'financialControl.moneyOut.view',
+  'financialControl.cashPlan.view',
+  'financialControl.cashPlan.manage',
+  'financialControl.profitability.view',
+  'financialControl.reserveProtection.view',
+  'financialControl.ownerDecisions.view',
+  'financialControl.ownerDecisions.manage',
+  'financialControl.bi.view',
+  'financialControl.print',
+  'financialControl.export',
   'ownerDesk.view',
   'ownerDesk.cashReconciliation.view',
   'ownerDesk.cashReconciliation.reviewVariance',
@@ -805,14 +833,14 @@ const ALL_PERMISSIONS: PermissionKey[] = [
 ];
 
 const ROLE_MENUS: Record<Role, PosPageId[]> = {
-  Owner: ['DASHBOARD', 'OWNER_DESK', 'SALES', 'SALES_HISTORY', 'CUSTOMER_CENTRE', 'DELIVERY', 'STOCK', 'PURCHASE_DISCIPLINE', 'CREDITORS', 'TASK_DESK', 'APPROVALS', 'SHIFT', 'CASH', 'BI_DESK', 'SYNC_DESK', 'SETTINGS'],
-  SysAdmin: ['DASHBOARD', 'OWNER_DESK', 'SALES', 'SALES_HISTORY', 'CUSTOMER_CENTRE', 'DELIVERY', 'STOCK', 'PURCHASE_DISCIPLINE', 'CREDITORS', 'TASK_DESK', 'APPROVALS', 'SHIFT', 'CASH', 'BI_DESK', 'SYNC_DESK', 'SETTINGS'],
-  Manager: ['DASHBOARD', 'OWNER_DESK', 'SALES', 'SALES_HISTORY', 'CUSTOMER_CENTRE', 'DELIVERY', 'STOCK', 'PURCHASE_DISCIPLINE', 'CREDITORS', 'TASK_DESK', 'APPROVALS', 'SHIFT', 'CASH', 'BI_DESK', 'SYNC_DESK', 'SETTINGS'],
+  Owner: ['DASHBOARD', 'OWNER_DESK', 'SALES', 'SALES_HISTORY', 'CUSTOMER_CENTRE', 'DELIVERY', 'STOCK', 'PURCHASE_DISCIPLINE', 'CREDITORS', 'TASK_DESK', 'APPROVALS', 'SHIFT', 'CASH', 'FINANCIAL_CONTROL', 'BI_DESK', 'SYNC_DESK', 'SETTINGS'],
+  SysAdmin: ['DASHBOARD', 'OWNER_DESK', 'SALES', 'SALES_HISTORY', 'CUSTOMER_CENTRE', 'DELIVERY', 'STOCK', 'PURCHASE_DISCIPLINE', 'CREDITORS', 'TASK_DESK', 'APPROVALS', 'SHIFT', 'CASH', 'FINANCIAL_CONTROL', 'BI_DESK', 'SYNC_DESK', 'SETTINGS'],
+  Manager: ['DASHBOARD', 'OWNER_DESK', 'SALES', 'SALES_HISTORY', 'CUSTOMER_CENTRE', 'DELIVERY', 'STOCK', 'PURCHASE_DISCIPLINE', 'CREDITORS', 'TASK_DESK', 'APPROVALS', 'SHIFT', 'CASH', 'FINANCIAL_CONTROL', 'BI_DESK', 'SYNC_DESK', 'SETTINGS'],
   Supervisor: ['DASHBOARD', 'SALES', 'SALES_HISTORY', 'CUSTOMER_CENTRE', 'DELIVERY', 'STOCK', 'PURCHASE_DISCIPLINE', 'TASK_DESK', 'APPROVALS', 'SHIFT', 'CASH', 'BI_DESK', 'SYNC_DESK'],
   Cashier: ['DASHBOARD', 'SALES', 'SALES_HISTORY', 'CUSTOMER_CENTRE', 'DELIVERY', 'SHIFT', 'CASH', 'TASK_DESK', 'SYNC_DESK'],
   'Stock Controller': ['DASHBOARD', 'STOCK', 'PURCHASE_DISCIPLINE', 'CREDITORS', 'TASK_DESK', 'APPROVALS', 'BI_DESK', 'SYNC_DESK'],
   'Delivery Staff': ['DASHBOARD', 'DELIVERY', 'TASK_DESK', 'SYNC_DESK'],
-  Accountant: ['DASHBOARD', 'SALES_HISTORY', 'CUSTOMER_CENTRE', 'PURCHASE_DISCIPLINE', 'CREDITORS', 'CASH', 'BI_DESK', 'SYNC_DESK'],
+  Accountant: ['DASHBOARD', 'SALES_HISTORY', 'CUSTOMER_CENTRE', 'PURCHASE_DISCIPLINE', 'CREDITORS', 'CASH', 'FINANCIAL_CONTROL', 'BI_DESK', 'SYNC_DESK'],
   Viewer: ['DASHBOARD', 'CUSTOMER_CENTRE']
 };
 

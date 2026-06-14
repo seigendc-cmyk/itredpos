@@ -26,6 +26,7 @@ export const roleMenuDefinitions: RoleMenuDefinition[] = [
   { menuKey: 'syncDesk', menuLabel: 'Sync Desk', group: 'Control', pageId: 'SYNC_DESK' },
   { menuKey: 'reports', menuLabel: 'Reports', group: 'Control', pageId: 'BI_DESK' },
   { menuKey: 'accountingFinance', menuLabel: 'Accounting Finance', group: 'Control', pageId: 'CASH' },
+  { menuKey: 'financialControl', menuLabel: 'Financial Control', group: 'Control', pageId: 'FINANCIAL_CONTROL' },
   { menuKey: 'settings', menuLabel: 'Settings', group: 'Control', pageId: 'SETTINGS' }
 ];
 

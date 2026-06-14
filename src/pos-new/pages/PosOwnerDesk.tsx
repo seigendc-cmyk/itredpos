@@ -50,6 +50,7 @@ import {
   SalesAccountingSummary,
   VATSummary
 } from '../types/posTypes';
+import type { FinancialPositionSummary } from '../types/posTypes';
 import {
   attemptDayLock,
   exportEODReportPlaceholder,
@@ -87,6 +88,7 @@ import {
   reverseAccountingPostingPlaceholder,
   updateCOAAccountPlaceholder
 } from '../services/accountingService';
+import { getFinancialPositionSummary, validateFinancialActivityMappings } from '../services/financialControlService';
 import InventoryAccountingReadinessForm from '../components/InventoryAccountingReadinessForm';
 import COAAccountDetailModal from '../components/COAAccountDetailModal';
 import COAAccountEditDraftModal from '../components/COAAccountEditDraftModal';
@@ -248,6 +250,8 @@ export default function PosOwnerDesk({ session }: PosOwnerDeskProps) {
   const [inventoryAssetRows, setInventoryAssetRows] = useState<InventoryAssetPostingRow[]>([]);
   const [accountingReadiness, setAccountingReadiness] = useState<AccountingReadinessCheck[]>([]);
   const [accountingActivity, setAccountingActivity] = useState<AccountingActivityEvent[]>([]);
+  const [financialControlSummary, setFinancialControlSummary] = useState<FinancialPositionSummary | null>(null);
+  const [financialMappingStatus, setFinancialMappingStatus] = useState<{ missing: number; warnings: string[] }>({ missing: 0, warnings: [] });
   const [inventoryAccountingRows, setInventoryAccountingRows] = useState<InventoryAccountingReadinessRecord[]>([]);
   const [inventoryAccountingLines, setInventoryAccountingLines] = useState<InventoryAccountingReadinessLine[]>([]);
   const [inventoryAccountingActivity, setInventoryAccountingActivity] = useState<InventoryAccountingActivityEvent[]>([]);
@@ -415,7 +419,7 @@ export default function PosOwnerDesk({ session }: PosOwnerDeskProps) {
   };
 
   const loadAccounting = async () => {
-    const [nextCOA, nextSales, nextPayments, nextCashbook, nextVAT, nextCOGS, nextInventoryAsset, nextReadiness, nextActivity, nextInventoryAccounting, nextInventorySummary, nextChartAccounts, nextMappingRules, nextInventoryAccountingActivity] =
+    const [nextCOA, nextSales, nextPayments, nextCashbook, nextVAT, nextCOGS, nextInventoryAsset, nextReadiness, nextActivity, nextInventoryAccounting, nextInventorySummary, nextChartAccounts, nextMappingRules, nextInventoryAccountingActivity, nextFinancialSummary, nextFinancialMapping] =
       await Promise.all([
         getCOAAccounts(),
         getSalesAccountingSummary(accountingFilters),
@@ -430,7 +434,9 @@ export default function PosOwnerDesk({ session }: PosOwnerDeskProps) {
         getInventoryAccountingSummary(inventoryAccountingFilters),
         getChartOfAccountsPlaceholders(),
         getAccountingMappingRules(),
-        getInventoryAccountingActivityEvents()
+        getInventoryAccountingActivityEvents(),
+        getFinancialPositionSummary(),
+        validateFinancialActivityMappings()
       ]);
 
     setCOAAccounts(nextCOA);
@@ -447,6 +453,8 @@ export default function PosOwnerDesk({ session }: PosOwnerDeskProps) {
     setChartAccounts(nextChartAccounts);
     setMappingRules(nextMappingRules);
     setInventoryAccountingActivity(nextInventoryAccountingActivity);
+    setFinancialControlSummary(nextFinancialSummary);
+    setFinancialMappingStatus(nextFinancialMapping);
   };
 
   const showFeedback = (type: FeedbackType, message: string) => {
@@ -1321,6 +1329,13 @@ export default function PosOwnerDesk({ session }: PosOwnerDeskProps) {
               </button>
             ))}
           </div>
+
+          <MetricGrid metrics={[
+            ['Financial Control Mapping', financialMappingStatus.missing === 0 ? 'Ready' : `${financialMappingStatus.missing} unmapped`],
+            ['Free Usable Cash', financialControlSummary ? money(financialControlSummary.freeUsableCash) : 'Loading'],
+            ['Protected Reserves', financialControlSummary ? money(financialControlSummary.lessCOGSReserve + financialControlSummary.lessVATReserve + financialControlSummary.lessCustomerDeposits) : 'Loading'],
+            ['Net Control Position', financialControlSummary ? money(financialControlSummary.netControlPosition) : 'Loading']
+          ]} />
 
           {activeAccountingTab === 'COA Accounts' && (
             <div className="space-y-5">

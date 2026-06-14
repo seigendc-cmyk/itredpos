@@ -58,6 +58,7 @@ export type RoleMenuKey =
   | 'syncDesk'
   | 'reports'
   | 'accountingFinance'
+  | 'financialControl'
   | 'settings';
 
 export type StaffGateRole = Role | TenantUserRole | 'Accountant' | 'Viewer';

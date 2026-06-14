@@ -54,6 +54,7 @@ export default function PosSidebar({
     { id: 'APPROVALS' as const, label: 'Approvals', icon: ClipboardCheck },
     { id: 'SHIFT' as const, label: 'Shift Control', icon: Clock },
     { id: 'CASH' as const, label: 'Cash Control', icon: DollarSign },
+    { id: 'FINANCIAL_CONTROL' as const, label: 'Financial Control', icon: Landmark },
     { id: 'BI_DESK' as const, label: 'BI Desk', icon: BarChart2 },
     { id: 'SYNC_DESK' as const, label: 'Sync Desk', icon: RefreshCw },
     { id: 'SETTINGS' as const, label: 'Settings', icon: Settings },
