@@ -2610,7 +2610,16 @@ export type ApprovalRequestType =
   | 'Purchase Order Approval'
   | 'Goods Receiving Approval';
 
-export type ApprovalStatus = 'Pending' | 'Approved' | 'Rejected';
+export type ApprovalStatus =
+  | 'Pending'
+  | 'InReview'
+  | 'MoreInfoRequested'
+  | 'Escalated'
+  | 'Approved'
+  | 'Rejected'
+  | 'Cancelled'
+  | 'Expired'
+  | 'Closed';
 
 export type OperationalApprovalCategory =
   | 'NEW_CUSTOMER'
@@ -2631,6 +2640,40 @@ export type OperationalApprovalCategory =
   | 'Customer Approval';
 
 export type OperationalApprovalDecision = 'Approved' | 'Rejected';
+export type ApprovalPriority = 'Low' | 'Normal' | 'High' | 'Urgent';
+export type ApprovalRelatedModule =
+  | 'Sales'
+  | 'Customer'
+  | 'Inventory'
+  | 'Purchasing'
+  | 'Cash Control'
+  | 'Delivery'
+  | 'Terminal'
+  | 'Accounting'
+  | 'BI'
+  | 'Task Desk';
+export type ApprovalDecisionType = 'Approve' | 'Reject' | 'RequestInfo' | 'Escalate' | 'AssignReviewer' | 'Hold' | 'Close';
+export type ApprovalNotificationChannel = 'InApp' | 'WhatsAppLink' | 'EmailPreview' | 'SMSPreview' | 'StaffInbox';
+export type ApprovalNotificationStatus = 'Prepared' | 'SentLocal' | 'Read' | 'Cancelled';
+export type ApprovalChatMessageType = 'Text' | 'System' | 'Decision' | 'AttachmentPlaceholder' | 'Notification';
+export type OperationalApprovalEventType =
+  | 'APPROVAL_CREATED'
+  | 'APPROVAL_VIEWED'
+  | 'APPROVAL_REVIEW_STARTED'
+  | 'APPROVAL_APPROVED'
+  | 'APPROVAL_REJECTED'
+  | 'APPROVAL_MORE_INFO_REQUESTED'
+  | 'APPROVAL_ESCALATED'
+  | 'APPROVAL_REVIEWER_ASSIGNED'
+  | 'APPROVAL_NOTIFICATION_PREPARED'
+  | 'APPROVAL_NOTIFICATION_SENT_LOCAL'
+  | 'APPROVAL_CHAT_MESSAGE_SENT'
+  | 'APPROVAL_TASK_CREATED'
+  | 'APPROVAL_BI_WARNING_CREATED'
+  | 'APPROVAL_RELATED_RECORD_OPENED'
+  | 'APPROVAL_PRINTED'
+  | 'APPROVAL_EXPORTED'
+  | 'APPROVAL_NOTE_ADDED';
 
 export interface OperationalApprovalRequest {
   id: string;
@@ -2649,6 +2692,27 @@ export interface OperationalApprovalRequest {
   context: string;
   approvalType?: string;
   requiredPermission: 'approvals.approve' | 'approvals.reject' | 'approvals.credit.approve';
+  title?: string;
+  priority?: ApprovalPriority;
+  assignedReviewerId?: string;
+  assignedReviewerName?: string;
+  reviewedAt?: string;
+  decidedAt?: string;
+  decisionBy?: string;
+  dueAt?: string;
+  relatedModule?: ApprovalRelatedModule;
+  relatedRecordId?: string;
+  relatedRecordLabel?: string;
+  valueAmount?: number;
+  currency?: string;
+  customerId?: string;
+  customerName?: string;
+  supplierId?: string;
+  supplierName?: string;
+  terminalId?: string;
+  notificationStatus?: ApprovalNotificationStatus;
+  unreadChatCount?: number;
+  conditions?: string[];
   approvedBy?: string;
   approvedAt?: string;
   rejectedBy?: string;
@@ -2659,10 +2723,38 @@ export interface OperationalApprovalRequest {
 export interface OperationalApprovalEvent {
   id: string;
   approvalId: string;
-  eventType: 'APPROVAL_CREATED' | 'APPROVAL_VIEWED' | 'APPROVAL_APPROVED' | 'APPROVAL_REJECTED';
+  eventType: OperationalApprovalEventType;
   operator: string;
   message: string;
   createdAt: string;
+}
+
+export interface ApprovalNotificationRecord {
+  id: string;
+  approvalId: string;
+  channel: ApprovalNotificationChannel;
+  recipientName: string;
+  recipientAddress: string;
+  subject: string;
+  body: string;
+  status: ApprovalNotificationStatus;
+  preparedBy: string;
+  preparedAt: string;
+  sentAt?: string;
+  readAt?: string;
+  waLink?: string;
+}
+
+export interface ApprovalChatMessage {
+  id: string;
+  approvalId: string;
+  senderId: string;
+  senderName: string;
+  senderRole: string;
+  message: string;
+  messageType: ApprovalChatMessageType;
+  createdAt: string;
+  readByStaffIds?: string[];
 }
 
 export type CustomerStatus =
@@ -5809,6 +5901,138 @@ export interface FinancialActivityRecord {
   createdAt: string;
 }
 
+export type CheckStatus = 'Draft' | 'Prepared' | 'PendingApproval' | 'Approved' | 'PrintedPreview' | 'IssuedLocal' | 'Voided' | 'Cancelled';
+export type CheckPayeeType = 'Supplier' | 'Customer' | 'Staff' | 'ExpenseVendor' | 'Owner' | 'Other';
+export type CheckPaymentPurpose =
+  | 'SupplierPayment'
+  | 'DrawerExpense'
+  | 'PettyCash'
+  | 'Refund'
+  | 'OwnerDrawing'
+  | 'OperatingExpense'
+  | 'CustomerDepositRefund'
+  | 'COGSReserveUse'
+  | 'Other';
+export type JournalEntryStatus = 'Draft' | 'Balanced' | 'OutOfBalance' | 'PendingReview' | 'ApprovedPreview' | 'PostedPreview' | 'Voided' | 'Cancelled';
+export type JournalEntryType =
+  | 'General'
+  | 'Adjustment'
+  | 'AccrualReadiness'
+  | 'Reclassification'
+  | 'OpeningBalance'
+  | 'COGSReserveAdjustment'
+  | 'VATReserveAdjustment'
+  | 'InventoryValueAdjustment'
+  | 'DebtorAdjustment'
+  | 'CreditorAdjustment'
+  | 'CashbookAdjustment';
+
+export interface CheckWriterSettings {
+  settingsId: string;
+  chequePrefix: string;
+  nextChequeNumber: number;
+  chequeNumberPadding: number;
+  defaultBankAccountId?: string;
+  requireApprovalAboveAmount: boolean;
+  approvalThresholdAmount: number;
+  allowManualChequeNumber: boolean;
+  printBusinessName: boolean;
+  printPayeeLine: boolean;
+  printAmountInWords: boolean;
+  printMemo: boolean;
+  updatedBy: string;
+  updatedAt: string;
+}
+
+export interface PayeeRecord {
+  payeeId: string;
+  payeeCode: string;
+  payeeName: string;
+  payeeType: CheckPayeeType;
+  linkedSupplierId?: string;
+  linkedCustomerId?: string;
+  linkedStaffId?: string;
+  phone?: string;
+  email?: string;
+  address?: string;
+  defaultCOAAccountId?: string;
+  defaultPaymentPurpose?: CheckPaymentPurpose;
+  active: boolean;
+  notes: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CheckWriterRecord {
+  checkId: string;
+  checkNumber: string;
+  checkDate: string;
+  payeeId: string;
+  payeeName: string;
+  payeeType: CheckPayeeType;
+  amount: number;
+  amountInWords: string;
+  currency: string;
+  bankAccountId: string;
+  bankAccountName: string;
+  creditAccountId: string;
+  creditAccountName: string;
+  debitAccountId: string;
+  debitAccountName: string;
+  paymentPurpose: CheckPaymentPurpose;
+  linkedModule?: string;
+  linkedRecordId?: string;
+  memo: string;
+  status: CheckStatus;
+  approvalId?: string;
+  printedAt?: string;
+  issuedBy?: string;
+  issuedAt?: string;
+  voidedBy?: string;
+  voidedAt?: string;
+  voidReason?: string;
+  createdBy: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface JournalEntryLine {
+  lineId: string;
+  accountId: string;
+  accountCode: string;
+  accountName: string;
+  description: string;
+  debit: number;
+  credit: number;
+  linkedDomain?: string;
+  linkedRecordId?: string;
+}
+
+export interface JournalEntryRecord {
+  journalId: string;
+  journalNumber: string;
+  journalDate: string;
+  journalType: JournalEntryType;
+  description: string;
+  reference: string;
+  lines: JournalEntryLine[];
+  totalDebit: number;
+  totalCredit: number;
+  difference: number;
+  balanced: boolean;
+  status: JournalEntryStatus;
+  approvalId?: string;
+  preparedBy: string;
+  preparedAt: string;
+  reviewedBy?: string;
+  reviewedAt?: string;
+  postedPreviewBy?: string;
+  postedPreviewAt?: string;
+  notes: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface FinancialPositionSummary {
   totalCashOnHand: number;
   totalBankBalancePlaceholder: number;
@@ -5910,6 +6134,137 @@ export interface OwnerFinancialDecision {
   rejectedAt?: string;
   executionNote?: string;
   createdAt: string;
+}
+
+export type TaskStatus =
+  | 'Open'
+  | 'InReview'
+  | 'PendingInfo'
+  | 'Escalated'
+  | 'WaitingApproval'
+  | 'Completed'
+  | 'Closed'
+  | 'Cancelled'
+  | 'Overdue';
+
+export type TaskPriority = 'Low' | 'Medium' | 'High' | 'Critical';
+
+export type TaskSourceModule =
+  | 'Customer Centre'
+  | 'Sales History'
+  | 'Sales Terminal'
+  | 'Inventory'
+  | 'Stocktake Desk'
+  | 'Delivery Desk'
+  | 'Cash Control'
+  | 'Owner Desk'
+  | 'Task Desk'
+  | 'Accounting Desk'
+  | 'Debtors'
+  | 'Creditors'
+  | 'COGS Reserve'
+  | 'Purchase Discipline'
+  | 'BI Desk'
+  | 'Approvals'
+  | 'Settings'
+  | 'Sync Desk';
+
+export type TaskActionType =
+  | 'Review'
+  | 'Approve'
+  | 'FollowUp'
+  | 'Investigate'
+  | 'Reconcile'
+  | 'CollectPayment'
+  | 'ContactCustomer'
+  | 'ContactSupplier'
+  | 'VerifyDelivery'
+  | 'CheckStock'
+  | 'ResolveVariance'
+  | 'AccountingReview'
+  | 'OwnerDecision';
+
+export type TaskActivityEventType =
+  | 'TASK_CREATED'
+  | 'TASK_VIEWED'
+  | 'TASK_REVIEW_STARTED'
+  | 'TASK_NOTE_ADDED'
+  | 'TASK_REASSIGNED'
+  | 'TASK_MARKED_PENDING_INFO'
+  | 'TASK_ESCALATED'
+  | 'TASK_APPROVAL_CREATED'
+  | 'TASK_BI_WARNING_CREATED'
+  | 'TASK_COMPLETED'
+  | 'TASK_CLOSED'
+  | 'TASK_CANCELLED'
+  | 'TASK_PRINTED'
+  | 'TASK_EXPORTED'
+  | 'TASK_RELATED_RECORD_OPENED';
+
+export interface TaskActivityEvent {
+  eventId: string;
+  taskId: string;
+  taskNumber: string;
+  eventType: TaskActivityEventType;
+  message: string;
+  staffId: string;
+  staffName: string;
+  createdAt: string;
+}
+
+export interface TaskRecord {
+  taskId: string;
+  taskNumber: string;
+  title: string;
+  actionType: TaskActionType;
+  assignedStaffId: string;
+  assignedStaffName: string;
+  priority: TaskPriority;
+  relatedModule: TaskSourceModule;
+  relatedRecordId: string;
+  relatedRecordLabel: string;
+  dueTime: string;
+  dueDate: string;
+  status: TaskStatus;
+  description: string;
+  notes: string;
+  createdBy: string;
+  createdAt: string;
+  startedAt?: string;
+  completedAt?: string;
+  closedAt?: string;
+  escalatedAt?: string;
+  outcomeNote?: string;
+  linkedBIAdviceId?: string;
+  linkedApprovalId?: string;
+  linkedCustomerId?: string;
+  linkedSupplierId?: string;
+  auditEvents: TaskActivityEvent[];
+}
+
+export interface TaskFilterState {
+  search?: string;
+  assignedStaffName?: string;
+  priority?: TaskPriority | 'All';
+  relatedModule?: TaskSourceModule | 'All';
+  status?: TaskStatus | 'All';
+  dueDateFrom?: string;
+  dueDateTo?: string;
+  overdueOnly?: boolean;
+  criticalOnly?: boolean;
+}
+
+export interface TaskSummary {
+  totalTasks: number;
+  open: number;
+  inReview: number;
+  pendingInfo: number;
+  escalated: number;
+  dueToday: number;
+  overdue: number;
+  critical: number;
+  completedToday: number;
+  closedToday: number;
 }
 
 export interface AccountingPostingLine {
@@ -6195,6 +6550,12 @@ export type AccountingActivityEventType =
   | 'COA_ACCOUNT_ROW_EXPORTED'
   | 'COA_ACCOUNT_REPLACEMENT_CREATED'
   | 'SALES_POSTING_REVIEWED'
+  | 'SALES_POSTING_DETAIL_VIEWED'
+  | 'SALES_POSTING_MARKED_REVIEWED'
+  | 'SALES_POSTING_MARKED_POSTED_PREVIEW'
+  | 'SALES_POSTING_ISSUE_FLAGGED'
+  | 'SALES_POSTING_TASK_CREATED'
+  | 'SALES_POSTING_BI_WARNING_CREATED'
   | 'PAYMENT_POSTING_REVIEWED'
   | 'PAYMENT_MODE_MARKED_SETTLED'
   | 'PAYMENT_MODE_RECEIPTS_VIEWED'
@@ -6206,6 +6567,32 @@ export type AccountingActivityEventType =
   | 'PAYMENT_POSTING_SUMMARY_PRINTED'
   | 'PAYMENT_POSTING_ROW_EXPORTED'
   | 'PAYMENT_SETTLEMENT_REOPENED'
+  | 'CASHBOOK_DETAIL_VIEWED'
+  | 'CASHBOOK_MARKED_REVIEWED'
+  | 'CASHBOOK_RECONCILED_PREVIEW'
+  | 'CASHBOOK_VARIANCE_FLAGGED'
+  | 'CASHBOOK_OWNER_NOTE_ADDED'
+  | 'VAT_DETAIL_VIEWED'
+  | 'VAT_MARKED_REVIEWED'
+  | 'VAT_ISSUE_FLAGGED'
+  | 'VAT_RESERVE_WARNING_CREATED'
+  | 'VAT_TASK_CREATED'
+  | 'COGS_RESERVE_ACCOUNTING_DETAIL_VIEWED'
+  | 'COGS_RESERVE_ACCOUNTING_MARKED_REVIEWED'
+  | 'COGS_RESERVE_ACCOUNTING_ISSUE_FLAGGED'
+  | 'COGS_RESERVE_ACCOUNTING_TASK_CREATED'
+  | 'INVENTORY_ASSET_POSTING_DETAIL_VIEWED'
+  | 'INVENTORY_ASSET_POSTING_MARKED_REVIEWED'
+  | 'INVENTORY_ASSET_POSTING_ISSUE_FLAGGED'
+  | 'INVENTORY_ASSET_POSTING_TASK_CREATED'
+  | 'INVENTORY_ACCOUNTING_READINESS_CHECK_VIEWED'
+  | 'INVENTORY_ACCOUNTING_READINESS_MARKED_REVIEWED'
+  | 'INVENTORY_ACCOUNTING_READINESS_TASK_CREATED'
+  | 'INVENTORY_ACCOUNTING_READINESS_BI_CREATED'
+  | 'ACCOUNTING_READINESS_DOMAIN_VIEWED'
+  | 'ACCOUNTING_READINESS_MARKED_REVIEWED'
+  | 'ACCOUNTING_READINESS_TASK_CREATED'
+  | 'ACCOUNTING_READINESS_BI_CREATED'
   | 'CASHBOOK_ENTRY_CREATED'
   | 'VAT_SUMMARY_VIEWED'
   | 'COGS_RESERVED'

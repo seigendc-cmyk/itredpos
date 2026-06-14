@@ -82,6 +82,23 @@ export type PermissionKey =
   | 'financialControl.bi.view'
   | 'financialControl.print'
   | 'financialControl.export'
+  | 'financialControl.checkWriter.view'
+  | 'financialControl.checkWriter.create'
+  | 'financialControl.checkWriter.prepare'
+  | 'financialControl.checkWriter.approve'
+  | 'financialControl.checkWriter.print'
+  | 'financialControl.checkWriter.issueLocal'
+  | 'financialControl.checkWriter.void'
+  | 'financialControl.payee.view'
+  | 'financialControl.payee.manage'
+  | 'financialControl.checkSettings.manage'
+  | 'financialControl.journal.view'
+  | 'financialControl.journal.create'
+  | 'financialControl.journal.editDraft'
+  | 'financialControl.journal.submitReview'
+  | 'financialControl.journal.markPostedPreview'
+  | 'financialControl.journal.void'
+  | 'financialControl.journal.print'
   | 'ownerDesk.view'
   | 'ownerDesk.cashReconciliation.view'
   | 'ownerDesk.cashReconciliation.reviewVariance'
@@ -105,6 +122,30 @@ export type PermissionKey =
   | 'ownerDesk.biReview.manage'
   | 'ownerDesk.accountingDesk.view'
   | 'ownerDesk.accountingDesk.manage'
+  | 'ownerDesk.accountingDesk.print'
+  | 'ownerDesk.accountingDesk.export'
+  | 'ownerDesk.accountingDesk.createTask'
+  | 'ownerDesk.accountingDesk.createBIWarning'
+  | 'ownerDesk.accountingDesk.salesPosting.view'
+  | 'ownerDesk.accountingDesk.salesPosting.review'
+  | 'ownerDesk.accountingDesk.salesPosting.markPostedPreview'
+  | 'ownerDesk.accountingDesk.cashbook.view'
+  | 'ownerDesk.accountingDesk.cashbook.review'
+  | 'ownerDesk.accountingDesk.cashbook.reconcilePreview'
+  | 'ownerDesk.accountingDesk.vat.view'
+  | 'ownerDesk.accountingDesk.vat.review'
+  | 'ownerDesk.accountingDesk.vat.flagIssue'
+  | 'ownerDesk.accountingDesk.cogsReserve.view'
+  | 'ownerDesk.accountingDesk.cogsReserve.review'
+  | 'ownerDesk.accountingDesk.cogsReserve.flagIssue'
+  | 'ownerDesk.accountingDesk.inventoryAsset.view'
+  | 'ownerDesk.accountingDesk.inventoryAsset.review'
+  | 'ownerDesk.accountingDesk.inventoryAsset.flagIssue'
+  | 'ownerDesk.accountingDesk.inventoryReadiness.view'
+  | 'ownerDesk.accountingDesk.inventoryReadiness.manage'
+  | 'ownerDesk.accountingDesk.readiness.view'
+  | 'ownerDesk.accountingDesk.readiness.run'
+  | 'ownerDesk.accountingDesk.readiness.review'
   | 'ownerDesk.accountingDesk.paymentPosting.view'
   | 'ownerDesk.accountingDesk.paymentPosting.markSettled'
   | 'ownerDesk.accountingDesk.paymentPosting.viewReceipts'
@@ -298,10 +339,40 @@ export type PermissionKey =
   | 'tasks.view'
   | 'tasks.assign'
   | 'tasks.close'
+  | 'taskDesk.view'
+  | 'taskDesk.create'
+  | 'taskDesk.viewDetail'
+  | 'taskDesk.startReview'
+  | 'taskDesk.addNote'
+  | 'taskDesk.reassign'
+  | 'taskDesk.pendingInfo'
+  | 'taskDesk.escalate'
+  | 'taskDesk.complete'
+  | 'taskDesk.close'
+  | 'taskDesk.createApproval'
+  | 'taskDesk.createBIWarning'
+  | 'taskDesk.openRelatedRecord'
+  | 'taskDesk.print'
+  | 'taskDesk.export'
   | 'approvals.view'
+  | 'approvals.viewDetail'
+  | 'approvals.startReview'
   | 'approvals.approve'
   | 'approvals.credit.approve'
   | 'approvals.reject'
+  | 'approvals.requestInfo'
+  | 'approvals.escalate'
+  | 'approvals.assignReviewer'
+  | 'approvals.sendNotification'
+  | 'approvals.liveChat.view'
+  | 'approvals.liveChat.send'
+  | 'approvals.createTask'
+  | 'approvals.createBIWarning'
+  | 'approvals.openRelatedRecord'
+  | 'approvals.print'
+  | 'approvals.export'
+  | 'approvals.notificationOutbox.view'
+  | 'approvals.audit.view'
   | 'hardware.configure'
   | 'payment.capture'
   | 'reports.view'
@@ -510,6 +581,23 @@ const ALL_PERMISSIONS: PermissionKey[] = [
   'financialControl.bi.view',
   'financialControl.print',
   'financialControl.export',
+  'financialControl.checkWriter.view',
+  'financialControl.checkWriter.create',
+  'financialControl.checkWriter.prepare',
+  'financialControl.checkWriter.approve',
+  'financialControl.checkWriter.print',
+  'financialControl.checkWriter.issueLocal',
+  'financialControl.checkWriter.void',
+  'financialControl.payee.view',
+  'financialControl.payee.manage',
+  'financialControl.checkSettings.manage',
+  'financialControl.journal.view',
+  'financialControl.journal.create',
+  'financialControl.journal.editDraft',
+  'financialControl.journal.submitReview',
+  'financialControl.journal.markPostedPreview',
+  'financialControl.journal.void',
+  'financialControl.journal.print',
   'ownerDesk.view',
   'ownerDesk.cashReconciliation.view',
   'ownerDesk.cashReconciliation.reviewVariance',
@@ -533,6 +621,30 @@ const ALL_PERMISSIONS: PermissionKey[] = [
   'ownerDesk.biReview.manage',
   'ownerDesk.accountingDesk.view',
   'ownerDesk.accountingDesk.manage',
+  'ownerDesk.accountingDesk.print',
+  'ownerDesk.accountingDesk.export',
+  'ownerDesk.accountingDesk.createTask',
+  'ownerDesk.accountingDesk.createBIWarning',
+  'ownerDesk.accountingDesk.salesPosting.view',
+  'ownerDesk.accountingDesk.salesPosting.review',
+  'ownerDesk.accountingDesk.salesPosting.markPostedPreview',
+  'ownerDesk.accountingDesk.cashbook.view',
+  'ownerDesk.accountingDesk.cashbook.review',
+  'ownerDesk.accountingDesk.cashbook.reconcilePreview',
+  'ownerDesk.accountingDesk.vat.view',
+  'ownerDesk.accountingDesk.vat.review',
+  'ownerDesk.accountingDesk.vat.flagIssue',
+  'ownerDesk.accountingDesk.cogsReserve.view',
+  'ownerDesk.accountingDesk.cogsReserve.review',
+  'ownerDesk.accountingDesk.cogsReserve.flagIssue',
+  'ownerDesk.accountingDesk.inventoryAsset.view',
+  'ownerDesk.accountingDesk.inventoryAsset.review',
+  'ownerDesk.accountingDesk.inventoryAsset.flagIssue',
+  'ownerDesk.accountingDesk.inventoryReadiness.view',
+  'ownerDesk.accountingDesk.inventoryReadiness.manage',
+  'ownerDesk.accountingDesk.readiness.view',
+  'ownerDesk.accountingDesk.readiness.run',
+  'ownerDesk.accountingDesk.readiness.review',
   'ownerDesk.accountingDesk.paymentPosting.view',
   'ownerDesk.accountingDesk.paymentPosting.markSettled',
   'ownerDesk.accountingDesk.paymentPosting.viewReceipts',
@@ -726,10 +838,40 @@ const ALL_PERMISSIONS: PermissionKey[] = [
   'tasks.view',
   'tasks.assign',
   'tasks.close',
+  'taskDesk.view',
+  'taskDesk.create',
+  'taskDesk.viewDetail',
+  'taskDesk.startReview',
+  'taskDesk.addNote',
+  'taskDesk.reassign',
+  'taskDesk.pendingInfo',
+  'taskDesk.escalate',
+  'taskDesk.complete',
+  'taskDesk.close',
+  'taskDesk.createApproval',
+  'taskDesk.createBIWarning',
+  'taskDesk.openRelatedRecord',
+  'taskDesk.print',
+  'taskDesk.export',
   'approvals.view',
+  'approvals.viewDetail',
+  'approvals.startReview',
   'approvals.approve',
   'approvals.credit.approve',
   'approvals.reject',
+  'approvals.requestInfo',
+  'approvals.escalate',
+  'approvals.assignReviewer',
+  'approvals.sendNotification',
+  'approvals.liveChat.view',
+  'approvals.liveChat.send',
+  'approvals.createTask',
+  'approvals.createBIWarning',
+  'approvals.openRelatedRecord',
+  'approvals.print',
+  'approvals.export',
+  'approvals.notificationOutbox.view',
+  'approvals.audit.view',
   'hardware.configure',
   'payment.capture',
   'reports.view',
@@ -888,6 +1030,14 @@ const ROLE_PERMISSIONS: Record<Role, PermissionKey[]> = {
     'ownerDesk.deliveryClosing.view', 'ownerDesk.deliveryClosing.manage',
     'ownerDesk.biReview.view', 'ownerDesk.biReview.manage',
     'ownerDesk.accountingDesk.view',
+    'ownerDesk.accountingDesk.print', 'ownerDesk.accountingDesk.export', 'ownerDesk.accountingDesk.createTask', 'ownerDesk.accountingDesk.createBIWarning',
+    'ownerDesk.accountingDesk.salesPosting.view', 'ownerDesk.accountingDesk.salesPosting.review', 'ownerDesk.accountingDesk.salesPosting.markPostedPreview',
+    'ownerDesk.accountingDesk.cashbook.view', 'ownerDesk.accountingDesk.cashbook.review', 'ownerDesk.accountingDesk.cashbook.reconcilePreview',
+    'ownerDesk.accountingDesk.vat.view', 'ownerDesk.accountingDesk.vat.review', 'ownerDesk.accountingDesk.vat.flagIssue',
+    'ownerDesk.accountingDesk.cogsReserve.view', 'ownerDesk.accountingDesk.cogsReserve.review', 'ownerDesk.accountingDesk.cogsReserve.flagIssue',
+    'ownerDesk.accountingDesk.inventoryAsset.view', 'ownerDesk.accountingDesk.inventoryAsset.review', 'ownerDesk.accountingDesk.inventoryAsset.flagIssue',
+    'ownerDesk.accountingDesk.inventoryReadiness.view', 'ownerDesk.accountingDesk.inventoryReadiness.manage',
+    'ownerDesk.accountingDesk.readiness.view', 'ownerDesk.accountingDesk.readiness.run', 'ownerDesk.accountingDesk.readiness.review',
     'ownerDesk.accountingDesk.coa.view',
     'ownerDesk.accountingDesk.paymentPosting.view', 'ownerDesk.accountingDesk.paymentPosting.viewReceipts',
     'ownerDesk.accountingDesk.paymentPosting.flagVariance', 'ownerDesk.accountingDesk.paymentPosting.addNote',
@@ -923,7 +1073,13 @@ const ROLE_PERMISSIONS: Record<Role, PermissionKey[]> = {
     'delivery.view', 'delivery.create', 'delivery.assign', 'delivery.track', 'delivery.verifyCode', 'delivery.complete', 'delivery.cancel', 'delivery.cashReview', 'delivery.providerManage', 'delivery.export',
     'audit.view', 'audit.export',
     'tasks.view', 'tasks.assign', 'tasks.close',
-    'approvals.view', 'approvals.approve', 'approvals.credit.approve', 'approvals.reject',
+    'taskDesk.view', 'taskDesk.create', 'taskDesk.viewDetail', 'taskDesk.startReview', 'taskDesk.addNote', 'taskDesk.reassign',
+    'taskDesk.pendingInfo', 'taskDesk.escalate', 'taskDesk.complete', 'taskDesk.close', 'taskDesk.createApproval',
+    'taskDesk.createBIWarning', 'taskDesk.openRelatedRecord', 'taskDesk.print', 'taskDesk.export',
+    'approvals.view', 'approvals.viewDetail', 'approvals.startReview', 'approvals.approve', 'approvals.credit.approve', 'approvals.reject',
+    'approvals.requestInfo', 'approvals.escalate', 'approvals.assignReviewer', 'approvals.sendNotification',
+    'approvals.liveChat.view', 'approvals.liveChat.send', 'approvals.createTask', 'approvals.createBIWarning',
+    'approvals.openRelatedRecord', 'approvals.print', 'approvals.export', 'approvals.notificationOutbox.view', 'approvals.audit.view',
     'reports.view', 'reports.export',
     'reports.creditors.view', 'reports.creditors.print', 'reports.creditors.export',
     'reports.cogsReserve.view', 'reports.cogsReserve.print', 'reports.cogsReserve.export',
@@ -931,6 +1087,16 @@ const ROLE_PERMISSIONS: Record<Role, PermissionKey[]> = {
     'reports.supplierStatements.view', 'reports.supplierStatements.print', 'reports.supplierStatements.export',
     'reports.ownerFinancialControl.view', 'reports.audit.view', 'reports.audit.export',
     'accounting.view', 'accounting.review', 'accounting.approve', 'accounting.postPlaceholder', 'accounting.export',
+    'financialControl.view', 'financialControl.accounts.view', 'financialControl.moneyIn.view', 'financialControl.moneyOut.view',
+    'financialControl.cashPlan.view', 'financialControl.cashPlan.manage', 'financialControl.profitability.view',
+    'financialControl.reserveProtection.view', 'financialControl.ownerDecisions.view', 'financialControl.bi.view',
+    'financialControl.print', 'financialControl.export',
+    'financialControl.checkWriter.view', 'financialControl.checkWriter.create', 'financialControl.checkWriter.prepare',
+    'financialControl.checkWriter.approve', 'financialControl.checkWriter.print', 'financialControl.checkWriter.issueLocal',
+    'financialControl.checkWriter.void', 'financialControl.payee.view', 'financialControl.payee.manage',
+    'financialControl.checkSettings.manage', 'financialControl.journal.view', 'financialControl.journal.create',
+    'financialControl.journal.editDraft', 'financialControl.journal.submitReview', 'financialControl.journal.markPostedPreview',
+    'financialControl.journal.void', 'financialControl.journal.print',
     'inventoryAccounting.view', 'inventoryAccounting.review', 'inventoryAccounting.approve', 'inventoryAccounting.hold', 'inventoryAccounting.reject', 'inventoryAccounting.export',
     'creditors.view', 'creditors.supplierProfile.view', 'creditors.supplierProfile.manage',
     'creditors.supplierBill.view', 'creditors.supplierBill.create', 'creditors.supplierBill.post', 'creditors.supplierBill.dispute', 'creditors.supplierBill.reverse',
@@ -985,7 +1151,13 @@ const ROLE_PERMISSIONS: Record<Role, PermissionKey[]> = {
     'delivery.broadcast', 'delivery.review',
     'delivery.view', 'delivery.assign', 'delivery.track', 'delivery.verifyCode', 'delivery.complete', 'delivery.cashReview',
     'tasks.view', 'tasks.assign', 'tasks.close',
-    'approvals.view', 'approvals.approve', 'approvals.credit.approve', 'approvals.reject',
+    'taskDesk.view', 'taskDesk.create', 'taskDesk.viewDetail', 'taskDesk.startReview', 'taskDesk.addNote', 'taskDesk.reassign',
+    'taskDesk.pendingInfo', 'taskDesk.escalate', 'taskDesk.complete', 'taskDesk.close', 'taskDesk.createApproval',
+    'taskDesk.createBIWarning', 'taskDesk.openRelatedRecord', 'taskDesk.print', 'taskDesk.export',
+    'approvals.view', 'approvals.viewDetail', 'approvals.startReview', 'approvals.approve', 'approvals.credit.approve', 'approvals.reject',
+    'approvals.requestInfo', 'approvals.escalate', 'approvals.assignReviewer', 'approvals.sendNotification',
+    'approvals.liveChat.view', 'approvals.liveChat.send', 'approvals.createTask', 'approvals.createBIWarning',
+    'approvals.openRelatedRecord', 'approvals.print', 'approvals.export', 'approvals.notificationOutbox.view', 'approvals.audit.view',
     'reports.view',
     'reports.creditors.view', 'reports.cogsReserve.view', 'reports.purchaseDiscipline.view', 'reports.supplierStatements.view', 'reports.audit.view',
     'accounting.view', 'accounting.review',
@@ -1006,6 +1178,7 @@ const ROLE_PERMISSIONS: Record<Role, PermissionKey[]> = {
     'customers.view', 'customers.createRequest', 'customers.createDirect', 'customers.useInSale', 'customers.requests.create', 'customers.credit.view', 'customers.deposit.view', 'customers.deposit.apply',
     'delivery.view', 'delivery.create',
     'tasks.view',
+    'taskDesk.view', 'taskDesk.viewDetail', 'taskDesk.startReview', 'taskDesk.addNote', 'taskDesk.complete', 'taskDesk.openRelatedRecord',
     'bi.advice.view',
     'sync.view', 'sync.queue.view', 'sync.conflict.view'
   ],
@@ -1024,7 +1197,9 @@ const ROLE_PERMISSIONS: Record<Role, PermissionKey[]> = {
     'stocktake.view', 'stocktake.create', 'stocktake.count', 'stocktake.submit', 'stocktake.export',
     'stockTransfers.view', 'stockTransfers.create', 'stockTransfers.edit', 'stockTransfers.dispatch', 'stockTransfers.receive', 'stockTransfers.export',
     'tasks.view',
-    'approvals.view',
+    'taskDesk.view', 'taskDesk.viewDetail', 'taskDesk.startReview', 'taskDesk.addNote', 'taskDesk.complete', 'taskDesk.openRelatedRecord',
+    'approvals.view', 'approvals.viewDetail', 'approvals.startReview', 'approvals.requestInfo',
+    'approvals.liveChat.view', 'approvals.liveChat.send', 'approvals.openRelatedRecord',
     'reports.view',
     'reports.creditors.view', 'reports.cogsReserve.view', 'reports.purchaseDiscipline.view', 'reports.supplierStatements.view',
     'accounting.view',
@@ -1042,6 +1217,7 @@ const ROLE_PERMISSIONS: Record<Role, PermissionKey[]> = {
     'cashControl.deliveryCash.view', 'cashControl.deliveryCash.confirm',
     'customers.view',
     'tasks.view',
+    'taskDesk.view', 'taskDesk.viewDetail', 'taskDesk.startReview', 'taskDesk.addNote', 'taskDesk.complete', 'taskDesk.openRelatedRecord',
     'bi.advice.view',
     'sync.view', 'sync.run', 'sync.queue.view', 'sync.retry'
   ],
@@ -1063,7 +1239,10 @@ const ROLE_PERMISSIONS: Record<Role, PermissionKey[]> = {
     'cashControl.view', 'cashControl.reconcile', 'cashControl.count', 'cashControl.varianceReview',
     'cashControl.expense.create', 'cashControl.cashDrop.create', 'cashControl.debtorPayments.view',
     'cashControl.debtorPayments.linkDrawer', 'cashControl.deliveryCash.view', 'cashControl.print', 'cashControl.export',
-    'approvals.view',
+    'approvals.view', 'approvals.viewDetail', 'approvals.startReview', 'approvals.requestInfo',
+    'approvals.liveChat.view', 'approvals.liveChat.send', 'approvals.openRelatedRecord',
+    'approvals.print', 'approvals.export', 'approvals.notificationOutbox.view', 'approvals.audit.view',
+    'taskDesk.view', 'taskDesk.viewDetail', 'taskDesk.startReview', 'taskDesk.addNote', 'taskDesk.complete', 'taskDesk.openRelatedRecord',
     'reports.view', 'reports.export',
     'reports.creditors.view', 'reports.creditors.print', 'reports.creditors.export',
     'reports.cogsReserve.view', 'reports.cogsReserve.print', 'reports.cogsReserve.export',
@@ -1071,8 +1250,24 @@ const ROLE_PERMISSIONS: Record<Role, PermissionKey[]> = {
     'reports.supplierStatements.view', 'reports.supplierStatements.print', 'reports.supplierStatements.export',
     'reports.ownerFinancialControl.view', 'reports.audit.view', 'reports.audit.export',
     'accounting.view', 'accounting.review', 'accounting.postPlaceholder', 'accounting.export',
+    'financialControl.view', 'financialControl.accounts.view', 'financialControl.moneyIn.view', 'financialControl.moneyOut.view',
+    'financialControl.cashPlan.view', 'financialControl.profitability.view', 'financialControl.reserveProtection.view',
+    'financialControl.ownerDecisions.view', 'financialControl.bi.view', 'financialControl.print', 'financialControl.export',
+    'financialControl.checkWriter.view', 'financialControl.checkWriter.create', 'financialControl.checkWriter.prepare',
+    'financialControl.checkWriter.print', 'financialControl.checkWriter.issueLocal', 'financialControl.payee.view',
+    'financialControl.payee.manage', 'financialControl.journal.view', 'financialControl.journal.create',
+    'financialControl.journal.editDraft', 'financialControl.journal.submitReview', 'financialControl.journal.markPostedPreview',
+    'financialControl.journal.print',
     'ownerDesk.accountingDesk.view', 'ownerDesk.accountingDesk.coa.view', 'ownerDesk.accountingDesk.coa.create',
     'ownerDesk.accountingDesk.coa.editDraft', 'ownerDesk.accountingDesk.coa.print', 'ownerDesk.accountingDesk.coa.export',
+    'ownerDesk.accountingDesk.print', 'ownerDesk.accountingDesk.export', 'ownerDesk.accountingDesk.createTask', 'ownerDesk.accountingDesk.createBIWarning',
+    'ownerDesk.accountingDesk.salesPosting.view', 'ownerDesk.accountingDesk.salesPosting.review', 'ownerDesk.accountingDesk.salesPosting.markPostedPreview',
+    'ownerDesk.accountingDesk.cashbook.view', 'ownerDesk.accountingDesk.cashbook.review', 'ownerDesk.accountingDesk.cashbook.reconcilePreview',
+    'ownerDesk.accountingDesk.vat.view', 'ownerDesk.accountingDesk.vat.review', 'ownerDesk.accountingDesk.vat.flagIssue',
+    'ownerDesk.accountingDesk.cogsReserve.view', 'ownerDesk.accountingDesk.cogsReserve.review', 'ownerDesk.accountingDesk.cogsReserve.flagIssue',
+    'ownerDesk.accountingDesk.inventoryAsset.view', 'ownerDesk.accountingDesk.inventoryAsset.review', 'ownerDesk.accountingDesk.inventoryAsset.flagIssue',
+    'ownerDesk.accountingDesk.inventoryReadiness.view', 'ownerDesk.accountingDesk.inventoryReadiness.manage',
+    'ownerDesk.accountingDesk.readiness.view', 'ownerDesk.accountingDesk.readiness.run', 'ownerDesk.accountingDesk.readiness.review',
     'ownerDesk.accountingDesk.paymentPosting.view', 'ownerDesk.accountingDesk.paymentPosting.markSettled',
     'ownerDesk.accountingDesk.paymentPosting.viewReceipts', 'ownerDesk.accountingDesk.paymentPosting.flagVariance',
     'ownerDesk.accountingDesk.paymentPosting.addNote', 'ownerDesk.accountingDesk.paymentPosting.createTask',

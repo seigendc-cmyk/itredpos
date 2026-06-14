@@ -146,6 +146,17 @@ type OwnerDeskActionDomain = 'EOD Readiness' | 'Payment Summary' | 'Shift Closin
 type COAAccountModalMode = 'detail' | 'edit' | 'inactive' | 'reactivate' | 'note';
 type PaymentPostingModalMode = 'settle' | 'receipts' | 'variance' | 'detail' | 'note' | 'task' | 'bi';
 type PaymentVarianceType = 'Short' | 'Over' | 'Timing Difference' | 'Refund Mismatch' | 'Settlement Pending' | 'Control Account Mapping Issue' | 'Other';
+type AccountingDeskActionMode = 'detail' | 'issue' | 'note' | 'task' | 'bi' | 'approval';
+type AccountingDeskActionTab = 'Sales Posting' | 'Cashbook' | 'VAT Summary' | 'COGS Reserve' | 'Inventory Asset Posting' | 'Inventory Accounting Readiness' | 'Accounting Readiness';
+
+interface AccountingDeskActionState {
+  tab: AccountingDeskActionTab;
+  mode: AccountingDeskActionMode;
+  rowId: string;
+  title: string;
+  fields: Array<[string, string]>;
+  statusField?: string;
+}
 
 interface OwnerDeskActionModalState {
   domain: OwnerDeskActionDomain;
@@ -336,6 +347,12 @@ export default function PosOwnerDesk({ session }: PosOwnerDeskProps) {
   const [paymentTaskForm, setPaymentTaskForm] = useState({ title: 'Review payment posting variance', issueType: 'Payment variance review', dueDate: '2026-06-10', assignedTo: 'Accountant', notes: '' });
   const [paymentBIForm, setPaymentBIForm] = useState({ rule: 'PAYMENT_POSTING_VARIANCE_REVIEW', priority: 'High', assignedDesk: 'Accounting Desk', narrative: '' });
   const [paymentReceiptSearch, setPaymentReceiptSearch] = useState('');
+  const [openAccountingDeskMenuId, setOpenAccountingDeskMenuId] = useState<string | null>(null);
+  const [accountingDeskActionModal, setAccountingDeskActionModal] = useState<AccountingDeskActionState | null>(null);
+  const [accountingDeskActionNote, setAccountingDeskActionNote] = useState('');
+  const [accountingDeskIssueType, setAccountingDeskIssueType] = useState('Control Mapping Review');
+  const [accountingDeskRisk, setAccountingDeskRisk] = useState<'Low' | 'Medium' | 'High' | 'Critical'>('Medium');
+  const [accountingDeskAssignTo, setAccountingDeskAssignTo] = useState('Accountant');
 
   const staffName = session?.staffName || 'Admin User';
   const currentRole = toOwnerDeskRole(session?.role);
@@ -688,6 +705,63 @@ export default function PosOwnerDesk({ session }: PosOwnerDeskProps) {
     setPaymentVarianceStatusFilter('All Variance Statuses');
     setPaymentMinAmount('');
     setPaymentMaxAmount('');
+  };
+
+  const openAccountingDeskAction = async (tab: AccountingDeskActionTab, mode: AccountingDeskActionMode, rowId: string, title: string, fields: Array<[string, string]>, statusField?: string) => {
+    setAccountingDeskActionModal({ tab, mode, rowId, title, fields, statusField });
+    setAccountingDeskActionNote('');
+    setAccountingDeskIssueType('Control Mapping Review');
+    setAccountingDeskRisk('Medium');
+    setAccountingDeskAssignTo('Accountant');
+    if (mode === 'detail') await recordAccountingDeskTabActivity(tab, detailEventForTab(tab), `${tab} detail viewed for ${title}.`);
+  };
+
+  const recordAccountingDeskTabActivity = async (tab: AccountingDeskActionTab, eventType: Parameters<typeof recordAccountingActivity>[0], message: string, type: FeedbackType = 'success') => {
+    setAccountingActivity(await recordAccountingActivity(eventType, message, staffName));
+    showFeedback(type, `${tab}: ${message}`);
+  };
+
+  const applyAccountingDeskStatus = async (tab: AccountingDeskActionTab, rowId: string, status: string) => {
+    if (tab === 'Sales Posting') setSalesAccountingRows((rows) => rows.map((row) => row.id === rowId || row.receiptNo === rowId ? { ...row, postingStatus: status as SalesAccountingSummary['postingStatus'] } : row));
+    if (tab === 'Cashbook') setCashbookRows((rows) => rows.map((row) => row.id === rowId || row.reference === rowId ? { ...row, status: status as CashbookEntry['status'], notes: accountingDeskActionNote || row.notes } : row));
+    if (tab === 'VAT Summary') setVATRows((rows) => rows.map((row) => row.id === rowId || row.receiptNo === rowId ? { ...row, status: status as VATSummary['status'] } : row));
+    if (tab === 'COGS Reserve') setCOGSRows((rows) => rows.map((row) => row.id === rowId ? { ...row, reserveStatus: status as COGSReserveSummary['reserveStatus'] } : row));
+    if (tab === 'Inventory Asset Posting') setInventoryAssetRows((rows) => rows.map((row) => row.id === rowId ? { ...row, postingStatus: status as InventoryAssetPostingRow['postingStatus'] } : row));
+    if (tab === 'Inventory Accounting Readiness') setInventoryAccountingRows((rows) => rows.map((row) => row.readinessId === rowId ? { ...row, status: status as InventoryAccountingReadinessRecord['status'] } : row));
+    if (tab === 'Accounting Readiness') setAccountingReadiness((rows) => rows.map((row) => row.id === rowId ? { ...row, status: status as AccountingReadinessCheck['status'], requiredAction: accountingDeskActionNote || 'Reviewed locally' } : row));
+  };
+
+  const handleAccountingDeskAction = async (action: 'review' | 'postedPreview' | 'ready' | 'issue' | 'task' | 'bi' | 'approval' | 'print' | 'export' | 'source') => {
+    if (!accountingDeskActionModal) return;
+    const { tab, rowId, title } = accountingDeskActionModal;
+    if (action === 'review') {
+      await applyAccountingDeskStatus(tab, rowId, reviewedStatusForTab(tab));
+      await recordAccountingDeskTabActivity(tab, reviewEventForTab(tab), `${title} marked reviewed.`);
+    } else if (action === 'postedPreview') {
+      await applyAccountingDeskStatus(tab, rowId, 'Posted Preview');
+      await recordAccountingDeskTabActivity(tab, 'SALES_POSTING_MARKED_POSTED_PREVIEW', `${title} marked Posted Preview.`, 'warning');
+    } else if (action === 'ready') {
+      await applyAccountingDeskStatus(tab, rowId, readyStatusForTab(tab));
+      await recordAccountingDeskTabActivity(tab, reviewEventForTab(tab), `${title} marked ready for accounting review.`);
+    } else if (action === 'issue') {
+      await applyAccountingDeskStatus(tab, rowId, issueStatusForTab(tab));
+      await recordAccountingDeskTabActivity(tab, issueEventForTab(tab), `${accountingDeskIssueType} flagged for ${title}. Risk: ${accountingDeskRisk}. ${accountingDeskActionNote}`.trim(), 'warning');
+    } else if (action === 'task') {
+      await recordAccountingDeskTabActivity(tab, taskEventForTab(tab), `Accounting task created for ${title}. Assigned to ${accountingDeskAssignTo}.`, 'success');
+    } else if (action === 'bi') {
+      await recordAccountingDeskTabActivity(tab, biEventForTab(tab), `BI warning created for ${title}. Risk: ${accountingDeskRisk}.`, 'warning');
+    } else if (action === 'approval') {
+      await recordAccountingDeskTabActivity(tab, taskEventForTab(tab), `Approval request prepared locally for ${title}.`, 'warning');
+    } else if (action === 'print') {
+      printAccountingDeskDetail(accountingDeskActionModal);
+      await recordAccountingDeskTabActivity(tab, reviewEventForTab(tab), `Print prepared for ${title}.`);
+    } else if (action === 'export') {
+      exportAccountingDeskDetail(accountingDeskActionModal);
+      await recordAccountingDeskTabActivity(tab, reviewEventForTab(tab), `Export prepared for ${title}.`);
+    } else {
+      await recordAccountingDeskTabActivity(tab, detailEventForTab(tab), `Source record opened locally for ${title}.`);
+    }
+    if (action !== 'print' && action !== 'export' && action !== 'source') setAccountingDeskActionModal(null);
   };
 
   const addCashActivity = async (eventType: Parameters<typeof recordEODActivity>[0], message: string, type: FeedbackType = 'success') => {
@@ -1627,9 +1701,9 @@ export default function PosOwnerDesk({ session }: PosOwnerDeskProps) {
                 ['Refunds', money(10)],
                 ['Voids', '1'],
                 ['Net Sales', money(sum(salesAccountingRows, 'netSale'))],
-                ['VAT Output Placeholder', money(sum(salesAccountingRows, 'vat'))],
-                ['COGS Placeholder', money(164.5)],
-                ['Gross Profit Placeholder', money(1062.5)]
+                ['VAT Output Control', money(sum(salesAccountingRows, 'vat'))],
+                ['COGS Readiness', money(164.5)],
+                ['Gross Profit Preview', money(1062.5)]
               ]} />
               <Panel title="Sales Posting Summary" icon={<DollarSign className="w-4 h-4 text-orange-500" />}>
                 <OwnerDeskFilterBar search={accountingSearch} onSearch={setAccountingSearch} filters={[]} activeCount={accountingSearch ? 1 : 0} onClear={() => setAccountingSearch('')} />
@@ -1639,7 +1713,7 @@ export default function PosOwnerDesk({ session }: PosOwnerDeskProps) {
                     {filteredSalesAccountingRows.map((row) => (
                       <tr key={row.id} className="border-t border-slate-100 hover:bg-slate-50">
                         <Td strong>{row.receiptNo}</Td><Td>{timeOnly(row.dateTime)}</Td><Td>{row.branch}</Td><Td>{row.terminal}</Td><Td>{row.cashier}</Td><Td>{money(row.grossSale)}</Td><Td>{money(row.discount)}</Td><Td>{money(row.vat)}</Td><Td>{money(row.netSale)}</Td><Td>{row.salesAccount}</Td><Td><Badge value={row.postingStatus} /></Td>
-                        <Td><AccountingActionGroup id={row.receiptNo} openId={openOwnerActionMenuId} setOpenId={setOpenOwnerActionMenuId} onReview={handleAccountingReviewed} onReverse={handleAccountingReverse} onAction={(message) => void handleOwnerPlaceholderEvent('Accounting Desk', 'OWNER_DESK_PLACEHOLDER_VIEWED', message)} /></Td>
+                        <Td><AccountingDeskRowActionMenu tab="Sales Posting" rowId={row.id} title={row.receiptNo} fields={salesPostingFields(row)} openId={openAccountingDeskMenuId} setOpenId={setOpenAccountingDeskMenuId} can={hasCashPermission} onOpen={openAccountingDeskAction} onAction={handleAccountingDeskAction} /></Td>
                       </tr>
                     ))}
                   </tbody>
@@ -1726,7 +1800,7 @@ export default function PosOwnerDesk({ session }: PosOwnerDeskProps) {
                   <tbody>
                     {cashbookRows.map((row) => (
                       <tr key={row.id} className="border-t border-slate-100 hover:bg-slate-50">
-                        <Td strong>{timeOnly(row.dateTime)}</Td><Td>{row.branch}</Td><Td>{row.terminal}</Td><Td>{row.staff}</Td><Td>{row.movementType}</Td><Td>{row.reference}</Td><Td>{money(row.cashIn)}</Td><Td>{money(row.cashOut)}</Td><Td>{money(row.balanceAfter)}</Td><Td>{row.account}</Td><Td><Badge value={row.status} /></Td><Td>{row.notes}</Td><Td><SmallAction onClick={() => handleAccountingReviewed(row.reference)}>Mark Reviewed</SmallAction></Td>
+                        <Td strong>{timeOnly(row.dateTime)}</Td><Td>{cleanPaymentPostingLabel(row.account)}</Td><Td>{row.movementType}</Td><Td>{row.reference}</Td><Td>{money(row.cashIn)}</Td><Td>{money(row.cashOut)}</Td><Td>{money(row.balanceAfter)}</Td><Td>{row.status === 'Posted' ? 'Yes' : 'Pending'}</Td><Td><Badge value={row.status} /></Td><Td><AccountingDeskRowActionMenu tab="Cashbook" rowId={row.id} title={row.reference} fields={cashbookFields(row)} openId={openAccountingDeskMenuId} setOpenId={setOpenAccountingDeskMenuId} can={hasCashPermission} onOpen={openAccountingDeskAction} onAction={handleAccountingDeskAction} /></Td>
                       </tr>
                     ))}
                   </tbody>
@@ -1746,22 +1820,22 @@ export default function PosOwnerDesk({ session }: PosOwnerDeskProps) {
               </div>
               <MetricGrid metrics={[
                 ['Gross VATable Sales', money(sum(vatRows, 'vatableAmount'))],
-                ['VAT Output Placeholder', money(sum(vatRows, 'vatAmount'))],
+                ['VAT Output Control', money(sum(vatRows, 'vatAmount'))],
                 ['Non-VAT Sales', money(0)],
                 ['Refund VAT Impact', money(10.5)],
-                ['Net VAT Output Placeholder', money(Math.max(sum(vatRows, 'vatAmount') - 10.5, 0))],
-                ['VAT Registration Status', 'Tax-ready placeholder']
+                ['Net VAT Output Preview', money(Math.max(sum(vatRows, 'vatAmount') - 10.5, 0))],
+                ['VAT Registration Status', 'Tax-ready preview']
               ]} />
               <Panel title="VAT Summary" icon={<ShieldAlert className="w-4 h-4 text-orange-500" />}>
                 <div className="mb-3 bg-orange-50 border border-orange-200 text-orange-900 p-3 text-[10px] font-bold">
                   This POS is tax-ready, but fiscalization and official tax submission will be connected later.
                 </div>
                 <Table>
-                  <thead><tr><Th>Receipt No.</Th><Th>Date</Th><Th>Gross Amount</Th><Th>VATable Amount</Th><Th>VAT Amount</Th><Th>VAT Mode</Th><Th>VAT Number</Th><Th>Status</Th></tr></thead>
+                  <thead><tr><Th>Date</Th><Th>Source</Th><Th>Reference</Th><Th>Tax Type</Th><Th>Taxable Amount</Th><Th>VAT Amount</Th><Th>Control Account</Th><Th>Status</Th><Th>Action</Th></tr></thead>
                   <tbody>
                     {vatRows.map((row) => (
                       <tr key={row.id} className="border-t border-slate-100 hover:bg-slate-50">
-                        <Td strong>{row.receiptNo}</Td><Td>{row.date}</Td><Td>{money(row.grossAmount)}</Td><Td>{money(row.vatableAmount)}</Td><Td>{money(row.vatAmount)}</Td><Td>{row.vatMode}</Td><Td>{row.vatNumber}</Td><Td><Badge value={row.status} /></Td>
+                        <Td strong>{row.date}</Td><Td>Sales VAT</Td><Td>{row.receiptNo}</Td><Td>{row.vatMode}</Td><Td>{money(row.vatableAmount)}</Td><Td>{money(row.vatAmount)}</Td><Td>VAT Output Control</Td><Td><Badge value={row.status} /></Td><Td><AccountingDeskRowActionMenu tab="VAT Summary" rowId={row.id} title={row.receiptNo} fields={vatFields(row)} openId={openAccountingDeskMenuId} setOpenId={setOpenAccountingDeskMenuId} can={hasCashPermission} onOpen={openAccountingDeskAction} onAction={handleAccountingDeskAction} /></Td>
                       </tr>
                     ))}
                   </tbody>
@@ -1776,17 +1850,17 @@ export default function PosOwnerDesk({ session }: PosOwnerDeskProps) {
                 ['Net Sales', money(1227)],
                 ['Estimated COGS', money(sum(cogsRows, 'estimatedCOGS'))],
                 ['Suggested COGS Reserve', money(sum(cogsRows, 'suggestedReserve'))],
-                ['Reserve Used Placeholder', money(0)],
+                ['Reserve Used Preview', money(0)],
                 ['Reserve Misuse Risk', cogsRows.filter((row) => row.reserveStatus === 'Misuse Risk').length.toString()],
-                ['Available Reserve Placeholder', money(sum(cogsRows, 'suggestedReserve'))]
+                ['Available Reserve Preview', money(sum(cogsRows, 'suggestedReserve'))]
               ]} />
-              <Panel title="COGS Reserve Placeholder" icon={<PackageCheck className="w-4 h-4 text-orange-500" />}>
+              <Panel title="COGS Reserve Control" icon={<PackageCheck className="w-4 h-4 text-orange-500" />}>
                 <Table>
-                  <thead><tr><Th>Product</Th><Th>Receipt / Reference</Th><Th>Qty Sold</Th><Th>Unit Cost</Th><Th>Selling Price</Th><Th>Estimated COGS</Th><Th>Suggested Reserve</Th><Th>Reserve Status</Th><Th>Action</Th></tr></thead>
+                  <thead><tr><Th>Date</Th><Th>Movement Type</Th><Th>Source</Th><Th>Reference</Th><Th>Amount</Th><Th>Reserve Balance After</Th><Th>Control Account</Th><Th>Status</Th><Th>Action</Th></tr></thead>
                   <tbody>
                     {cogsRows.map((row) => (
                       <tr key={row.id} className="border-t border-slate-100 hover:bg-slate-50">
-                        <Td strong>{row.product}</Td><Td>{row.receiptReference}</Td><Td>{row.qtySold}</Td><Td>{money(row.unitCost)}</Td><Td>{money(row.sellingPrice)}</Td><Td>{money(row.estimatedCOGS)}</Td><Td>{money(row.suggestedReserve)}</Td><Td><Badge value={row.reserveStatus} /></Td><Td><SmallAction onClick={() => handleAccountingReviewed(row.id)}>Mark Reviewed</SmallAction></Td>
+                        <Td strong>{businessDate}</Td><Td>{row.reserveStatus === 'Misuse Risk' ? 'Reserve Leakage' : 'COGS Reserve Movement'}</Td><Td>{row.product}</Td><Td>{row.receiptReference}</Td><Td>{money(row.estimatedCOGS)}</Td><Td>{money(row.suggestedReserve)}</Td><Td>COGS Reserve Control</Td><Td><Badge value={row.reserveStatus} /></Td><Td><AccountingDeskRowActionMenu tab="COGS Reserve" rowId={row.id} title={row.receiptReference} fields={cogsFields(row)} openId={openAccountingDeskMenuId} setOpenId={setOpenAccountingDeskMenuId} can={hasCashPermission} onOpen={openAccountingDeskAction} onAction={handleAccountingDeskAction} /></Td>
                       </tr>
                     ))}
                   </tbody>
@@ -1798,11 +1872,11 @@ export default function PosOwnerDesk({ session }: PosOwnerDeskProps) {
           {activeAccountingTab === 'Inventory Asset Posting' && (
             <Panel title="Inventory Asset Posting" icon={<PackageCheck className="w-4 h-4 text-orange-500" />}>
               <Table>
-                <thead><tr><Th>Product</Th><Th>Movement Type</Th><Th>Reference</Th><Th>Qty In</Th><Th>Qty Out</Th><Th>Unit Cost</Th><Th>Cost Impact</Th><Th>Asset Account</Th><Th>COGS Account</Th><Th>Sales Account</Th><Th>Posting Status</Th><Th>Risk</Th><Th>Action</Th></tr></thead>
+                <thead><tr><Th>Date</Th><Th>Movement Type</Th><Th>Product / Reference</Th><Th>Branch / Warehouse</Th><Th>Quantity</Th><Th>Value</Th><Th>Inventory Control Account</Th><Th>Status</Th><Th>Action</Th></tr></thead>
                 <tbody>
                   {inventoryAssetRows.map((row) => (
                     <tr key={row.id} className="border-t border-slate-100 hover:bg-slate-50">
-                      <Td strong>{row.product}</Td><Td>{row.movementType}</Td><Td>{row.reference}</Td><Td>{row.qtyIn}</Td><Td>{row.qtyOut}</Td><Td>{money(row.unitCost)}</Td><Td>{money(row.costImpact)}</Td><Td>{row.assetAccount}</Td><Td>{row.cogsAccount}</Td><Td>{row.salesAccount}</Td><Td><Badge value={row.postingStatus} /></Td><Td><Badge value={row.risk} risk /></Td><Td><SmallAction onClick={() => handleAccountingReviewed(row.id)}>Mark Reviewed</SmallAction></Td>
+                      <Td strong>{businessDate}</Td><Td>{row.movementType}</Td><Td>{row.product}<span>{row.reference}</span></Td><Td>Current Branch / Warehouse</Td><Td>{row.qtyIn - row.qtyOut}</Td><Td>{money(row.costImpact)}</Td><Td>{cleanPaymentPostingLabel(row.assetAccount)}</Td><Td><Badge value={row.postingStatus} /></Td><Td><AccountingDeskRowActionMenu tab="Inventory Asset Posting" rowId={row.id} title={row.reference} fields={inventoryAssetFields(row)} openId={openAccountingDeskMenuId} setOpenId={setOpenAccountingDeskMenuId} can={hasCashPermission} onOpen={openAccountingDeskAction} onAction={handleAccountingDeskAction} /></Td>
                     </tr>
                   ))}
                 </tbody>
@@ -1835,7 +1909,7 @@ export default function PosOwnerDesk({ session }: PosOwnerDeskProps) {
                   <Select label="Source Type" value={inventoryAccountingFilters.sourceType || 'ALL'} onChange={(value) => setInventoryAccountingFilters((current) => ({ ...current, sourceType: value as InventoryAccountingFilterState['sourceType'] }))} options={['ALL', 'GRN', 'Supplier Return', 'Stock Adjustment', 'Stocktake', 'Stock Transfer', 'Inventory Movement', 'Product Ledger']} />
                   <Input label="Source Number" value={inventoryAccountingFilters.sourceNumber || ''} onChange={(value) => setInventoryAccountingFilters((current) => ({ ...current, sourceNumber: value }))} />
                   <Select label="Impact Type" value={inventoryAccountingFilters.impactType || 'ALL'} onChange={(value) => setInventoryAccountingFilters((current) => ({ ...current, impactType: value as InventoryAccountingFilterState['impactType'] }))} options={['ALL', 'Inventory Asset Increase', 'Inventory Asset Decrease', 'Inventory Write Off', 'Stocktake Gain', 'Stocktake Loss', 'Supplier Return Credit Expected', 'GRN Supplier Invoice Pending', 'Transfer Neutral', 'Cost Variance Review', 'Unknown Impact Review']} />
-                  <Select label="Status" value={inventoryAccountingFilters.status || 'ALL'} onChange={(value) => setInventoryAccountingFilters((current) => ({ ...current, status: value as InventoryAccountingFilterState['status'] }))} options={['ALL', 'Pending Review', 'Reviewed', 'Approved For Posting', 'Posted Placeholder', 'Rejected', 'On Hold', 'Reversal Requested', 'Closed']} />
+                  <Select label="Status" value={inventoryAccountingFilters.status || 'ALL'} onChange={(value) => setInventoryAccountingFilters((current) => ({ ...current, status: value as InventoryAccountingFilterState['status'] }))} options={['ALL', 'Pending Review', 'Reviewed', 'Approved For Posting', 'Posted Preview', 'Rejected', 'On Hold', 'Reversal Requested', 'Closed']} />
                   <Select label="Risk Level" value={inventoryAccountingFilters.riskLevel || 'ALL'} onChange={(value) => setInventoryAccountingFilters((current) => ({ ...current, riskLevel: value as InventoryAccountingFilterState['riskLevel'] }))} options={['ALL', 'Low', 'Medium', 'High', 'Critical']} />
                   <Input label="Branch ID" value={inventoryAccountingFilters.branchId || ''} onChange={(value) => setInventoryAccountingFilters((current) => ({ ...current, branchId: value }))} />
                   <Input label="Warehouse ID" value={inventoryAccountingFilters.warehouseId || ''} onChange={(value) => setInventoryAccountingFilters((current) => ({ ...current, warehouseId: value }))} />
@@ -1861,17 +1935,7 @@ export default function PosOwnerDesk({ session }: PosOwnerDeskProps) {
                         <Td><Badge value={row.riskLevel} risk /></Td>
                         <Td>{row.reviewedByStaffName || 'Pending'}</Td>
                         <Td>{row.approvedByStaffName || 'Pending'}</Td>
-                        <Td>
-                          <div className="flex flex-wrap gap-1">
-                            <SmallAction onClick={() => void openInventoryAccountingRecord(row)}>Open Review</SmallAction>
-                            <SmallAction onClick={() => {
-                              if (!ensureInventoryAccountingPermission('inventoryAccounting.review')) {
-                                return;
-                              }
-                              void reviewInventoryAccountingRecord(row.readinessId, staffName, 'Quick review from Owner Desk.').then(() => refreshInventoryAccounting(row.readinessId));
-                            }}>Quick Review</SmallAction>
-                          </div>
-                        </Td>
+                        <Td><AccountingDeskRowActionMenu tab="Inventory Accounting Readiness" rowId={row.readinessId} title={row.readinessNumber} fields={inventoryReadinessFields(row)} openId={openAccountingDeskMenuId} setOpenId={setOpenAccountingDeskMenuId} can={hasCashPermission} onOpen={(tab, mode, rowId, title, fields) => mode === 'detail' ? void openInventoryAccountingRecord(row) : void openAccountingDeskAction(tab, mode, rowId, title, fields)} onAction={handleAccountingDeskAction} /></Td>
                       </tr>
                     ))}
                   </tbody>
@@ -1901,11 +1965,11 @@ export default function PosOwnerDesk({ session }: PosOwnerDeskProps) {
           {activeAccountingTab === 'Accounting Readiness' && (
             <Panel title="Accounting Readiness" icon={<ClipboardCheck className="w-4 h-4 text-orange-500" />}>
               <Table>
-                <thead><tr><Th>Check</Th><Th>Domain</Th><Th>Status</Th><Th>Required Action</Th></tr></thead>
+                <thead><tr><Th>Domain</Th><Th>Ready Items</Th><Th>Review Items</Th><Th>Issues</Th><Th>Risk</Th><Th>Status</Th><Th>Required Action</Th><Th>Action</Th></tr></thead>
                 <tbody>
                   {accountingReadiness.map((row) => (
                     <tr key={row.id} className="border-t border-slate-100 hover:bg-slate-50">
-                      <Td strong>{row.check}</Td><Td>{row.domain}</Td><Td><Badge value={row.status} /></Td><Td>{row.requiredAction}</Td>
+                      <Td strong>{row.domain}</Td><Td>{row.status === 'Passed' ? '1' : '0'}</Td><Td>{row.status === 'Warning' || row.status === 'Pending' ? '1' : '0'}</Td><Td>{row.status === 'Failed' ? '1' : '0'}</Td><Td><Badge value={row.status === 'Passed' ? 'Low' : row.status === 'Warning' ? 'Medium' : 'High'} risk /></Td><Td><Badge value={row.status} /></Td><Td>{row.requiredAction}</Td><Td><AccountingDeskRowActionMenu tab="Accounting Readiness" rowId={row.id} title={row.check} fields={accountingReadinessFields(row)} openId={openAccountingDeskMenuId} setOpenId={setOpenAccountingDeskMenuId} can={hasCashPermission} onOpen={openAccountingDeskAction} onAction={handleAccountingDeskAction} /></Td>
                     </tr>
                   ))}
                 </tbody>
@@ -2058,6 +2122,22 @@ export default function PosOwnerDesk({ session }: PosOwnerDeskProps) {
           onExport={() => void handlePaymentExport(paymentPostingModal.row)}
           onOpenNested={(mode) => void openPaymentPostingModal(mode, paymentPostingModal.row)}
           onReceiptAction={(message) => void recordPaymentPostingActivity('PAYMENT_MODE_RECEIPTS_VIEWED', message)}
+        />
+      )}
+
+      {accountingDeskActionModal && (
+        <AccountingDeskActionModal
+          modal={accountingDeskActionModal}
+          note={accountingDeskActionNote}
+          onNoteChange={setAccountingDeskActionNote}
+          issueType={accountingDeskIssueType}
+          onIssueTypeChange={setAccountingDeskIssueType}
+          risk={accountingDeskRisk}
+          onRiskChange={setAccountingDeskRisk}
+          assignTo={accountingDeskAssignTo}
+          onAssignToChange={setAccountingDeskAssignTo}
+          onClose={() => setAccountingDeskActionModal(null)}
+          onAction={(action) => void handleAccountingDeskAction(action)}
         />
       )}
     </div>
@@ -2251,26 +2331,6 @@ function SmallAction({ children, onClick }: { children: React.ReactNode; onClick
   return <button onClick={onClick} className="industrial-secondary-button text-[8.5px] min-h-[1.85rem] px-2 py-1 whitespace-nowrap">{children}</button>;
 }
 
-function ActionGroup({ id, onReview }: { id: string; onReview: (id: string) => void }) {
-  return (
-    <div className="flex flex-wrap gap-1">
-      <SmallAction onClick={() => undefined}>Review</SmallAction>
-      <SmallAction onClick={() => onReview(id)}>Mark Reviewed</SmallAction>
-      <SmallAction onClick={() => undefined}>Open Related Record</SmallAction>
-    </div>
-  );
-}
-
-function PaymentActionGroup({ id, onReview }: { id: string; onReview: (id: string) => void }) {
-  return (
-    <div className="flex flex-wrap gap-1">
-      <SmallAction onClick={() => undefined}>View Receipts</SmallAction>
-      <SmallAction onClick={() => onReview(id)}>Mark Reviewed</SmallAction>
-      <SmallAction onClick={() => undefined}>Flag Variance</SmallAction>
-    </div>
-  );
-}
-
 function PaymentPostingActionMenu({
   row,
   openId,
@@ -2320,6 +2380,114 @@ function PaymentPostingActionMenu({
       ariaLabel={`Payment posting actions for ${row.paymentMode}`}
       items={items}
     />
+  );
+}
+
+function AccountingDeskRowActionMenu({
+  tab,
+  rowId,
+  title,
+  fields,
+  openId,
+  setOpenId,
+  can,
+  onOpen,
+  onAction
+}: {
+  tab: AccountingDeskActionTab;
+  rowId: string;
+  title: string;
+  fields: Array<[string, string]>;
+  openId: string | null;
+  setOpenId: (id: string | null) => void;
+  can: (permission: PermissionKey) => boolean;
+  onOpen: (tab: AccountingDeskActionTab, mode: AccountingDeskActionMode, rowId: string, title: string, fields: Array<[string, string]>) => void;
+  onAction: (action: 'review' | 'postedPreview' | 'ready' | 'issue' | 'task' | 'bi' | 'approval' | 'print' | 'export' | 'source') => void;
+}) {
+  const menuId = `${tab}-${rowId}`;
+  const canView = can(permissionForTab(tab, 'view'));
+  const canReview = can(permissionForTab(tab, 'review'));
+  const canIssue = can(permissionForTab(tab, 'issue'));
+  const items: Array<RowActionMenuItem | false> = [
+    canView && { label: detailLabelForTab(tab), icon: <Eye className="w-3.5 h-3.5" />, onClick: () => onOpen(tab, 'detail', rowId, title, fields) },
+    canReview && { label: 'Mark Reviewed', icon: <CheckCircle2 className="w-3.5 h-3.5" />, onClick: () => onAction('review') },
+    canReview && tab === 'Sales Posting' && { label: 'Mark Posted Preview', icon: <ClipboardCheck className="w-3.5 h-3.5" />, onClick: () => onAction('postedPreview') },
+    canReview && tab !== 'Sales Posting' && { label: 'Mark Ready', icon: <ClipboardCheck className="w-3.5 h-3.5" />, onClick: () => onAction('ready') },
+    canIssue && { label: issueLabelForTab(tab), icon: <AlertTriangle className="w-3.5 h-3.5" />, onClick: () => onOpen(tab, 'issue', rowId, title, fields) },
+    can('ownerDesk.accountingDesk.createBIWarning') && { label: 'Create BI Warning', icon: <Flag className="w-3.5 h-3.5" />, onClick: () => onOpen(tab, 'bi', rowId, title, fields) },
+    can('ownerDesk.accountingDesk.createTask') && { label: 'Create Accounting Task', icon: <ClipboardCheck className="w-3.5 h-3.5" />, onClick: () => onOpen(tab, 'task', rowId, title, fields) },
+    canReview && { label: 'Create Approval', icon: <ShieldAlert className="w-3.5 h-3.5" />, onClick: () => onOpen(tab, 'approval', rowId, title, fields) },
+    can('ownerDesk.accountingDesk.print') && { label: printLabelForTab(tab), icon: <Printer className="w-3.5 h-3.5" />, onClick: () => { onOpen(tab, 'detail', rowId, title, fields); setTimeout(() => onAction('print'), 0); } },
+    can('ownerDesk.accountingDesk.export') && { label: 'Export Row', icon: <Download className="w-3.5 h-3.5" />, onClick: () => { onOpen(tab, 'detail', rowId, title, fields); setTimeout(() => onAction('export'), 0); } },
+    canView && { label: sourceLabelForTab(tab), icon: <FileText className="w-3.5 h-3.5" />, onClick: () => onAction('source') }
+  ];
+  return <OwnerDeskRowActionMenu id={menuId} openId={openId} setOpenId={setOpenId} ariaLabel={`${tab} actions for ${title}`} items={items} />;
+}
+
+function AccountingDeskActionModal({
+  modal,
+  note,
+  onNoteChange,
+  issueType,
+  onIssueTypeChange,
+  risk,
+  onRiskChange,
+  assignTo,
+  onAssignToChange,
+  onClose,
+  onAction
+}: {
+  modal: AccountingDeskActionState;
+  note: string;
+  onNoteChange: (value: string) => void;
+  issueType: string;
+  onIssueTypeChange: (value: string) => void;
+  risk: 'Low' | 'Medium' | 'High' | 'Critical';
+  onRiskChange: (value: 'Low' | 'Medium' | 'High' | 'Critical') => void;
+  assignTo: string;
+  onAssignToChange: (value: string) => void;
+  onClose: () => void;
+  onAction: (action: 'review' | 'postedPreview' | 'ready' | 'issue' | 'task' | 'bi' | 'approval' | 'print' | 'export' | 'source') => void;
+}) {
+  const heading = modal.mode === 'detail' ? `${modal.tab} Detail` : modal.mode === 'issue' ? `Flag ${modal.tab} Issue` : modal.mode === 'bi' ? 'Create BI Warning' : modal.mode === 'task' ? 'Create Accounting Task' : modal.mode === 'approval' ? 'Create Approval' : 'Add Note';
+  return (
+    <div className="fixed inset-0 z-[70] bg-slate-950/60 flex items-center justify-center p-4">
+      <div className="bg-white border-2 border-[#1e222b] shadow-2xl w-full max-w-4xl max-h-[90vh] overflow-hidden flex flex-col">
+        <div className="p-4 border-b border-[#b1b5c2] flex items-center justify-between gap-3">
+          <div>
+            <h3 className="text-sm font-black uppercase tracking-wider text-[#1e222b]">{heading}</h3>
+            <p className="text-[10px] text-slate-500 uppercase">Accounting readiness preview only. Not final posted accounts.</p>
+          </div>
+          <button className="industrial-secondary-button text-[10px]" onClick={onClose}>Close</button>
+        </div>
+        <div className="p-4 overflow-y-auto pos-custom-scroll space-y-4">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
+            {modal.fields.map(([label, value]) => <InfoBox key={label} label={label} value={cleanPaymentPostingLabel(value)} />)}
+          </div>
+          {modal.mode !== 'detail' && (
+            <div className="space-y-3">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
+                <Input label="Issue / Action Type" value={issueType} onChange={onIssueTypeChange} />
+                <Select label="Risk Level" value={risk} onChange={(value) => onRiskChange(value as 'Low' | 'Medium' | 'High' | 'Critical')} options={riskLevels} />
+                <Input label="Assign To" value={assignTo} onChange={onAssignToChange} />
+              </div>
+              <Textarea label="Owner / Accounting Note" value={note} onChange={onNoteChange} />
+            </div>
+          )}
+          <div className="flex flex-wrap justify-end gap-2 border-t border-slate-200 pt-3">
+            <SmallAction onClick={() => onAction('review')}>Mark Reviewed</SmallAction>
+            {modal.tab === 'Sales Posting' && <SmallAction onClick={() => onAction('postedPreview')}>Mark Posted Preview</SmallAction>}
+            {modal.tab !== 'Sales Posting' && <SmallAction onClick={() => onAction('ready')}>Mark Ready</SmallAction>}
+            <SmallAction onClick={() => onAction('issue')}>Save Issue</SmallAction>
+            <SmallAction onClick={() => onAction('bi')}>Create BI Warning</SmallAction>
+            <SmallAction onClick={() => onAction('task')}>Create Task</SmallAction>
+            <SmallAction onClick={() => onAction('approval')}>Create Approval</SmallAction>
+            <SmallAction onClick={() => onAction('print')}>Print</SmallAction>
+            <SmallAction onClick={() => onAction('export')}>Export</SmallAction>
+          </div>
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -3141,6 +3309,244 @@ function paymentSummaryPrintHtml(row: PaymentAccountingSummary): string {
       <tr><th>Owner Note</th><td>${row.ownerNote || 'None'}</td></tr>
     </tbody></table>
   </body></html>`;
+}
+
+function salesPostingFields(row: SalesAccountingSummary): Array<[string, string]> {
+  const net = row.netSale;
+  const cogs = Math.max(0, Math.round(net * 0.35 * 100) / 100);
+  return [
+    ['Receipt', row.receiptNo],
+    ['Date', timeOnly(row.dateTime)],
+    ['Customer', 'Local receipt customer'],
+    ['Gross Sales', money(row.grossSale)],
+    ['Discount', money(row.discount)],
+    ['Returns', money(0)],
+    ['Net Sales', money(row.netSale)],
+    ['VAT', money(row.vat)],
+    ['COGS', money(cogs)],
+    ['Gross Profit', money(net - cogs)],
+    ['Posting Status', row.postingStatus]
+  ];
+}
+
+function cashbookFields(row: CashbookEntry): Array<[string, string]> {
+  return [
+    ['Date', timeOnly(row.dateTime)],
+    ['Account', row.account],
+    ['Source', row.movementType],
+    ['Reference', row.reference],
+    ['Money In', money(row.cashIn)],
+    ['Money Out', money(row.cashOut)],
+    ['Balance Preview', money(row.balanceAfter)],
+    ['Status', row.status],
+    ['Notes', row.notes]
+  ];
+}
+
+function vatFields(row: VATSummary): Array<[string, string]> {
+  return [
+    ['Date', row.date],
+    ['Source', 'Sales VAT'],
+    ['Reference', row.receiptNo],
+    ['Tax Type', row.vatMode],
+    ['Taxable Amount', money(row.vatableAmount)],
+    ['VAT Amount', money(row.vatAmount)],
+    ['Control Account', 'VAT Output Control'],
+    ['Status', row.status]
+  ];
+}
+
+function cogsFields(row: COGSReserveSummary): Array<[string, string]> {
+  return [
+    ['Date', '2026-06-09'],
+    ['Movement Type', row.reserveStatus === 'Misuse Risk' ? 'Reserve Leakage' : 'COGS Reserve Movement'],
+    ['Source', row.product],
+    ['Reference', row.receiptReference],
+    ['Amount', money(row.estimatedCOGS)],
+    ['Reserve Balance After', money(row.suggestedReserve)],
+    ['Control Account', 'COGS Reserve Control'],
+    ['Status', row.reserveStatus]
+  ];
+}
+
+function inventoryAssetFields(row: InventoryAssetPostingRow): Array<[string, string]> {
+  return [
+    ['Date', '2026-06-09'],
+    ['Movement Type', row.movementType],
+    ['Product / Reference', `${row.product} / ${row.reference}`],
+    ['Branch / Warehouse', 'Current Branch / Warehouse'],
+    ['Quantity', String(row.qtyIn - row.qtyOut)],
+    ['Value', money(row.costImpact)],
+    ['Inventory Control Account', row.assetAccount],
+    ['Status', row.postingStatus],
+    ['Risk', row.risk]
+  ];
+}
+
+function inventoryReadinessFields(row: InventoryAccountingReadinessRecord): Array<[string, string]> {
+  return [
+    ['Check', row.readinessNumber],
+    ['Area', row.impactType],
+    ['Count / Amount', money(row.totalValueImpact)],
+    ['Risk', row.riskLevel],
+    ['Status', row.status],
+    ['Required Action', row.recommendedAction]
+  ];
+}
+
+function accountingReadinessFields(row: AccountingReadinessCheck): Array<[string, string]> {
+  return [
+    ['Domain', row.domain],
+    ['Check', row.check],
+    ['Ready Items', row.status === 'Passed' ? '1' : '0'],
+    ['Review Items', row.status === 'Warning' || row.status === 'Pending' ? '1' : '0'],
+    ['Issues', row.status === 'Failed' ? '1' : '0'],
+    ['Status', row.status],
+    ['Required Action', row.requiredAction]
+  ];
+}
+
+function detailEventForTab(tab: AccountingDeskActionTab): Parameters<typeof recordAccountingActivity>[0] {
+  const map: Record<AccountingDeskActionTab, Parameters<typeof recordAccountingActivity>[0]> = {
+    'Sales Posting': 'SALES_POSTING_DETAIL_VIEWED',
+    Cashbook: 'CASHBOOK_DETAIL_VIEWED',
+    'VAT Summary': 'VAT_DETAIL_VIEWED',
+    'COGS Reserve': 'COGS_RESERVE_ACCOUNTING_DETAIL_VIEWED',
+    'Inventory Asset Posting': 'INVENTORY_ASSET_POSTING_DETAIL_VIEWED',
+    'Inventory Accounting Readiness': 'INVENTORY_ACCOUNTING_READINESS_CHECK_VIEWED',
+    'Accounting Readiness': 'ACCOUNTING_READINESS_DOMAIN_VIEWED'
+  };
+  return map[tab];
+}
+
+function reviewEventForTab(tab: AccountingDeskActionTab): Parameters<typeof recordAccountingActivity>[0] {
+  const map: Record<AccountingDeskActionTab, Parameters<typeof recordAccountingActivity>[0]> = {
+    'Sales Posting': 'SALES_POSTING_MARKED_REVIEWED',
+    Cashbook: 'CASHBOOK_MARKED_REVIEWED',
+    'VAT Summary': 'VAT_MARKED_REVIEWED',
+    'COGS Reserve': 'COGS_RESERVE_ACCOUNTING_MARKED_REVIEWED',
+    'Inventory Asset Posting': 'INVENTORY_ASSET_POSTING_MARKED_REVIEWED',
+    'Inventory Accounting Readiness': 'INVENTORY_ACCOUNTING_READINESS_MARKED_REVIEWED',
+    'Accounting Readiness': 'ACCOUNTING_READINESS_MARKED_REVIEWED'
+  };
+  return map[tab];
+}
+
+function issueEventForTab(tab: AccountingDeskActionTab): Parameters<typeof recordAccountingActivity>[0] {
+  const map: Record<AccountingDeskActionTab, Parameters<typeof recordAccountingActivity>[0]> = {
+    'Sales Posting': 'SALES_POSTING_ISSUE_FLAGGED',
+    Cashbook: 'CASHBOOK_VARIANCE_FLAGGED',
+    'VAT Summary': 'VAT_ISSUE_FLAGGED',
+    'COGS Reserve': 'COGS_RESERVE_ACCOUNTING_ISSUE_FLAGGED',
+    'Inventory Asset Posting': 'INVENTORY_ASSET_POSTING_ISSUE_FLAGGED',
+    'Inventory Accounting Readiness': 'INVENTORY_ACCOUNTING_READINESS_BI_CREATED',
+    'Accounting Readiness': 'ACCOUNTING_READINESS_BI_CREATED'
+  };
+  return map[tab];
+}
+
+function taskEventForTab(tab: AccountingDeskActionTab): Parameters<typeof recordAccountingActivity>[0] {
+  const map: Record<AccountingDeskActionTab, Parameters<typeof recordAccountingActivity>[0]> = {
+    'Sales Posting': 'SALES_POSTING_TASK_CREATED',
+    Cashbook: 'CASHBOOK_OWNER_NOTE_ADDED',
+    'VAT Summary': 'VAT_TASK_CREATED',
+    'COGS Reserve': 'COGS_RESERVE_ACCOUNTING_TASK_CREATED',
+    'Inventory Asset Posting': 'INVENTORY_ASSET_POSTING_TASK_CREATED',
+    'Inventory Accounting Readiness': 'INVENTORY_ACCOUNTING_READINESS_TASK_CREATED',
+    'Accounting Readiness': 'ACCOUNTING_READINESS_TASK_CREATED'
+  };
+  return map[tab];
+}
+
+function biEventForTab(tab: AccountingDeskActionTab): Parameters<typeof recordAccountingActivity>[0] {
+  if (tab === 'VAT Summary') return 'VAT_RESERVE_WARNING_CREATED';
+  if (tab === 'Inventory Accounting Readiness') return 'INVENTORY_ACCOUNTING_READINESS_BI_CREATED';
+  if (tab === 'Accounting Readiness') return 'ACCOUNTING_READINESS_BI_CREATED';
+  if (tab === 'Sales Posting') return 'SALES_POSTING_BI_WARNING_CREATED';
+  return issueEventForTab(tab);
+}
+
+function reviewedStatusForTab(tab: AccountingDeskActionTab): string {
+  if (tab === 'Accounting Readiness') return 'Passed';
+  if (tab === 'COGS Reserve') return 'Review Required';
+  return 'Reviewed';
+}
+
+function readyStatusForTab(tab: AccountingDeskActionTab): string {
+  if (tab === 'Cashbook' || tab === 'VAT Summary' || tab === 'Inventory Asset Posting') return 'Ready for Review';
+  if (tab === 'COGS Reserve') return 'Reserved';
+  if (tab === 'Accounting Readiness') return 'Passed';
+  return 'Reviewed';
+}
+
+function issueStatusForTab(tab: AccountingDeskActionTab): string {
+  if (tab === 'COGS Reserve') return 'Review Required';
+  if (tab === 'Accounting Readiness') return 'Warning';
+  return 'Pending Review';
+}
+
+function permissionForTab(tab: AccountingDeskActionTab, action: 'view' | 'review' | 'issue'): PermissionKey {
+  const map: Record<AccountingDeskActionTab, Record<'view' | 'review' | 'issue', PermissionKey>> = {
+    'Sales Posting': { view: 'ownerDesk.accountingDesk.salesPosting.view', review: 'ownerDesk.accountingDesk.salesPosting.review', issue: 'ownerDesk.accountingDesk.salesPosting.review' },
+    Cashbook: { view: 'ownerDesk.accountingDesk.cashbook.view', review: 'ownerDesk.accountingDesk.cashbook.review', issue: 'ownerDesk.accountingDesk.cashbook.review' },
+    'VAT Summary': { view: 'ownerDesk.accountingDesk.vat.view', review: 'ownerDesk.accountingDesk.vat.review', issue: 'ownerDesk.accountingDesk.vat.flagIssue' },
+    'COGS Reserve': { view: 'ownerDesk.accountingDesk.cogsReserve.view', review: 'ownerDesk.accountingDesk.cogsReserve.review', issue: 'ownerDesk.accountingDesk.cogsReserve.flagIssue' },
+    'Inventory Asset Posting': { view: 'ownerDesk.accountingDesk.inventoryAsset.view', review: 'ownerDesk.accountingDesk.inventoryAsset.review', issue: 'ownerDesk.accountingDesk.inventoryAsset.flagIssue' },
+    'Inventory Accounting Readiness': { view: 'ownerDesk.accountingDesk.inventoryReadiness.view', review: 'ownerDesk.accountingDesk.inventoryReadiness.manage', issue: 'ownerDesk.accountingDesk.inventoryReadiness.manage' },
+    'Accounting Readiness': { view: 'ownerDesk.accountingDesk.readiness.view', review: 'ownerDesk.accountingDesk.readiness.review', issue: 'ownerDesk.accountingDesk.readiness.review' }
+  };
+  return map[tab][action];
+}
+
+function detailLabelForTab(tab: AccountingDeskActionTab): string {
+  if (tab === 'Sales Posting') return 'View Sale Posting Detail';
+  if (tab === 'Cashbook') return 'View Cashbook Detail';
+  if (tab === 'VAT Summary') return 'View VAT Detail';
+  if (tab === 'COGS Reserve') return 'View Reserve Detail';
+  if (tab === 'Inventory Asset Posting') return 'View Inventory Posting Detail';
+  if (tab === 'Inventory Accounting Readiness') return 'View Check Detail';
+  return 'View Domain Detail';
+}
+
+function issueLabelForTab(tab: AccountingDeskActionTab): string {
+  if (tab === 'Cashbook') return 'Flag Variance';
+  if (tab === 'VAT Summary') return 'Flag VAT Issue';
+  if (tab === 'COGS Reserve') return 'Flag Reserve Issue';
+  if (tab === 'Inventory Asset Posting') return 'Flag Inventory Value Issue';
+  return 'Flag Issue';
+}
+
+function printLabelForTab(tab: AccountingDeskActionTab): string {
+  return tab === 'Accounting Readiness' ? 'Print Readiness Summary' : 'Print Detail';
+}
+
+function sourceLabelForTab(tab: AccountingDeskActionTab): string {
+  if (tab === 'Inventory Asset Posting') return 'Open Inventory Source';
+  if (tab === 'Inventory Accounting Readiness') return 'Open Source List';
+  if (tab === 'Accounting Readiness') return 'Open Source Domain';
+  if (tab === 'Sales Posting') return 'Open CAT';
+  return 'Open Source Record';
+}
+
+function printAccountingDeskDetail(modal: AccountingDeskActionState): void {
+  const rows = modal.fields.map(([label, value]) => `<tr><th>${label}</th><td>${cleanPaymentPostingLabel(value)}</td></tr>`).join('');
+  const printWindow = window.open('', '_blank', 'width=900,height=720');
+  if (!printWindow) return;
+  printWindow.document.write(`<!doctype html><html><head><title>${modal.tab} ${modal.title}</title><style>body{font-family:Arial,sans-serif;background:#fff;color:#111;margin:32px}h1{font-size:20px;text-transform:uppercase;margin:0 0 4px}p{font-size:12px;color:#444;margin:0 0 18px}table{width:100%;border-collapse:collapse;font-size:12px}th,td{border:1px solid #999;padding:8px;text-align:left}th{background:#f1f5f9;text-transform:uppercase}</style></head><body><h1>${modal.tab}</h1><p>Accounting readiness preview only. Not final posted accounts.</p><table><tbody>${rows}</tbody></table></body></html>`);
+  printWindow.document.close();
+  printWindow.focus();
+  printWindow.print();
+}
+
+function exportAccountingDeskDetail(modal: AccountingDeskActionState): void {
+  const csv = modal.fields.map(([label, value]) => `"${label.replace(/"/g, '""')}","${cleanPaymentPostingLabel(value).replace(/"/g, '""')}"`).join('\n');
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = `${modal.tab.replace(/\s+/g, '-').toLowerCase()}-${modal.rowId}.csv`;
+  link.click();
+  URL.revokeObjectURL(url);
 }
 
 function matchesOwnerDeskSearch(search: string, values: Array<string | number | undefined>): boolean {

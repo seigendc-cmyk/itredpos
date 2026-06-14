@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { 
   Building, 
   MapPin, 
@@ -34,6 +34,7 @@ import {
   TaxSetting, 
   ReceiptSetting
 } from '../types';
+import type { CheckWriterSettings, FinancialControlAccount } from '../types/posTypes';
 import { Role } from '../types';
 import { hasPermission } from '../utils/posPermissions';
 import A5FloatingForm from '../components/A5FloatingForm';
@@ -43,6 +44,8 @@ import SecurityRightsMatrix from '../components/SecurityRightsMatrix';
 import { getCurrentStaffGateSession, getStaffSessionGateReadiness } from '../auth/staffSessionGateService';
 import { recordSecurityMatrixEvent } from '../auth/permissionMatrixService';
 import { saveBusinessProfile, validateBusinessProfile } from '../services/businessProfileService';
+import { getFinancialControlAccounts } from '../services/financialControlService';
+import { getCheckWriterSettings, previewNumber, updateCheckWriterSettings } from '../services/checkWriterService';
 
 interface PosSettingsProps {
   businessProfile: BusinessProfile;
@@ -83,6 +86,7 @@ type SettingsSectionId =
   | 'HARDWARE' 
   | 'TAX' 
   | 'RECEIPT'
+  | 'CHECK_WRITER_SETTINGS'
   | 'BUILD_STATUS'
   | 'STAFF_ACCESS_RIGHTS'
   | 'RESET';
@@ -379,6 +383,54 @@ export default function PosSettings({
     triggerToast("THERMAL SLIP INVOICING PRINT PATTERNS COMMITTED.");
   };
 
+  const [checkSettings, setCheckSettings] = useState<CheckWriterSettings | null>(null);
+  const [financialAccounts, setFinancialAccounts] = useState<FinancialControlAccount[]>([]);
+  const [nextCheckPreview, setNextCheckPreview] = useState('');
+
+  useEffect(() => {
+    void Promise.all([getCheckWriterSettings(), getFinancialControlAccounts()]).then(([settings, accounts]) => {
+      setCheckSettings(settings);
+      setFinancialAccounts(accounts.filter((account) => account.active && ['Bank', 'Cash', 'MobileMoney'].includes(account.accountType)));
+      setNextCheckPreview(previewNumber(settings));
+    });
+  }, []);
+
+  const saveCheckSettings = () => {
+    if (!checkSettings) return;
+    if (activeRole && !hasPermission(activeRole as Role, 'financialControl.checkSettings.manage')) {
+      triggerToast('You do not have permission to perform this action.');
+      return;
+    }
+    if (checkSettings.nextChequeNumber <= 0) {
+      triggerToast('Next cheque number must be greater than zero.');
+      return;
+    }
+    void updateCheckWriterSettings(checkSettings, activeOperatorName || 'Settings').then((settings) => {
+      setCheckSettings(settings);
+      setNextCheckPreview(previewNumber(settings));
+      triggerToast('CHECK_WRITER_SETTINGS_UPDATED');
+    });
+  };
+
+  const resetCheckSettings = () => {
+    void updateCheckWriterSettings({
+      chequePrefix: 'CHQ',
+      nextChequeNumber: 1,
+      chequeNumberPadding: 6,
+      requireApprovalAboveAmount: true,
+      approvalThresholdAmount: 500,
+      allowManualChequeNumber: false,
+      printBusinessName: true,
+      printPayeeLine: true,
+      printAmountInWords: true,
+      printMemo: true
+    }, activeOperatorName || 'Settings').then((settings) => {
+      setCheckSettings(settings);
+      setNextCheckPreview(previewNumber(settings));
+      triggerToast('CHECK_WRITER_SETTINGS_RESET');
+    });
+  };
+
   // --- SUB-FORM 10: HARD SHUTDOWN SYSTEM ---
   const handleResetClick = () => {
     if (confirm("WARNING: CRITICAL DESTRUCTOR ACTION INITIALIZED. ALL VOLATILE WORKSTATIONS AND PRODUCTS RESTORE TO BIOS PRESETS. PROCEED?")) {
@@ -399,6 +451,7 @@ export default function PosSettings({
     { id: 'HARDWARE' as const, label: 'Hardware Config', icon: Cpu, color: 'text-orange-400' },
     { id: 'TAX' as const, label: 'Tax & VAT Settings', icon: Percent, color: 'text-rose-450' },
     { id: 'RECEIPT' as const, label: 'Receipt Blueprint', icon: Receipt, color: 'text-pink-400' },
+    { id: 'CHECK_WRITER_SETTINGS' as const, label: 'Check Writer Settings', icon: Receipt, color: 'text-orange-500' },
     { id: 'STAFF_ACCESS_RIGHTS' as const, label: 'Staff Access Rights', icon: ShieldCheck, color: 'text-orange-500' },
     { id: 'BUILD_STATUS' as const, label: 'Build Status', icon: Info, color: 'text-orange-500' },
     { id: 'RESET' as const, label: 'System Maintenance', icon: AlertTriangle, color: 'text-red-500 font-extrabold' },
@@ -1678,6 +1731,57 @@ export default function PosSettings({
                   </button>
                 </div>
               </form>
+            )}
+
+            {activeSection === 'CHECK_WRITER_SETTINGS' && checkSettings && (
+              <div className="space-y-5">
+                <div className="border-b border-slate-800 pb-2 flex items-center justify-between">
+                  <span className="text-xs font-bold text-white uppercase tracking-wider flex items-center gap-2">
+                    <Receipt className="w-4 h-4 text-orange-500" />
+                    FINANCIAL CONTROL SETTINGS - CHECK WRITER
+                  </span>
+                  <span className="text-[9px] text-orange-600 uppercase bg-slate-50 px-1 border border-[#b1b5c2]">LOCAL MOCK</span>
+                </div>
+                <SettingsFormSection title="Cheque Numbering">
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                    <SettingsTextField label="Cheque Prefix" value={checkSettings.chequePrefix} onChange={(value) => setCheckSettings({ ...checkSettings, chequePrefix: value.toUpperCase() })} />
+                    <SettingsTextField label="Next Cheque Number" type="number" value={String(checkSettings.nextChequeNumber)} onChange={(value) => setCheckSettings({ ...checkSettings, nextChequeNumber: Number(value) || 1 })} />
+                    <SettingsTextField label="Number Padding" type="number" value={String(checkSettings.chequeNumberPadding)} onChange={(value) => setCheckSettings({ ...checkSettings, chequeNumberPadding: Math.max(3, Number(value) || 6) })} />
+                    <label className="space-y-1 block">
+                      <span className="block text-[9px] text-slate-600 font-black uppercase">Default Bank/Cash Account</span>
+                      <select
+                        value={checkSettings.defaultBankAccountId || ''}
+                        onChange={(event) => setCheckSettings({ ...checkSettings, defaultBankAccountId: event.target.value })}
+                        className="w-full bg-white border border-[#b1b5c2] px-2.5 py-2 text-[11px] font-bold text-[#1e222b] outline-none focus:border-orange-500"
+                      >
+                        <option value="">Select account</option>
+                        {financialAccounts.map((account) => <option key={account.accountId} value={account.accountId}>{account.accountCode} - {account.accountName}</option>)}
+                      </select>
+                    </label>
+                    <SettingsTextField label="Approval Threshold Amount" type="number" value={String(checkSettings.approvalThresholdAmount)} onChange={(value) => setCheckSettings({ ...checkSettings, approvalThresholdAmount: Number(value) || 0 })} />
+                    <div className="border border-orange-300 bg-orange-50 p-3 text-orange-950">
+                      <div className="text-[9px] font-black uppercase">Preview Next Check Number</div>
+                      <div className="text-xl font-black">{nextCheckPreview}</div>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-2">
+                    <SettingsCheckbox label="Require Approval Above Amount" checked={checkSettings.requireApprovalAboveAmount} onChange={(checked) => setCheckSettings({ ...checkSettings, requireApprovalAboveAmount: checked })} />
+                    <SettingsCheckbox label="Allow Manual Cheque Number" checked={checkSettings.allowManualChequeNumber} onChange={(checked) => setCheckSettings({ ...checkSettings, allowManualChequeNumber: checked })} />
+                    <SettingsCheckbox label="Print Business Name" checked={checkSettings.printBusinessName} onChange={(checked) => setCheckSettings({ ...checkSettings, printBusinessName: checked })} />
+                    <SettingsCheckbox label="Print Payee Line" checked={checkSettings.printPayeeLine} onChange={(checked) => setCheckSettings({ ...checkSettings, printPayeeLine: checked })} />
+                    <SettingsCheckbox label="Print Amount In Words" checked={checkSettings.printAmountInWords} onChange={(checked) => setCheckSettings({ ...checkSettings, printAmountInWords: checked })} />
+                    <SettingsCheckbox label="Print Memo" checked={checkSettings.printMemo} onChange={(checked) => setCheckSettings({ ...checkSettings, printMemo: checked })} />
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <button type="button" className="bg-orange-600 text-white font-black uppercase px-4 py-2 text-[10px]" onClick={saveCheckSettings}>Save Check Settings</button>
+                    <button type="button" className="border border-[#b1b5c2] text-[#1e222b] font-black uppercase px-4 py-2 text-[10px]" onClick={resetCheckSettings}>Reset to Defaults</button>
+                    <button type="button" className="border border-orange-300 text-orange-700 font-black uppercase px-4 py-2 text-[10px]" onClick={() => { setNextCheckPreview(previewNumber(checkSettings)); triggerToast('CHECK_WRITER_NEXT_NUMBER_PREVIEWED'); }}>Preview Next Check Number</button>
+                  </div>
+                  <div className="border border-orange-200 bg-orange-50 p-2 text-[10px] text-orange-900 font-bold uppercase">
+                    Local/mock settings only. No Firestore, bank, cheque printer, payment gateway, or final accounting posting is connected.
+                  </div>
+                </SettingsFormSection>
+              </div>
             )}
 
             {/* TAB 10: BUILD DEVELOPMENT STATUS */}
