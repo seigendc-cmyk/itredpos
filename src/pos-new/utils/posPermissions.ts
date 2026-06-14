@@ -259,6 +259,47 @@ export type PermissionKey =
   | 'inventoryAccounting.hold'
   | 'inventoryAccounting.reject'
   | 'inventoryAccounting.export'
+  | 'creditors.view'
+  | 'creditors.supplierProfile.view'
+  | 'creditors.supplierProfile.manage'
+  | 'creditors.supplierBill.view'
+  | 'creditors.supplierBill.create'
+  | 'creditors.supplierBill.post'
+  | 'creditors.supplierBill.dispute'
+  | 'creditors.supplierBill.reverse'
+  | 'creditors.supplierPayment.view'
+  | 'creditors.supplierPayment.create'
+  | 'creditors.supplierPayment.approve'
+  | 'creditors.supplierPayment.pay'
+  | 'creditors.supplierPayment.allocate'
+  | 'creditors.ageing.view'
+  | 'creditors.statement.view'
+  | 'creditors.statement.print'
+  | 'creditors.export'
+  | 'cogsReserve.view'
+  | 'cogsReserve.adjust'
+  | 'cogsReserve.approve'
+  | 'cogsReserve.release'
+  | 'cogsReserve.leakageReview'
+  | 'cogsReserve.print'
+  | 'cogsReserve.export'
+  | 'purchaseCommitments.view'
+  | 'purchaseCommitments.manage'
+  | 'purchaseDiscipline.view'
+  | 'purchaseDiscipline.request.create'
+  | 'purchaseDiscipline.request.approve'
+  | 'purchaseDiscipline.request.reject'
+  | 'purchaseDiscipline.request.convertToPO'
+  | 'purchaseDiscipline.risk.view'
+  | 'purchaseDiscipline.risk.override'
+  | 'purchaseDiscipline.commitments.view'
+  | 'purchaseDiscipline.commitments.manage'
+  | 'purchaseDiscipline.rules.view'
+  | 'purchaseDiscipline.rules.manage'
+  | 'purchaseDiscipline.cogsBuying.view'
+  | 'purchaseDiscipline.cogsBuying.override'
+  | 'purchaseDiscipline.print'
+  | 'purchaseDiscipline.export'
   | 'settings.view'
   | 'settings.manage'
   | 'bi.view'
@@ -572,6 +613,47 @@ const ALL_PERMISSIONS: PermissionKey[] = [
   'inventoryAccounting.hold',
   'inventoryAccounting.reject',
   'inventoryAccounting.export',
+  'creditors.view',
+  'creditors.supplierProfile.view',
+  'creditors.supplierProfile.manage',
+  'creditors.supplierBill.view',
+  'creditors.supplierBill.create',
+  'creditors.supplierBill.post',
+  'creditors.supplierBill.dispute',
+  'creditors.supplierBill.reverse',
+  'creditors.supplierPayment.view',
+  'creditors.supplierPayment.create',
+  'creditors.supplierPayment.approve',
+  'creditors.supplierPayment.pay',
+  'creditors.supplierPayment.allocate',
+  'creditors.ageing.view',
+  'creditors.statement.view',
+  'creditors.statement.print',
+  'creditors.export',
+  'cogsReserve.view',
+  'cogsReserve.adjust',
+  'cogsReserve.approve',
+  'cogsReserve.release',
+  'cogsReserve.leakageReview',
+  'cogsReserve.print',
+  'cogsReserve.export',
+  'purchaseCommitments.view',
+  'purchaseCommitments.manage',
+  'purchaseDiscipline.view',
+  'purchaseDiscipline.request.create',
+  'purchaseDiscipline.request.approve',
+  'purchaseDiscipline.request.reject',
+  'purchaseDiscipline.request.convertToPO',
+  'purchaseDiscipline.risk.view',
+  'purchaseDiscipline.risk.override',
+  'purchaseDiscipline.commitments.view',
+  'purchaseDiscipline.commitments.manage',
+  'purchaseDiscipline.rules.view',
+  'purchaseDiscipline.rules.manage',
+  'purchaseDiscipline.cogsBuying.view',
+  'purchaseDiscipline.cogsBuying.override',
+  'purchaseDiscipline.print',
+  'purchaseDiscipline.export',
   'settings.view',
   'settings.manage',
   'bi.view',
@@ -621,14 +703,14 @@ const ALL_PERMISSIONS: PermissionKey[] = [
 ];
 
 const ROLE_MENUS: Record<Role, PosPageId[]> = {
-  Owner: ['DASHBOARD', 'OWNER_DESK', 'SALES', 'SALES_HISTORY', 'CUSTOMER_CENTRE', 'DELIVERY', 'STOCK', 'TASK_DESK', 'APPROVALS', 'SHIFT', 'CASH', 'BI_DESK', 'SYNC_DESK', 'SETTINGS'],
-  SysAdmin: ['DASHBOARD', 'OWNER_DESK', 'SALES', 'SALES_HISTORY', 'CUSTOMER_CENTRE', 'DELIVERY', 'STOCK', 'TASK_DESK', 'APPROVALS', 'SHIFT', 'CASH', 'BI_DESK', 'SYNC_DESK', 'SETTINGS'],
-  Manager: ['DASHBOARD', 'OWNER_DESK', 'SALES', 'SALES_HISTORY', 'CUSTOMER_CENTRE', 'DELIVERY', 'STOCK', 'TASK_DESK', 'APPROVALS', 'SHIFT', 'CASH', 'BI_DESK', 'SYNC_DESK', 'SETTINGS'],
-  Supervisor: ['DASHBOARD', 'SALES', 'SALES_HISTORY', 'CUSTOMER_CENTRE', 'DELIVERY', 'STOCK', 'TASK_DESK', 'APPROVALS', 'SHIFT', 'CASH', 'BI_DESK', 'SYNC_DESK'],
+  Owner: ['DASHBOARD', 'OWNER_DESK', 'SALES', 'SALES_HISTORY', 'CUSTOMER_CENTRE', 'DELIVERY', 'STOCK', 'PURCHASE_DISCIPLINE', 'CREDITORS', 'TASK_DESK', 'APPROVALS', 'SHIFT', 'CASH', 'BI_DESK', 'SYNC_DESK', 'SETTINGS'],
+  SysAdmin: ['DASHBOARD', 'OWNER_DESK', 'SALES', 'SALES_HISTORY', 'CUSTOMER_CENTRE', 'DELIVERY', 'STOCK', 'PURCHASE_DISCIPLINE', 'CREDITORS', 'TASK_DESK', 'APPROVALS', 'SHIFT', 'CASH', 'BI_DESK', 'SYNC_DESK', 'SETTINGS'],
+  Manager: ['DASHBOARD', 'OWNER_DESK', 'SALES', 'SALES_HISTORY', 'CUSTOMER_CENTRE', 'DELIVERY', 'STOCK', 'PURCHASE_DISCIPLINE', 'CREDITORS', 'TASK_DESK', 'APPROVALS', 'SHIFT', 'CASH', 'BI_DESK', 'SYNC_DESK', 'SETTINGS'],
+  Supervisor: ['DASHBOARD', 'SALES', 'SALES_HISTORY', 'CUSTOMER_CENTRE', 'DELIVERY', 'STOCK', 'PURCHASE_DISCIPLINE', 'TASK_DESK', 'APPROVALS', 'SHIFT', 'CASH', 'BI_DESK', 'SYNC_DESK'],
   Cashier: ['DASHBOARD', 'SALES', 'SALES_HISTORY', 'CUSTOMER_CENTRE', 'DELIVERY', 'SHIFT', 'CASH', 'TASK_DESK', 'SYNC_DESK'],
-  'Stock Controller': ['DASHBOARD', 'STOCK', 'TASK_DESK', 'APPROVALS', 'BI_DESK', 'SYNC_DESK'],
+  'Stock Controller': ['DASHBOARD', 'STOCK', 'PURCHASE_DISCIPLINE', 'CREDITORS', 'TASK_DESK', 'APPROVALS', 'BI_DESK', 'SYNC_DESK'],
   'Delivery Staff': ['DASHBOARD', 'DELIVERY', 'TASK_DESK', 'SYNC_DESK'],
-  Accountant: ['DASHBOARD', 'SALES_HISTORY', 'CUSTOMER_CENTRE', 'CASH', 'BI_DESK', 'SYNC_DESK'],
+  Accountant: ['DASHBOARD', 'SALES_HISTORY', 'CUSTOMER_CENTRE', 'PURCHASE_DISCIPLINE', 'CREDITORS', 'CASH', 'BI_DESK', 'SYNC_DESK'],
   Viewer: ['DASHBOARD', 'CUSTOMER_CENTRE']
 };
 
@@ -682,6 +764,16 @@ const ROLE_PERMISSIONS: Record<Role, PermissionKey[]> = {
     'reports.view', 'reports.export',
     'accounting.view', 'accounting.review', 'accounting.approve', 'accounting.postPlaceholder', 'accounting.export',
     'inventoryAccounting.view', 'inventoryAccounting.review', 'inventoryAccounting.approve', 'inventoryAccounting.hold', 'inventoryAccounting.reject', 'inventoryAccounting.export',
+    'creditors.view', 'creditors.supplierProfile.view', 'creditors.supplierProfile.manage',
+    'creditors.supplierBill.view', 'creditors.supplierBill.create', 'creditors.supplierBill.post', 'creditors.supplierBill.dispute', 'creditors.supplierBill.reverse',
+    'creditors.supplierPayment.view', 'creditors.supplierPayment.create', 'creditors.supplierPayment.approve', 'creditors.supplierPayment.pay', 'creditors.supplierPayment.allocate',
+    'creditors.ageing.view', 'creditors.statement.view', 'creditors.statement.print', 'creditors.export',
+    'cogsReserve.view', 'cogsReserve.adjust', 'cogsReserve.approve', 'cogsReserve.release', 'cogsReserve.leakageReview', 'cogsReserve.print', 'cogsReserve.export',
+    'purchaseCommitments.view', 'purchaseCommitments.manage',
+    'purchaseDiscipline.view', 'purchaseDiscipline.request.create', 'purchaseDiscipline.request.approve', 'purchaseDiscipline.request.reject', 'purchaseDiscipline.request.convertToPO',
+    'purchaseDiscipline.risk.view', 'purchaseDiscipline.risk.override', 'purchaseDiscipline.commitments.view', 'purchaseDiscipline.commitments.manage',
+    'purchaseDiscipline.rules.view', 'purchaseDiscipline.rules.manage', 'purchaseDiscipline.cogsBuying.view', 'purchaseDiscipline.cogsBuying.override',
+    'purchaseDiscipline.print', 'purchaseDiscipline.export',
     'settings.view',
     'bi.view', 'bi.management.view', 'bi.management.generate', 'bi.review', 'bi.riskReview', 'bi.export',
     'bi.advice.view', 'bi.advice.generate', 'bi.advice.assign', 'bi.advice.resolve', 'bi.advice.dismiss', 'bi.advice.escalate', 'bi.advice.createTask',
@@ -717,6 +809,7 @@ const ROLE_PERMISSIONS: Record<Role, PermissionKey[]> = {
     'stockAdjustments.view', 'stockAdjustments.create', 'stockAdjustments.edit', 'stockAdjustments.post',
     'inventoryMovements.view', 'productLedger.view',
     'purchaseOrders.view', 'purchaseOrders.create', 'purchaseOrders.edit', 'purchaseOrders.receive',
+    'purchaseDiscipline.view', 'purchaseDiscipline.request.create', 'purchaseDiscipline.request.approve', 'purchaseDiscipline.risk.view', 'purchaseDiscipline.commitments.view', 'purchaseDiscipline.cogsBuying.view',
     'goodsReceiving.view', 'goodsReceiving.create', 'goodsReceiving.edit', 'goodsReceiving.post',
     'supplierReturns.view', 'supplierReturns.create', 'supplierReturns.edit', 'supplierReturns.post', 'supplierReturns.dispatch',
     'stocktake.view', 'stocktake.create', 'stocktake.count', 'stocktake.submit', 'stocktake.post',
@@ -766,6 +859,10 @@ const ROLE_PERMISSIONS: Record<Role, PermissionKey[]> = {
     'reports.view',
     'accounting.view',
     'inventoryAccounting.view',
+    'creditors.view', 'creditors.supplierProfile.view', 'creditors.supplierBill.view', 'creditors.supplierBill.create',
+    'creditors.ageing.view', 'creditors.statement.view', 'creditors.export',
+    'cogsReserve.view', 'purchaseCommitments.view', 'purchaseCommitments.manage',
+    'purchaseDiscipline.view', 'purchaseDiscipline.request.create', 'purchaseDiscipline.risk.view', 'purchaseDiscipline.commitments.view', 'purchaseDiscipline.cogsBuying.view',
     'bi.view', 'bi.advice.view', 'bi.advice.generate', 'bi.actionPoints.view', 'bi.shelfStocktake.assign', 'bi.reorderProtection.view', 'bi.reorderBlock.review',
     'sync.view', 'sync.run', 'sync.queue.view', 'sync.retry', 'sync.batch.create', 'sync.conflict.view', 'sync.export',
     'productImport.view', 'productImport.create', 'productImport.map', 'productImport.validate'
@@ -800,6 +897,13 @@ const ROLE_PERMISSIONS: Record<Role, PermissionKey[]> = {
     'reports.view', 'reports.export',
     'accounting.view', 'accounting.review', 'accounting.postPlaceholder', 'accounting.export',
     'inventoryAccounting.view', 'inventoryAccounting.review', 'inventoryAccounting.export',
+    'creditors.view', 'creditors.supplierProfile.view',
+    'creditors.supplierBill.view', 'creditors.supplierBill.create', 'creditors.supplierBill.post', 'creditors.supplierBill.dispute',
+    'creditors.supplierPayment.view', 'creditors.supplierPayment.create', 'creditors.supplierPayment.approve', 'creditors.supplierPayment.pay', 'creditors.supplierPayment.allocate',
+    'creditors.ageing.view', 'creditors.statement.view', 'creditors.statement.print', 'creditors.export',
+    'cogsReserve.view', 'cogsReserve.adjust', 'cogsReserve.print', 'cogsReserve.export',
+    'purchaseCommitments.view',
+    'purchaseDiscipline.view', 'purchaseDiscipline.risk.view', 'purchaseDiscipline.commitments.view', 'purchaseDiscipline.cogsBuying.view', 'purchaseDiscipline.print', 'purchaseDiscipline.export',
     'bi.view', 'bi.advice.view', 'bi.advice.generate', 'bi.advice.createTask',
     'sync.view', 'sync.run', 'sync.queue.view', 'sync.retry', 'sync.export'
   ],
@@ -809,6 +913,8 @@ const ROLE_PERMISSIONS: Record<Role, PermissionKey[]> = {
     'customers.debtorsDesk.view', 'customers.credit.application.view', 'customers.promiseToPay.view', 'customers.collectionDiary.view', 'customers.debtDispute.view',
     'customers.debtors.openingBalance.view', 'customers.debtors.paymentAllocation.view', 'customers.deposit.view', 'customers.creditNote.view', 'customers.bulkCollections.view', 'customers.debtorRiskHeatMap.view', 'customers.debtors.periodLock.view', 'customers.creditWorthiness.view',
     'cashControl.view', 'cashControl.debtorPayments.view', 'cashControl.deliveryCash.view',
+    'creditors.view', 'creditors.supplierProfile.view', 'creditors.supplierBill.view', 'creditors.ageing.view', 'creditors.statement.view', 'cogsReserve.view', 'purchaseCommitments.view',
+    'purchaseDiscipline.view', 'purchaseDiscipline.risk.view', 'purchaseDiscipline.commitments.view', 'purchaseDiscipline.rules.view', 'purchaseDiscipline.cogsBuying.view',
     'reports.view', 'bi.view', 'bi.advice.view'
   ]
 };

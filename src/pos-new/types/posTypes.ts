@@ -1128,6 +1128,8 @@ export interface Sale {
     quantity: number;
     price: number;
     total: number;
+    unitCost?: number;
+    costPrice?: number;
     lineType?: CartItem['lineType'];
     isInventoryAsset?: boolean;
     requiresManagementReview?: boolean;
@@ -1141,6 +1143,282 @@ export interface Sale {
   cashReceived?: number;
   changeGiven?: number;
   status: 'COMPLETED' | 'VOIDED' | 'RETURNED' | 'REFUNDED' | string;
+}
+
+export type SupplierCreditStatus = 'CashOnly' | 'CreditAllowed' | 'CreditBlocked' | 'Suspended' | 'Preferred' | 'UnderReview' | 'ManagerApprovalRequired';
+export type SupplierBillStatus = 'Draft' | 'Posted' | 'PartiallyPaid' | 'Paid' | 'Overdue' | 'Disputed' | 'Cancelled' | 'Reversed';
+export type SupplierPaymentStatus = 'Draft' | 'PendingApproval' | 'Approved' | 'Paid' | 'Rejected' | 'Reversed';
+export type SupplierPaymentAllocationMethod = 'OldestBillFirst' | 'SelectedBillOnly' | 'HighestOverdueFirst' | 'ManualAllocation';
+export type CreditorAgeingBucket = 'Current' | 'Days1To30' | 'Days31To60' | 'Days61To90' | 'Days91To120' | 'Days120Plus';
+export type COGSReserveMovementType = 'OpeningReserve' | 'COGSRecoveredFromSale' | 'SupplierPayment' | 'StockPurchaseCash' | 'StockPurchaseCreditSettlement' | 'ReserveAdjustment' | 'ReserveLeakage' | 'ReserveRelease' | 'ReserveProtectionCorrection';
+export type COGSReserveMovementDirection = 'In' | 'Out' | 'Neutral';
+export type COGSReserveStatus = 'Healthy' | 'Watch' | 'Low' | 'Critical' | 'Overdrawn';
+
+export interface SupplierCreditProfile {
+  supplierId: string;
+  supplierName: string;
+  supplierCode: string;
+  creditStatus: SupplierCreditStatus;
+  paymentTermsDays: number;
+  supplierCreditLimit: number;
+  currentPayableBalance: number;
+  overduePayableBalance: number;
+  availableSupplierCredit: number;
+  averageDaysToPay: number;
+  latePaymentCount: number;
+  disputedAmount: number;
+  preferredSupplier: boolean;
+  blockedReason?: string;
+  lastPaymentDate?: string;
+  nextReviewDate?: string;
+  notes: string;
+  updatedAt: string;
+}
+
+export interface SupplierBill {
+  billId: string;
+  billNumber: string;
+  supplierId: string;
+  supplierName: string;
+  supplierInvoiceNumber: string;
+  purchaseOrderId?: string;
+  purchaseOrderNumber?: string;
+  grnId?: string;
+  grnNumber?: string;
+  billDate: string;
+  dueDate: string;
+  originalAmount: number;
+  paidAmount: number;
+  outstandingAmount: number;
+  vatAmount?: number;
+  currency: string;
+  status: SupplierBillStatus;
+  ageingBucket: CreditorAgeingBucket;
+  overdueDays: number;
+  branchId: string;
+  warehouseId?: string;
+  createdBy: string;
+  createdAt: string;
+  postedAt?: string;
+  notes: string;
+}
+
+export interface SupplierPayment {
+  paymentId: string;
+  paymentNumber: string;
+  supplierId: string;
+  supplierName: string;
+  paymentDate: string;
+  amount: number;
+  paymentMethod: string;
+  paymentReference: string;
+  source: 'COGSReserve' | 'CashDrawer' | 'BankPlaceholder' | 'MobileMoneyPlaceholder' | 'OwnerFundsPlaceholder' | 'Mixed';
+  cogsReserveAmount: number;
+  nonReserveAmount: number;
+  status: SupplierPaymentStatus;
+  approvedBy?: string;
+  approvedAt?: string;
+  paidBy?: string;
+  paidAt?: string;
+  notes: string;
+}
+
+export interface SupplierPaymentAllocation {
+  allocationId: string;
+  paymentId: string;
+  supplierId: string;
+  billId: string;
+  billNumber: string;
+  allocatedAmount: number;
+  allocationMethod: SupplierPaymentAllocationMethod;
+  allocatedBy: string;
+  allocatedAt: string;
+  notes: string;
+}
+
+export interface COGSReserveMovement {
+  movementId: string;
+  movementNumber: string;
+  movementDate: string;
+  type: COGSReserveMovementType;
+  direction: COGSReserveMovementDirection;
+  amount: number;
+  sourceReferenceType: 'Sale' | 'SupplierBill' | 'SupplierPayment' | 'GRN' | 'PurchaseOrder' | 'ManualAdjustment' | 'CashControl';
+  sourceReferenceId: string;
+  sourceReferenceNumber: string;
+  saleId?: string;
+  supplierId?: string;
+  supplierName?: string;
+  branchId?: string;
+  terminalId?: string;
+  staffId: string;
+  staffName: string;
+  reserveBalanceAfter: number;
+  protected: boolean;
+  requiresApproval: boolean;
+  notes: string;
+  createdAt: string;
+}
+
+export interface COGSReserveSummary {
+  openingReserve: number;
+  recoveredFromSales: number;
+  usedForSupplierPayments: number;
+  usedForCashStockPurchases: number;
+  adjustments: number;
+  leakage: number;
+  currentReserveBalance: number;
+  requiredReserveLevel: number;
+  reserveShortfall: number;
+  reserveStatus: COGSReserveStatus;
+  reserveCoveragePercent: number;
+  lastUpdatedAt: string;
+}
+
+export interface SupplierStatementRecord {
+  statementId: string;
+  supplierId: string;
+  supplierName: string;
+  periodFrom: string;
+  periodTo: string;
+  openingBalance: number;
+  bills: SupplierBill[];
+  payments: SupplierPayment[];
+  supplierReturns: Array<{ reference: string; date: string; amount: number; notes: string }>;
+  creditNotes: Array<{ reference: string; date: string; amount: number; notes: string }>;
+  closingBalance: number;
+  generatedBy: string;
+  generatedAt: string;
+}
+
+export interface CreditorRiskItem {
+  supplierId: string;
+  supplierName: string;
+  outstandingAmount: number;
+  overdueAmount: number;
+  ageingBucket: CreditorAgeingBucket;
+  supplierCreditLimitUsagePercent: number;
+  daysSinceLastPayment: number;
+  disputedAmount: number;
+  riskLevel: RiskLevel;
+  recommendedAction: string;
+}
+
+export type PurchaseDisciplineStatus = 'Draft' | 'RiskChecked' | 'PendingApproval' | 'Approved' | 'Rejected' | 'ConvertedToPO' | 'Cancelled' | 'Blocked';
+export type PurchaseRiskLevel = 'Low' | 'Medium' | 'High' | 'Critical' | 'Blocked';
+export type ReorderProtectionDecision = 'Allow' | 'Warn' | 'RequireApproval' | 'Block';
+export type PurchaseCommitmentStatus = 'Draft' | 'Active' | 'LinkedToPO' | 'LinkedToGRN' | 'PartiallyFulfilled' | 'Fulfilled' | 'Cancelled' | 'Overdue';
+export type PurchasePressureSignal =
+  | 'COGSReserveLow'
+  | 'SupplierCreditHigh'
+  | 'DebtorsOverdue'
+  | 'CashWeak'
+  | 'DeadStock'
+  | 'SlowStock'
+  | 'LowMargin'
+  | 'FastMovingStockout'
+  | 'SupplierOverdue'
+  | 'GRNPendingInvoice'
+  | 'ApprovalMissing';
+
+export interface PurchaseDisciplineRequest {
+  requestId: string;
+  requestNumber: string;
+  productId: string;
+  productName: string;
+  sku: string;
+  branchId: string;
+  branchName: string;
+  warehouseId?: string;
+  supplierId?: string;
+  supplierName?: string;
+  requestedQty: number;
+  currentStockQty: number;
+  reorderLevel?: number;
+  suggestedReorderQty?: number;
+  estimatedUnitCost: number;
+  estimatedTotalCost: number;
+  expectedSellingPrice?: number;
+  expectedGrossMarginAmount?: number;
+  expectedGrossMarginPercent?: number;
+  stockMovementClass: 'FastMoving' | 'Normal' | 'SlowMoving' | 'DeadStock' | 'NewProduct' | 'Unknown';
+  requestedBy: string;
+  requestedAt: string;
+  reason: string;
+  status: PurchaseDisciplineStatus;
+  riskLevel: PurchaseRiskLevel;
+  protectionDecision: ReorderProtectionDecision;
+  riskScore: number;
+  riskNarrative: string;
+  approvalId?: string;
+  linkedPurchaseOrderId?: string;
+  linkedCommitmentId?: string;
+  notes: string;
+}
+
+export interface PurchaseRiskAssessment {
+  assessmentId: string;
+  requestId: string;
+  assessedAt: string;
+  assessedBy: string;
+  productId: string;
+  supplierId?: string;
+  cogsReserveBefore: number;
+  cogsReserveRequired: number;
+  cogsReserveAfter: number;
+  reserveCoveragePercent: number;
+  supplierPayableBalance: number;
+  supplierCreditLimit: number;
+  supplierCreditUsagePercent: number;
+  overdueSupplierBills: number;
+  overdueDebtorsTotal: number;
+  cashAvailable: number;
+  productMovementScore: number;
+  productMarginScore: number;
+  supplierRiskScore: number;
+  cashPressureScore: number;
+  debtorPressureScore: number;
+  reserveRiskScore: number;
+  totalRiskScore: number;
+  riskLevel: PurchaseRiskLevel;
+  decision: ReorderProtectionDecision;
+  warnings: string[];
+  recommendedAction: string;
+}
+
+export interface SupplierPurchaseCommitment {
+  commitmentId: string;
+  commitmentNumber: string;
+  sourceRequestId?: string;
+  purchaseOrderId?: string;
+  grnId?: string;
+  supplierId: string;
+  supplierName: string;
+  productId?: string;
+  productName?: string;
+  commitmentDate: string;
+  dueDate?: string;
+  amount: number;
+  reserveNeeded: number;
+  reserveAvailableAtCreation: number;
+  status: PurchaseCommitmentStatus;
+  riskLevel: PurchaseRiskLevel;
+  approvedBy?: string;
+  approvedAt?: string;
+  createdBy: string;
+  createdAt: string;
+  notes: string;
+}
+
+export interface ReorderProtectionRule {
+  ruleId: string;
+  ruleCode: string;
+  title: string;
+  active: boolean;
+  severity: PurchaseRiskLevel;
+  threshold: number;
+  decision: ReorderProtectionDecision;
+  description: string;
 }
 
 export interface HeldTransaction {
@@ -1184,11 +1462,12 @@ export type CashMovementType =
   | 'CashDrop'
   | 'DrawerExpense'
   | 'PettyCashPayout'
+  | 'SupplierPayment'
   | 'CashCorrection'
   | 'CashVarianceAdjustment';
 
 export type CashMovementDirection = 'In' | 'Out' | 'Neutral';
-export type CashMovementSource = 'Sale' | 'DebtPayment' | 'Delivery' | 'Shift' | 'EOD' | 'Expense' | 'Refund' | 'ManualAdjustment' | 'Recovery';
+export type CashMovementSource = 'Sale' | 'DebtPayment' | 'Delivery' | 'Shift' | 'EOD' | 'Expense' | 'Refund' | 'SupplierPayment' | 'ManualAdjustment' | 'Recovery';
 export type CashReconciliationStatus = 'Draft' | 'InProgress' | 'Balanced' | 'VarianceFound' | 'PendingReview' | 'Approved' | 'Rejected' | 'Closed';
 export type CashVarianceType = 'Short' | 'Over' | 'Balanced';
 export type CashEquivalencePolicy = 'PhysicalCashOnly' | 'IncludeMobileMoneyAsCashEquivalent' | 'IncludeBankTransferAsCashEquivalent' | 'IncludeCardAsCashEquivalent' | 'Custom';
@@ -1242,6 +1521,7 @@ export interface CashDrawerReconciliation {
   cashRefunds: number;
   drawerExpenses: number;
   pettyCashPayouts: number;
+  supplierCashPayments: number;
   cashDrops: number;
   expectedCash: number;
   countedCash: number;
@@ -2287,6 +2567,8 @@ export type PosPageId =
   | 'CUSTOMER_CENTRE'
   | 'DELIVERY'
   | 'STOCK'
+  | 'PURCHASE_DISCIPLINE'
+  | 'CREDITORS'
   | 'TASK_DESK'
   | 'APPROVALS'
   | 'SHIFT'
@@ -3445,7 +3727,35 @@ export interface GoodsReceivingPostingResult {
   approvalRequired: boolean;
   postedLines: GoodsReceivingLine[];
   skippedLines: GoodsReceivingLine[];
+  supplierBillId?: string;
+  supplierBillNumber?: string;
+  supplierPaymentId?: string;
+  supplierPaymentNumber?: string;
+  acquisitionType?: GoodsReceivingAcquisitionType;
   message: string;
+}
+
+export type GoodsReceivingAcquisitionType =
+  | 'Paid Cash'
+  | 'Supplier Credit'
+  | 'Part Paid + Supplier Credit'
+  | 'Already Invoiced'
+  | 'Invoice Pending';
+
+export type GoodsReceivingPaymentSource =
+  | 'COGSReserve'
+  | 'CashDrawer'
+  | 'BankPlaceholder'
+  | 'MobileMoneyPlaceholder'
+  | 'OwnerFundsPlaceholder'
+  | 'Mixed';
+
+export interface GoodsReceivingPostOptions {
+  acquisitionType: GoodsReceivingAcquisitionType;
+  paidAmount?: number;
+  paymentSource?: GoodsReceivingPaymentSource;
+  supplierInvoiceNumber?: string;
+  linkedSupplierBillId?: string;
 }
 
 export type GoodsReceivingActivityEventType =
@@ -3458,6 +3768,8 @@ export type GoodsReceivingActivityEventType =
   | 'GRN_APPROVED'
   | 'GRN_POSTED_TO_STOCK'
   | 'GOODS_RECEIVED_POSTED'
+  | 'GRN_SUPPLIER_BILL_CREATED'
+  | 'GRN_INVOICE_PENDING_FLAGGED'
   | 'GRN_CANCELLED'
   | 'GRN_REVERSED_PLACEHOLDER'
   | 'PURCHASE_ORDER_PARTIALLY_RECEIVED'

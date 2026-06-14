@@ -50,6 +50,8 @@ export type RoleMenuKey =
   | 'goodsReceiving'
   | 'supplierReturns'
   | 'stockTransfers'
+  | 'purchaseDiscipline'
+  | 'creditorsManagement'
   | 'taskDesk'
   | 'approvals'
   | 'biDesk'

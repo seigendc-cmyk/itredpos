@@ -18,6 +18,8 @@ export const roleMenuDefinitions: RoleMenuDefinition[] = [
   { menuKey: 'goodsReceiving', menuLabel: 'Goods Receiving', group: 'Inventory', pageId: 'STOCK' },
   { menuKey: 'supplierReturns', menuLabel: 'Supplier Returns', group: 'Inventory', pageId: 'STOCK' },
   { menuKey: 'stockTransfers', menuLabel: 'Stock Transfers', group: 'Inventory', pageId: 'STOCK' },
+  { menuKey: 'purchaseDiscipline', menuLabel: 'Purchase Discipline', group: 'Inventory', pageId: 'PURCHASE_DISCIPLINE' },
+  { menuKey: 'creditorsManagement', menuLabel: 'Creditors Management', group: 'Control', pageId: 'CREDITORS' },
   { menuKey: 'taskDesk', menuLabel: 'Task Desk', group: 'Control', pageId: 'TASK_DESK' },
   { menuKey: 'approvals', menuLabel: 'Approvals', group: 'Control', pageId: 'APPROVALS' },
   { menuKey: 'biDesk', menuLabel: 'BI Desk', group: 'Control', pageId: 'BI_DESK' },

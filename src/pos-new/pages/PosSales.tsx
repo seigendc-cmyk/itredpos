@@ -27,6 +27,7 @@ import { createReceiptFromSale, getReceiptPreview } from '../services/receiptSer
 import { postSaleMovement } from '../services/inventoryMovementService';
 import { createDeliveryRequestFromReceipt } from '../services/deliveryService';
 import { recordPaymentReportEvent } from '../services/paymentReportService';
+import { recordCOGSRecoveryFromSale } from '../services/cogsReserveService';
 import { canSellInventoryItems as canSellInventoryItemsForSession, logTerminalControlEvent, runTerminalControlCheck } from '../services/terminalControlService';
 import { createMiscellaneousSaleAdvice } from '../services/biAdviceService';
 import { routeBIAdviceToDesk } from '../services/biAdviceRoutingService';
@@ -1071,6 +1072,8 @@ export default function PosSales({
         quantity: item.quantity,
         price: item.overriddenPrice ?? productPrice(item.product),
         total: cartLineTotal(item),
+        unitCost: item.product.costPrice ?? item.product.cost,
+        costPrice: item.product.costPrice ?? item.product.cost,
         lineType: item.lineType,
         isInventoryAsset: item.isInventoryAsset !== false,
         requiresManagementReview: item.requiresManagementReview,
@@ -1136,6 +1139,8 @@ export default function PosSales({
           status: 'Posted'
         });
       }));
+
+      await recordCOGSRecoveryFromSale(sale);
 
       cart.filter((item) => item.lineType !== 'MiscellaneousItem' && item.isInventoryAsset !== false && item.stockMovementRequired !== false).forEach((item) => onProductStockChange(item.product.id, item.quantity));
       setLocalProducts((current) => current.map((product) => {

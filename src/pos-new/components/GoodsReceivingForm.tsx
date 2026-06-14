@@ -2,6 +2,8 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { Download, Maximize2, Minus, PackageCheck, RotateCcw, Square, Trash2, X } from 'lucide-react';
 import {
   GoodsReceivingLine,
+  GoodsReceivingAcquisitionType,
+  GoodsReceivingPaymentSource,
   GoodsReceivingNote,
   GoodsReceivingPostingResult,
   Role
@@ -51,6 +53,10 @@ export default function GoodsReceivingForm({
   const [note, setNote] = useState<GoodsReceivingNote | null>(grn);
   const [lines, setLines] = useState<GoodsReceivingLine[]>([]);
   const [feedback, setFeedback] = useState<string | null>(null);
+  const [acquisitionType, setAcquisitionType] = useState<GoodsReceivingAcquisitionType>('Supplier Credit');
+  const [paymentSource, setPaymentSource] = useState<GoodsReceivingPaymentSource>('COGSReserve');
+  const [paidAmount, setPaidAmount] = useState('0');
+  const [linkedSupplierBillId, setLinkedSupplierBillId] = useState('');
 
   useEffect(() => {
     if (!open || !grn) return;
@@ -142,7 +148,18 @@ export default function GoodsReceivingForm({
       setFeedback('You do not have permission to perform this action.');
       return;
     }
-    const result = await postGRN(note.grnId, staffName);
+    const parsedPaidAmount = Math.max(0, Number(paidAmount) || 0);
+    if (acquisitionType === 'Part Paid + Supplier Credit' && parsedPaidAmount <= 0) {
+      setFeedback('Enter the paid portion before posting a part-paid supplier credit GRN.');
+      return;
+    }
+    const result = await postGRN(note.grnId, staffName, {
+      acquisitionType,
+      paidAmount: parsedPaidAmount,
+      paymentSource,
+      supplierInvoiceNumber: note.supplierInvoiceNumber,
+      linkedSupplierBillId: linkedSupplierBillId.trim() || undefined
+    });
     if (!result) {
       setFeedback('Only Draft GRNs can be posted.');
       return;
@@ -317,9 +334,45 @@ export default function GoodsReceivingForm({
                       ))}
                     </tbody>
                   </table>
-                </div>
-              </section>
-            </div>
+                  </div>
+                </section>
+
+                <section className="border border-orange-300 bg-orange-50 p-3 space-y-3 lg:col-span-2">
+                  <h3 className="text-[9px] uppercase font-black border-b border-orange-200 pb-1 text-[#1e222b]">Supplier Bill / Payment Type</h3>
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                    <label className="block">
+                      <span className="text-[8px] uppercase text-orange-600 font-normal">Acquisition Type</span>
+                      <select className={fieldClass()} value={acquisitionType} disabled={!editable} onChange={(event) => setAcquisitionType(event.target.value as GoodsReceivingAcquisitionType)}>
+                        <option value="Paid Cash">Paid Cash</option>
+                        <option value="Supplier Credit">Supplier Credit</option>
+                        <option value="Part Paid + Supplier Credit">Part Paid + Supplier Credit</option>
+                        <option value="Already Invoiced">Already Invoiced</option>
+                        <option value="Invoice Pending">Invoice Pending</option>
+                      </select>
+                    </label>
+                    <label className="block">
+                      <span className="text-[8px] uppercase text-orange-600 font-normal">Paid Portion</span>
+                      <input className={fieldClass()} value={paidAmount} disabled={!editable || acquisitionType !== 'Part Paid + Supplier Credit'} onChange={(event) => setPaidAmount(event.target.value)} />
+                    </label>
+                    <label className="block">
+                      <span className="text-[8px] uppercase text-orange-600 font-normal">Payment Source</span>
+                      <select className={fieldClass()} value={paymentSource} disabled={!editable || acquisitionType !== 'Part Paid + Supplier Credit'} onChange={(event) => setPaymentSource(event.target.value as GoodsReceivingPaymentSource)}>
+                        <option value="COGSReserve">COGS Reserve</option>
+                        <option value="CashDrawer">Cash Drawer</option>
+                        <option value="BankPlaceholder">Bank Placeholder</option>
+                        <option value="MobileMoneyPlaceholder">Mobile Money Placeholder</option>
+                        <option value="OwnerFundsPlaceholder">Owner Funds Placeholder</option>
+                        <option value="Mixed">Mixed</option>
+                      </select>
+                    </label>
+                    <label className="block">
+                      <span className="text-[8px] uppercase text-orange-600 font-normal">Existing Bill ID</span>
+                      <input className={fieldClass()} value={linkedSupplierBillId} disabled={!editable || acquisitionType !== 'Already Invoiced'} onChange={(event) => setLinkedSupplierBillId(event.target.value)} placeholder="Optional existing bill" />
+                    </label>
+                  </div>
+                  <p className="text-[9px] uppercase text-slate-700 font-bold">Supplier Credit creates a posted supplier bill. Part Paid creates a bill plus allocated payment. Invoice Pending posts stock and creates a BI warning without posting a bill.</p>
+                </section>
+              </div>
 
             <div className="shrink-0 bg-slate-50 border-t border-[#b1b5c2] p-4 flex flex-wrap justify-end gap-2">
               <button type="button" onClick={handleSaveDraft} className="px-3 py-2 border border-[#b1b5c2] bg-white text-[#1e222b] font-black uppercase text-[9px] rounded-none">Save Draft</button>

@@ -12,6 +12,7 @@ export default function CashControlDashboardPanel({ summary }: { summary: CashCo
     ['Delivery Cash Handovers', summary?.deliveryCashHandovers || 0],
     ['Cash Refunds', summary?.cashRefunds || 0],
     ['Drawer Expenses', summary?.drawerExpenses || 0],
+    ['Supplier Cash Payments', summary?.supplierCashPayments || 0],
     ['Cash Drops', summary?.cashDrops || 0],
     ['Expected Cash', summary?.expectedCash || 0],
     ['Counted Cash', summary?.countedCash || 0],

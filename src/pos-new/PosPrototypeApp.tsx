@@ -16,6 +16,8 @@ import PosSalesHistory from './pages/PosSalesHistory';
 import PosTaskDesk from './pages/PosTaskDesk';
 import PosApprovals from './pages/PosApprovals';
 import PosCustomerDesk from './pages/PosCustomerDesk';
+import PosCreditors from './pages/PosCreditors';
+import PosPurchaseDiscipline from './pages/PosPurchaseDiscipline';
 import { 
   Product, 
   Transaction, 
@@ -821,6 +823,14 @@ export default function PosPrototypeApp() {
           onUpdateProduct={handleUpdateProduct}
           session={activeSession}
         />
+      )}
+
+      {activePage === 'CREDITORS' && (
+        <PosCreditors session={activeSession} />
+      )}
+
+      {activePage === 'PURCHASE_DISCIPLINE' && (
+        <PosPurchaseDiscipline session={activeSession} />
       )}
 
       {activePage === 'TASK_DESK' && (

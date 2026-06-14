@@ -5644,6 +5644,243 @@ div[class*="border-t border-r border-amber"] {
     grid-template-columns: 1fr;
   }
 }
+
+.creditors-page {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding-bottom: 24px;
+}
+
+.creditors-session-chip,
+.creditors-notice,
+.creditors-explainer {
+  border: 1px solid #fed7aa;
+  background: #fff7ed;
+  color: #7c2d12;
+  padding: 8px 10px;
+  border-radius: 2mm;
+  font-size: 12px;
+}
+
+.creditors-tabs {
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  padding: 8px;
+  background: #111827;
+  border-radius: 2mm;
+}
+
+.creditors-tabs button,
+.creditors-actions button,
+.creditors-toolbar button,
+.creditors-primary {
+  border: 1px solid #f97316;
+  background: #fff7ed;
+  color: #9a3412;
+  border-radius: 2mm;
+  padding: 8px 10px;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.creditors-tabs button {
+  white-space: nowrap;
+  background: #1f2937;
+  color: #f9fafb;
+  border-color: #374151;
+}
+
+.creditors-tabs button.active,
+.creditors-primary {
+  background: #f97316;
+  color: #ffffff;
+}
+
+.creditors-panel {
+  background: #ffffff;
+  border: 1px solid #e5e7eb;
+  border-radius: 2mm;
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
+
+.creditors-panel-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  align-items: flex-start;
+}
+
+.creditors-panel-header span,
+.creditors-card dt,
+.creditors-summary-card span,
+.creditors-form-grid label {
+  color: #f97316;
+  font-weight: 400;
+  font-size: 11px;
+}
+
+.creditors-panel-header h3 {
+  color: #1f2937;
+  margin: 2px 0 0;
+  font-size: 16px;
+}
+
+.creditors-panel-header input,
+.creditors-toolbar input,
+.creditors-form-grid input,
+.creditors-form-grid select,
+.creditors-table select {
+  border: 1px solid #d1d5db;
+  border-radius: 2mm;
+  padding: 8px;
+  font-size: 12px;
+  background: #ffffff;
+  min-width: 0;
+}
+
+.creditors-toolbar,
+.creditors-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.creditors-card-grid,
+.creditors-summary-grid,
+.creditors-form-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 8px;
+}
+
+.creditors-card,
+.creditors-summary-card {
+  border: 1px solid #e5e7eb;
+  border-radius: 2mm;
+  padding: 10px;
+  background: #ffffff;
+  min-width: 0;
+}
+
+.creditors-card-title {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  color: #111827;
+}
+
+.creditors-card-title span {
+  color: #f97316;
+  font-size: 11px;
+}
+
+.creditors-metrics {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+  margin: 8px 0;
+}
+
+.creditors-metrics dd,
+.creditors-summary-card strong {
+  margin: 0;
+  color: #111827;
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+
+.creditors-warning {
+  color: #b91c1c;
+  font-size: 12px;
+}
+
+.creditors-table-wrap {
+  overflow: auto;
+  max-height: 52vh;
+  border: 1px solid #e5e7eb;
+  border-radius: 2mm;
+}
+
+.creditors-table {
+  width: 100%;
+  min-width: 900px;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.creditors-table th {
+  position: sticky;
+  top: 0;
+  background: #1f2937;
+  color: #ffffff;
+  text-align: left;
+  padding: 8px;
+  font-weight: 600;
+}
+
+.creditors-table td {
+  border-top: 1px solid #e5e7eb;
+  padding: 8px;
+  color: #374151;
+  vertical-align: top;
+}
+
+.supplier-statement-document {
+  border: 1px solid #e5e7eb;
+  padding: 12px;
+  border-radius: 2mm;
+  background: #ffffff;
+}
+
+.supplier-statement-document header {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.supplier-statement-document header span,
+.supplier-statement-document footer {
+  color: #f97316;
+  font-size: 11px;
+}
+
+.supplier-statement-document header strong {
+  display: block;
+  color: #111827;
+}
+
+@media print {
+  #pos-sidebar-root,
+  .creditors-tabs,
+  .creditors-panel-header button,
+  .creditors-form-grid,
+  .creditors-toolbar {
+    display: none !important;
+  }
+
+  .creditors-page > *:not(.creditors-panel),
+  .creditors-page .creditors-panel > *:not(.supplier-statement-document) {
+    visibility: hidden !important;
+  }
+
+  .creditors-page .supplier-statement-document,
+  .creditors-page .supplier-statement-document * {
+    display: revert !important;
+    visibility: visible !important;
+  }
+
+  .supplier-statement-document {
+    border: 0;
+    padding: 0;
+  }
+}
 @media print {
   #pos-sidebar-root,
   .sci-page-header,

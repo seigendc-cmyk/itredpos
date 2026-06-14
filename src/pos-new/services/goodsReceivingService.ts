@@ -2,6 +2,7 @@ import {
   GoodsReceivingActivityEvent,
   GoodsReceivingFilterState,
   GoodsReceivingLine,
+  GoodsReceivingPostOptions,
   GoodsReceivingNote,
   GoodsReceivingPostingResult,
   GoodsReceivingStatus,
@@ -21,6 +22,7 @@ import {
 } from '../mock/mockPosData';
 import { createOperationalApproval } from './approvalService';
 import { postGoodsReceivedMovement } from './inventoryMovementService';
+import { createSupplierBillFromGRN, createSupplierPayment, markSupplierPaymentPaid } from './creditorsService';
 
 const GRN_KEY = 'itred_pos_goods_receiving_notes_v1';
 const GRN_LINE_KEY = 'itred_pos_goods_receiving_lines_v1';
@@ -478,7 +480,7 @@ export async function markLineNotSupplied(grnId: string, lineId: string, reason:
   return line;
 }
 
-export async function validateGRNBeforePost(grnId: string): Promise<{ valid: boolean; approvalRequired: boolean; errors: string[]; warnings: string[] }> {
+export async function validateGRNBeforePost(grnId: string, options: { allowMissingSupplierInvoice?: boolean } = {}): Promise<{ valid: boolean; approvalRequired: boolean; errors: string[]; warnings: string[] }> {
   const note = await getGoodsReceivingNoteById(grnId);
   const lines = await getGoodsReceivingLines(grnId);
   const errors: string[] = [];
@@ -488,7 +490,7 @@ export async function validateGRNBeforePost(grnId: string): Promise<{ valid: boo
   if (!note) errors.push('GRN not found.');
   if (note && !note.supplierInvoiceNumber.trim()) {
     warnings.push('Supplier invoice number is missing.');
-    approvalRequired = true;
+    approvalRequired = !options.allowMissingSupplierInvoice;
     await recordActivity({ grnId, grnNumber: note.grnNumber, poId: note.poId, poNumber: note.poNumber, eventType: 'GRN_SUPPLIER_INVOICE_MISSING', message: 'Supplier invoice missing before posting.', operator: note.receivedByStaffName });
   }
 
@@ -550,16 +552,16 @@ export async function approveGRN(grnId: string, staffId: string, notesText = '')
   return updated;
 }
 
-export async function postGRN(grnId: string, staffId: string): Promise<GoodsReceivingPostingResult | null> {
+export async function postGRN(grnId: string, staffId: string, options: GoodsReceivingPostOptions = { acquisitionType: 'Supplier Credit' }): Promise<GoodsReceivingPostingResult | null> {
   const note = await getGoodsReceivingNoteById(grnId);
   if (!note || note.receivingStatus !== 'Draft') return null;
-  const validation = await validateGRNBeforePost(grnId);
+  const validation = await validateGRNBeforePost(grnId, { allowMissingSupplierInvoice: options.acquisitionType === 'Invoice Pending' });
   if (!validation.valid) {
-    return { grnId, grnNumber: note.grnNumber, status: note.receivingStatus, stockPosted: false, approvalRequired: validation.approvalRequired, postedLines: [], skippedLines: await getGoodsReceivingLines(grnId), message: validation.errors.join(' ') };
+    return { grnId, grnNumber: note.grnNumber, status: note.receivingStatus, stockPosted: false, approvalRequired: validation.approvalRequired, postedLines: [], skippedLines: await getGoodsReceivingLines(grnId), acquisitionType: options.acquisitionType, message: validation.errors.join(' ') };
   }
   if (validation.approvalRequired && !note.approvedByStaffId) {
     await submitGRNForApproval(grnId);
-    return { grnId, grnNumber: note.grnNumber, status: 'Pending Approval', stockPosted: false, approvalRequired: true, postedLines: [], skippedLines: await getGoodsReceivingLines(grnId), message: 'GRN requires approval. Stock was not updated.' };
+    return { grnId, grnNumber: note.grnNumber, status: 'Pending Approval', stockPosted: false, approvalRequired: true, postedLines: [], skippedLines: await getGoodsReceivingLines(grnId), acquisitionType: options.acquisitionType, message: 'GRN requires approval. Stock was not updated.' };
   }
 
   const lines = (await getGoodsReceivingLines(grnId)).map(normalizeLine);
@@ -596,7 +598,93 @@ export async function postGRN(grnId: string, staffId: string): Promise<GoodsRece
   if (note.poId) syncPOFromPostedGRNs(note.poId, staffId);
   await recordActivity({ grnId, grnNumber: note.grnNumber, poId: note.poId, poNumber: note.poNumber, eventType: 'GRN_POSTED_TO_STOCK', message: `${note.grnNumber} posted accepted quantities to stock. No cashbook, payment, tax payment or COGS posted.`, operator: staffId });
   await recordActivity({ grnId, grnNumber: note.grnNumber, poId: note.poId, poNumber: note.poNumber, eventType: 'GOODS_RECEIVED_POSTED', message: `${postedLines.length} accepted lines posted to inventory movements.`, operator: staffId });
-  return { grnId, grnNumber: note.grnNumber, status: nextStatus, stockPosted: true, approvalRequired: false, postedLines, skippedLines, message: `${note.grnNumber} posted. Accepted quantities updated inventory only.` };
+  try {
+    const discipline = await import('./purchaseDisciplineService');
+    const linkedCommitment = discipline.getSupplierPurchaseCommitments().find((commitment) => (
+      (note.poId && commitment.purchaseOrderId === note.poId) ||
+      (!commitment.grnId && commitment.supplierId === note.supplierId && commitment.status !== 'Cancelled' && commitment.status !== 'Fulfilled')
+    ));
+    if (linkedCommitment) {
+      discipline.linkCommitmentToGRN(linkedCommitment.commitmentId, note.grnId);
+      discipline.markCommitmentFulfilled(linkedCommitment.commitmentId);
+    } else {
+      await discipline.createGRNWithoutPurchaseDisciplineWarning(note.grnNumber, staffId);
+    }
+  } catch {
+    // Purchase discipline checks are local/mock and must not block stock posting.
+  }
+
+  const purchaseValue = Number((postedLines.reduce((sum, line) => sum + line.qtyAccepted * line.receivedUnitCost, 0)).toFixed(2));
+  let supplierBillId: string | undefined;
+  let supplierBillNumber: string | undefined;
+  let supplierPaymentId: string | undefined;
+  let supplierPaymentNumber: string | undefined;
+  let creditorMessage = 'No supplier payable created.';
+
+  if (options.acquisitionType === 'Supplier Credit' || options.acquisitionType === 'Part Paid + Supplier Credit') {
+    const paidAmount = options.acquisitionType === 'Part Paid + Supplier Credit' ? Math.min(Math.max(0, options.paidAmount || 0), purchaseValue) : 0;
+    const bill = await createSupplierBillFromGRN({
+      supplierId: note.supplierId,
+      supplierName: note.supplierName,
+      supplierInvoiceNumber: options.supplierInvoiceNumber || note.supplierInvoiceNumber || undefined,
+      grnId: note.grnId,
+      grnNumber: note.grnNumber,
+      purchaseOrderId: note.poId,
+      purchaseOrderNumber: note.poNumber,
+      grnDate: note.receivedDate,
+      amount: purchaseValue,
+      branchId: note.branchId,
+      warehouseId: note.warehouseId,
+      createdBy: staffId,
+      acquisitionType: options.acquisitionType,
+      paidAmount: 0
+    });
+    supplierBillId = bill.billId;
+    supplierBillNumber = bill.billNumber;
+    creditorMessage = `${bill.billNumber} supplier bill posted.`;
+    if (paidAmount > 0) {
+      const payment = await createSupplierPayment({
+        supplierId: note.supplierId,
+        supplierName: note.supplierName,
+        paymentDate: note.receivedDate,
+        amount: paidAmount,
+        paymentMethod: options.paymentSource === 'CashDrawer' ? 'Cash' : options.paymentSource === 'BankPlaceholder' ? 'Bank Transfer Placeholder' : options.paymentSource === 'MobileMoneyPlaceholder' ? 'Mobile Money Placeholder' : options.paymentSource === 'OwnerFundsPlaceholder' ? 'Owner Funds Placeholder' : 'COGS Reserve',
+        paymentReference: `${note.grnNumber}-PARTPAY`,
+        source: options.paymentSource || 'COGSReserve',
+        cogsReserveAmount: (options.paymentSource || 'COGSReserve') === 'COGSReserve' ? paidAmount : 0,
+        nonReserveAmount: (options.paymentSource || 'COGSReserve') === 'COGSReserve' ? 0 : paidAmount,
+        approvedBy: staffId,
+        paidBy: staffId,
+        notes: `Part-paid GRN supplier payment for ${note.grnNumber}.`
+      });
+      await markSupplierPaymentPaid(payment.paymentId, staffId);
+      supplierPaymentId = payment.paymentId;
+      supplierPaymentNumber = payment.paymentNumber;
+      creditorMessage = `${bill.billNumber} supplier bill posted and ${payment.paymentNumber} allocated.`;
+    }
+  } else if (options.acquisitionType === 'Invoice Pending') {
+    await createSupplierBillFromGRN({
+      supplierId: note.supplierId,
+      supplierName: note.supplierName,
+      grnId: note.grnId,
+      grnNumber: note.grnNumber,
+      purchaseOrderId: note.poId,
+      purchaseOrderNumber: note.poNumber,
+      grnDate: note.receivedDate,
+      amount: purchaseValue,
+      branchId: note.branchId,
+      warehouseId: note.warehouseId,
+      createdBy: staffId,
+      acquisitionType: 'Invoice Pending'
+    });
+    await recordActivity({ grnId, grnNumber: note.grnNumber, poId: note.poId, poNumber: note.poNumber, eventType: 'GRN_INVOICE_PENDING_FLAGGED', message: `${note.grnNumber} posted with invoice pending. Supplier bill not posted.`, operator: staffId });
+    creditorMessage = 'Invoice pending warning created. No posted supplier bill created.';
+  } else if (options.acquisitionType === 'Already Invoiced') {
+    creditorMessage = options.linkedSupplierBillId ? `Linked to existing supplier bill ${options.linkedSupplierBillId}.` : 'Already invoiced selected. No duplicate supplier bill created.';
+  }
+
+  await recordActivity({ grnId, grnNumber: note.grnNumber, poId: note.poId, poNumber: note.poNumber, eventType: 'GRN_SUPPLIER_BILL_CREATED', message: creditorMessage, operator: staffId });
+  return { grnId, grnNumber: note.grnNumber, status: nextStatus, stockPosted: true, approvalRequired: false, postedLines, skippedLines, supplierBillId, supplierBillNumber, supplierPaymentId, supplierPaymentNumber, acquisitionType: options.acquisitionType, message: `${note.grnNumber} posted. Accepted quantities updated inventory. ${creditorMessage}` };
 }
 
 export async function cancelGRN(grnId: string, staffId: string, reason: string): Promise<GoodsReceivingNote | null> {

@@ -15,7 +15,9 @@ import {
   ClipboardCheck,
   History,
   ListChecks,
-  Users
+  Users,
+  Landmark,
+  ShoppingCart
 } from 'lucide-react';
 import { PosPageId, PosSession } from '../types';
 
@@ -46,6 +48,8 @@ export default function PosSidebar({
     { id: 'CUSTOMER_CENTRE' as const, label: 'Customer Centre', icon: Users },
     { id: 'DELIVERY' as const, label: 'Delivery Desk', icon: Truck },
     { id: 'STOCK' as const, label: 'Inventory', icon: Box },
+    { id: 'PURCHASE_DISCIPLINE' as const, label: 'Purchase Discipline', icon: ShoppingCart },
+    { id: 'CREDITORS' as const, label: 'Creditors', icon: Landmark },
     { id: 'TASK_DESK' as const, label: 'Task Desk', icon: ListChecks },
     { id: 'APPROVALS' as const, label: 'Approvals', icon: ClipboardCheck },
     { id: 'SHIFT' as const, label: 'Shift Control', icon: Clock },

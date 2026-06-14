@@ -43,7 +43,7 @@ export function sessionHasEffectivePermission(session: PermissionSessionLike | n
   return getEffectivePermissionsForSession(session).includes(permissionKey);
 }
 
-const allPosPageIds: PosPageId[] = ['DASHBOARD', 'OWNER_DESK', 'SALES', 'SALES_HISTORY', 'CUSTOMER_CENTRE', 'DELIVERY', 'STOCK', 'TASK_DESK', 'APPROVALS', 'SHIFT', 'CASH', 'BI_DESK', 'SYNC_DESK', 'SETTINGS'];
+const allPosPageIds: PosPageId[] = ['DASHBOARD', 'OWNER_DESK', 'SALES', 'SALES_HISTORY', 'CUSTOMER_CENTRE', 'DELIVERY', 'STOCK', 'PURCHASE_DISCIPLINE', 'CREDITORS', 'TASK_DESK', 'APPROVALS', 'SHIFT', 'CASH', 'BI_DESK', 'SYNC_DESK', 'SETTINGS'];
 
 const menuPermissionMap: Array<{ menuKey: string; pageId: PosPageId; permissions: string[] }> = [
   { menuKey: 'dashboard', pageId: 'DASHBOARD', permissions: ['dashboard.view'] },
@@ -61,6 +61,8 @@ const menuPermissionMap: Array<{ menuKey: string; pageId: PosPageId; permissions
   { menuKey: 'goodsReceiving', pageId: 'STOCK', permissions: ['goodsReceiving.view'] },
   { menuKey: 'supplierReturns', pageId: 'STOCK', permissions: ['supplierReturn.view'] },
   { menuKey: 'stockTransfers', pageId: 'STOCK', permissions: ['stockTransfer.view'] },
+  { menuKey: 'purchaseDiscipline', pageId: 'PURCHASE_DISCIPLINE', permissions: ['purchaseDiscipline.view'] },
+  { menuKey: 'creditorsManagement', pageId: 'CREDITORS', permissions: ['creditors.view'] },
   { menuKey: 'taskDesk', pageId: 'TASK_DESK', permissions: ['approvals.view'] },
   { menuKey: 'approvals', pageId: 'APPROVALS', permissions: ['approvals.view'] },
   { menuKey: 'shiftControl', pageId: 'SHIFT', permissions: ['shift.view', 'sales.endOfDay.run'] },

@@ -80,7 +80,7 @@ function varianceType(value: number): CashVarianceType {
 
 function movementDirection(type: CashMovementType): CashMovementDirection {
   if (['OpeningFloat', 'CashSale', 'CashDebtorPayment', 'CashDeliveryHandover', 'CashCorrection'].includes(type)) return 'In';
-  if (['CashRefund', 'CashReturnRefund', 'CashDrop', 'DrawerExpense', 'PettyCashPayout'].includes(type)) return 'Out';
+  if (['CashRefund', 'CashReturnRefund', 'CashDrop', 'DrawerExpense', 'PettyCashPayout', 'SupplierPayment'].includes(type)) return 'Out';
   return 'Neutral';
 }
 
@@ -89,6 +89,7 @@ function sourceForType(type: CashMovementType): CashMovementSource {
   if (type === 'CashDebtorPayment') return 'DebtPayment';
   if (type === 'CashDeliveryHandover') return 'Delivery';
   if (type === 'DrawerExpense' || type === 'PettyCashPayout') return 'Expense';
+  if (type === 'SupplierPayment') return 'SupplierPayment';
   if (type === 'CashRefund' || type === 'CashReturnRefund') return 'Refund';
   if (type === 'OpeningFloat') return 'Shift';
   if (type === 'CashVarianceAdjustment') return 'EOD';
@@ -175,6 +176,10 @@ export async function calculateDrawerExpensesForShift(shiftId: string): Promise<
   return expenses.reduce((sum, expense) => sum + expense.amount, 0);
 }
 
+export async function calculateSupplierCashPaymentsForShift(shiftId: string): Promise<number> {
+  return (await getCashDrawerMovements({ shiftId, movementType: 'SupplierPayment' })).reduce((sum, movement) => sum + movement.amount, 0);
+}
+
 export async function calculateCashDropsForShift(shiftId: string): Promise<number> {
   return readList<CashDropRecord>(DROP_KEY, seedCashDrops()).filter((drop) => drop.shiftId === shiftId && drop.status !== 'Rejected').reduce((sum, drop) => sum + drop.amount, 0);
 }
@@ -185,16 +190,56 @@ async function openingFloatForShift(shiftId: string): Promise<number> {
 }
 
 export async function calculateExpectedDrawerCash(shiftId: string, policy: CashEquivalencePolicy = 'PhysicalCashOnly'): Promise<number> {
-  const [openingFloat, cashSales, cashDebtorPayments, cashDeliveryHandovers, cashRefunds, drawerExpenses, cashDrops] = await Promise.all([
+  const [openingFloat, cashSales, cashDebtorPayments, cashDeliveryHandovers, cashRefunds, drawerExpenses, supplierCashPayments, cashDrops] = await Promise.all([
     openingFloatForShift(shiftId),
     calculateCashSalesForShift(shiftId),
     calculateCashDebtorPaymentsForShift(shiftId, policy),
     calculateCashDeliveryHandoversForShift(shiftId),
     calculateCashRefundsForShift(shiftId),
     calculateDrawerExpensesForShift(shiftId),
+    calculateSupplierCashPaymentsForShift(shiftId),
     calculateCashDropsForShift(shiftId)
   ]);
-  return openingFloat + cashSales + cashDebtorPayments + cashDeliveryHandovers - cashRefunds - drawerExpenses - cashDrops;
+  return openingFloat + cashSales + cashDebtorPayments + cashDeliveryHandovers - cashRefunds - drawerExpenses - supplierCashPayments - cashDrops;
+}
+
+export async function recordSupplierPaymentCashImpact(payload: {
+  shiftId?: string;
+  branchId?: string;
+  branchName?: string;
+  terminalId?: string;
+  terminalName?: string;
+  drawerId?: string;
+  drawerName?: string;
+  staffId: string;
+  staffName: string;
+  amount: number;
+  paymentId: string;
+  paymentNumber: string;
+  supplierId: string;
+  supplierName: string;
+  notes?: string;
+}): Promise<CashDrawerMovement | null> {
+  if (payload.amount <= 0) return null;
+  return createCashDrawerMovement({
+    shiftId: payload.shiftId || 'SHIFT-DEV-CASH',
+    branchId: payload.branchId || 'BR-LOCAL',
+    branchName: payload.branchName || 'Local Branch',
+    terminalId: payload.terminalId || 'POS-LOCAL',
+    terminalName: payload.terminalName || 'POS Local',
+    drawerId: payload.drawerId || 'DRAWER-DEV-01',
+    drawerName: payload.drawerName || payload.drawerId || 'DRAWER-DEV-01',
+    staffId: payload.staffId,
+    staffName: payload.staffName,
+    type: 'SupplierPayment',
+    direction: 'Out',
+    source: 'SupplierPayment',
+    amount: payload.amount,
+    paymentMethod: 'Cash',
+    referenceId: payload.paymentId,
+    referenceNumber: payload.paymentNumber,
+    notes: payload.notes || `Supplier payment to ${payload.supplierName}.`
+  });
 }
 
 export async function createDrawerExpense(payload: Omit<DrawerExpenseRecord, 'expenseId' | 'createdAt' | 'status'> & { status?: CashReconciliationStatus }): Promise<DrawerExpenseRecord> {
@@ -337,19 +382,20 @@ export async function getCashControlActivityEvents(filters: CashControlFilterSta
 
 export async function getCashControlSummary(filters: CashControlFilterState = {}): Promise<CashControlSummary> {
   const shiftId = filters.shiftId || 'SHIFT-DEV-CASH';
-  const [openingFloat, cashSales, cashDebtorPayments, deliveryCashHandovers, cashRefunds, drawerExpenses, cashDrops, reconciliations, alerts] = await Promise.all([
+  const [openingFloat, cashSales, cashDebtorPayments, deliveryCashHandovers, cashRefunds, drawerExpenses, supplierCashPayments, cashDrops, reconciliations, alerts] = await Promise.all([
     openingFloatForShift(shiftId),
     calculateCashSalesForShift(shiftId),
     calculateCashDebtorPaymentsForShift(shiftId, filters.cashEquivalencePolicy),
     calculateCashDeliveryHandoversForShift(shiftId),
     calculateCashRefundsForShift(shiftId),
     calculateDrawerExpensesForShift(shiftId),
+    calculateSupplierCashPaymentsForShift(shiftId),
     calculateCashDropsForShift(shiftId),
     Promise.resolve(readList<CashDrawerReconciliation>(RECON_KEY, seedReconciliations()).filter((row) => row.shiftId === shiftId)),
     getBIAdviceRecords({ category: 'Cash Control' })
   ]);
   const latestRecon = reconciliations[0];
-  const expectedCash = openingFloat + cashSales + cashDebtorPayments + deliveryCashHandovers - cashRefunds - drawerExpenses - cashDrops;
+  const expectedCash = openingFloat + cashSales + cashDebtorPayments + deliveryCashHandovers - cashRefunds - drawerExpenses - supplierCashPayments - cashDrops;
   const countedCash = latestRecon?.countedCash ?? expectedCash;
   const variance = countedCash - expectedCash;
   const nonCashDebtorPayments = getCustomerDebtPayments({ shiftId }).filter((payment) => !isCashEquivalent(payment.paymentMethod, filters.cashEquivalencePolicy)).reduce((sum, payment) => sum + payment.amount, 0);
@@ -362,6 +408,7 @@ export async function getCashControlSummary(filters: CashControlFilterState = {}
     cashRefunds,
     drawerExpenses,
     pettyCashPayouts: (await getCashDrawerMovements({ shiftId, movementType: 'PettyCashPayout' })).reduce((sum, movement) => sum + movement.amount, 0),
+    supplierCashPayments,
     cashDrops,
     expectedCash,
     countedCash,

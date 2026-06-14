@@ -269,6 +269,7 @@ function ensureAdviceSeeded(): BIAdviceRecord[] {
 function categoryFromTrigger(trigger: TriggerLike): BIAdviceCategory {
   const domain = String(trigger.domain || '');
   const eventType = String(trigger.eventType || '');
+  if (domain.includes('Supplier') || domain.includes('Purchase') || domain.includes('COGS') || eventType.includes('SUPPLIER') || eventType.includes('COGS') || eventType.includes('GRN_')) return 'Supplier / Purchase Discipline';
   if (domain.includes('Cash') || eventType.includes('CASH')) return 'Cash Control';
   if (domain.includes('Delivery') || eventType.includes('DELIVERY')) return 'Delivery Verification';
   if (domain.includes('Customer') || domain.includes('Credit') || eventType.includes('CREDIT') || eventType.includes('CUSTOMER_DEBT') || eventType.includes('OVERDUE')) return 'Customer and Credit Risk';
@@ -285,6 +286,7 @@ function recommendedActionFromCategory(category: BIAdviceCategory, trigger: Trig
   if (category === 'Delivery Verification') return 'Review Delivery';
   if (category === 'Staff Behaviour') return 'Review Staff Action';
   if (category === 'Customer and Credit Risk') return eventType.includes('LIMIT') || eventType.includes('OVERDUE') ? 'Request Approval' : 'Create Task';
+  if (category === 'Supplier / Purchase Discipline') return eventType.includes('RESERVE') || eventType.includes('SUPPLIER_PAYMENT') ? 'Request Approval' : 'Create Purchase Reminder';
   if (category === 'Reorder Control') return 'Block Reorder';
   if (eventType.includes('STOCKTAKE') || eventType.includes('VARIANCE')) return 'Start Stocktake';
   if (eventType.includes('LOW_STOCK') || eventType.includes('REORDER')) return 'Create Purchase Reminder';

@@ -211,6 +211,14 @@ export async function createPurchaseOrder(payload: PurchaseOrderCreatePayload): 
   saveList(PO_KEY, [savedOrder, ...orders]);
   saveList(PO_LINE_KEY, [...lines, ...allLines]);
   await recordActivity(savedOrder, 'PURCHASE_ORDER_DRAFT_CREATED', payload.requestedByStaffName, `${savedOrder.poNumber} draft memo created. No stock, accounting, cashbook, COGS or inventory value posted.`);
+  if (!`${payload.notes || ''} ${payload.internalMemo || ''}`.includes('PDR-')) {
+    try {
+      const { createPOWithoutReserveCheckWarning } = await import('./purchaseDisciplineService');
+      await createPOWithoutReserveCheckWarning(savedOrder.poNumber, payload.requestedByStaffName);
+    } catch {
+      // Purchase discipline warnings are local/mock and must not block PO creation.
+    }
+  }
   return savedOrder;
 }
 
