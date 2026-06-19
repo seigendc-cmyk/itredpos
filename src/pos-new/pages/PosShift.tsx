@@ -7,7 +7,6 @@ import {
   FileText,
   History,
   Lock,
-  MoreVertical,
   Play,
   ShieldCheck,
   Terminal as TerminalIcon,
@@ -20,6 +19,7 @@ import OpenShiftModal from '../components/OpenShiftModal';
 import ShiftStartWizardModal from '../components/ShiftStartWizardModal';
 import ShiftEodReportsModal from '../components/ShiftEodReportsModal';
 import TerminalShiftHistoryModal from '../components/TerminalShiftHistoryModal';
+import RowActionMenu from '../components/RowActionMenu';
 import {
   prepareShiftEodPrintPayload,
   ShiftEodPrintPayload
@@ -969,20 +969,20 @@ export default function PosShift({
                     <td>{request.requestedBy}</td>
                     <td>{request.reason}</td>
                     <td>
-                      <div className="approval-action-menu-host">
-                        <button type="button" className="row-action-trigger" onClick={() => handleTerminalActionMenu(request.id)} aria-label="Terminal activation actions" aria-expanded={openTerminalActionMenuId === request.id} title="Terminal activation actions">
-                          <MoreVertical size={18} aria-hidden="true" />
-                        </button>
-                        {openTerminalActionMenuId === request.id && (
-                          <div className="approval-action-menu">
-                            {['View Terminal Details', 'Run Readiness Check', 'Activate Terminal', 'Deactivate Terminal', 'Assign Drawer', 'Open Shift', 'View Active Period History', 'Recover Last State'].map((action) => (
-                              <button key={action} type="button" onClick={() => void handleTerminalMenuAction(request.id, action)}>
-                                {action}
-                              </button>
-                            ))}
-                          </div>
-                        )}
-                      </div>
+                      <RowActionMenu
+                        rowId={request.id}
+                        ariaLabel={`Terminal activation actions for ${request.terminalId}`}
+                        open={openTerminalActionMenuId === request.id}
+                        onOpen={() => handleTerminalActionMenu(request.id)}
+                        onOpenChange={(open) => setOpenTerminalActionMenuId(open ? request.id : null)}
+                        items={['View Terminal Details', 'Run Readiness Check', 'Activate Terminal', 'Deactivate Terminal', 'Assign Drawer', 'Open Shift', 'View Active Period History', 'Recover Last State'].map((action) => ({
+                          id: action,
+                          label: action,
+                          danger: action === 'Deactivate Terminal',
+                          separatorBefore: action === 'Assign Drawer' || action === 'View Active Period History',
+                          onClick: () => void handleTerminalMenuAction(request.id, action)
+                        }))}
+                      />
                     </td>
                   </tr>
                 ))}

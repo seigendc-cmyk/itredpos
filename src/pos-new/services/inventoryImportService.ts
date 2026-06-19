@@ -87,7 +87,7 @@ function normalize(value: string): string {
 export function detectImportFileType(fileName: string): InventoryImportFileType {
   const lower = fileName.toLowerCase();
   if (lower.endsWith('.csv')) return 'CSV';
-  if (lower.endsWith('.xlsx') || lower.endsWith('.xls')) return 'ExcelPlaceholder';
+  if (lower.endsWith('.xlsx') || lower.endsWith('.xls')) return 'Excel';
   if (!fileName) return 'ManualPaste';
   return 'Unknown';
 }
@@ -370,7 +370,6 @@ export function mapWizardColumnsToProductMappings(batchId: string, columns: Inve
 
 export async function saveWizardMappingsToBatch(batchId: string, columns: InventoryImportColumn[]): Promise<ProductImportColumnMapping[]> {
   await mapImportColumns(batchId, mapWizardColumnsToProductMappings(batchId, columns));
-  await autoSuggestColumnMappings(batchId, 'MOTOR_SPARES');
   return getProductImportColumnMappings(batchId);
 }
 

@@ -1,6 +1,7 @@
-import { MoreVertical, Search } from 'lucide-react';
-import { useEffect, useRef, useState } from 'react';
+import { Search } from 'lucide-react';
+import { useState } from 'react';
 import type { BIAdviceCategory, BIAdviceFilterState, BIAdvicePriority, BIAdviceRecord, BIAdviceStatus } from '../types';
+import RowActionMenu, { type RowActionMenuItem } from './RowActionMenu';
 
 interface BIAdviceFlowPanelProps {
   records: BIAdviceRecord[];
@@ -80,55 +81,19 @@ export default function BIAdviceFlowPanel({
 }: BIAdviceFlowPanelProps) {
   const totals = summary(records);
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
-  const [menuPosition, setMenuPosition] = useState<{ top: number; left: number } | null>(null);
-  const menuRef = useRef<HTMLDivElement | null>(null);
 
   const setFilter = (patch: BIAdviceFilterState) => onFiltersChange({ ...filters, ...patch });
-  const openAdvice = records.find((advice) => advice.adviceId === openMenuId) || null;
-
-  const closeMenu = () => {
-    setOpenMenuId(null);
-    setMenuPosition(null);
-  };
-
-  const toggleMenu = (advice: BIAdviceRecord, button: HTMLButtonElement) => {
-    if (openMenuId === advice.adviceId) {
-      closeMenu();
-      return;
-    }
-    const rect = button.getBoundingClientRect();
-    const menuWidth = 230;
-    setMenuPosition({
-      top: Math.min(rect.bottom + 6, window.innerHeight - 320),
-      left: Math.max(8, Math.min(rect.right - menuWidth, window.innerWidth - menuWidth - 8))
-    });
-    setOpenMenuId(advice.adviceId);
-    onActionMenuOpen?.(advice);
-  };
-
-  const runMenuAction = (action: () => void) => {
-    action();
-    closeMenu();
-  };
-
-  useEffect(() => {
-    if (!openMenuId) return undefined;
-    const handlePointerDown = (event: MouseEvent) => {
-      if (menuRef.current?.contains(event.target as Node)) return;
-      const target = event.target as HTMLElement;
-      if (target.closest('.bi-advice-action-menu-trigger')) return;
-      closeMenu();
-    };
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') closeMenu();
-    };
-    document.addEventListener('mousedown', handlePointerDown);
-    document.addEventListener('keydown', handleKeyDown);
-    return () => {
-      document.removeEventListener('mousedown', handlePointerDown);
-      document.removeEventListener('keydown', handleKeyDown);
-    };
-  }, [openMenuId]);
+  const actionItems = (advice: BIAdviceRecord): RowActionMenuItem[] => [
+    { id: 'open', label: 'Open Advice', onClick: () => onViewAdvice(advice) },
+    { id: 'task', label: 'Create Task', onClick: () => onCreateTask(advice) },
+    { id: 'assign', label: 'Assign Staff', onClick: () => onAssignStaff(advice) },
+    supportsStocktake(advice) && { id: 'stocktake', label: 'Start Stocktake', onClick: () => onStartStocktake(advice) },
+    { id: 'approval', label: 'Request Approval', onClick: () => onRequestApproval?.(advice), disabled: !onRequestApproval },
+    { id: 'resolve', label: 'Resolve', onClick: () => onResolve(advice), separatorBefore: true },
+    { id: 'dismiss', label: 'Dismiss', onClick: () => onDismiss(advice) },
+    { id: 'escalate', label: 'Escalate', onClick: () => onEscalate(advice), danger: true },
+    { id: 'print', label: 'Print Advice', onClick: () => onPrintAdvice?.(advice), disabled: !onPrintAdvice, separatorBefore: true }
+  ].filter(Boolean) as RowActionMenuItem[];
 
   if (!canView) {
     return <div className="sci-pos-alert sci-pos-alert--danger">You do not have permission to view this BI advice.</div>;
@@ -214,16 +179,14 @@ export default function BIAdviceFlowPanel({
                   <td><span className="bi-advice-cell-primary">{assignedToLabel(advice)}</span><span className="bi-advice-cell-secondary">{advice.assignedDesk || advice.assignedToRole || 'No desk'}</span></td>
                   <td><span className="bi-advice-cell-primary">{advice.dueDate || 'No due date'}</span><span className="bi-advice-status-text">{advice.status}</span></td>
                   <td className="bi-advice-action-cell">
-                    <button
-                      type="button"
-                      className="bi-advice-action-menu-trigger"
-                      onClick={(event) => toggleMenu(advice, event.currentTarget)}
-                      aria-label="BI advice actions"
-                      aria-expanded={openMenuId === advice.adviceId}
-                      title="BI advice actions"
-                    >
-                      <MoreVertical size={17} aria-hidden="true" />
-                    </button>
+                    <RowActionMenu
+                      rowId={advice.adviceId}
+                      ariaLabel={`BI advice actions for ${advice.adviceNumber}`}
+                      open={openMenuId === advice.adviceId}
+                      onOpenChange={(open) => setOpenMenuId(open ? advice.adviceId : null)}
+                      onOpen={() => onActionMenuOpen?.(advice)}
+                      items={actionItems(advice)}
+                    />
                   </td>
                 </tr>
               ))}
@@ -236,26 +199,6 @@ export default function BIAdviceFlowPanel({
           </table>
         </div>
       </div>
-      {openAdvice && menuPosition && (
-        <div
-          ref={menuRef}
-          className="bi-advice-action-menu-portal"
-          style={{ top: menuPosition.top, left: menuPosition.left }}
-          role="menu"
-        >
-          <button type="button" className="bi-advice-action-menu-item" onClick={() => runMenuAction(() => onViewAdvice(openAdvice))}>Open Advice</button>
-          <button type="button" className="bi-advice-action-menu-item" onClick={() => runMenuAction(() => onCreateTask(openAdvice))}>Create Task</button>
-          <button type="button" className="bi-advice-action-menu-item" onClick={() => runMenuAction(() => onAssignStaff(openAdvice))}>Assign Staff</button>
-          {supportsStocktake(openAdvice) && (
-            <button type="button" className="bi-advice-action-menu-item" onClick={() => runMenuAction(() => onStartStocktake(openAdvice))}>Start Stocktake</button>
-          )}
-          <button type="button" className="bi-advice-action-menu-item" onClick={() => runMenuAction(() => onRequestApproval?.(openAdvice))}>Request Approval</button>
-          <button type="button" className="bi-advice-action-menu-item" onClick={() => runMenuAction(() => onResolve(openAdvice))}>Resolve</button>
-          <button type="button" className="bi-advice-action-menu-item" onClick={() => runMenuAction(() => onDismiss(openAdvice))}>Dismiss</button>
-          <button type="button" className="bi-advice-action-menu-item" onClick={() => runMenuAction(() => onEscalate(openAdvice))}>Escalate</button>
-          <button type="button" className="bi-advice-action-menu-item" onClick={() => runMenuAction(() => onPrintAdvice?.(openAdvice))}>Print Advice</button>
-        </div>
-      )}
     </section>
   );
 }

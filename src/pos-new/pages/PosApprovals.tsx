@@ -22,6 +22,7 @@ import {
   OperationalApprovalCategory,
   OperationalApprovalEvent,
   OperationalApprovalRequest,
+  PosPageId,
   PosSession,
   RiskLevel,
   Role
@@ -47,10 +48,13 @@ import {
   prepareApprovalNotification,
   sendApprovalNotificationLocal
 } from '../services/approvalNotificationService';
+import { createWorkflowNotification } from '../services/notificationService';
+import { createRelatedRecordLink, openRelatedRecord } from '../services/workflowRoutingService';
 import { hasPermission, PermissionKey } from '../utils/posPermissions';
 
 interface PosApprovalsProps {
   session: PosSession;
+  onNavigate?: (page: PosPageId) => void;
 }
 
 type StatusFilter = 'All' | ApprovalStatus;
@@ -106,7 +110,7 @@ function isOverdue(approval: OperationalApprovalRequest): boolean {
   return Boolean(approval.dueAt && new Date(approval.dueAt).getTime() < Date.now() && !['Approved', 'Rejected', 'Closed'].includes(approval.status));
 }
 
-export default function PosApprovals({ session }: PosApprovalsProps) {
+export default function PosApprovals({ session, onNavigate }: PosApprovalsProps) {
   const roleName = session.role as Role;
   const operator = session.staffName || 'Admin User';
   const staffId = operator;
@@ -238,6 +242,14 @@ export default function PosApprovals({ session }: PosApprovalsProps) {
     if (message) setNotice(message);
   };
 
+  const handleOpenRelatedRecord = async (approval: OperationalApprovalRequest) => {
+    if (!guard('approvals.openRelatedRecord')) return;
+    setSelectedApprovalId(approval.id);
+    openRelatedRecord(approval, { navigate: onNavigate, setNotice, currentStaff: session });
+    await recordApprovalRelatedRecordOpen(approval.id, operator);
+    await refresh(`${approval.id} related record route recorded locally.`);
+  };
+
   const openWorkflow = (approval: OperationalApprovalRequest, mode: WorkflowMode) => {
     if (!mode) return;
     const permissionByMode: Record<Exclude<WorkflowMode, null>, PermissionKey> = {
@@ -253,6 +265,10 @@ export default function PosApprovals({ session }: PosApprovalsProps) {
     };
     if (!guard(permissionByMode[mode])) return;
     setSelectedApprovalId(approval.id);
+    if (mode === 'related') {
+      void handleOpenRelatedRecord(approval);
+      return;
+    }
     if (mode === 'notify') {
       void recordApprovalAuditEvent({
         approvalId: approval.id,
@@ -318,6 +334,15 @@ export default function PosApprovals({ session }: PosApprovalsProps) {
         recipientName: notificationRecipient,
         recipientAddress: notificationRecipient,
         preparedBy: operator
+      });
+      createWorkflowNotification({
+        targetStaffId: notificationRecipient,
+        sourceModule: 'Approvals',
+        relatedRecord: createRelatedRecordLink(selectedApproval),
+        title: `${selectedApproval.id} approval notification`,
+        message: workflowNote || selectedApproval.reason || selectedApproval.context || 'Approval notification prepared locally.',
+        channel: notificationChannel === 'WhatsAppLink' ? 'WhatsAppPreview' : notificationChannel,
+        previewAddress: notificationRecipient
       });
     }
     const completedMode = workflowMode;

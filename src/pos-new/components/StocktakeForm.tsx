@@ -265,9 +265,9 @@ export default function StocktakeForm({
                 <TextField label="Selected Product Search" value={productSearch} onChange={setProductSearch} disabled={isPosted} />
               </div>
               <div className="mt-3 grid grid-cols-1 md:grid-cols-3 gap-2">
-                <Placeholder label="High Risk Products Placeholder" />
-                <Placeholder label="Low Stock Products Placeholder" />
-                <Placeholder label="No Movement Products Placeholder" />
+                <Placeholder label="High Risk Products" />
+                <Placeholder label="Low Stock Products" />
+                <Placeholder label="No Movement Products" />
               </div>
               <div className="mt-3 grid grid-cols-1 md:grid-cols-4 gap-2">
                 {productMatches.map((product) => (

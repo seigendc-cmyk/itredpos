@@ -171,6 +171,41 @@ export function updateSupplierCreditProfile(supplierId: string, patch: Partial<S
   return updated;
 }
 
+export function ensureSupplierCreditProfileFromSupplier(payload: {
+  supplierId: string;
+  supplierName: string;
+  supplierCode: string;
+  creditStatus?: SupplierCreditProfile['creditStatus'];
+  paymentTermsDays?: number;
+  supplierCreditLimit?: number;
+  preferredSupplier?: boolean;
+  notes?: string;
+}): SupplierCreditProfile {
+  const profiles = readList<SupplierCreditProfile>(PROFILE_KEY, seedProfiles);
+  const existing = profiles.find((profile) => profile.supplierId === payload.supplierId);
+  if (existing) return existing;
+  const profile: SupplierCreditProfile = {
+    supplierId: payload.supplierId,
+    supplierName: payload.supplierName,
+    supplierCode: payload.supplierCode,
+    creditStatus: payload.creditStatus || 'UnderReview',
+    paymentTermsDays: payload.paymentTermsDays ?? 30,
+    supplierCreditLimit: payload.supplierCreditLimit ?? 0,
+    currentPayableBalance: 0,
+    overduePayableBalance: 0,
+    availableSupplierCredit: payload.supplierCreditLimit ?? 0,
+    averageDaysToPay: 0,
+    latePaymentCount: 0,
+    disputedAmount: 0,
+    preferredSupplier: payload.preferredSupplier ?? false,
+    nextReviewDate: addDays(today(), 14),
+    notes: payload.notes || 'Local/mock supplier credit profile created from Purchase Order supplier record.',
+    updatedAt: nowIso()
+  };
+  saveList(PROFILE_KEY, [profile, ...profiles]);
+  return profile;
+}
+
 export async function blockSupplierCredit(supplierId: string, reason: string, staffId: string): Promise<SupplierCreditProfile | null> {
   await createCreditorApproval({ approvalType: 'SUPPLIER_CREDIT_BLOCK_RELEASE', relatedRecord: supplierId, requestedBy: staffId, reason, context: 'Block supplier credit request.' });
   return updateSupplierCreditProfile(supplierId, { creditStatus: 'CreditBlocked', blockedReason: reason });

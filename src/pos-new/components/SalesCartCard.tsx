@@ -729,12 +729,6 @@ export default function SalesCartCard({
         </div>
       </div>
 
-      <div className="pos-session-strip sales-cart-session-card sales-cart-session-grid" aria-label="Sale context">
-        <span className="sales-cart-session-item"><strong className="sales-cart-session-label">Cashier</strong><span className="sales-cart-session-value">{cashierName}</span></span>
-        <span className="sales-cart-session-item"><strong className="sales-cart-session-label">Terminal</strong><span className="sales-cart-session-value">{terminalName}</span></span>
-        <span className="sales-cart-session-item"><strong className="sales-cart-session-label">Branch</strong><span className="sales-cart-session-value">{branchName}</span></span>
-      </div>
-
       <div className="sales-cart-body">
         <section className="sales-cart-mini-card">
           <div className="sales-cart-mini-card__header">

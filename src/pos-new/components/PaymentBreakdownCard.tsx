@@ -107,7 +107,7 @@ export default function PaymentBreakdownCard({ operatorName }: PaymentBreakdownC
             <Filter className="w-3.5 h-3.5" /> Apply Filters
           </button>
           <button onClick={() => action('Payment report export prepared.', 'PAYMENT_REPORT_EXPORT_PREPARED')} className="px-3 py-2 bg-white border border-[#b1b5c2] text-[#1e222b] font-black uppercase text-[9px] flex items-center gap-1">
-            <Download className="w-3.5 h-3.5" /> Export Placeholder
+            <Download className="w-3.5 h-3.5" /> Export
           </button>
         </div>
 

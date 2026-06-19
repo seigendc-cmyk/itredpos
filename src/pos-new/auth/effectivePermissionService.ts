@@ -43,7 +43,7 @@ export function sessionHasEffectivePermission(session: PermissionSessionLike | n
   return getEffectivePermissionsForSession(session).includes(permissionKey);
 }
 
-const allPosPageIds: PosPageId[] = ['DASHBOARD', 'OWNER_DESK', 'SALES', 'SALES_HISTORY', 'CUSTOMER_CENTRE', 'DELIVERY', 'STOCK', 'PURCHASE_DISCIPLINE', 'CREDITORS', 'TASK_DESK', 'APPROVALS', 'SHIFT', 'CASH', 'FINANCIAL_CONTROL', 'BI_DESK', 'SYNC_DESK', 'HELP_DESK', 'SETTINGS'];
+const allPosPageIds: PosPageId[] = ['DASHBOARD', 'OWNER_DESK', 'SALES', 'SALES_HISTORY', 'CUSTOMER_CENTRE', 'DELIVERY', 'STOCK', 'PURCHASE_DISCIPLINE', 'CREDITORS', 'TASK_DESK', 'APPROVALS', 'SHIFT', 'CASH', 'FINANCIAL_CONTROL', 'REPORTS', 'BI_DESK', 'SYNC_DESK', 'HELP_DESK', 'SETTINGS'];
 
 const menuPermissionMap: Array<{ menuKey: string; pageId: PosPageId; permissions: string[] }> = [
   { menuKey: 'dashboard', pageId: 'DASHBOARD', permissions: ['dashboard.view'] },
@@ -69,7 +69,7 @@ const menuPermissionMap: Array<{ menuKey: string; pageId: PosPageId; permissions
   { menuKey: 'biDesk', pageId: 'BI_DESK', permissions: ['bi.view', 'bi.summary.view'] },
   { menuKey: 'syncDesk', pageId: 'SYNC_DESK', permissions: ['sync.view'] },
   { menuKey: 'helpDesk', pageId: 'HELP_DESK', permissions: ['helpDesk.view'] },
-  { menuKey: 'reports', pageId: 'BI_DESK', permissions: ['reports.view'] },
+  { menuKey: 'reports', pageId: 'REPORTS', permissions: ['reports.view'] },
   { menuKey: 'accountingFinance', pageId: 'CASH', permissions: ['accounting.view', 'sales.endOfDay.run'] },
   { menuKey: 'financialControl', pageId: 'FINANCIAL_CONTROL', permissions: ['financialControl.view'] },
   { menuKey: 'settings', pageId: 'SETTINGS', permissions: ['settings.view'] }

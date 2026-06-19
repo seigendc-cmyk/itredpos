@@ -29,7 +29,7 @@ export function loadLocalQueue(): SyncQueueItem[] {
       try {
         return JSON.parse(data);
       } catch (e) {
-        console.error('Error parsing sync queue from localStorage', e);
+        console.warn('Error parsing sync queue from localStorage', e);
       }
     }
     // Initialize
@@ -124,7 +124,7 @@ export function loadLocalSyncActivity(): SyncActivityEvent[] {
       try {
         return JSON.parse(data);
       } catch (e) {
-        console.error('Error parsing sync activity from localStorage', e);
+        console.warn('Error parsing sync activity from localStorage', e);
       }
     }
     // Initialize

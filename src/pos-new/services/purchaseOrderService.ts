@@ -13,6 +13,7 @@ import {
 } from '../mock/mockPosData';
 import { createOperationalApproval } from './approvalService';
 import { createGRNDraftFromPO, getPOReceivingSummary } from './goodsReceivingService';
+import { flagPOSupplierNotInRecords, recordSupplierActivity } from './supplierService';
 
 const PO_KEY = 'itred_pos_purchase_orders_v1';
 const PO_LINE_KEY = 'itred_pos_purchase_order_lines_v1';
@@ -148,6 +149,15 @@ async function recordActivity(
   return saveList(PO_ACTIVITY_KEY, [nextEvent, ...events].slice(0, 120));
 }
 
+async function recordSupplierValidationFailure(order: PurchaseOrder, message: string): Promise<void> {
+  await recordActivity(order, 'PO_SUPPLIER_VALIDATION_FAILED', order.requestedByStaffName, message);
+  await flagPOSupplierNotInRecords(order.supplierName, order.requestedByStaffName, order.poId);
+}
+
+function hasLinkedSupplier(order: PurchaseOrder): boolean {
+  return Boolean(order.supplierName.trim() && order.supplierId.trim());
+}
+
 export async function getPurchaseOrders(filters: PurchaseOrderFilterState = {}): Promise<PurchaseOrder[]> {
   const orders = readList<PurchaseOrder>(PO_KEY, mockPurchaseOrders, isPO);
   return orders.filter((order) => {
@@ -211,6 +221,9 @@ export async function createPurchaseOrder(payload: PurchaseOrderCreatePayload): 
   saveList(PO_KEY, [savedOrder, ...orders]);
   saveList(PO_LINE_KEY, [...lines, ...allLines]);
   await recordActivity(savedOrder, 'PURCHASE_ORDER_DRAFT_CREATED', payload.requestedByStaffName, `${savedOrder.poNumber} draft memo created. No stock, accounting, cashbook, COGS or inventory value posted.`);
+  if (savedOrder.supplierId) {
+    recordSupplierActivity('SUPPLIER_LINKED_TO_PURCHASE_ORDER', `${savedOrder.supplierName} linked to ${savedOrder.poNumber}.`, payload.requestedByStaffName, savedOrder.supplierId, savedOrder.poId);
+  }
   if (!`${payload.notes || ''} ${payload.internalMemo || ''}`.includes('PDR-')) {
     try {
       const { createPOWithoutReserveCheckWarning } = await import('./purchaseDisciplineService');
@@ -225,7 +238,7 @@ export async function createPurchaseOrder(payload: PurchaseOrderCreatePayload): 
 export async function updatePurchaseOrderDraft(poId: string, patch: PurchaseOrderPatch): Promise<PurchaseOrder | null> {
   const orders = readList<PurchaseOrder>(PO_KEY, mockPurchaseOrders, isPO);
   const order = orders.find((item) => item.poId === poId);
-  if (!order || order.status !== 'Draft') return null;
+  if (!order || ['Fully Received', 'Closed', 'Closed With Outstanding', 'Cancelled'].includes(order.status)) return null;
 
   let nextLines = readList<PurchaseOrderLine>(PO_LINE_KEY, mockPurchaseOrderLines, isPOLine);
   if (patch.lines) {
@@ -245,7 +258,10 @@ export async function updatePurchaseOrderDraft(poId: string, patch: PurchaseOrde
   };
   const updatedOrder = recalcOrderTotals(updatedBase, nextLines.filter((line) => line.poId === poId));
   saveList(PO_KEY, orders.map((item) => item.poId === poId ? updatedOrder : item));
-  await recordActivity(updatedOrder, 'PURCHASE_ORDER_UPDATED', updatedOrder.requestedByStaffName, `${updatedOrder.poNumber} draft memo updated. No stock or accounting posted.`);
+  await recordActivity(updatedOrder, 'PURCHASE_ORDER_UPDATED', updatedOrder.requestedByStaffName, `${updatedOrder.poNumber} purchase order updated. No stock or accounting posted.`);
+  if (updatedOrder.supplierId) {
+    recordSupplierActivity('SUPPLIER_LINKED_TO_PURCHASE_ORDER', `${updatedOrder.supplierName} linked to ${updatedOrder.poNumber}.`, updatedOrder.requestedByStaffName, updatedOrder.supplierId, updatedOrder.poId);
+  }
   return updatedOrder;
 }
 
@@ -278,7 +294,11 @@ export async function submitPurchaseOrderForApproval(poId: string): Promise<Purc
   const order = await getPurchaseOrderById(poId);
   if (!order) return null;
   const lines = await getPurchaseOrderLines(poId);
-  if (!order.supplierName.trim() || lines.length === 0 || lines.some((line) => line.qtyOrdered <= 0 || line.estimatedUnitCost < 0)) {
+  if (!hasLinkedSupplier(order)) {
+    await recordSupplierValidationFailure(order, `${order.poNumber} supplier must be selected or created before submitting for approval.`);
+    return null;
+  }
+  if (lines.length === 0 || lines.some((line) => line.qtyOrdered <= 0 || line.estimatedUnitCost < 0)) {
     return null;
   }
 
@@ -310,6 +330,10 @@ export async function submitPurchaseOrderForApproval(poId: string): Promise<Purc
 export async function approvePurchaseOrder(poId: string, staffId: string, notes = ''): Promise<PurchaseOrder | null> {
   const order = await getPurchaseOrderById(poId);
   if (!order) return null;
+  if (!hasLinkedSupplier(order)) {
+    await recordSupplierValidationFailure(order, `${order.poNumber} supplier must be selected or created before approval.`);
+    return null;
+  }
   return updateStatus(
     poId,
     'Approved',
@@ -323,6 +347,10 @@ export async function approvePurchaseOrder(poId: string, staffId: string, notes 
 export async function markPurchaseOrderSent(poId: string, staffId: string): Promise<PurchaseOrder | null> {
   const order = await getPurchaseOrderById(poId);
   if (!order) return null;
+  if (!hasLinkedSupplier(order)) {
+    await recordSupplierValidationFailure(order, `${order.poNumber} supplier must be selected or created before marking sent.`);
+    return null;
+  }
   return updateStatus(
     poId,
     'Sent To Supplier',
@@ -384,13 +412,17 @@ export async function createGoodsReceivingDraftFromPO(poId: string): Promise<{ m
 export async function exportPurchaseOrderPlaceholder(poId: string): Promise<{ success: boolean; message: string }> {
   const order = await getPurchaseOrderById(poId);
   if (!order) return { success: false, message: 'Purchase Order not found.' };
+  if (!hasLinkedSupplier(order)) {
+    await recordSupplierValidationFailure(order, `${order.poNumber} supplier must be selected or created before export preparation.`);
+    return { success: false, message: 'Supplier must be selected or created before preparing Purchase Order export.' };
+  }
   await recordActivity(
     order,
     'PURCHASE_ORDER_EXPORT_PREPARED',
     order.requestedByStaffName,
-    `${order.poNumber} export placeholder prepared. No financial posting created.`
+    `${order.poNumber} export prepared. No financial posting created.`
   );
-  return { success: true, message: `${order.poNumber} export placeholder prepared.` };
+  return { success: true, message: `${order.poNumber} export prepared.` };
 }
 
 export async function getPurchaseOrderActivityEvents(poId?: string, includeAll = false): Promise<PurchaseOrderActivityEvent[]> {

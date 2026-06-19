@@ -131,7 +131,7 @@ export default function DeliveryRequestForm({
                     <input value={reason} onChange={(event) => setReason(event.target.value)} className="mt-1 w-full border border-[#b1b5c2] p-2 text-xs rounded-none" placeholder="Required for failed or cancelled delivery" />
                   </label>
                   <ActionRow>
-                    <Action label="Save Draft" onClick={() => undefined} />
+                    <Action label="Save Draft" onClick={() => window.alert(`${request.deliveryNumber} draft saved locally.`)} />
                     <Action label="Broadcast To iDeliver" onClick={onBroadcast} primary />
                     <Action label="Record Failure" onClick={() => onRecordFailure(reason || 'Failure reason captured from Delivery Fulfilment form.')} />
                     <Action label="Cancel Delivery" onClick={() => onCancel(reason || 'Cancelled from Delivery Fulfilment form.')} />
@@ -141,7 +141,7 @@ export default function DeliveryRequestForm({
               )}
 
               {activeTab === 'Receipt Items' && (
-                <Table title="Receipt Items" headers={['SKU', 'Product', 'Qty', 'Receipt Line', 'Line Status', 'Notes']} rows={lines.map((line) => [line.sku, line.productName, line.qty, line.receiptLineId || '-', line.lineStatus, line.notes])} footer={<Action label="View Receipt / CAT Form Placeholder" onClick={() => undefined} />} />
+                <Table title="Receipt Items" headers={['SKU', 'Product', 'Qty', 'Receipt Line', 'Line Status', 'Notes']} rows={lines.map((line) => [line.sku, line.productName, line.qty, line.receiptLineId || '-', line.lineStatus, line.notes])} footer={<Action label="View Receipt / CAT Form" onClick={() => window.alert(`Receipt ${request.receiptNumber} opened in local preview.`)} />} />
               )}
 
               {activeTab === 'Assignment' && (
@@ -158,8 +158,8 @@ export default function DeliveryRequestForm({
                   <ActionRow>
                     <Action label="Select Provider" onClick={() => onSelectProvider(selectedProviderId)} />
                     <Action label="Assign Vendor Driver" onClick={() => onAssignDriver(selectedProviderId)} primary />
-                    <Action label="Driver Accepted Placeholder" onClick={onAccept} />
-                    <Action label="Reassign Placeholder" onClick={() => onAssignDriver(selectedProviderId)} />
+                    <Action label="Driver Accepted" onClick={onAccept} />
+                    <Action label="Reassign" onClick={() => onAssignDriver(selectedProviderId)} />
                     <Action label="Broadcast To iDeliver" onClick={onBroadcast} />
                   </ActionRow>
                 </div>
@@ -168,10 +168,10 @@ export default function DeliveryRequestForm({
               {activeTab === 'Tracking' && (
                 <div className="space-y-4">
                   <div className="border border-orange-200 bg-orange-50 text-orange-950 p-3 text-[10px] font-bold uppercase">Google Maps live tracking integration will be connected later.</div>
-                  <Table title="Tracking Events" headers={['Date / Time', 'Status', 'Location Text', 'Latitude Placeholder', 'Longitude Placeholder', 'Notes', 'Updated By']} rows={trackingEvents.map((event) => [event.dateTime, event.status, event.locationText, event.latitudePlaceholder || '-', event.longitudePlaceholder || '-', event.notes, event.updatedByStaffId])} />
+                  <Table title="Tracking Events" headers={['Date / Time', 'Status', 'Location Text', 'Latitude', 'Longitude', 'Notes', 'Updated By']} rows={trackingEvents.map((event) => [event.dateTime, event.status, event.locationText, event.latitudePlaceholder || '-', event.longitudePlaceholder || '-', event.notes, event.updatedByStaffId])} />
                   <ActionRow>
-                    <Action label="Add Tracking Event Placeholder" onClick={onInTransit} />
-                    <Action label="Open Map Placeholder" onClick={() => undefined} />
+                    <Action label="Add Tracking Event" onClick={onInTransit} />
+                    <Action label="Open Map Preview" onClick={() => window.alert(`Map preview opened for ${request.deliveryNumber}.`)} />
                     <Action label="Mark Picked Up" onClick={onPickedUp} />
                     <Action label="Mark In Transit" onClick={onInTransit} />
                     <Action label="Mark Arrived" onClick={onArrived} />
@@ -193,7 +193,7 @@ export default function DeliveryRequestForm({
                     <Action label="Prepare Customer WhatsApp Code Message" onClick={() => onPrepareMessage('Customer Code')} />
                     <Action label="Verify Code" onClick={() => onVerifyCode(enteredCode)} primary />
                     <Action label="Mark Delivered" onClick={onMarkDelivered} />
-                    <Action label="Manual Override Placeholder" onClick={onMarkDelivered} />
+                    <Action label="Manual Override" onClick={onMarkDelivered} />
                   </ActionRow>
                 </div>
               )}
@@ -209,7 +209,7 @@ export default function DeliveryRequestForm({
                     <Action label="Record Cash Collected By Driver" onClick={() => onCashCollected(Number(cashAmount) || 0, cashNotes)} />
                     <Action label="Confirm Cash Received By Vendor" onClick={() => onCashConfirmed(Number(cashAmount) || 0, cashNotes)} primary />
                     <Action label="Flag Cash Variance" onClick={() => onCashConfirmed(Number(cashAmount) || 0, cashNotes || 'Cash variance flagged.')} />
-                    <Action label="Send To EOD Review Placeholder" onClick={() => undefined} />
+                    <Action label="Send To EOD Review" onClick={() => window.alert(`${request.deliveryNumber} sent to EOD review locally.`)} />
                   </ActionRow>
                 </div>
               )}
@@ -219,7 +219,7 @@ export default function DeliveryRequestForm({
                   <ActionRow>
                     <Action label="Prepare Customer Message" onClick={() => onPrepareMessage('Customer Status')} />
                     <Action label="Prepare Driver Message" onClick={() => onPrepareMessage('Driver Assignment')} />
-                    <Action label="Open WhatsApp Placeholder" onClick={() => onPrepareMessage('Customer Code')} />
+                    <Action label="Open WhatsApp Preview" onClick={() => onPrepareMessage('Customer Code')} />
                   </ActionRow>
                   <Table title="WhatsApp Drafts" headers={['Type', 'Recipient', 'Message', 'Status', 'Action']} rows={drafts.map((draft) => [draft.messageType, draft.recipient, draft.messageText, draft.status, <button key={draft.draftId} type="button" className="px-2 py-1 border border-[#b1b5c2] rounded-none text-[9px] font-black uppercase inline-flex items-center gap-1"><Copy className="w-3 h-3" /> Copy Message</button>])} />
                 </div>

@@ -13,7 +13,6 @@ import {
   Search,
   ShieldAlert,
   Sliders,
-  MoreVertical,
   DollarSign
 } from 'lucide-react';
 import BIAssignAdviceModal, { BIAssignAdvicePayload } from '../components/BIAssignAdviceModal';
@@ -21,6 +20,7 @@ import BIAdviceDetailModal from '../components/BIAdviceDetailModal';
 import BIAdviceFlowPanel from '../components/BIAdviceFlowPanel';
 import BIManagementAdviceDetailModal from '../components/BIManagementAdviceDetailModal';
 import BIShelfStocktakeAssignmentModal from '../components/BIShelfStocktakeAssignmentModal';
+import RowActionMenu from '../components/RowActionMenu';
 import {
   assignBIAdvice,
   createBIAdviceActionPoint,
@@ -967,7 +967,7 @@ export default function PosBIDesk({
                   <input value={managementSearch} onChange={(event) => setManagementSearch(event.target.value)} placeholder="Search BI management logs, advice, action points" />
                 </label>
                 <button type="button" className="sci-pos-button sci-pos-button--primary" onClick={handleGenerateManagement}>Generate Management BI</button>
-                <button type="button" className="sci-pos-button sci-pos-button--secondary" onClick={handleExportManagementCsv}>Export CSV Placeholder</button>
+                <button type="button" className="sci-pos-button sci-pos-button--secondary" onClick={handleExportManagementCsv}>Export CSV</button>
                 <button type="button" className="sci-pos-button sci-pos-button--secondary" onClick={() => window.print()}>Print Dashboard</button>
               </div>
 
@@ -1335,10 +1335,6 @@ function ManagementAdviceTable({
   onEscalate: (advice: BIManagementAdvice) => void;
   onPrint: (advice: BIManagementAdvice) => void;
 }) {
-  const action = (advice: BIManagementAdvice, fn: (record: BIManagementAdvice) => void) => {
-    setOpenMenuId('');
-    fn(advice);
-  };
   return (
     <section className="sci-pos-card bi-management-table-card">
       <div className="bi-section-header">
@@ -1360,19 +1356,20 @@ function ManagementAdviceTable({
                 <td>{advice.dueDate || 'No due date'}</td>
                 <td>{advice.status}</td>
                 <td className="bi-advice-row-actions">
-                  <button type="button" className="bi-advice-action-menu-trigger" aria-label={`Actions for ${advice.adviceNumber}`} aria-expanded={openMenuId === advice.adviceId} onClick={() => setOpenMenuId(openMenuId === advice.adviceId ? '' : advice.adviceId)}>
-                    <MoreVertical size={16} />
-                  </button>
-                  {openMenuId === advice.adviceId && (
-                    <div className="bi-advice-action-menu-portal bi-management-inline-menu" role="menu">
-                      <button type="button" className="bi-advice-action-menu-item" onClick={() => action(advice, onOpen)}>Open Advice</button>
-                      <button type="button" className="bi-advice-action-menu-item" onClick={() => action(advice, onStart)}>Create Task / Start</button>
-                      <button type="button" className="bi-advice-action-menu-item" onClick={() => action(advice, onResolve)}>Resolve</button>
-                      <button type="button" className="bi-advice-action-menu-item" onClick={() => action(advice, onDismiss)}>Dismiss</button>
-                      <button type="button" className="bi-advice-action-menu-item" onClick={() => action(advice, onEscalate)}>Escalate</button>
-                      <button type="button" className="bi-advice-action-menu-item" onClick={() => action(advice, onPrint)}>Print Advice</button>
-                    </div>
-                  )}
+                  <RowActionMenu
+                    rowId={advice.adviceId}
+                    ariaLabel={`Actions for ${advice.adviceNumber}`}
+                    open={openMenuId === advice.adviceId}
+                    onOpenChange={(open) => setOpenMenuId(open ? advice.adviceId : '')}
+                    items={[
+                      { id: 'open', label: 'Open Advice', onClick: () => onOpen(advice) },
+                      { id: 'start', label: 'Create Task / Start', onClick: () => onStart(advice) },
+                      { id: 'resolve', label: 'Resolve', separatorBefore: true, onClick: () => onResolve(advice) },
+                      { id: 'dismiss', label: 'Dismiss', onClick: () => onDismiss(advice) },
+                      { id: 'escalate', label: 'Escalate', danger: true, onClick: () => onEscalate(advice) },
+                      { id: 'print', label: 'Print Advice', separatorBefore: true, onClick: () => onPrint(advice) }
+                    ]}
+                  />
                 </td>
               </tr>
             ))}
@@ -1488,7 +1485,7 @@ function ProfitSnapshotPanel({
       <div className="pos-approval-actions">
         <button type="button" className="sci-pos-button sci-pos-button--secondary" onClick={onRefresh}>Refresh</button>
         <button type="button" className="sci-pos-button sci-pos-button--secondary" onClick={onPrint}>Print</button>
-        <button type="button" className="sci-pos-button sci-pos-button--secondary" onClick={onExport}>Export Placeholder</button>
+        <button type="button" className="sci-pos-button sci-pos-button--secondary" onClick={onExport}>Export</button>
       </div>
     </section>
   );

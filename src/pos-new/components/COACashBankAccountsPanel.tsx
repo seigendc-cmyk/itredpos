@@ -10,6 +10,7 @@ export default function COACashBankAccountsPanel() {
   const [accounts, setAccounts] = useState<FinancialControlAccount[]>([]);
   const [search, setSearch] = useState('');
   const [openId, setOpenId] = useState<string | null>(null);
+  const [notice, setNotice] = useState('');
 
   const load = async () => setAccounts(await getFinancialControlAccounts({ search }));
 
@@ -25,6 +26,20 @@ export default function COACashBankAccountsPanel() {
     setAccounts(await updateFinancialControlAccount(account.accountId, { active: true, notes: 'Reactivated from Financial Control preview.' }));
   };
 
+  const exportAccount = (account: FinancialControlAccount) => {
+    const csv = [
+      ['Account Code', 'Account Name', 'Type', 'Current', 'Restricted', 'Available', 'Status'].join(','),
+      [account.accountCode, account.accountName, account.accountType, account.currentBalance, account.restrictedBalance, account.availableBalance, account.active ? 'Active' : 'Inactive'].map((value) => `"${String(value).replace(/"/g, '""')}"`).join(',')
+    ].join('\n');
+    const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8;' }));
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `${account.accountCode}-financial-control-account.csv`;
+    link.click();
+    URL.revokeObjectURL(url);
+    setNotice(`${account.accountCode} exported locally.`);
+  };
+
   return (
     <div className="bg-white border border-slate-200">
       <div className="p-4 border-b border-slate-200 flex flex-col md:flex-row md:items-center justify-between gap-3">
@@ -37,6 +52,7 @@ export default function COACashBankAccountsPanel() {
           <input value={search} onChange={(event) => setSearch(event.target.value)} className="outline-none" placeholder="Search accounts" />
         </label>
       </div>
+      {notice && <div className="creditors-notice">{notice}</div>}
       <div className="overflow-x-auto">
         <table className="min-w-full text-xs">
           <thead className="bg-slate-50 text-slate-500 uppercase tracking-wider">
@@ -58,9 +74,9 @@ export default function COACashBankAccountsPanel() {
                     open={openId === account.accountId}
                     onOpenChange={(open) => setOpenId(open ? account.accountId : null)}
                     items={[
-                      { label: 'View COA Mapping', onClick: () => undefined },
+                      { label: 'View COA Mapping', onClick: () => setNotice(`${account.accountCode} mapping opened in local preview.`) },
                       { label: 'Print Account Summary', icon: <Printer className="w-3 h-3" />, onClick: () => window.print() },
-                      { label: 'Export Placeholder', icon: <FileDown className="w-3 h-3" />, onClick: () => undefined },
+                      { label: 'Export', icon: <FileDown className="w-3 h-3" />, onClick: () => exportAccount(account) },
                       account.active
                         ? { label: 'Mark Inactive', icon: <Ban className="w-3 h-3" />, danger: true, onClick: () => void handleDeactivate(account) }
                         : { label: 'Reactivate', icon: <RotateCcw className="w-3 h-3" />, onClick: () => void handleReactivate(account) }

@@ -375,12 +375,26 @@ export default function PosSettings({
 
   // --- SUB-FORM 9: RECEIPT SETTING STATE ---
   const [recForm, setRecForm] = useState<ReceiptSetting>({ ...receiptSetting });
+  const receiptLayouts: NonNullable<ReceiptSetting['layout']>[] = ['Thermal Receipt Roll', 'A4 Portrait', 'A4 Landscape', 'Legal', 'Letter', 'Custom Layout'];
+  const handleLogoUpload = (file?: File) => {
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => setRecForm((current) => ({ ...current, logoDataUrl: String(reader.result || '') }));
+    reader.readAsDataURL(file);
+  };
   const handleSaveReceipt = (e: React.FormEvent) => {
     e.preventDefault();
-    onUpdateReceiptSetting(recForm);
+    const nextReceipt = {
+      ...recForm,
+      header: recForm.headerMessage || recForm.header,
+      footer: recForm.footerMessage || recForm.footer,
+      contactInformation: recForm.contactNumbers || recForm.contactInformation,
+      socialMediaInformation: recForm.socialMediaHandles || recForm.socialMediaInformation
+    };
+    onUpdateReceiptSetting(nextReceipt);
     // Sync the older props
-    onUpdateReceiptHeader(recForm.header);
-    triggerToast("THERMAL SLIP INVOICING PRINT PATTERNS COMMITTED.");
+    onUpdateReceiptHeader(nextReceipt.header);
+    triggerToast("RECEIPT BLUEPRINT CONFIGURATION SAVED.");
   };
 
   const [checkSettings, setCheckSettings] = useState<CheckWriterSettings | null>(null);
@@ -1644,57 +1658,56 @@ export default function PosSettings({
               </form>
             )}
 
-            {/* TAB 9: RECEIPTBLUEPRINT */}
+            {/* TAB 9: RECEIPT BLUEPRINT */}
             {activeSection === 'RECEIPT' && (
               <form onSubmit={handleSaveReceipt} className="space-y-5">
                 <div className="border-b border-slate-800 pb-2 flex items-center justify-between">
                   <span className="text-xs font-bold text-white uppercase tracking-wider flex items-center gap-2">
                     <Receipt className="w-4 h-4 text-pink-400" />
-                    RECEIPT PRINT BLUEPRINT LAYOUTS
+                    RECEIPT BLUEPRINT
                   </span>
-                  <span className="text-[9px] text-[#00f0ff] uppercase bg-slate-950 px-1 border border-slate-900">THERMAL HEAD</span>
+                  <span className="text-[9px] text-[#00f0ff] uppercase bg-slate-950 px-1 border border-slate-900">{recForm.layout || 'Thermal Receipt Roll'}</span>
                 </div>
 
                 <p className="text-[10px] text-slate-450 uppercase mb-4 leading-normal">
-                  Define the layout template parameters injected into direct invoice generation modules during shift closeouts and sales rings.
+                  Configure the active receipt template consumed by sales completion, receipt preview, reprint, PDF, and WhatsApp output.
                 </p>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div className="space-y-1">
-                    <label className="block text-slate-500 text-[10px] uppercase font-bold">RECEIPT HEADER TEXT TITLE (MAX 40)</label>
-                    <input 
-                      type="text" 
-                      value={recForm.header}
-                      onChange={e => setRecForm({ ...recForm, header: e.target.value.toUpperCase() })}
-                      maxLength={40}
-                      className="w-full bg-slate-950 border border-slate-850 p-2 text-white font-mono text-xs outline-none focus:border-[#00f0ff] uppercase" 
-                      required
-                    />
+                  <div className="space-y-2 md:col-span-2 bg-slate-950 border border-slate-850 p-3">
+                    <label className="block text-slate-500 text-[10px] uppercase font-bold">Business Logo Upload</label>
+                    <div className="flex flex-col sm:flex-row gap-3 sm:items-center">
+                      <div className="receipt-blueprint-logo-preview">
+                        {recForm.logoDataUrl ? <img src={recForm.logoDataUrl} alt="Receipt logo preview" /> : <span>No Logo</span>}
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        <input
+                          type="file"
+                          accept="image/*"
+                          onChange={(event) => handleLogoUpload(event.target.files?.[0])}
+                          className="max-w-full text-[10px] text-slate-300"
+                        />
+                        {recForm.logoDataUrl && (
+                          <button type="button" className="sci-pos-button sci-pos-button--secondary" onClick={() => setRecForm({ ...recForm, logoDataUrl: '' })}>
+                            Remove Logo
+                          </button>
+                        )}
+                      </div>
+                    </div>
                   </div>
 
-                  <div className="space-y-1">
-                    <label className="block text-slate-500 text-[10px] uppercase font-bold">RECEIPT BOTTOM FOOTER MESSAGE</label>
-                    <input 
-                      type="text" 
-                      value={recForm.footer}
-                      onChange={e => setRecForm({ ...recForm, footer: e.target.value })}
-                      className="w-full bg-slate-950 border border-slate-850 p-2 text-white text-xs outline-none focus:border-[#00f0ff]" 
-                      required
-                    />
-                  </div>
+                  <SettingsSelect label="Receipt Layout" value={recForm.layout || 'Thermal Receipt Roll'} onChange={(value) => setRecForm({ ...recForm, layout: value as ReceiptSetting['layout'] })} options={receiptLayouts} />
+                  {recForm.layout === 'Custom Layout' && (
+                    <SettingsField label="Custom Layout Name" value={recForm.customLayoutName || ''} onChange={(value) => setRecForm({ ...recForm, customLayoutName: value })} />
+                  )}
 
-                  <div className="space-y-1">
-                    <label className="block text-slate-500 text-[10px] uppercase font-bold">PAPER ROLL WIDTH CALIBRATION</label>
-                    <select
-                      value={recForm.slipWidth}
-                      onChange={e => setRecForm({ ...recForm, slipWidth: e.target.value })}
-                      className="w-full bg-slate-950 border border-slate-850 p-2 text-slate-300 text-xs outline-none"
-                    >
-                      <option value="32_COLUMNS (STANDARD_SLIP)">32_COLUMNS (STANDARD THERMAL SLIP)</option>
-                      <option value="40_COLUMNS (WIDE_THERMAL)">40_COLUMNS (WIDE MACHINE SLIP)</option>
-                      <option value="80_COLUMNS (LETTERHEAD_A4)">80_COLUMNS (LETTERHEAD A4 DIRECT INVOICE)</option>
-                    </select>
-                  </div>
+                  <SettingsTextarea label="Header Message" value={recForm.headerMessage || recForm.header || ''} onChange={(value) => setRecForm({ ...recForm, headerMessage: value, header: value })} />
+                  <SettingsTextarea label="Footer Message" value={recForm.footerMessage || recForm.footer || ''} onChange={(value) => setRecForm({ ...recForm, footerMessage: value, footer: value })} />
+                  <SettingsTextarea label="Business Address" value={recForm.businessAddress || ''} onChange={(value) => setRecForm({ ...recForm, businessAddress: value })} />
+                  <SettingsField label="Contact Numbers" value={recForm.contactNumbers || recForm.contactInformation || ''} onChange={(value) => setRecForm({ ...recForm, contactNumbers: value, contactInformation: value })} />
+                  <SettingsField label="Email Address" value={recForm.emailAddress || ''} onChange={(value) => setRecForm({ ...recForm, emailAddress: value })} />
+                  <SettingsTextarea label="Social Media Handles" value={recForm.socialMediaHandles || recForm.socialMediaInformation || ''} onChange={(value) => setRecForm({ ...recForm, socialMediaHandles: value, socialMediaInformation: value })} />
+                  <SettingsTextarea label="Terms & Conditions" value={recForm.termsAndConditions || ''} onChange={(value) => setRecForm({ ...recForm, termsAndConditions: value })} />
 
                   <div className="space-y-1">
                     <label className="block text-slate-500 text-[10px] uppercase font-bold">PRINT TAX MATRIX BREAKDOWN?</label>
@@ -1727,7 +1740,7 @@ export default function PosSettings({
                     className="bg-pink-600 hover:bg-pink-700 text-white font-bold uppercase tracking-wider px-6 py-2.5 rounded-none cursor-pointer flex items-center gap-1.5"
                   >
                     <Save className="w-4 h-4" />
-                    SAVE TRANSMITTER Blueprint
+                    SAVE RECEIPT BLUEPRINT
                   </button>
                 </div>
               </form>

@@ -40,6 +40,7 @@ export default function ReceiptOutputModal({
 
   const { receipt, lines, payments } = preview;
   const paid = payments.reduce((sum, payment) => sum + payment.amount, 0);
+  const layout = preview.blueprint?.layout || receipt.businessDetails.receiptLayout || preview.format;
   const balance = Math.max(0, receipt.grandTotal - paid);
   const change = Math.max(0, paid - receipt.grandTotal);
   const customerPhone = receipt.customer.customerWhatsApp || receipt.customer.customerPhone || '';
@@ -93,6 +94,7 @@ export default function ReceiptOutputModal({
             <div><span>Date / Time</span><strong>{new Date(receipt.dateTime).toLocaleString()}</strong></div>
             <div><span>Customer</span><strong>{receipt.customer.customerName || 'Walk-in Customer'}</strong></div>
             <div><span>Total</span><strong>{formatReceiptCurrency(receipt.grandTotal)}</strong></div>
+            <div><span>Blueprint</span><strong>{layout}</strong></div>
             <div><span>Paid</span><strong>{formatReceiptCurrency(paid)}</strong></div>
             <div><span>{change > 0 ? 'Change Due' : 'Balance'}</span><strong>{formatReceiptCurrency(change > 0 ? change : balance)}</strong></div>
             {receipt.creditDetails && <div><span>Due Date</span><strong>{new Date(receipt.creditDetails.dueDate).toLocaleDateString()}</strong></div>}

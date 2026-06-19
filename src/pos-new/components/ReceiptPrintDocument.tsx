@@ -11,18 +11,30 @@ export default function ReceiptPrintDocument({ preview, mode = 'screen', instruc
   if (!preview) return null;
 
   const { receipt, lines, payments } = preview;
+  const blueprint = preview.blueprint;
+  const layout = blueprint?.layout || receipt.businessDetails.receiptLayout || 'Thermal Receipt Roll';
   const paid = payments.reduce((sum, payment) => sum + payment.amount, 0);
   const changeDue = Math.max(0, paid - receipt.grandTotal);
   const balanceDue = Math.max(0, receipt.grandTotal - paid);
+  const address = blueprint?.businessAddress || receipt.businessDetails.businessAddress || receipt.businessDetails.address;
+  const contact = blueprint?.contactNumbers || blueprint?.contactInformation || receipt.businessDetails.contactNumbers || receipt.businessDetails.contactInformation || `${receipt.businessDetails.phone} | ${receipt.businessDetails.whatsApp}`;
+  const email = blueprint?.emailAddress || receipt.businessDetails.emailAddress;
+  const social = blueprint?.socialMediaHandles || blueprint?.socialMediaInformation || receipt.businessDetails.socialMediaHandles || receipt.businessDetails.socialMediaInformation;
 
   return (
-    <section id="receipt-print-area" className={`receipt-print-document receipt-print-document--${mode}`} aria-label="Receipt print document">
+    <section id="receipt-print-area" className={`receipt-print-document receipt-print-document--${mode} receipt-print-document--${layout.toLowerCase().replace(/\s+/g, '-')}`} aria-label="Receipt print document">
       {instruction && <div className="receipt-print-instruction no-print">{instruction}</div>}
       <header className="receipt-print-header">
+        {(blueprint?.logoDataUrl || receipt.businessDetails.logoDataUrl) && (
+          <img className="receipt-print-logo" src={blueprint?.logoDataUrl || receipt.businessDetails.logoDataUrl} alt={`${receipt.businessDetails.businessName} logo`} />
+        )}
         <h2>{receipt.businessDetails.businessName}</h2>
-        <p>{receipt.businessDetails.address}</p>
+        {(blueprint?.headerMessage || receipt.businessDetails.headerMessage) && <p className="receipt-print-header-message">{blueprint?.headerMessage || receipt.businessDetails.headerMessage}</p>}
+        <p>{address}</p>
         <p>{receipt.branch} | {receipt.terminal}</p>
-        <p>{receipt.businessDetails.phone} | {receipt.businessDetails.whatsApp}</p>
+        <p>{contact}</p>
+        {email && <p>{email}</p>}
+        {social && <p>{social}</p>}
         {receipt.businessDetails.vatNumber && <p>VAT: {receipt.businessDetails.vatNumber}</p>}
       </header>
 
@@ -87,8 +99,9 @@ export default function ReceiptPrintDocument({ preview, mode = 'screen', instruc
       )}
 
       <footer className="receipt-print-footer">
-        <p>{receipt.businessDetails.footerMessage}</p>
-        <p>Keep this receipt for your records.</p>
+        <p>{blueprint?.footerMessage || receipt.businessDetails.footerMessage}</p>
+        {(blueprint?.termsAndConditions || receipt.businessDetails.termsAndConditions) && <p>{blueprint?.termsAndConditions || receipt.businessDetails.termsAndConditions}</p>}
+        <p>Layout: {layout}</p>
       </footer>
     </section>
   );

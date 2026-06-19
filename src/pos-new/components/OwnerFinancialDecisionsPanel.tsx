@@ -47,8 +47,8 @@ export default function OwnerFinancialDecisionsPanel() {
                     items={[
                       { label: 'Approve Decision', icon: <CheckCircle className="w-3 h-3" />, onClick: () => void updateStatus(decision, 'Approved') },
                       { label: 'Reject Decision', icon: <XCircle className="w-3 h-3" />, danger: true, onClick: () => void updateStatus(decision, 'Rejected') },
-                      { label: 'Convert To Task Placeholder', icon: <FileText className="w-3 h-3" />, onClick: () => void updateStatus(decision, 'ConvertedToTask') },
-                      { label: 'Convert To Approval Placeholder', onClick: () => void updateStatus(decision, 'ConvertedToApproval') }
+                      { label: 'Convert To Task', icon: <FileText className="w-3 h-3" />, onClick: () => void updateStatus(decision, 'ConvertedToTask') },
+                      { label: 'Convert To Approval', onClick: () => void updateStatus(decision, 'ConvertedToApproval') }
                     ]}
                   />
                 </td>

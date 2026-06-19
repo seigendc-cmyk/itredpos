@@ -6,15 +6,25 @@ interface ReceiptPreview80mmProps {
 
 export default function ReceiptPreview80mm({ preview }: ReceiptPreview80mmProps) {
   const { receipt, lines, payments, taxSummary, isReprint } = preview;
+  const blueprint = preview.blueprint;
+  const layout = blueprint?.layout || receipt.businessDetails.receiptLayout || preview.format;
+  const address = blueprint?.businessAddress || receipt.businessDetails.businessAddress || receipt.businessDetails.address;
+  const contact = blueprint?.contactNumbers || blueprint?.contactInformation || receipt.businessDetails.contactNumbers || receipt.businessDetails.contactInformation || `Phone: ${receipt.businessDetails.phone} | WhatsApp: ${receipt.businessDetails.whatsApp}`;
+  const email = blueprint?.emailAddress || receipt.businessDetails.emailAddress;
+  const social = blueprint?.socialMediaHandles || blueprint?.socialMediaInformation || receipt.businessDetails.socialMediaHandles || receipt.businessDetails.socialMediaInformation;
 
   return (
-    <div className="bg-white border-2 border-[#1e222b] p-4 text-[#111827] font-mono w-[320px] max-w-full mx-auto">
+    <div className="bg-white border-2 border-[#1e222b] p-4 text-[#111827] font-mono w-[320px] max-w-full mx-auto receipt-roll-preview">
       <div className="text-center border-b border-dashed border-slate-400 pb-3">
+        {(blueprint?.logoDataUrl || receipt.businessDetails.logoDataUrl) && <img className="receipt-roll-preview__logo" src={blueprint?.logoDataUrl || receipt.businessDetails.logoDataUrl} alt={`${receipt.businessDetails.businessName} logo`} />}
         <div className="text-sm font-black uppercase">{receipt.businessDetails.businessName}</div>
+        {(blueprint?.headerMessage || receipt.businessDetails.headerMessage) && <div className="text-[9px] font-bold uppercase">{blueprint?.headerMessage || receipt.businessDetails.headerMessage}</div>}
         <div className="text-[10px] font-bold uppercase">{receipt.businessDetails.tradingName}</div>
         <div className="text-[9px] mt-1">{receipt.businessDetails.branch}</div>
-        <div className="text-[8px] leading-tight">{receipt.businessDetails.address}</div>
-        <div className="text-[8px]">Phone: {receipt.businessDetails.phone} | WhatsApp: {receipt.businessDetails.whatsApp}</div>
+        <div className="text-[8px] leading-tight">{address}</div>
+        <div className="text-[8px]">{contact}</div>
+        {email && <div className="text-[8px]">{email}</div>}
+        {social && <div className="text-[8px]">{social}</div>}
         {receipt.businessDetails.vatRegistered && <div className="text-[8px] font-bold">VAT No: {receipt.businessDetails.vatNumber}</div>}
         {isReprint && <div className="mt-2 border border-orange-500 text-orange-700 font-black text-[9px] uppercase">Reprint Copy</div>}
       </div>
@@ -70,7 +80,9 @@ export default function ReceiptPreview80mm({ preview }: ReceiptPreview80mmProps)
       <div className="pt-3 text-center text-[8px] space-y-1">
         <div className="font-black uppercase">Fiscalization: {receipt.fiscalizationStatus}</div>
         {receipt.creditDetails && <div>{receipt.creditDetails.reminderNote}</div>}
-        <div>{receipt.businessDetails.footerMessage}</div>
+        <div>{blueprint?.footerMessage || receipt.businessDetails.footerMessage}</div>
+        {(blueprint?.termsAndConditions || receipt.businessDetails.termsAndConditions) && <div>{blueprint?.termsAndConditions || receipt.businessDetails.termsAndConditions}</div>}
+        <div className="font-bold uppercase">Layout: {layout}</div>
       </div>
     </div>
   );

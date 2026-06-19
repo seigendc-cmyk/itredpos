@@ -21,6 +21,22 @@ export default function MoneyInPanel() {
 }
 
 export function ActivityPanel({ title, subtitle, rows, search, setSearch, openId, setOpenId }: { title: string; subtitle: string; rows: FinancialActivityRecord[]; search: string; setSearch: (value: string) => void; openId: string | null; setOpenId: (value: string | null) => void }) {
+  const [notice, setNotice] = useState('');
+  const showLocalAction = (message: string) => setNotice(message);
+  const exportRow = (row: FinancialActivityRecord) => {
+    const csv = [
+      ['Date', 'Activity', 'Source', 'Reference', 'Amount', 'Cash', 'Bank', 'Status'].join(','),
+      [row.activityDate, row.type, row.source, row.sourceReferenceNumber, row.amount, row.cashImpact, row.bankImpact, row.status].map((value) => `"${String(value).replace(/"/g, '""')}"`).join(',')
+    ].join('\n');
+    const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8;' }));
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `${row.activityNumber}-financial-activity.csv`;
+    link.click();
+    URL.revokeObjectURL(url);
+    setNotice(`${row.activityNumber} exported locally.`);
+  };
+
   return (
     <div className="bg-white border border-slate-200">
       <div className="p-4 border-b border-slate-200 flex flex-col md:flex-row md:items-center justify-between gap-3">
@@ -33,6 +49,7 @@ export function ActivityPanel({ title, subtitle, rows, search, setSearch, openId
           <input value={search} onChange={(event) => setSearch(event.target.value)} className="outline-none" placeholder="Search activity" />
         </label>
       </div>
+      {notice && <div className="creditors-notice">{notice}</div>}
       <div className="overflow-x-auto">
         <table className="min-w-full text-xs">
           <thead className="bg-slate-50 text-slate-500 uppercase tracking-wider">
@@ -55,10 +72,10 @@ export function ActivityPanel({ title, subtitle, rows, search, setSearch, openId
                     open={openId === row.activityId}
                     onOpenChange={(open) => setOpenId(open ? row.activityId : null)}
                     items={[
-                      { label: 'View Source Placeholder', icon: <FileText className="w-3 h-3" />, onClick: () => undefined },
-                      { label: 'Review COA Mapping', onClick: () => undefined },
-                      { label: 'Create BI Warning', onClick: () => undefined },
-                      { label: 'Export Row Placeholder', onClick: () => undefined }
+                      { label: 'View Source', icon: <FileText className="w-3 h-3" />, onClick: () => showLocalAction(`${row.activityNumber} source opened in local preview.`) },
+                      { label: 'Review COA Mapping', onClick: () => showLocalAction(`${row.activityNumber} COA mapping marked for review.`) },
+                      { label: 'Create BI Warning', onClick: () => showLocalAction(`${row.activityNumber} BI warning created locally.`) },
+                      { label: 'Export Row', onClick: () => exportRow(row) }
                     ]}
                   />
                 </td>

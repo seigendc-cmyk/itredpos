@@ -17,6 +17,7 @@ interface PosTopbarProps {
   onPageChange: (pageId: PosPageId) => void;
   session?: PosSession;
   onSignOut?: () => void;
+  tenantName?: string;
 }
 
 export default function PosTopbar({
@@ -24,17 +25,20 @@ export default function PosTopbar({
   activeShiftStatus,
   onPageChange,
   session,
-  onSignOut
+  onSignOut,
+  tenantName = 'Tenant'
 }: PosTopbarProps) {
   const [timeStr, setTimeStr] = useState('');
-  const [connectivity, setConnectivity] = useState<'ONLINE' | 'OFFLINE'>('ONLINE');
+  const [connectivity, setConnectivity] = useState<'ONLINE' | 'OFFLINE'>('OFFLINE');
+  const [servicesReachable, setServicesReachable] = useState(false);
   const [pendingCount, setPendingCount] = useState(0);
   const [, setControlCheck] = useState<TerminalControlCheck | null>(null);
 
   useEffect(() => {
     const checkSyncStatus = () => {
       try {
-        const conn = localStorage.getItem('sci_pos_terminal_connectivity') === 'OFFLINE' ? 'OFFLINE' : 'ONLINE';
+        const localOffline = localStorage.getItem('sci_pos_terminal_connectivity') === 'OFFLINE';
+        const conn = localOffline || !servicesReachable || (typeof navigator !== 'undefined' && !navigator.onLine) ? 'OFFLINE' : 'ONLINE';
         setConnectivity(conn);
 
         const dataStr = localStorage.getItem('sci_pos_sync_queue');
@@ -48,7 +52,7 @@ export default function PosTopbar({
           setPendingCount(7);
         }
       } catch {
-        setConnectivity('ONLINE');
+        setConnectivity('OFFLINE');
         setPendingCount(0);
       }
     };
@@ -56,13 +60,13 @@ export default function PosTopbar({
     checkSyncStatus();
     const interval = setInterval(checkSyncStatus, 1500);
     return () => clearInterval(interval);
-  }, []);
+  }, [servicesReachable]);
 
   useEffect(() => {
     if (!session) return;
     const branchId = session.branch.toLowerCase().includes('bulawayo') ? 'BR-BYO' : 'BR-HARARE';
     let mounted = true;
-    runTerminalControlCheck({
+    const runServiceCheck = () => runTerminalControlCheck({
       vendorId: 'SCI-LOG-ZW',
       branchId,
       terminalId: terminalId || session.terminal,
@@ -72,23 +76,21 @@ export default function PosTopbar({
       role: session.role as Role,
       requiresCashDrawer: false
     }).then((check) => {
-      if (mounted) setControlCheck(check);
+      if (mounted) {
+        setControlCheck(check);
+        setServicesReachable(true);
+        setConnectivity(typeof navigator !== 'undefined' && !navigator.onLine ? 'OFFLINE' : 'ONLINE');
+      }
     }).catch(() => {
-      if (mounted) setControlCheck(null);
+      if (mounted) {
+        setControlCheck(null);
+        setServicesReachable(false);
+        setConnectivity('OFFLINE');
+      }
     });
+    runServiceCheck();
     const timer = setInterval(() => {
-      runTerminalControlCheck({
-        vendorId: 'SCI-LOG-ZW',
-        branchId,
-        terminalId: terminalId || session.terminal,
-        terminalName: session.terminal,
-        staffId: session.staffName,
-        staffName: session.staffName,
-        role: session.role as Role,
-        requiresCashDrawer: false
-      }).then((check) => {
-        if (mounted) setControlCheck(check);
-      }).catch(() => undefined);
+      runServiceCheck();
     }, 3000);
     return () => {
       mounted = false;
@@ -120,6 +122,9 @@ export default function PosTopbar({
         <div className="w-8 h-8 border border-orange-500 bg-orange-500/10 flex items-center justify-center shrink-0" title="POS workspace">
           <span className="w-2 h-2 bg-orange-500 block"></span>
         </div>
+        <div className="pos-topbar-title" title={`${tenantName} - iTred Commerce OS`}>
+          {tenantName} - iTred Commerce OS
+        </div>
       </div>
 
       <div className="flex items-center gap-2">
@@ -130,12 +135,14 @@ export default function PosTopbar({
 
         <div className="flex items-center gap-2 text-[10px] text-slate-500 font-mono">
           {connectivity === 'ONLINE' ? (
-            <span className="flex items-center justify-center w-8 h-8 bg-emerald-950 border border-emerald-800 text-emerald-400" title="Online">
+            <span className="pos-service-status pos-service-status--online" title="Backend services reachable">
               <Wifi className="w-3.5 h-3.5" />
+              <strong>ONLINE</strong>
             </span>
           ) : (
-            <span className="flex items-center justify-center w-8 h-8 bg-rose-950 border border-rose-800 text-[#f43f5e]" title="Offline">
+            <span className="pos-service-status pos-service-status--offline" title="Backend services not reachable">
               <WifiOff className="w-3.5 h-3.5" />
+              <strong>OFFLINE</strong>
             </span>
           )}
 

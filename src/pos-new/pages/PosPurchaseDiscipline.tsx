@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import type { PosSession } from '../types';
 import ReorderRequestsPanel from '../components/ReorderRequestsPanel';
 import PurchaseRiskReviewPanel from '../components/PurchaseRiskReviewPanel';
@@ -7,8 +7,11 @@ import COGSBuyingControlPanel from '../components/COGSBuyingControlPanel';
 import ReorderProtectionRulesPanel from '../components/ReorderProtectionRulesPanel';
 import PurchaseBIWarningsPanel from '../components/PurchaseBIWarningsPanel';
 import PurchaseDisciplineActivityPanel from '../components/PurchaseDisciplineActivityPanel';
+import PurchasingDisciplineBIPanel from '../components/PurchasingDisciplineBIPanel';
+import { getPurchasingDisciplineBISummary, type COGSReserveBIControl } from '../services/purchaseDisciplineService';
 
 type PurchaseDisciplineTab =
+  | 'BI Overview'
   | 'Reorder Requests'
   | 'Purchase Risk Review'
   | 'Supplier Commitments'
@@ -17,23 +20,43 @@ type PurchaseDisciplineTab =
   | 'Purchase BI Warnings'
   | 'Activity / Audit';
 
-const tabs: PurchaseDisciplineTab[] = ['Reorder Requests', 'Purchase Risk Review', 'Supplier Commitments', 'COGS Buying Control', 'Reorder Protection Rules', 'Purchase BI Warnings', 'Activity / Audit'];
+const tabs: PurchaseDisciplineTab[] = ['BI Overview', 'Reorder Requests', 'Purchase Risk Review', 'Supplier Commitments', 'COGS Buying Control', 'Reorder Protection Rules', 'Purchase BI Warnings', 'Activity / Audit'];
+const money = (value: number) => `$${value.toFixed(2)}`;
 
 export default function PosPurchaseDiscipline({ session }: { session?: PosSession | null }) {
-  const [activeTab, setActiveTab] = useState<PurchaseDisciplineTab>('Reorder Requests');
+  const [activeTab, setActiveTab] = useState<PurchaseDisciplineTab>('BI Overview');
+  const [cogsSummary, setCogsSummary] = useState<COGSReserveBIControl | null>(null);
+
+  useEffect(() => {
+    void getPurchasingDisciplineBISummary().then((summary) => setCogsSummary(summary.cogs));
+  }, [activeTab]);
+
   return (
     <div className="pos-page creditors-page">
       <header className="pos-page-header">
         <div>
-          <span className="pos-page-kicker">Build 19AQ</span>
-          <h1>Purchase Discipline</h1>
-          <p>Reorder protection, supplier commitments, COGS buying controls, risk scoring, approvals and BI warnings.</p>
+          <span className="pos-page-kicker">Build 19AY</span>
+          <h1>Purchasing Discipline</h1>
+          <p>Supplier analytics, product buying intelligence, COGS reserve health, configurable rules and BI drill-down reports.</p>
         </div>
-        <div className="creditors-session-chip">{session?.staffName || 'Local User'} · {session?.role || 'Build Development'}</div>
+        <div className="creditors-session-chip">{session?.staffName || 'Local User'} - {session?.role || 'Build Development'}</div>
       </header>
+
+      {cogsSummary && (
+        <section className="pd-bi-fixed-summary" aria-label="COGS reserve health summary">
+          <div><span>COGS health score</span><strong>{cogsSummary.cogsHealthScore}</strong><small>{cogsSummary.cogsHealthStatus} control risk</small></div>
+          <div><span>COGS reserve balance</span><strong>{money(cogsSummary.cogsReserveBalance)}</strong><small>Protected replenishment reserve</small></div>
+          <div><span>Supplier commitments</span><strong>{money(cogsSummary.supplierCommitments)}</strong><small>Active exposure</small></div>
+          <div><span>Cash available</span><strong>{money(cogsSummary.cashAvailable)}</strong><small>After commitments and supplier bills</small></div>
+          <button type="button" onClick={() => setActiveTab('BI Overview')}>Open BI overview</button>
+        </section>
+      )}
+
       <nav className="creditors-tabs" aria-label="Purchase Discipline tabs">
         {tabs.map((tab) => <button key={tab} className={activeTab === tab ? 'active' : ''} onClick={() => setActiveTab(tab)}>{tab}</button>)}
       </nav>
+
+      {activeTab === 'BI Overview' && <PurchasingDisciplineBIPanel onOpenReport={setActiveTab} />}
       {activeTab === 'Reorder Requests' && <ReorderRequestsPanel />}
       {activeTab === 'Purchase Risk Review' && <PurchaseRiskReviewPanel />}
       {activeTab === 'Supplier Commitments' && <SupplierCommitmentsPanel />}

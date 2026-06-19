@@ -1,4 +1,6 @@
+import { useState } from 'react';
 import type { InventoryImportValidationIssue } from '../types/posTypes';
+import RowActionMenu, { type RowActionMenuItem } from './RowActionMenu';
 
 export default function InventoryImportIssueReport({
   issues,
@@ -9,6 +11,12 @@ export default function InventoryImportIssueReport({
   onCreateTask: (issue: InventoryImportValidationIssue) => void;
   onCreateBIWarning: (issue: InventoryImportValidationIssue) => void;
 }) {
+  const [openMenuId, setOpenMenuId] = useState<string | null>(null);
+  const issueActions = (issue: InventoryImportValidationIssue): RowActionMenuItem[] => [
+    { id: 'task', label: 'Create Task', onClick: () => onCreateTask(issue) },
+    { id: 'bi', label: 'Create BI Warning', onClick: () => onCreateBIWarning(issue) }
+  ];
+
   const exportCsv = () => {
     const csv = [
       'Severity,Row,Field,Code,Message,Recommended Action',
@@ -47,7 +55,7 @@ export default function InventoryImportIssueReport({
             {issues.map((issue) => (
               <tr key={issue.issueId}>
                 <td>{issue.severity}</td><td>{issue.rowNumber || '-'}</td><td>{issue.fieldKey || '-'}</td><td>{issue.code}</td><td>{issue.message}</td><td>{issue.recommendedAction}</td>
-                <td className="pos-approval-actions"><button className="sci-pos-button sci-pos-button--secondary" onClick={() => onCreateTask(issue)}>Create Task</button><button className="sci-pos-button sci-pos-button--secondary" onClick={() => onCreateBIWarning(issue)}>Create BI Warning</button></td>
+                <td className="pos-approval-actions"><RowActionMenu rowId={issue.issueId} ariaLabel={`Issue actions for ${issue.code}`} open={openMenuId === issue.issueId} onOpenChange={(open) => setOpenMenuId(open ? issue.issueId : null)} items={issueActions(issue)} /></td>
               </tr>
             ))}
             {issues.length === 0 && <tr><td colSpan={7} className="sci-pos-empty-cell">No validation issues.</td></tr>}

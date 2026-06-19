@@ -1,4 +1,5 @@
 import {
+  ProductImportDataCategory,
   IndustrialSectorCode,
   IndustrialSectorMappingTemplate,
   OpeningBalanceDraftFromImport,
@@ -8,6 +9,7 @@ import {
   ProductImportColumnMapping,
   ProductImportDuplicateAction,
   ProductImportFilterState,
+  ProductImportMode,
   ProductImportPreviewSummary,
   ProductImportRow,
   ProductImportRowStatus,
@@ -25,7 +27,7 @@ import {
   mockProductMasterRecords
 } from '../mock/mockPosData';
 import { createOperationalApproval } from './approvalService';
-import { createProductMasterDraft, getProductMasterRecords } from './productMasterService';
+import { createProductMasterDraft, deleteProductMasterPlaceholder, getProductMasterById, getProductMasterRecords, updateProductMasterPlaceholder } from './productMasterService';
 import { enqueueOfflineAction, getNetworkStatus } from './offlineSyncService';
 
 const BATCH_KEY = 'itred_pos_product_import_batches_v1';
@@ -33,12 +35,30 @@ const ROW_KEY = 'itred_pos_product_import_rows_v1';
 const MAPPING_KEY = 'itred_pos_product_import_mappings_v1';
 const ACTIVITY_KEY = 'itred_pos_product_import_activity_v1';
 const OPENING_BALANCE_DRAFT_KEY = 'itred_pos_product_import_opening_balance_drafts_v1';
+const IMPORT_EXECUTION_LOG_KEY = 'itred_pos_product_import_execution_logs_v1';
 
 let ramBatches = [...mockProductImportBatches];
 let ramRows = [...mockProductImportRows];
 let ramMappings = [...mockProductImportColumnMappings];
 let ramActivity = [...mockProductImportActivityEvents];
 let ramOpeningBalanceDrafts: OpeningBalanceDraftFromImport[] = [...mockOpeningBalanceDraftsFromImport];
+
+interface ProductImportExecutionLog {
+  logId: string;
+  batchId: string;
+  batchNumber: string;
+  importMode: ProductImportMode;
+  dataCategory: ProductImportDataCategory;
+  createdProductIds: string[];
+  updatedProducts: Array<{ productId: string; snapshot: ProductMasterRecord }>;
+  openingDraftIds: string[];
+  importedRowIds: string[];
+  status: 'Imported' | 'Rolled Back';
+  summary: string;
+  createdAt: string;
+  rolledBackAt?: string;
+  rolledBackByStaffId?: string;
+}
 
 function storageAvailable(): boolean {
   try {
@@ -117,6 +137,21 @@ function openingDrafts(): OpeningBalanceDraftFromImport[] {
 
 function saveOpeningDrafts(next: OpeningBalanceDraftFromImport[]): OpeningBalanceDraftFromImport[] {
   return writeList(OPENING_BALANCE_DRAFT_KEY, next, (value) => { ramOpeningBalanceDrafts = value; });
+}
+
+function importExecutionLogs(): ProductImportExecutionLog[] {
+  return readList(IMPORT_EXECUTION_LOG_KEY, [], []);
+}
+
+function saveImportExecutionLogs(next: ProductImportExecutionLog[]): ProductImportExecutionLog[] {
+  if (storageAvailable()) {
+    try {
+      localStorage.setItem(IMPORT_EXECUTION_LOG_KEY, JSON.stringify(next));
+    } catch {
+      // Local execution log best effort only.
+    }
+  }
+  return next;
 }
 
 function now(): string {
@@ -211,6 +246,21 @@ function parseNumber(value: unknown): number | undefined {
   return Number.isFinite(parsed) ? parsed : undefined;
 }
 
+function inferImportMode(batch: ProductImportBatch): ProductImportMode {
+  return batch.importMode || (batch.notes.includes('Update Existing Inventory List') ? 'Update Existing Inventory List' : 'New Import');
+}
+
+function inferDataCategory(batch: ProductImportBatch): ProductImportDataCategory {
+  return batch.dataCategory || (batch.notes.includes('Images') ? 'Images' : batch.notes.includes('Vendors') ? 'Vendors' : batch.notes.includes('Customers') ? 'Customers' : 'Inventory List');
+}
+
+function deriveRowStatus(row: ProductImportRow): ProductImportRowStatus {
+  if (row.validationIssues.some((issue) => issue.severity === 'Error')) return 'Error';
+  if (row.duplicateProductId && row.duplicateAction === 'Hold For Review') return 'Duplicate';
+  if (row.validationIssues.some((issue) => issue.severity === 'Warning')) return 'Warning';
+  return 'Valid';
+}
+
 function splitCsvLine(line: string): string[] {
   const values: string[] = [];
   let current = '';
@@ -284,8 +334,12 @@ export async function createProductImportBatch(payload: {
   branchId: string;
   warehouseId: string;
   industrialSectorCode: IndustrialSectorCode;
+  importMode?: ProductImportMode;
+  dataCategory?: ProductImportDataCategory;
   source: ProductImportSource;
   fileName?: string;
+  worksheetName?: string;
+  startRowNumber?: number;
   uploadedByStaffId: string;
   uploadedByStaffName: string;
   notes?: string;
@@ -297,9 +351,13 @@ export async function createProductImportBatch(payload: {
     branchId: payload.branchId,
     warehouseId: payload.warehouseId,
     industrialSectorCode: payload.industrialSectorCode,
+    importMode: payload.importMode || 'New Import',
+    dataCategory: payload.dataCategory || 'Inventory List',
     source: payload.source,
     status: 'Draft',
     fileName: payload.fileName,
+    worksheetName: payload.worksheetName || 'Sheet1',
+    startRowNumber: payload.startRowNumber || 1,
     uploadedByStaffId: payload.uploadedByStaffId,
     uploadedByStaffName: payload.uploadedByStaffName,
     totalRows: 0,
@@ -351,14 +409,14 @@ export async function parseCSVTextPlaceholder(batchId: string, csvText: string):
   });
   saveRows([...existingRows, ...parsedRows]);
   await autoSuggestColumnMappings(batchId, batch.industrialSectorCode);
-  addActivity({ batchId, eventType: 'PRODUCT_IMPORT_FILE_PARSED_PLACEHOLDER', message: `CSV/paste placeholder parsed ${parsedRows.length} row(s).`, staffId: batch.uploadedByStaffId, staffName: batch.uploadedByStaffName });
+  addActivity({ batchId, eventType: 'PRODUCT_IMPORT_FILE_PARSED_PLACEHOLDER', message: `Source file parsed ${parsedRows.length} row(s).`, staffId: batch.uploadedByStaffId, staffName: batch.uploadedByStaffName });
   updateBatchCounts(batchId, 'Mapping');
   return parsedRows;
 }
 
 export async function parseExcelUploadPlaceholder(batchId: string, fileMeta: { fileName: string; size?: number }): Promise<ProductImportBatch | undefined> {
-  const updated = saveBatches(batches().map((batch) => batch.batchId === batchId ? { ...batch, fileName: fileMeta.fileName, source: 'Excel Upload Placeholder', status: 'Mapping', notes: 'Excel parser will be connected later. CSV paste/import is available for build-development.', updatedAt: now() } : batch)).find((batch) => batch.batchId === batchId);
-  if (updated) addActivity({ batchId, eventType: 'PRODUCT_IMPORT_FILE_PARSED_PLACEHOLDER', message: 'Excel parser will be connected later. CSV paste/import is available for build-development.', staffId: updated.uploadedByStaffId, staffName: updated.uploadedByStaffName });
+  const updated = saveBatches(batches().map((batch) => batch.batchId === batchId ? { ...batch, fileName: fileMeta.fileName, source: 'Excel Upload', status: 'Mapping', notes: 'Excel upload registered locally. Worksheet data can be pasted/exported for local validation and import processing.', updatedAt: now() } : batch)).find((batch) => batch.batchId === batchId);
+  if (updated) addActivity({ batchId, eventType: 'PRODUCT_IMPORT_FILE_PARSED_PLACEHOLDER', message: 'Excel upload registered locally for worksheet selection and mapping.', staffId: updated.uploadedByStaffId, staffName: updated.uploadedByStaffName });
   return updated;
 }
 
@@ -417,8 +475,8 @@ export async function validateImportRow(row: ProductImportRow, sectorTemplate?: 
   if (sectorTemplate?.industrialSectorCode === 'MOTOR_SPARES' && (!mapped.make || !mapped.model || !mapped.side)) addIssue('make/model/side', 'Sector Warning', 'Motor spares should include make, model, and side where applicable.', 'Warning', 'Map fitment fields or confirm universal item.');
   if (sectorTemplate?.industrialSectorCode === 'HARDWARE' && (!mapped.productCategory && !mapped.category || !mapped.unitOfMeasure)) addIssue('category/unitOfMeasure', 'Sector Warning', 'Hardware should include category and unit of measure.', 'Warning', 'Apply defaults for category and unit.');
   if (sectorTemplate?.industrialSectorCode === 'GROCERY' && !mapped.unitOfMeasure) addIssue('unitOfMeasure', 'Sector Warning', 'Grocery products should include unit of measure.', 'Warning', 'Map unit or apply default unit.');
-  if (sectorTemplate?.industrialSectorCode === 'PHARMACY' && (!mapped.batchNumber && !mapped.expiryDate)) addIssue('expiry/batch', 'Sector Warning', 'Pharmacy import should include expiry and batch placeholders.', 'Warning', 'Add expiry and batch columns before future pharmacy posting.');
-  if (sectorTemplate?.industrialSectorCode === 'SOLAR_PRODUCTS' && !mapped.wattage && !mapped.batteryCapacity && !mapped.capacity) addIssue('wattage/capacity', 'Sector Warning', 'Solar products should include wattage or capacity placeholder.', 'Warning', 'Map wattage, battery capacity, panel type, or inverter type field.');
+  if (sectorTemplate?.industrialSectorCode === 'PHARMACY' && (!mapped.batchNumber && !mapped.expiryDate)) addIssue('expiry/batch', 'Sector Warning', 'Pharmacy import should include expiry and batch fields.', 'Warning', 'Add expiry and batch columns before future pharmacy posting.');
+  if (sectorTemplate?.industrialSectorCode === 'SOLAR_PRODUCTS' && !mapped.wattage && !mapped.batteryCapacity && !mapped.capacity) addIssue('wattage/capacity', 'Sector Warning', 'Solar products should include wattage or capacity fields.', 'Warning', 'Map wattage, battery capacity, panel type, or inverter type field.');
   const duplicate = await detectDuplicateProduct({ ...row, validationIssues: issues });
   const status: ProductImportRowStatus = issues.some((issue) => issue.severity === 'Error') ? 'Error' : duplicate ? 'Duplicate' : issues.some((issue) => issue.severity === 'Warning') ? 'Warning' : 'Valid';
   return { ...row, validationIssues: issues, duplicateProductId: duplicate?.productId, duplicateAction: duplicate ? 'Hold For Review' : row.duplicateAction === 'Hold For Review' ? 'Create New Product' : row.duplicateAction, status };
@@ -578,6 +636,67 @@ export async function createProductDraftFromImportRow(row: ProductImportRow): Pr
   });
 }
 
+async function findProductForUpdate(row: ProductImportRow): Promise<ProductMasterRecord | undefined> {
+  if (row.duplicateProductId) {
+    const exact = await getProductMasterById(row.duplicateProductId);
+    if (exact) return exact;
+  }
+  return detectDuplicateProduct(row);
+}
+
+export async function updateProductFromImportRow(productId: string, row: ProductImportRow, staffId: string): Promise<ProductMasterRecord | null> {
+  const existing = await getProductMasterById(productId);
+  if (!existing) return null;
+  const mapped = row.mappedProduct;
+  return updateProductMasterPlaceholder(productId, {
+    productName: String(mapped.productName || existing.productName),
+    barcode: mapped.barcode ? String(mapped.barcode) : existing.barcode,
+    alu: mapped.alu ? String(mapped.alu) : existing.alu,
+    vendorSku: mapped.vendorSku ? String(mapped.vendorSku) : existing.vendorSku,
+    description: mapped.description ? String(mapped.description) : existing.description,
+    brand: mapped.brand ? String(mapped.brand) : existing.brand,
+    manufacturer: mapped.manufacturer ? String(mapped.manufacturer) : existing.manufacturer,
+    supplierName: mapped.supplierName ? String(mapped.supplierName) : existing.supplierName,
+    supplierItemCode: mapped.supplierItemCode ? String(mapped.supplierItemCode) : existing.supplierItemCode,
+    industrialSector: String(mapped.industrialSectorCode || mapped.industrialSector || existing.industrialSector || existing.sectorAttributes.sector),
+    productCategory: String(mapped.productCategory || mapped.category || existing.productCategory || existing.category),
+    productSubCategory: mapped.productSubCategory ? String(mapped.productSubCategory) : existing.productSubCategory,
+    category: String(mapped.productCategory || mapped.category || existing.category),
+    unitOfMeasure: String(mapped.unitOfMeasure || existing.unitOfMeasure || 'pcs'),
+    condition: mapped.condition ? String(mapped.condition) : existing.condition,
+    colour: mapped.colour ? String(mapped.colour) : existing.colour,
+    make: mapped.make ? String(mapped.make) : existing.make,
+    model: mapped.model ? String(mapped.model) : existing.model,
+    yearFrom: mapped.yearFrom ? String(mapped.yearFrom) : existing.yearFrom,
+    yearTo: mapped.yearTo ? String(mapped.yearTo) : existing.yearTo,
+    side: mapped.side ? String(mapped.side) : existing.side,
+    partNumber: mapped.partNumber ? String(mapped.partNumber) : existing.partNumber,
+    oemNumber: mapped.oemNumber ? String(mapped.oemNumber) : existing.oemNumber,
+    defaultSellingPrice: parseNumber(mapped.sellingPrice) ?? existing.defaultSellingPrice,
+    defaultCostPrice: parseNumber(mapped.costPrice) ?? existing.defaultCostPrice,
+    reorderLevel: parseNumber(mapped.reorderLevel) ?? existing.reorderLevel,
+    reorderQty: parseNumber(mapped.reorderQty) ?? existing.reorderQty,
+    imageUrl: mapped.imageUrl ? String(mapped.imageUrl) : existing.imageUrl,
+    sectorAttributes: {
+      ...existing.sectorAttributes,
+      sector: String(mapped.industrialSectorCode || mapped.industrialSector || existing.sectorAttributes.sector),
+      productCategory: String(mapped.productCategory || mapped.category || existing.sectorAttributes.productCategory),
+      productSubCategory: mapped.productSubCategory ? String(mapped.productSubCategory) : existing.sectorAttributes.productSubCategory,
+      brand: mapped.brand ? String(mapped.brand) : existing.sectorAttributes.brand,
+      manufacturer: mapped.manufacturer ? String(mapped.manufacturer) : existing.sectorAttributes.manufacturer,
+      make: mapped.make ? String(mapped.make) : existing.sectorAttributes.make,
+      model: mapped.model ? String(mapped.model) : existing.sectorAttributes.model,
+      yearFrom: mapped.yearFrom ? String(mapped.yearFrom) : existing.sectorAttributes.yearFrom,
+      yearTo: mapped.yearTo ? String(mapped.yearTo) : existing.sectorAttributes.yearTo,
+      side: mapped.side ? String(mapped.side) : existing.sectorAttributes.side,
+      partNumber: mapped.partNumber ? String(mapped.partNumber) : existing.sectorAttributes.partNumber,
+      oemNumber: mapped.oemNumber ? String(mapped.oemNumber) : existing.sectorAttributes.oemNumber,
+      imageUrl: mapped.imageUrl ? String(mapped.imageUrl) : existing.sectorAttributes.imageUrl,
+      supplierName: mapped.supplierName ? String(mapped.supplierName) : existing.sectorAttributes.supplierName
+    }
+  }, staffId);
+}
+
 export async function createOpeningBalanceDraftFromImportRow(row: ProductImportRow): Promise<OpeningBalanceDraftFromImport | undefined> {
   const qty = parseNumber(row.mappedProduct.qty);
   if (!qty || qty <= 0) return undefined;
@@ -609,15 +728,63 @@ export async function importApprovedBatch(batchId: string, staffId: string): Pro
   const batchRows = await getProductImportRows(batchId);
   if (batchRows.some((row) => row.status === 'Duplicate' && row.duplicateAction === 'Hold For Review')) return batch;
   const importableRows = batchRows.filter((row) => row.status !== 'Error' && row.status !== 'Skipped' && row.duplicateAction !== 'Hold For Review');
+  const createdProductIds: string[] = [];
+  const updatedProducts: Array<{ productId: string; snapshot: ProductMasterRecord }> = [];
+  const createdOpeningDraftIds: string[] = [];
   let imported = 0;
+  const importMode = inferImportMode(batch);
+  const dataCategory = inferDataCategory(batch);
   for (const row of importableRows) {
-    await createProductDraftFromImportRow(row);
-    await createOpeningBalanceDraftFromImportRow(row);
+    if (dataCategory === 'Inventory List') {
+      if (importMode === 'Update Existing Inventory List') {
+        const existing = await findProductForUpdate(row);
+        if (existing) {
+          updatedProducts.push({ productId: existing.productId, snapshot: existing });
+          await updateProductFromImportRow(existing.productId, row, staffId);
+        } else {
+          const created = await createProductDraftFromImportRow(row);
+          createdProductIds.push(created.productId);
+        }
+      } else {
+        const created = await createProductDraftFromImportRow(row);
+        createdProductIds.push(created.productId);
+      }
+      const draft = await createOpeningBalanceDraftFromImportRow(row);
+      if (draft) createdOpeningDraftIds.push(draft.draftId);
+    } else if (dataCategory === 'Images') {
+      const existing = await findProductForUpdate(row);
+      if (existing) {
+        updatedProducts.push({ productId: existing.productId, snapshot: existing });
+        await updateProductFromImportRow(existing.productId, row, staffId);
+      }
+    }
     imported += 1;
   }
   saveRows(rows().map((row) => row.batchId === batchId && importableRows.some((item) => item.rowId === row.rowId) ? { ...row, status: 'Imported' } : row));
   const updated = updateBatchCounts(batchId, imported === batch.totalRows ? 'Imported' : 'Partially Imported');
-  addActivity({ batchId, eventType: 'PRODUCT_IMPORT_BATCH_IMPORTED', message: `${imported} product draft(s) created. Imported quantities created opening balance drafts only.`, staffId });
+  const summary = dataCategory === 'Inventory List'
+    ? `${createdProductIds.length} draft product(s) created, ${updatedProducts.length} product(s) updated, ${createdOpeningDraftIds.length} opening balance draft(s) created.`
+    : dataCategory === 'Images'
+      ? `${updatedProducts.length} product image/profile record(s) updated locally.`
+      : `${imported} ${dataCategory.toLowerCase()} row(s) staged locally with safe non-posting logic.`;
+  saveImportExecutionLogs([
+    {
+      logId: makeId('PIM-LOG'),
+      batchId,
+      batchNumber: batch.batchNumber,
+      importMode,
+      dataCategory,
+      createdProductIds,
+      updatedProducts,
+      openingDraftIds: createdOpeningDraftIds,
+      importedRowIds: importableRows.map((row) => row.rowId),
+      status: 'Imported',
+      summary,
+      createdAt: now()
+    },
+    ...importExecutionLogs()
+  ]);
+  addActivity({ batchId, eventType: 'PRODUCT_IMPORT_BATCH_IMPORTED', message: summary, staffId });
   if ((await getNetworkStatus()) !== 'Online') {
     await enqueueOfflineAction({
       vendorId: batch.vendorId,
@@ -634,6 +801,34 @@ export async function importApprovedBatch(batchId: string, staffId: string): Pro
       notes: 'Approved import completed locally and queued for sync. No stock posted.'
     });
   }
+  return updated;
+}
+
+export async function rollbackImportedBatch(batchId: string, staffId: string): Promise<ProductImportBatch | undefined> {
+  const batch = await getProductImportBatchById(batchId);
+  if (!batch) return undefined;
+  const logs = importExecutionLogs();
+  const log = logs.find((entry) => entry.batchId === batchId && entry.status === 'Imported');
+  if (!log) return batch;
+
+  for (const productId of log.createdProductIds) {
+    await deleteProductMasterPlaceholder(productId, staffId);
+  }
+  for (const updatedRow of log.updatedProducts) {
+    await updateProductMasterPlaceholder(updatedRow.productId, updatedRow.snapshot, staffId);
+  }
+  if (log.openingDraftIds.length) {
+    saveOpeningDrafts(openingDrafts().filter((draft) => !log.openingDraftIds.includes(draft.draftId)));
+  }
+
+  const restoredRows = rows().map((row) => {
+    if (row.batchId !== batchId || !log.importedRowIds.includes(row.rowId)) return row;
+    return { ...row, status: deriveRowStatus(row) };
+  });
+  saveRows(restoredRows);
+  saveImportExecutionLogs(logs.map((entry) => entry.logId === log.logId ? { ...entry, status: 'Rolled Back', rolledBackAt: now(), rolledBackByStaffId: staffId } : entry));
+  const updated = updateBatchCounts(batchId, 'Approved');
+  addActivity({ batchId, eventType: 'PRODUCT_IMPORT_BATCH_ROLLED_BACK', message: `Import rollback completed. Created drafts removed and updated records restored where possible.`, staffId });
   return updated;
 }
 

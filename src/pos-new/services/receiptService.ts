@@ -9,6 +9,7 @@ import {
   ReceiptPaymentLine,
   ReceiptPrintPreview,
   ReceiptRecord,
+  ReceiptSetting,
   ReceiptSequenceControl,
   ReceiptStatus,
   Sale,
@@ -70,6 +71,24 @@ const PAYMENTS_KEY = 'itred_pos_receipt_payments_v1';
 const SEQUENCE_KEY = 'itred_pos_receipt_sequence_v1';
 const FISCAL_KEY = 'itred_pos_fiscal_placeholder_v1';
 const AUDIT_KEY = 'itred_pos_receipt_audit_v1';
+const RECEIPT_SETTING_KEY = 'itred_pos_receipt_setting';
+
+const DEFAULT_RECEIPT_BLUEPRINT: ReceiptSetting = {
+  header: 'INDUSTRIAL HEAVY MACHINE SUPPLY',
+  footer: 'THANK YOU FOR YOUR PATRONAGE. SECURE TRANSACTION CORES.',
+  slipWidth: '32_COLUMNS (STANDARD_SLIP)',
+  showTaxBreakdown: true,
+  layout: 'Thermal Receipt Roll',
+  headerMessage: 'INDUSTRIAL HEAVY MACHINE SUPPLY',
+  footerMessage: 'THANK YOU FOR YOUR PATRONAGE. SECURE TRANSACTION CORES.',
+  termsAndConditions: 'Goods may be returned according to store policy with a valid receipt.',
+  businessAddress: '12 Enterprise Road, Harare',
+  contactNumbers: '+263 242 000 100 | +263 77 000 0100',
+  emailAddress: 'sales@itredcommerce.local',
+  socialMediaHandles: '@itredcommerce',
+  contactInformation: '+263 242 000 100 | +263 77 000 0100',
+  socialMediaInformation: '@itredcommerce'
+};
 
 function readList<T>(key: string, fallback: T[]): T[] {
   const raw = localStorage.getItem(key);
@@ -89,6 +108,28 @@ function readList<T>(key: string, fallback: T[]): T[] {
 function saveList<T>(key: string, value: T[]): T[] {
   localStorage.setItem(key, JSON.stringify(value));
   return value;
+}
+
+export function getActiveReceiptBlueprint(): ReceiptSetting {
+  try {
+    const raw = localStorage.getItem(RECEIPT_SETTING_KEY);
+    const stored: Partial<ReceiptSetting> = raw ? JSON.parse(raw) as ReceiptSetting : {};
+    return {
+      ...DEFAULT_RECEIPT_BLUEPRINT,
+      ...stored,
+      footerMessage: stored.footerMessage || stored.footer || DEFAULT_RECEIPT_BLUEPRINT.footerMessage,
+      headerMessage: stored.headerMessage || stored.header || DEFAULT_RECEIPT_BLUEPRINT.headerMessage,
+      businessAddress: stored.businessAddress || DEFAULT_RECEIPT_BLUEPRINT.businessAddress,
+      contactNumbers: stored.contactNumbers || stored.contactInformation || DEFAULT_RECEIPT_BLUEPRINT.contactNumbers,
+      emailAddress: stored.emailAddress || DEFAULT_RECEIPT_BLUEPRINT.emailAddress,
+      socialMediaHandles: stored.socialMediaHandles || stored.socialMediaInformation || DEFAULT_RECEIPT_BLUEPRINT.socialMediaHandles,
+      contactInformation: stored.contactInformation || stored.contactNumbers || DEFAULT_RECEIPT_BLUEPRINT.contactInformation,
+      socialMediaInformation: stored.socialMediaInformation || stored.socialMediaHandles || DEFAULT_RECEIPT_BLUEPRINT.socialMediaInformation,
+      layout: stored.layout || 'Thermal Receipt Roll'
+    };
+  } catch {
+    return DEFAULT_RECEIPT_BLUEPRINT;
+  }
 }
 
 function addAudit(eventType: ReceiptAuditEventType, receiptNumber: string, message: string, operator = 'Admin User'): ReceiptAuditEvent[] {
@@ -160,6 +201,7 @@ export function formatReceiptCurrency(value: number): string {
 }
 
 export async function createReceiptFromSale(payload: ReceiptSalePayload): Promise<ReceiptRecord> {
+  const blueprint = getActiveReceiptBlueprint();
   const receiptNumber = await generateReceiptNumber(payload.branchId, payload.terminal);
   const now = payload.sale.date || new Date().toISOString();
   const lines: ReceiptLine[] = payload.sale.items.map((item, index) => ({
@@ -205,12 +247,22 @@ export async function createReceiptFromSale(payload: ReceiptSalePayload): Promis
       tradingName: payload.businessVendor,
       vendorId: payload.vendorId,
       branch: payload.branch,
-      address: payload.branch === 'Bulawayo Branch' ? '4 Plumtree Road, Bulawayo' : '12 Enterprise Road, Harare',
+      address: blueprint.businessAddress || (payload.branch === 'Bulawayo Branch' ? '4 Plumtree Road, Bulawayo' : '12 Enterprise Road, Harare'),
       phone: '+263 242 000 100',
       whatsApp: '+263 77 000 0100',
       vatNumber: 'VAT-ZW-82190B',
       vatRegistered: payload.vatMode !== 'Not VAT Registered',
-      footerMessage: 'Thank you for shopping with Demo Vendor.'
+      footerMessage: blueprint.footerMessage || blueprint.footer,
+      logoDataUrl: blueprint.logoDataUrl,
+      headerMessage: blueprint.headerMessage || blueprint.header,
+      termsAndConditions: blueprint.termsAndConditions,
+      businessAddress: blueprint.businessAddress,
+      contactNumbers: blueprint.contactNumbers,
+      emailAddress: blueprint.emailAddress,
+      socialMediaHandles: blueprint.socialMediaHandles,
+      contactInformation: blueprint.contactInformation || blueprint.contactNumbers,
+      socialMediaInformation: blueprint.socialMediaInformation || blueprint.socialMediaHandles,
+      receiptLayout: blueprint.layout || 'Thermal Receipt Roll'
     },
     subtotal: payload.sale.subtotal,
     discountTotal: payload.sale.discount,
@@ -283,15 +335,19 @@ export function prepareReceiptPdfPrintPayload(receipt: ReceiptRecord): ReceiptRe
 export function prepareReceiptWhatsAppMessage(receipt: ReceiptRecord, phone: string): string {
   addAudit('RECEIPT_WHATSAPP_SHARE_PREPARED', receipt.receiptNumber, `Receipt ${receipt.receiptNumber} WhatsApp share prepared for ${phone}.`, receipt.cashier);
   const status = receipt.status === 'Completed' ? 'Paid/Completed' : receipt.status;
+  const contact = receipt.businessDetails.contactNumbers || receipt.businessDetails.contactInformation;
+  const email = receipt.businessDetails.emailAddress;
   return [
-    `Thank you for shopping with ${receipt.businessDetails.businessName}.`,
+    receipt.businessDetails.footerMessage || `Thank you for shopping with ${receipt.businessDetails.businessName}.`,
     `Receipt ${receipt.receiptNumber}, ${new Date(receipt.dateTime).toLocaleDateString()}.`,
     `Total ${formatReceiptCurrency(receipt.grandTotal)}.`,
     receipt.creditDetails ? `Balance due ${formatReceiptCurrency(receipt.creditDetails.balanceDue)} by ${new Date(receipt.creditDetails.dueDate).toLocaleDateString()}.` : '',
     receipt.creditDetails ? 'Please settle your account by the due date.' : '',
     `Payment status: ${status}.`,
     receipt.customer.deliveryAddress ? `Delivery: ${receipt.customer.deliveryAddress}.` : '',
-    'Please keep this message for your records.'
+    receipt.businessDetails.termsAndConditions || 'Please keep this message for your records.',
+    contact ? `Contact: ${contact}.` : '',
+    email ? `Email: ${email}.` : ''
   ].filter(Boolean).join(' ');
 }
 
@@ -309,7 +365,21 @@ export async function getReceiptPreview(receiptNumber: string, format: ReceiptFo
     lines,
     payments,
     taxSummary: calculateReceiptTaxSummary(lines, receipt.businessDetails.vatRegistered ? 'Inclusive' : 'Not VAT Registered', 15),
-    format,
+    format: receipt.businessDetails.receiptLayout || format,
+    blueprint: {
+      ...getActiveReceiptBlueprint(),
+      logoDataUrl: receipt.businessDetails.logoDataUrl || getActiveReceiptBlueprint().logoDataUrl,
+      headerMessage: receipt.businessDetails.headerMessage || getActiveReceiptBlueprint().headerMessage,
+      footerMessage: receipt.businessDetails.footerMessage || getActiveReceiptBlueprint().footerMessage,
+      termsAndConditions: receipt.businessDetails.termsAndConditions || getActiveReceiptBlueprint().termsAndConditions,
+      businessAddress: receipt.businessDetails.businessAddress || receipt.businessDetails.address || getActiveReceiptBlueprint().businessAddress,
+      contactNumbers: receipt.businessDetails.contactNumbers || getActiveReceiptBlueprint().contactNumbers,
+      emailAddress: receipt.businessDetails.emailAddress || getActiveReceiptBlueprint().emailAddress,
+      socialMediaHandles: receipt.businessDetails.socialMediaHandles || getActiveReceiptBlueprint().socialMediaHandles,
+      contactInformation: receipt.businessDetails.contactInformation || receipt.businessDetails.contactNumbers || getActiveReceiptBlueprint().contactInformation,
+      socialMediaInformation: receipt.businessDetails.socialMediaInformation || receipt.businessDetails.socialMediaHandles || getActiveReceiptBlueprint().socialMediaInformation,
+      layout: receipt.businessDetails.receiptLayout || getActiveReceiptBlueprint().layout
+    },
     isReprint: receipt.reprintCount > 0 || receipt.status === 'Reprinted'
   };
 }

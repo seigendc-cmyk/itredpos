@@ -221,6 +221,15 @@ export async function updateProductMaster(productId: string, patch: Partial<Prod
   return updateProductMasterPlaceholder(productId, patch, staffId);
 }
 
+export async function deleteProductMasterPlaceholder(productId: string, staffId = 'SYSTEM'): Promise<boolean> {
+  const existing = readProducts();
+  const target = existing.find((product) => product.productId === productId);
+  if (!target) return false;
+  writeProducts(existing.filter((product) => product.productId !== productId));
+  recordProductAudit(productId, 'PRODUCT_MASTER_DELETED', `${target.productName} deleted from local Product Master.`, staffId);
+  return true;
+}
+
 export async function blockProduct(productId: string, staffId: string, notes: string): Promise<ProductMasterRecord | null> {
   const updated = await updateProductMasterPlaceholder(productId, { status: 'Blocked', riskStatus: 'Blocked Sale' }, staffId);
   if (updated) recordProductAudit(productId, 'PRODUCT_BLOCKED', notes || `${updated.productName} blocked.`, staffId);

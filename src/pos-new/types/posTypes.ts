@@ -654,6 +654,16 @@ export interface ProductSectorAttributes {
   productSubCategory?: string;
   brand?: string;
   manufacturer?: string;
+  productName?: string;
+  sku?: string;
+  barcode?: string;
+  unitOfMeasure?: string;
+  packSize?: string;
+  supplierName?: string;
+  branchOrWarehouse?: string;
+  openingStock?: number;
+  imageUrl?: string;
+  status?: string;
   model?: string;
   size?: string;
   colour?: string;
@@ -670,6 +680,28 @@ export interface ProductSectorAttributes {
   chassisCode?: string;
   productType?: string;
   productGrade?: string;
+  batchNumber?: string;
+  expiryDate?: string;
+  perishableFlag?: boolean;
+  chemicalActiveIngredient?: string;
+  applicationRate?: string;
+  regulatoryNotes?: string;
+  dosage?: string;
+  strength?: string;
+  prescriptionRequired?: boolean;
+  gender?: string;
+  fabric?: string;
+  style?: string;
+  modelNumber?: string;
+  serialNumberSupport?: boolean;
+  powerRating?: string;
+  dimensions?: string;
+  fragileFlag?: boolean;
+  storageRequirement?: string;
+  vehicleMake?: string;
+  vehicleModel?: string;
+  yearRange?: string;
+  seedVariety?: string;
   expiryRequired?: boolean;
   serialTrackingRequired?: boolean;
   batchTrackingRequired?: boolean;
@@ -888,8 +920,10 @@ export interface ManualProductDraft {
   category?: string;
   subcategory?: string;
   unitOfMeasure?: string;
+  packSize?: string;
   condition?: string;
   colour?: string;
+  status?: string;
   tags?: string[];
   productStatus: ProductCreationStatus;
   make?: string;
@@ -904,12 +938,38 @@ export interface ManualProductDraft {
   size?: string;
   material?: string;
   grade?: string;
+  weight?: string;
+  warranty?: string;
   productType?: string;
   wattage?: string;
   voltage?: string;
   batteryCapacity?: string;
   panelType?: string;
   inverterType?: string;
+  expiryDate?: string;
+  batchNumber?: string;
+  perishableFlag?: boolean;
+  seedVariety?: string;
+  chemicalActiveIngredient?: string;
+  applicationRate?: string;
+  regulatoryNotes?: string;
+  dosage?: string;
+  strength?: string;
+  prescriptionRequired?: boolean;
+  gender?: string;
+  fabric?: string;
+  style?: string;
+  modelNumber?: string;
+  serialNumberSupport?: boolean;
+  powerRating?: string;
+  dimensions?: string;
+  fragileFlag?: boolean;
+  storageRequirement?: string;
+  vehicleMake?: string;
+  vehicleModel?: string;
+  yearRange?: string;
+  businessLocation?: string;
+  imageUrl?: string;
   costPrice?: number;
   sellingPrice?: number;
   taxMode?: string;
@@ -1146,6 +1206,38 @@ export interface Sale {
 }
 
 export type SupplierCreditStatus = 'CashOnly' | 'CreditAllowed' | 'CreditBlocked' | 'Suspended' | 'Preferred' | 'UnderReview' | 'ManagerApprovalRequired';
+export type SupplierCreatedFrom = 'Manual' | 'PurchaseOrder' | 'GoodsReceiving' | 'Import' | 'Creditors';
+export type SupplierVatStatus = 'Unknown' | 'VATRegistered' | 'NotRegistered' | 'Exempt';
+
+export interface SupplierRecord {
+  supplierId: string;
+  supplierCode: string;
+  supplierName: string;
+  tradingName?: string;
+  contactPerson: string;
+  phone: string;
+  whatsapp?: string;
+  email: string;
+  address: string;
+  cityTown?: string;
+  district?: string;
+  suburb?: string;
+  supplierType: string;
+  taxNumber?: string;
+  vatStatus?: SupplierVatStatus;
+  paymentTermsDays: number;
+  creditLimit: number;
+  creditStatus: SupplierCreditStatus;
+  preferredSupplier: boolean;
+  active: boolean;
+  notes: string;
+  createdFrom: SupplierCreatedFrom;
+  createdFromRecordId?: string;
+  createdBy: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export type SupplierBillStatus = 'Draft' | 'Posted' | 'PartiallyPaid' | 'Paid' | 'Overdue' | 'Disputed' | 'Cancelled' | 'Reversed';
 export type SupplierPaymentStatus = 'Draft' | 'PendingApproval' | 'Approved' | 'Paid' | 'Rejected' | 'Reversed';
 export type SupplierPaymentAllocationMethod = 'OldestBillFirst' | 'SelectedBillOnly' | 'HighestOverdueFirst' | 'ManualAllocation';
@@ -2557,6 +2649,18 @@ export interface ReceiptSetting {
   footer: string;
   slipWidth: string;
   showTaxBreakdown: boolean;
+  logoDataUrl?: string;
+  headerMessage?: string;
+  footerMessage?: string;
+  termsAndConditions?: string;
+  businessAddress?: string;
+  contactNumbers?: string;
+  emailAddress?: string;
+  socialMediaHandles?: string;
+  contactInformation?: string;
+  socialMediaInformation?: string;
+  layout?: ReceiptLayout;
+  customLayoutName?: string;
 }
 
 export type PosPageId = 
@@ -2574,6 +2678,7 @@ export type PosPageId =
   | 'SHIFT'
   | 'CASH'
   | 'FINANCIAL_CONTROL'
+  | 'REPORTS'
   | 'BI_DESK'
   | 'SYNC_DESK'
   | 'HELP_DESK'
@@ -3573,11 +3678,13 @@ export type PurchaseOrderLineStatus =
 
 export interface PurchaseOrderSupplierDetails {
   supplierId: string;
+  supplierCode?: string;
   supplierName: string;
   supplierPhone: string;
   supplierEmail: string;
   supplierAddress: string;
   supplierContactPerson: string;
+  supplierItemReference?: string;
 }
 
 export interface PurchaseOrderDeliveryDetails {
@@ -3603,11 +3710,13 @@ export interface PurchaseOrder {
   branchId: string;
   warehouseId: string;
   supplierId: string;
+  supplierCode?: string;
   supplierName: string;
   supplierPhone: string;
   supplierEmail: string;
   supplierAddress: string;
   supplierContactPerson: string;
+  supplierItemReference?: string;
   requestedByStaffId: string;
   requestedByStaffName: string;
   approvedByStaffId?: string;
@@ -3641,6 +3750,7 @@ export interface PurchaseOrderLine {
   brand: string;
   manufacturer: string;
   supplierItemCode?: string;
+  upc?: string;
   unitOfMeasure: string;
   qtyOrdered: number;
   qtyReceived: number;
@@ -3667,7 +3777,25 @@ export type PurchaseOrderActivityEventType =
   | 'PURCHASE_ORDER_PARTIALLY_RECEIVED'
   | 'PURCHASE_ORDER_FULLY_RECEIVED'
   | 'PURCHASE_ORDER_CLOSED_WITH_OUTSTANDING'
-  | 'PURCHASE_ORDER_LEFT_OPEN_FOR_FULFILLMENT';
+  | 'PURCHASE_ORDER_LEFT_OPEN_FOR_FULFILLMENT'
+  | 'SUPPLIER_SEARCHED_FROM_PO'
+  | 'SUPPLIER_SELECTED_FOR_PO'
+  | 'SUPPLIER_CREATE_PROMPT_OPENED'
+  | 'SUPPLIER_CREATED_FROM_PURCHASE_ORDER'
+  | 'SUPPLIER_LINKED_TO_PURCHASE_ORDER'
+  | 'SUPPLIER_DUPLICATE_MATCH_FOUND'
+  | 'PO_SUPPLIER_VALIDATION_FAILED'
+  | 'SUPPLIER_CREDIT_PROFILE_CREATED_FROM_PO_SUPPLIER'
+  | 'PO_PRODUCT_SEARCHED'
+  | 'PO_PRODUCT_SELECTED'
+  | 'PO_PRODUCT_NOT_FOUND'
+  | 'PO_CREATE_PRODUCT_MODAL_OPENED'
+  | 'PRODUCT_CREATED_FROM_PURCHASE_ORDER'
+  | 'PRODUCT_ADDED_TO_PO_LINE'
+  | 'PO_LINE_PRODUCT_DUPLICATE_WARNING'
+  | 'PO_LINE_PRODUCT_COST_WARNING'
+  | 'PO_LINE_PRODUCT_DATA_QUALITY_TASK_CREATED'
+  | 'PO_PRODUCT_BI_WARNING_CREATED';
 
 export interface PurchaseOrderActivityEvent {
   id: string;
@@ -5331,12 +5459,16 @@ export type ProductImportRowStatus =
   | 'Skipped';
 
 export type ProductImportSource =
+  | 'Excel Upload'
   | 'Excel Upload Placeholder'
   | 'CSV Upload'
   | 'Paste Table'
   | 'Manual Batch'
   | 'Supplier File'
   | 'Offline Catalogue File';
+
+export type ProductImportMode = 'New Import' | 'Update Existing Inventory List';
+export type ProductImportDataCategory = 'Inventory List' | 'Images' | 'Vendors' | 'Customers';
 
 export type ProductImportDuplicateAction =
   | 'Skip'
@@ -5356,6 +5488,7 @@ export type IndustrialSectorCode =
   | 'PHARMACY'
   | 'BUILDING_MATERIALS'
   | 'SOLAR_PRODUCTS'
+  | 'LOGISTICS_WAREHOUSING'
   | 'GENERAL_RETAIL'
   | 'OTHER';
 
@@ -5393,9 +5526,13 @@ export interface ProductImportBatch {
   branchId: string;
   warehouseId: string;
   industrialSectorCode: IndustrialSectorCode;
+  importMode?: ProductImportMode;
+  dataCategory?: ProductImportDataCategory;
   source: ProductImportSource;
   status: ProductImportBatchStatus;
   fileName?: string;
+  worksheetName?: string;
+  startRowNumber?: number;
   uploadedByStaffId: string;
   uploadedByStaffName: string;
   totalRows: number;
@@ -5473,6 +5610,7 @@ export type ProductImportActivityEventType =
   | 'PRODUCT_IMPORT_APPROVED'
   | 'PRODUCT_IMPORT_REJECTED'
   | 'PRODUCT_IMPORT_BATCH_IMPORTED'
+  | 'PRODUCT_IMPORT_BATCH_ROLLED_BACK'
   | 'PRODUCT_IMPORT_ROW_SKIPPED'
   | 'OPENING_BALANCE_DRAFT_CREATED_FROM_IMPORT';
 
@@ -5499,7 +5637,7 @@ export interface ProductImportFilterState {
 }
 
 export type InventoryImportBatchStatus = 'Draft' | 'Mapped' | 'Validated' | 'PendingApproval' | 'Approved' | 'Posted' | 'Rejected' | 'Cancelled' | 'Failed';
-export type InventoryImportFileType = 'CSV' | 'ExcelPlaceholder' | 'ManualPaste' | 'Unknown';
+export type InventoryImportFileType = 'CSV' | 'Excel' | 'ExcelPlaceholder' | 'ManualPaste' | 'Unknown';
 export type InventoryImportRowStatus = 'Ready' | 'Warning' | 'Error' | 'Duplicate' | 'Skipped' | 'Posted';
 export type InventoryImportSeverity = 'Info' | 'Warning' | 'Error' | 'Critical';
 export type InventoryImportAction = 'CreateNewProduct' | 'UpdateExistingProduct' | 'CreateOpeningStock' | 'UpdateStockBalance' | 'CreateSupplierPlaceholder' | 'CreateCategoryPlaceholder' | 'SkipRow' | 'NeedsReview';
@@ -6382,6 +6520,53 @@ export interface TaskSummary {
   closedToday: number;
 }
 
+export type WorkflowRelatedModule =
+  | TaskSourceModule
+  | 'Purchase Order'
+  | 'Goods Receiving'
+  | 'Supplier Return'
+  | 'Financial Control'
+  | 'Payment Summary'
+  | 'Customer Approval'
+  | 'Help Desk';
+
+export interface RelatedRecordLink {
+  module: WorkflowRelatedModule | string;
+  recordType: string;
+  recordId: string;
+  recordNumber?: string;
+  label?: string;
+  title?: string;
+  description?: string;
+  sourceModule?: string;
+  sourceRecordId?: string;
+  targetPage?: PosPageId;
+  targetTab?: string;
+  targetAction?: string;
+  createdAt: string;
+}
+
+export type WorkflowNotificationChannel = 'InApp' | 'StaffInbox' | 'WhatsAppPreview' | 'EmailPreview' | 'SMSPreview';
+export type WorkflowNotificationStatus = 'Unread' | 'Read' | 'Dismissed';
+
+export interface WorkflowNotificationRecord {
+  notificationId: string;
+  targetStaffId?: string;
+  targetRole?: Role | string;
+  sourceModule: string;
+  relatedRecord: RelatedRecordLink;
+  title: string;
+  message: string;
+  channel: WorkflowNotificationChannel;
+  status: WorkflowNotificationStatus;
+  createdAt: string;
+  readAt?: string;
+  dismissedAt?: string;
+  previewBody?: string;
+  previewAddress?: string;
+  waLink?: string;
+}
+
 export interface AccountingPostingLine {
   id: string;
   postingId: string;
@@ -6945,7 +7130,8 @@ export type ReceiptStatus =
   | 'Fiscalized'
   | 'Fiscal Failed';
 
-export type ReceiptFormat = '80mm' | 'A4' | 'PDF Placeholder';
+export type ReceiptLayout = 'Thermal Receipt Roll' | 'Receipt Roll' | 'A4 Portrait' | 'A4 Landscape' | 'Legal' | 'Letter' | 'Custom Layout';
+export type ReceiptFormat = '80mm' | 'A4' | 'PDF Placeholder' | ReceiptLayout;
 
 export type VATMode = 'Inclusive' | 'Exclusive' | 'Not VAT Registered';
 
@@ -6985,6 +7171,16 @@ export interface ReceiptBusinessDetails {
   vatNumber?: string;
   vatRegistered: boolean;
   footerMessage: string;
+  logoDataUrl?: string;
+  headerMessage?: string;
+  termsAndConditions?: string;
+  businessAddress?: string;
+  contactNumbers?: string;
+  emailAddress?: string;
+  socialMediaHandles?: string;
+  contactInformation?: string;
+  socialMediaInformation?: string;
+  receiptLayout?: ReceiptLayout;
 }
 
 export interface ReceiptCustomerDetails {
@@ -7099,6 +7295,7 @@ export interface ReceiptPrintPreview {
   taxSummary: ReceiptTaxSummary;
   format: ReceiptFormat;
   isReprint: boolean;
+  blueprint?: ReceiptSetting;
 }
 
 export interface ReceiptReprintAudit {

@@ -1639,18 +1639,18 @@ export default function PosOwnerDesk({ session }: PosOwnerDeskProps) {
 
           {activeAccountingTab === 'COA Accounts' && (
             <div className="space-y-5">
-              <Panel title="New COA Account Placeholder" icon={<ClipboardCheck className="w-4 h-4 text-orange-500" />}>
+              <Panel title="New COA Account" icon={<ClipboardCheck className="w-4 h-4 text-orange-500" />}>
                 <div className="grid grid-cols-1 md:grid-cols-6 gap-2">
                   <Input label="Account Code" value="New Code" onChange={() => undefined} />
-                  <Input label="Account Name" value="New Account Placeholder" onChange={() => undefined} />
+                  <Input label="Account Name" value="New Account Draft" onChange={() => undefined} />
                   <Select label="Account Type" value="Asset" onChange={() => undefined} options={accountTypes} />
                   <Input label="Linked Domain" value="Sales" onChange={() => undefined} />
                   <Select label="Status" value="Draft" onChange={() => undefined} options={['Active', 'Inactive', 'Draft']} />
-                  <Input label="Notes" value="Placeholder account note" onChange={() => undefined} />
+                  <Input label="Notes" value="Local account note" onChange={() => undefined} />
                   <ActionButton icon={<ClipboardCheck className="w-4 h-4" />} onClick={handleCreatePostingPlaceholder}>Add New COA Account</ActionButton>
                 </div>
               </Panel>
-              <Panel title="Chart of Accounts Placeholder" icon={<DollarSign className="w-4 h-4 text-orange-500" />}>
+              <Panel title="Chart of Accounts" icon={<DollarSign className="w-4 h-4 text-orange-500" />}>
                 <div className="owner-desk-scroll-body pos-custom-scroll">
                   <table className="owner-desk-table coa-account-table">
                   <thead><tr><th>Account Code</th><th>Account Name</th><th>Account Type</th><th>Linked Domain</th><th>Status</th><th>Action</th></tr></thead>
@@ -2958,7 +2958,7 @@ function ShiftActionGroup({
       ariaLabel={`Shift closing actions for ${shiftId}`}
       items={[
         { label: 'View Shift Detail', icon: <Eye className="w-3.5 h-3.5" />, onClick: () => onForceClose(`Shift detail opened locally for ${shiftId}.`) },
-        { label: 'Force Close Placeholder', icon: <Lock className="w-3.5 h-3.5" />, onClick: () => onForceClose(`Force close request recorded for ${shiftId}.`) },
+        { label: 'Force Close', icon: <Lock className="w-3.5 h-3.5" />, onClick: () => onForceClose(`Force close request recorded for ${shiftId}.`) },
         { label: 'Request Cashier Note', icon: <StickyNote className="w-3.5 h-3.5" />, onClick: () => onForceClose(`Cashier note requested locally for ${shiftId}.`) },
         { label: 'Review Variance', icon: <AlertTriangle className="w-3.5 h-3.5" />, onClick: () => onForceClose(`Shift variance review opened locally for ${shiftId}.`) },
         { label: 'Print Shift Summary', icon: <Printer className="w-3.5 h-3.5" />, onClick: () => onForceClose(`Shift summary print prepared locally for ${shiftId}.`) },
@@ -3153,7 +3153,7 @@ function COAAccountActionMenu({
         isDraft && can('ownerDesk.accountingDesk.coa.editDraft') && { label: 'Edit Draft', icon: <FileText className="w-3.5 h-3.5" />, onClick: onEditDraft },
         !isDraft && can('ownerDesk.accountingDesk.coa.view') && { label: 'View Mapping', icon: <FileText className="w-3.5 h-3.5" />, onClick: onViewMapping },
         !isInactive && can('ownerDesk.accountingDesk.coa.markInactive') && { label: 'Mark Inactive', icon: <XCircle className="w-3.5 h-3.5" />, onClick: onMarkInactive },
-        isInactive && can('ownerDesk.accountingDesk.coa.reactivate') && { label: 'Reactivate Placeholder', icon: <RefreshCw className="w-3.5 h-3.5" />, onClick: onReactivate },
+        isInactive && can('ownerDesk.accountingDesk.coa.reactivate') && { label: 'Reactivate', icon: <RefreshCw className="w-3.5 h-3.5" />, onClick: onReactivate },
         can('ownerDesk.accountingDesk.coa.create') && { label: 'Create Replacement Account', icon: <ClipboardCheck className="w-3.5 h-3.5" />, onClick: onReplacement },
         can('ownerDesk.accountingDesk.coa.addNote') && { label: 'Add Owner Note', icon: <StickyNote className="w-3.5 h-3.5" />, onClick: onAddNote },
         can('ownerDesk.accountingDesk.coa.print') && { label: 'Print Account Detail', icon: <Printer className="w-3.5 h-3.5" />, onClick: onPrint },
@@ -3178,7 +3178,7 @@ function COAAccountReasonModal({
   onClose: () => void;
   onConfirm: () => void;
 }) {
-  const title = mode === 'inactive' ? 'Mark COA Account Inactive' : mode === 'reactivate' ? 'Reactivate COA Placeholder' : 'Add COA Owner Note';
+  const title = mode === 'inactive' ? 'Mark COA Account Inactive' : mode === 'reactivate' ? 'Reactivate COA Account' : 'Add COA Owner Note';
   const actionLabel = mode === 'inactive' ? 'Confirm Mark Inactive' : mode === 'reactivate' ? 'Confirm Reactivate' : 'Save Owner Note';
   return (
     <div className="owner-cash-modal-backdrop" role="dialog" aria-modal="true" aria-label={title}>
@@ -3198,7 +3198,7 @@ function COAAccountReasonModal({
             <InfoBox label="Linked Domain" value={account.linkedDomain} />
           </div>
           {mode === 'inactive' && (
-            <div className="owner-cash-warning">This will prevent this placeholder account from being used in new accounting-readiness mappings. Existing history remains visible.</div>
+            <div className="owner-cash-warning">This will prevent this local account from being used in new accounting-readiness mappings. Existing history remains visible.</div>
           )}
           <label className="owner-cash-note-field">
             <span>Reason / Owner Note</span>

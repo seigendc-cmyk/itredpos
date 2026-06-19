@@ -7,6 +7,11 @@ interface ReceiptPreviewA4Props {
 
 export default function ReceiptPreviewA4({ preview, onExport }: ReceiptPreviewA4Props) {
   const { receipt, lines, payments, taxSummary } = preview;
+  const blueprint = preview.blueprint;
+  const address = blueprint?.businessAddress || receipt.businessDetails.businessAddress || receipt.businessDetails.address;
+  const contact = blueprint?.contactNumbers || blueprint?.contactInformation || receipt.businessDetails.contactNumbers || receipt.businessDetails.contactInformation || `Phone: ${receipt.businessDetails.phone} | WhatsApp: ${receipt.businessDetails.whatsApp}`;
+  const email = blueprint?.emailAddress || receipt.businessDetails.emailAddress;
+  const social = blueprint?.socialMediaHandles || blueprint?.socialMediaInformation || receipt.businessDetails.socialMediaHandles || receipt.businessDetails.socialMediaInformation;
 
   return (
     <div className="bg-white border-2 border-[#1e222b] p-6 text-[#111827] font-mono max-w-4xl mx-auto">
@@ -14,8 +19,10 @@ export default function ReceiptPreviewA4({ preview, onExport }: ReceiptPreviewA4
         <div>
           <div className="text-xl font-black uppercase">{receipt.businessDetails.businessName}</div>
           <div className="text-xs font-bold uppercase text-slate-700">{receipt.businessDetails.tradingName}</div>
-          <div className="text-[10px] mt-2">{receipt.businessDetails.address}</div>
-          <div className="text-[10px]">Phone: {receipt.businessDetails.phone} | WhatsApp: {receipt.businessDetails.whatsApp}</div>
+          <div className="text-[10px] mt-2">{address}</div>
+          <div className="text-[10px]">{contact}</div>
+          {email && <div className="text-[10px]">{email}</div>}
+          {social && <div className="text-[10px]">{social}</div>}
           {receipt.businessDetails.vatRegistered && <div className="text-[10px] font-bold">VAT No: {receipt.businessDetails.vatNumber}</div>}
         </div>
         <div className="text-right">

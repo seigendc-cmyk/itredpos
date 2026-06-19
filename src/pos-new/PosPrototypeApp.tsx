@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { lazy, Suspense, useState, useEffect } from 'react';
 import { AlertTriangle } from 'lucide-react';
 import PosShell from './layout/PosShell';
 import PosDashboard from './pages/PosDashboard';
@@ -54,6 +54,8 @@ import { getEffectivePageIdsForRole, normalizeRoleKey } from './auth/effectivePe
 import { recordSecurityMatrixEvent } from './auth/permissionMatrixService';
 import './posNew.css';
 
+const PosReports = lazy(() => import('./pages/PosReports'));
+
 // Core industrial standard catalog seeds loaded from centralized mockPosData
 const INITIAL_PRODUCTS: Product[] = mockProducts;
 
@@ -62,6 +64,23 @@ const INITIAL_TRANSACTIONS: Transaction[] = mockRecentSales;
 
 // Seed cash drawer logs loaded from mockPosData
 const INITIAL_CASH_LOGS: CashLog[] = mockCashMovements;
+
+const DEFAULT_RECEIPT_SETTING: ReceiptSetting = {
+  header: 'INDUSTRIAL HEAVY MACHINE SUPPLY',
+  footer: 'THANK YOU FOR YOUR PATRONAGE. SECURE TRANSACTION CORES.',
+  slipWidth: '32_COLUMNS (STANDARD_SLIP)',
+  showTaxBreakdown: true,
+  layout: 'Thermal Receipt Roll',
+  headerMessage: 'INDUSTRIAL HEAVY MACHINE SUPPLY',
+  footerMessage: 'THANK YOU FOR YOUR PATRONAGE. SECURE TRANSACTION CORES.',
+  termsAndConditions: 'Goods may be returned according to store policy with a valid receipt.',
+  businessAddress: '12 Enterprise Road, Harare',
+  contactNumbers: '+263 242 000 100 | +263 77 000 0100',
+  emailAddress: 'sales@itredcommerce.local',
+  socialMediaHandles: '@itredcommerce',
+  contactInformation: '+263 242 000 100 | +263 77 000 0100',
+  socialMediaInformation: '@itredcommerce'
+};
 
 function readStoredValue<T>(key: string, fallback: T): T {
   try {
@@ -201,12 +220,10 @@ export default function PosPrototypeApp() {
   });
 
   const [receiptSetting, setReceiptSetting] = useState<ReceiptSetting>(() => {
-    return readStoredValue<ReceiptSetting>('itred_pos_receipt_setting', {
-      header: 'INDUSTRIAL HEAVY MACHINE SUPPLY',
-      footer: 'THANK YOU FOR YOUR PATRONAGE. SECURE TRANSACTION CORES.',
-      slipWidth: '32_COLUMNS (STANDARD_SLIP)',
-      showTaxBreakdown: true
-    });
+    return {
+      ...DEFAULT_RECEIPT_SETTING,
+      ...readStoredValue<ReceiptSetting>('itred_pos_receipt_setting', DEFAULT_RECEIPT_SETTING)
+    };
   });
 
   // Setup options (States)
@@ -712,10 +729,7 @@ export default function PosPrototypeApp() {
       inclusive: true
     });
     setReceiptSetting({
-      header: 'INDUSTRIAL HEAVY MACHINE SUPPLY',
-      footer: 'THANK YOU FOR YOUR PATRONAGE. SECURE TRANSACTION CORES.',
-      slipWidth: '32_COLUMNS (STANDARD_SLIP)',
-      showTaxBreakdown: true
+      ...DEFAULT_RECEIPT_SETTING
     });
 
     setActivePage('DASHBOARD');
@@ -747,6 +761,8 @@ export default function PosPrototypeApp() {
       activeSession={activeSession}
       onSignOut={() => setActiveSession(null)}
       allowedPages={allowedForAccess}
+      tenantName={businessProfile.legalName || businessProfile.tradingName || 'Tenant'}
+      tenantLogo={receiptSetting.logoDataUrl}
     >
       {/* Dynamic page switches */}
       {isPageRestricted ? (
@@ -836,11 +852,11 @@ export default function PosPrototypeApp() {
       )}
 
       {activePage === 'TASK_DESK' && (
-        <PosTaskDesk session={activeSession} />
+        <PosTaskDesk session={activeSession} onNavigate={(page) => setActivePage(page)} />
       )}
 
       {activePage === 'APPROVALS' && (
-        <PosApprovals session={activeSession} />
+        <PosApprovals session={activeSession} onNavigate={(page) => setActivePage(page)} />
       )}
 
       {activePage === 'SHIFT' && (
@@ -876,6 +892,18 @@ export default function PosPrototypeApp() {
 
       {activePage === 'FINANCIAL_CONTROL' && (
         <PosFinancialControl session={activeSession} />
+      )}
+
+      {activePage === 'REPORTS' && (
+        <Suspense fallback={<div className="sci-pos-card pos-lazy-loading">Loading reports...</div>}>
+          <PosReports
+            products={products}
+            transactions={transactions}
+            cashLogs={cashLogs}
+            session={activeSession}
+            businessProfile={businessProfile}
+          />
+        </Suspense>
       )}
 
       {activePage === 'BI_DESK' && (

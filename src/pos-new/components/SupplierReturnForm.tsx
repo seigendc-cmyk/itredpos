@@ -189,12 +189,12 @@ export default function SupplierReturnForm({
     const updated = await recordSupplierCreditNotePlaceholder(record.supplierReturnId, {
       supplierCreditNoteNumber: number.toUpperCase(),
       supplierCreditNoteAmount: Number(amountInput) || 0,
-      notes: 'Captured from Supplier Return popup. Pending Accounting Review Placeholder only.'
+      notes: 'Captured from Supplier Return popup. Pending accounting review only.'
     });
     if (updated) {
       setRecord(updated);
-      setFeedback(`${updated.supplierReturnNumber} credit note placeholder recorded. No cashbook posting.`);
-      onChanged('Supplier credit note placeholder recorded.');
+      setFeedback(`${updated.supplierReturnNumber} credit note recorded. No cashbook posting.`);
+      onChanged('Supplier credit note recorded.');
     }
   };
 
@@ -202,8 +202,8 @@ export default function SupplierReturnForm({
     const updated = await recordReplacementExpected(record.supplierReturnId, { notes: supplierNotes || 'Replacement requested from supplier.' });
     if (updated) {
       setRecord(updated);
-      setFeedback(`${updated.supplierReturnNumber} replacement expected placeholder recorded.`);
-      onChanged('Supplier replacement placeholder recorded.');
+      setFeedback(`${updated.supplierReturnNumber} replacement expected recorded.`);
+      onChanged('Supplier replacement recorded.');
     }
   };
 
@@ -276,7 +276,7 @@ export default function SupplierReturnForm({
           <>
             <div className="flex-1 overflow-y-auto p-5 space-y-5 bg-white text-[#1e222b]">
               <div className="border border-orange-300 bg-orange-50 p-3 text-[9.5px] uppercase font-black text-slate-800">
-                Supplier Returns only reduce stock when returned goods were already posted into inventory. Supplier credit notes, replacements and accounting impact remain pending review placeholders; no cashbook, supplier payment, sales or COGS posting is created.
+                Supplier Returns only reduce stock when returned goods were already posted into inventory. Supplier credit notes, replacements and accounting impact remain pending review records; no cashbook, supplier payment, sales or COGS posting is created.
               </div>
               {feedback && <div className="border border-[#b1b5c2] bg-slate-50 p-3 text-[9.5px] uppercase font-black text-slate-800">{feedback}</div>}
 
@@ -341,8 +341,8 @@ export default function SupplierReturnForm({
                 <div className="bg-[#1e222b] text-white px-3 py-2 text-[9.5px] uppercase font-black border-b-2 border-orange-500">
                   Supplier Return Line Items
                 </div>
-                <div className="overflow-x-auto pos-custom-scroll">
-                  <table className="w-full min-w-[1500px] text-[9.5px] text-left border-collapse">
+                <div className="procurement-table-scroll pos-custom-scroll">
+                  <table className="procurement-table text-[9.5px] text-left border-collapse">
                     <thead>
                       <tr className="bg-slate-100 text-slate-700 uppercase text-[7.5px] font-black">
                         {['SKU', 'Product Name', 'Brand', 'Received Qty', 'Accepted Into Stock', 'Already Returned', 'Return Requested', 'Return Approved', 'Unit Cost', 'Line Total', 'Stock Posted?', 'Reason', 'Resolution', 'Status', 'Action'].map((header) => (

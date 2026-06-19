@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import PosSidebar from './PosSidebar';
 import PosTopbar from './PosTopbar';
 import { PosPageId, PosSession } from '../types';
@@ -14,6 +14,8 @@ interface PosShellProps {
   activeSession?: PosSession;
   onSignOut?: () => void;
   allowedPages?: PosPageId[];
+  tenantName?: string;
+  tenantLogo?: string;
 }
 
 export default function PosShell({
@@ -25,9 +27,17 @@ export default function PosShell({
   activeShiftStatus,
   activeSession,
   onSignOut,
-  allowedPages
+  allowedPages,
+  tenantName = 'Tenant',
+  tenantLogo
 }: PosShellProps) {
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
+  const [startupVisible, setStartupVisible] = useState(true);
+  const [standbyVisible, setStandbyVisible] = useState(false);
+  const [standbyClock, setStandbyClock] = useState(() => ({
+    date: new Date().toLocaleDateString([], { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' }),
+    time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+  }));
 
   // Auto-redirect to Dashboard if the active page becomes disallowed
   React.useEffect(() => {
@@ -35,6 +45,43 @@ export default function PosShell({
       onPageChange('DASHBOARD');
     }
   }, [allowedPages, activePage, onPageChange]);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => setStartupVisible(false), 1800);
+    return () => window.clearTimeout(timer);
+  }, []);
+
+  useEffect(() => {
+    const updateClock = () => {
+      const now = new Date();
+      setStandbyClock({
+        date: now.toLocaleDateString([], { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' }),
+        time: now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+      });
+    };
+    updateClock();
+    const clock = window.setInterval(updateClock, 1000);
+    return () => window.clearInterval(clock);
+  }, []);
+
+  useEffect(() => {
+    let idleTimer: number | undefined;
+    const armIdleTimer = () => {
+      if (idleTimer) window.clearTimeout(idleTimer);
+      idleTimer = window.setTimeout(() => setStandbyVisible(true), 180000);
+    };
+    const resumeFromActivity = () => {
+      setStandbyVisible(false);
+      armIdleTimer();
+    };
+    const events: Array<keyof WindowEventMap> = ['keydown', 'keyup', 'mousemove', 'mousedown', 'mouseup', 'pointerdown', 'pointermove', 'touchstart', 'touchmove', 'wheel'];
+    events.forEach((eventName) => window.addEventListener(eventName, resumeFromActivity, { passive: true }));
+    armIdleTimer();
+    return () => {
+      if (idleTimer) window.clearTimeout(idleTimer);
+      events.forEach((eventName) => window.removeEventListener(eventName, resumeFromActivity));
+    };
+  }, []);
 
   // Simple page toggle callbacks to auto-close drawer on mobile
   const handlePageSelect = (pageId: PosPageId) => {
@@ -93,7 +140,7 @@ export default function PosShell({
       )}
 
       {/* RIGHTMOST CONTENT SECTION (Workspace) */}
-      <div className="flex-1 flex flex-col min-w-0 pt-12 xl:pt-0 z-[2]">
+      <div className={`flex-1 flex flex-col min-w-0 pt-12 xl:pt-0 z-[2] pos-workspace-frame${standbyVisible ? ' pos-workspace-frame--standby' : ''}`}>
         
         {/* TOP COMMAND BAR */}
         <PosTopbar 
@@ -104,6 +151,7 @@ export default function PosShell({
           onPageChange={handlePageSelect}
           session={activeSession}
           onSignOut={onSignOut}
+          tenantName={tenantName}
         />
 
         {/* MAIN OPERATIONS WORKSPACE PANEL */}
@@ -113,6 +161,29 @@ export default function PosShell({
           </div>
         </main>
       </div>
+
+      {startupVisible && (
+        <div className="pos-startup-splash" role="status" aria-label="Startup splash">
+          <div className="pos-splash-logo">
+            {tenantLogo ? <img src={tenantLogo} alt={`${tenantName} logo`} /> : <span>{tenantName.slice(0, 2).toUpperCase()}</span>}
+          </div>
+          <strong>{tenantName}</strong>
+          <span>iTred Commerce OS</span>
+        </div>
+      )}
+
+      {standbyVisible && (
+        <button type="button" className="pos-standby-screen" onClick={() => setStandbyVisible(false)} aria-label="Resume workspace">
+          <div className="pos-splash-logo pos-splash-logo--standby">
+            {tenantLogo ? <img src={tenantLogo} alt={`${tenantName} logo`} /> : <span>{tenantName.slice(0, 2).toUpperCase()}</span>}
+          </div>
+          <span className="pos-standby-date">{standbyClock.date}</span>
+          <strong>{standbyClock.time}</strong>
+          <span>{tenantName}</span>
+          <small>iTred Commerce OS</small>
+          <em>Move mouse, touch screen, or press any key to resume</em>
+        </button>
+      )}
 
     </div>
   );

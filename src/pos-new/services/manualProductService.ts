@@ -92,11 +92,27 @@ function calculateMargin(sellingPrice = 0, costPrice = 0): number {
   return sellingPrice > 0 ? Math.round(((sellingPrice - costPrice) / sellingPrice) * 100) : 0;
 }
 
+function compactNotes(rows: Array<[string, string | number | boolean | undefined]>): string {
+  return rows
+    .filter(([, value]) => value !== undefined && value !== null && value !== '')
+    .map(([label, value]) => `${label}: ${typeof value === 'boolean' ? (value ? 'Yes' : 'No') : value}`)
+    .join('; ');
+}
+
 function toProductMasterPayload(payload: ManualProductDraft, status: 'Draft' | 'Active' | 'Pending Review' | 'Blocked' | 'Inactive' = 'Draft'): Omit<ProductMasterRecord, 'productId' | 'createdAt' | 'updatedAt'> {
   const productName = payload.productName.trim() || 'Manual Product Draft';
   const sku = payload.sku?.trim() || payload.barcode?.trim() || payload.alu?.trim() || payload.vendorSku?.trim() || `MAN-${Date.now()}`;
   const cost = moneyNumber(payload.costPrice) || 0;
   const selling = moneyNumber(payload.sellingPrice) || 0;
+  const sectorNotes = compactNotes([
+    ['Wattage', payload.wattage],
+    ['Voltage', payload.voltage],
+    ['Battery Capacity', payload.batteryCapacity],
+    ['Panel Type', payload.panelType],
+    ['Inverter Type', payload.inverterType],
+    ['Regulatory Notes', payload.regulatoryNotes],
+    ['Storage Requirement', payload.storageRequirement]
+  ]);
   return {
     vendorId: payload.vendorId || 'SCI-LOG-ZW',
     productCode: sku,
@@ -122,8 +138,9 @@ function toProductMasterPayload(payload: ManualProductDraft, status: 'Draft' | '
     unitOfMeasure: payload.unitOfMeasure || 'pcs',
     condition: payload.condition || 'New',
     colour: payload.colour || undefined,
+    imageUrl: payload.imageUrl || undefined,
     make: payload.make || undefined,
-    model: payload.model || undefined,
+    model: payload.model || payload.vehicleModel || undefined,
     yearFrom: payload.yearFrom || undefined,
     yearTo: payload.yearTo || undefined,
     side: payload.side || undefined,
@@ -141,12 +158,22 @@ function toProductMasterPayload(payload: ManualProductDraft, status: 'Draft' | '
     preferredSupplierName: payload.supplierName || undefined,
     sectorAttributes: {
       sector: payload.industrialSector,
+      productName,
+      sku,
+      barcode: payload.barcode || undefined,
       productCategory: payload.category || 'General',
       productSubCategory: payload.subcategory || undefined,
       brand: payload.brand || undefined,
       manufacturer: payload.manufacturer || undefined,
+      unitOfMeasure: payload.unitOfMeasure || 'pcs',
+      packSize: payload.packSize || undefined,
+      supplierName: payload.supplierName || undefined,
+      branchOrWarehouse: payload.businessLocation || [payload.branchId, payload.warehouseId].filter(Boolean).join(' / ') || undefined,
+      openingStock: moneyNumber(payload.openingQty),
+      imageUrl: payload.imageUrl || undefined,
+      status: payload.status || payload.productStatus,
       make: payload.make || undefined,
-      model: payload.model || undefined,
+      model: payload.model || payload.vehicleModel || undefined,
       yearFrom: payload.yearFrom || undefined,
       yearTo: payload.yearTo || undefined,
       side: payload.side || undefined,
@@ -156,16 +183,37 @@ function toProductMasterPayload(payload: ManualProductDraft, status: 'Draft' | '
       chassisCode: payload.chassisCode || undefined,
       size: payload.size || undefined,
       material: payload.material || undefined,
+      weight: payload.weight || undefined,
+      warrantyPeriod: payload.warranty || undefined,
       productGrade: payload.grade || undefined,
       productType: payload.productType || undefined,
       colour: payload.colour || undefined,
-      notes: [
-        payload.wattage ? `Wattage: ${payload.wattage}` : '',
-        payload.voltage ? `Voltage: ${payload.voltage}` : '',
-        payload.batteryCapacity ? `Battery Capacity: ${payload.batteryCapacity}` : '',
-        payload.panelType ? `Panel Type: ${payload.panelType}` : '',
-        payload.inverterType ? `Inverter Type: ${payload.inverterType}` : ''
-      ].filter(Boolean).join('; ') || 'Created from Manual Product form.'
+      batchNumber: payload.batchNumber || undefined,
+      expiryDate: payload.expiryDate || undefined,
+      perishableFlag: payload.perishableFlag ?? undefined,
+      chemicalActiveIngredient: payload.chemicalActiveIngredient || undefined,
+      applicationRate: payload.applicationRate || undefined,
+      regulatoryNotes: payload.regulatoryNotes || undefined,
+      dosage: payload.dosage || undefined,
+      strength: payload.strength || undefined,
+      prescriptionRequired: payload.prescriptionRequired ?? undefined,
+      gender: payload.gender || undefined,
+      fabric: payload.fabric || undefined,
+      style: payload.style || undefined,
+      modelNumber: payload.modelNumber || undefined,
+      serialNumberSupport: payload.serialNumberSupport ?? undefined,
+      powerRating: payload.powerRating || undefined,
+      dimensions: payload.dimensions || undefined,
+      fragileFlag: payload.fragileFlag ?? undefined,
+      storageRequirement: payload.storageRequirement || undefined,
+      vehicleMake: payload.vehicleMake || payload.make || undefined,
+      vehicleModel: payload.vehicleModel || payload.model || undefined,
+      yearRange: payload.yearRange || ([payload.yearFrom, payload.yearTo].filter(Boolean).join(' - ') || undefined),
+      seedVariety: payload.seedVariety || undefined,
+      expiryRequired: ['GROCERY', 'AGRICULTURE', 'PHARMACY'].includes(payload.industrialSector),
+      serialTrackingRequired: payload.serialNumberSupport ?? ['ELECTRONICS'].includes(payload.industrialSector),
+      batchTrackingRequired: ['GROCERY', 'PHARMACY'].includes(payload.industrialSector) || Boolean(payload.batchNumber),
+      notes: sectorNotes || 'Created from Manual Product form.'
     },
     createdByStaffId: payload.createdByStaffId || 'MANUAL_PRODUCT'
   };
@@ -193,6 +241,12 @@ export async function validateManualProduct(payload: ManualProductDraft): Promis
   if (!payload.category) add('category', 'Warning', 'Category is recommended.', 'Select or enter a product category.');
   if (selling !== undefined && cost !== undefined && selling < cost) add('sellingPrice', 'Warning', 'Selling price is below cost.', 'Review margin before activation.');
   if (payload.industrialSector === 'MOTOR_SPARES' && (!payload.make || !payload.model || !payload.yearFrom)) add('make/model/year', 'Warning', 'Motor spares should include make, model, and year.', 'Add fitment details or confirm universal part.');
+  if (payload.industrialSector === 'GROCERY' && (!payload.expiryDate || !payload.batchNumber)) add('expiry/batch', 'Warning', 'Grocery products should include expiry date and batch number.', 'Capture batch and expiry for traceability.');
+  if (payload.industrialSector === 'HARDWARE' && (!payload.material || !payload.size)) add('material/size', 'Warning', 'Hardware products should include material and size.', 'Add industrial specification details.');
+  if (payload.industrialSector === 'AGRICULTURE' && (!payload.seedVariety && !payload.chemicalActiveIngredient)) add('agriculture', 'Warning', 'Agriculture products should include seed variety or active ingredient.', 'Add agriculture compliance details.');
+  if (payload.industrialSector === 'PHARMACY' && (!payload.batchNumber || !payload.expiryDate || !payload.dosage)) add('pharmacy', 'Warning', 'Pharmacy products should include batch, expiry, and dosage.', 'Capture medicine control details.');
+  if (payload.industrialSector === 'ELECTRONICS' && !payload.modelNumber) add('modelNumber', 'Warning', 'Electronics products should include model number.', 'Add model or serial support details.');
+  if (payload.industrialSector === 'OTHER' && !payload.notes?.trim()) add('notes', 'Info', 'Other sector products benefit from extra notes.', 'Capture identifying notes for this product.');
   const duplicate = await detectManualProductDuplicate(payload);
   if (duplicate) {
     addActivity({ eventType: 'PRODUCT_DUPLICATE_WARNING', productId: duplicate.productId, message: `Manual product duplicate risk detected for ${duplicate.productName}.` });
@@ -245,14 +299,38 @@ export async function createManualProductDraft(payload: ManualProductDraft): Pro
 export async function updateManualProductDraft(productId: string, patch: Partial<ManualProductDraft>): Promise<ProductMasterRecord | null> {
   const product = await getProductMasterById(productId);
   if (!product) return null;
-  return updateProductMasterPlaceholder(productId, {
+  const mergedDraft: ManualProductDraft = {
+    vendorId: product.vendorId,
+    productId,
     productName: patch.productName || product.productName,
-    defaultCostPrice: moneyNumber(patch.costPrice) ?? product.defaultCostPrice,
-    defaultSellingPrice: moneyNumber(patch.sellingPrice) ?? product.defaultSellingPrice,
+    sku: patch.sku || product.sku,
+    barcode: patch.barcode || product.barcode,
+    alu: patch.alu || product.alu,
+    vendorSku: patch.vendorSku || product.vendorSku,
+    productNumericNumber: patch.productNumericNumber || product.productNumericNumber,
+    description: patch.description || product.description,
+    brand: patch.brand || product.brand,
+    manufacturer: patch.manufacturer || product.manufacturer,
+    industrialSector: patch.industrialSector || product.industrialSector || product.sectorAttributes.sector,
     category: patch.category || product.category,
-    productCategory: patch.category || product.productCategory,
-    productSubCategory: patch.subcategory || product.productSubCategory,
+    subcategory: patch.subcategory || product.productSubCategory,
     unitOfMeasure: patch.unitOfMeasure || product.unitOfMeasure,
+    condition: patch.condition || product.condition,
+    colour: patch.colour || product.colour,
+    productStatus: patch.productStatus || (product.productStatus as ManualProductDraft['productStatus']) || 'Draft',
+    costPrice: moneyNumber(patch.costPrice) ?? product.defaultCostPrice,
+    sellingPrice: moneyNumber(patch.sellingPrice) ?? product.defaultSellingPrice,
+    taxMode: patch.taxMode || product.taxMode,
+    vatRate: moneyNumber(patch.vatRate) ?? product.vatRate,
+    reorderLevel: moneyNumber(patch.reorderLevel) ?? product.reorderLevel,
+    reorderQty: moneyNumber(patch.reorderQty) ?? product.reorderQty,
+    imageUrl: patch.imageUrl || product.imageUrl,
+    createdByStaffId: patch.createdByStaffId
+  };
+  return updateProductMasterPlaceholder(productId, {
+    ...toProductMasterPayload(mergedDraft, product.status),
+    productId,
+    createdAt: product.createdAt,
     updatedAt: now()
   }, patch.createdByStaffId || 'MANUAL_PRODUCT');
 }

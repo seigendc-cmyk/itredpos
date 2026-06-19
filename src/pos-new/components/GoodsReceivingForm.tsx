@@ -295,8 +295,8 @@ export default function GoodsReceivingForm({
                   <PackageCheck className="w-4 h-4 text-orange-500" />
                   GRN Line Item Receiving
                 </div>
-                <div className="overflow-x-auto pos-custom-scroll">
-                  <table className="w-full min-w-[1450px] text-[9.5px] text-left border-collapse">
+                <div className="procurement-table-scroll pos-custom-scroll">
+                  <table className="procurement-table text-[9.5px] text-left border-collapse">
                     <thead>
                       <tr className="bg-slate-100 text-slate-700 uppercase text-[7.5px] font-black">
                         {['SKU', 'Product Name', 'Brand', 'Ordered', 'Previously Received', 'Outstanding', 'Received Now', 'Accepted', 'Rejected', 'Cost', 'Selling Price', 'Shelf', 'Variance', 'Status', 'Action'].map((header) => (
@@ -359,9 +359,9 @@ export default function GoodsReceivingForm({
                       <select className={fieldClass()} value={paymentSource} disabled={!editable || acquisitionType !== 'Part Paid + Supplier Credit'} onChange={(event) => setPaymentSource(event.target.value as GoodsReceivingPaymentSource)}>
                         <option value="COGSReserve">COGS Reserve</option>
                         <option value="CashDrawer">Cash Drawer</option>
-                        <option value="BankPlaceholder">Bank Placeholder</option>
-                        <option value="MobileMoneyPlaceholder">Mobile Money Placeholder</option>
-                        <option value="OwnerFundsPlaceholder">Owner Funds Placeholder</option>
+                        <option value="BankPlaceholder">Bank Transfer</option>
+                        <option value="MobileMoneyPlaceholder">Mobile Money</option>
+                        <option value="OwnerFundsPlaceholder">Owner Funds</option>
                         <option value="Mixed">Mixed</option>
                       </select>
                     </label>

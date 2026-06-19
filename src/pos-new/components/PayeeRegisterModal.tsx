@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { X } from 'lucide-react';
 import type { CheckPayeeType, CheckPaymentPurpose, PayeeRecord } from '../types/posTypes';
 import COAAccountSelector from './COAAccountSelector';
+import RowActionMenu, { type RowActionMenuItem } from './RowActionMenu';
 import { createPayee, deactivatePayee, getPayees, updatePayee } from '../services/checkWriterService';
 
 interface PayeeRegisterModalProps {
@@ -22,6 +23,7 @@ export default function PayeeRegisterModal({ open, staffName, onClose, onSelect,
   const [search, setSearch] = useState('');
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState<Partial<PayeeRecord>>(emptyForm);
+  const [openMenuId, setOpenMenuId] = useState<string | null>(null);
 
   const load = () => void getPayees().then(setRows);
   useEffect(() => {
@@ -52,6 +54,12 @@ export default function PayeeRegisterModal({ open, staffName, onClose, onSelect,
     setEditingId(row.payeeId);
     setForm(row);
   };
+
+  const payeeActions = (row: PayeeRecord): RowActionMenuItem[] => [
+    { id: 'edit', label: 'Edit', onClick: () => edit(row) },
+    { id: 'select', label: 'Select', onClick: () => onSelect?.(row), disabled: !onSelect },
+    { id: 'deactivate', label: 'Deactivate', danger: true, separatorBefore: true, disabled: !row.active, onClick: () => void deactivatePayee(row.payeeId, 'Deactivated from Payee Register.', staffName).then(load) }
+  ];
 
   const exportPayees = () => {
     const csv = ['Code,Name,Type,Phone,Email,Active', ...rows.map((row) => [row.payeeCode, row.payeeName, row.payeeType, row.phone || '', row.email || '', row.active ? 'Yes' : 'No'].map((value) => `"${String(value).replace(/"/g, '""')}"`).join(','))].join('\n');
@@ -95,7 +103,7 @@ export default function PayeeRegisterModal({ open, staffName, onClose, onSelect,
               <thead><tr><th>Code</th><th>Name</th><th>Type</th><th>Purpose</th><th>Active</th><th>Action</th></tr></thead>
               <tbody>
                 {filtered.map((row) => (
-                  <tr key={row.payeeId}><td>{row.payeeCode}</td><td>{row.payeeName}</td><td>{row.payeeType}</td><td>{row.defaultPaymentPurpose}</td><td>{row.active ? 'Yes' : 'No'}</td><td className="pos-approval-actions"><button className="sci-pos-button sci-pos-button--secondary" onClick={() => edit(row)}>Edit</button><button className="sci-pos-button sci-pos-button--secondary" onClick={() => onSelect?.(row)}>Select</button><button className="sci-pos-button sci-pos-button--danger" onClick={() => void deactivatePayee(row.payeeId, 'Deactivated from Payee Register.', staffName).then(load)}>Deactivate</button></td></tr>
+                  <tr key={row.payeeId}><td>{row.payeeCode}</td><td>{row.payeeName}</td><td>{row.payeeType}</td><td>{row.defaultPaymentPurpose}</td><td>{row.active ? 'Yes' : 'No'}</td><td className="pos-approval-actions"><RowActionMenu rowId={row.payeeId} ariaLabel={`Payee actions for ${row.payeeName}`} open={openMenuId === row.payeeId} onOpenChange={(open) => setOpenMenuId(open ? row.payeeId : null)} items={payeeActions(row)} /></td></tr>
                 ))}
               </tbody>
             </table>

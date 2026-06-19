@@ -31,7 +31,7 @@ export default function SupplierPaymentsPanel() {
       supplierName: supplier.supplierName,
       paymentDate: new Date().toISOString().slice(0, 10),
       amount: numericAmount,
-      paymentMethod: source === 'CashDrawer' ? 'Cash' : source === 'BankPlaceholder' ? 'Bank Transfer Placeholder' : 'COGS Reserve',
+      paymentMethod: source === 'CashDrawer' ? 'Cash' : source === 'BankPlaceholder' ? 'Bank Transfer Preview' : 'COGS Reserve',
       paymentReference: `SUP-PAY-${Date.now().toString().slice(-5)}`,
       source,
       cogsReserveAmount: source === 'COGSReserve' ? numericAmount : 0,
@@ -52,7 +52,7 @@ export default function SupplierPaymentsPanel() {
       <div className="creditors-form-grid">
         <label>Supplier<select value={supplierId} onChange={(event) => setSupplierId(event.target.value)}>{suppliers.map((item) => <option key={item.supplierId} value={item.supplierId}>{item.supplierName}</option>)}</select></label>
         <label>Payment Amount<input value={amount} onChange={(event) => setAmount(event.target.value)} /></label>
-        <label>Source<select value={source} onChange={(event) => setSource(event.target.value as SupplierPayment['source'])}><option value="COGSReserve">COGS Reserve</option><option value="CashDrawer">Cash Drawer</option><option value="BankPlaceholder">Bank Placeholder</option><option value="MobileMoneyPlaceholder">Mobile Money Placeholder</option><option value="OwnerFundsPlaceholder">Owner Funds Placeholder</option><option value="Mixed">Mixed</option></select></label>
+        <label>Source<select value={source} onChange={(event) => setSource(event.target.value as SupplierPayment['source'])}><option value="COGSReserve">COGS Reserve</option><option value="CashDrawer">Cash Drawer</option><option value="BankPlaceholder">Bank Preview</option><option value="MobileMoneyPlaceholder">Mobile Money Preview</option><option value="OwnerFundsPlaceholder">Owner Funds Preview</option><option value="Mixed">Mixed</option></select></label>
         <label>Allocation<select value={allocationMethod} onChange={(event) => setAllocationMethod(event.target.value as SupplierPaymentAllocationMethod)}><option value="OldestBillFirst">Oldest Bill First</option><option value="SelectedBillOnly">Selected Bill Only</option><option value="HighestOverdueFirst">Highest Overdue First</option><option value="ManualAllocation">Manual Allocation</option></select></label>
       </div>
       <div className="creditors-summary-grid">

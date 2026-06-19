@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { History, Menu, Printer, RotateCcw, ShieldCheck, X } from 'lucide-react';
+import { History, MoreVertical, Printer, RotateCcw, ShieldCheck, X } from 'lucide-react';
 import ProductSearchCard from '../components/ProductSearchCard';
 import SalesCartCard, {
   DeliveryMode,
@@ -315,6 +315,8 @@ export default function PosSales({
   const canExportProfitSnapshot = canPerformAction(roleName, 'sales.profitSnapshot.export');
   const canPrintProfitSnapshot = canPerformAction(roleName, 'sales.profitSnapshot.print');
   const canCreateMiscellaneousSale = canPerformAction(roleName, 'sales.miscellaneous.create');
+  const canViewSalesHistory = canPerformAction(roleName, 'sales.viewHistory');
+  const canProcessSalesReturns = canPerformAction(roleName, 'sales.return');
   const canSellInventoryItems = canSellInventoryItemsForSession({
     check: salesReadiness,
     staffSessionValid: Boolean(session?.staffName || staffName),
@@ -710,6 +712,7 @@ export default function PosSales({
 
   const handleOpenMiscellaneousSale = () => {
     collapseProductFieldsForOperation('Miscellaneous Sale');
+    setWorkspaceMenuOpen(false);
     if (!canCreateMiscellaneousSale) {
       setStatusMessage('You do not have permission to add miscellaneous sales.');
       return;
@@ -1690,6 +1693,18 @@ export default function PosSales({
     onNavigate('SHIFT');
   };
 
+  const openSalesHistoryFromMenu = (intent: 'Sales History' | 'Sales Returns') => {
+    collapseProductFieldsForOperation(intent);
+    setWorkspaceMenuOpen(false);
+    if (intent === 'Sales Returns') {
+      setStatusMessage('Sales Returns opened through Sales History. Select a receipt and use Sales Return.');
+      logEvent('SALES_RETURNS_MENU_OPENED', 'Sales Returns action opened Sales History.');
+    } else {
+      logEvent('SALES_HISTORY_MENU_OPENED', 'Sales History opened from Sales Terminal menu.');
+    }
+    onNavigate('SALES_HISTORY');
+  };
+
   const salesBlocked = salesReadiness ? !salesReadiness.allowed : false;
 
   return (
@@ -1703,7 +1718,7 @@ export default function PosSales({
         <div className="sci-page-header__actions">
           <div className="sales-workspace-menu-host">
             <button type="button" className="sci-pos-button sci-pos-button--secondary" onClick={() => { collapseProductFieldsForOperation('Sales Workspace Menu'); setWorkspaceMenuOpen((current) => !current); }} aria-expanded={workspaceMenuOpen}>
-              <Menu size={17} aria-hidden="true" />
+              <MoreVertical size={17} aria-hidden="true" />
               Sales Workspace Menu
             </button>
             {workspaceMenuOpen && (
@@ -1718,16 +1733,18 @@ export default function PosSales({
                     <button type="button" onClick={() => { collapseProductFieldsForOperation('Sales Profit Snapshot'); setProfitSnapshotOpen(true); setWorkspaceMenuOpen(false); }}>Sales Profit Snapshot</button>
                   )}
                   <button type="button" onClick={() => { collapseProductFieldsForOperation('Draft Receipt'); setStatusMessage(`Draft receipt prepared locally. Items: ${cart.length}, total: ${money(grandTotal)}${receiptNote ? `, note: ${receiptNote}` : ''}.`); logEvent('RECEIPT_DRAFTED', 'Draft receipt prepared from active cart.'); setWorkspaceMenuOpen(false); }}>Draft Receipt</button>
-                  <button type="button" onClick={() => { collapseProductFieldsForOperation('Open Sales History'); onNavigate('SALES_HISTORY'); setWorkspaceMenuOpen(false); }}>Open Sales History</button>
+                  {canProcessSalesReturns && <button type="button" onClick={() => openSalesHistoryFromMenu('Sales Returns')}>Sales Returns</button>}
+                  {canViewSalesHistory && <button type="button" onClick={() => openSalesHistoryFromMenu('Sales History')}>Sales History</button>}
+                  {canCreateMiscellaneousSale && <button type="button" onClick={handleOpenMiscellaneousSale}>Miscellaneous Sales</button>}
                   <button type="button" onClick={() => { collapseProductFieldsForOperation('Clear Workspace'); handleClearWorkspace('Entire Workspace'); setWorkspaceMenuOpen(false); }}>Clear Workspace</button>
                 </div>
               </>
             )}
           </div>
-          <button type="button" className="sci-pos-button sci-pos-button--secondary" onClick={() => onNavigate('SALES_HISTORY')}>
+          {canViewSalesHistory && <button type="button" className="sci-pos-button sci-pos-button--secondary" onClick={() => onNavigate('SALES_HISTORY')}>
             <History size={17} aria-hidden="true" />
             Sales History
-          </button>
+          </button>}
           <button type="button" className="sci-pos-button sci-pos-button--primary" onClick={handleCompleteSale} disabled={!canCompleteWithPermission} title={disableCompleteReason}>
             <ShieldCheck size={17} aria-hidden="true" />
             Complete

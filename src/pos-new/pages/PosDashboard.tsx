@@ -26,7 +26,9 @@ import {
   RefreshCw,
   Eye,
   ShieldCheck,
-  FileText
+  FileText,
+  Download,
+  X
 } from 'lucide-react';
 import { Product, Transaction, Shift, CashLog, PosSession, PosPageId, BusinessProfile } from '../types';
 import { getBusinessProfileDashboardSummary } from '../services/businessProfileService';
@@ -72,6 +74,189 @@ export default function PosDashboard({
   const [refundsCount, setRefundsCount] = useState(1);
   const [adjustmentsCount, setAdjustmentsCount] = useState(3);
   const [varianceCount, setVarianceCount] = useState(0);
+  const [analyticsModal, setAnalyticsModal] = useState<'trading' | 'stock' | null>(null);
+
+  const todayKey = new Date().toISOString().slice(0, 10);
+  const todaysTransactions = React.useMemo(() => transactions.filter((transaction) => (transaction.date || '').slice(0, 10) === todayKey), [todayKey, transactions]);
+  const tradingSummary = React.useMemo(() => {
+    const saleRows = todaysTransactions.length > 0 ? todaysTransactions : transactions;
+    const grossSales = saleRows.reduce((sum, transaction) => sum + (transaction.total || 0), 0);
+    const transactionCount = saleRows.length;
+    const itemsSold = saleRows.reduce((sum, transaction) => sum + (transaction.items?.reduce((itemSum, item) => itemSum + item.quantity, 0) || 0), 0);
+    const cashSales = saleRows.filter((transaction) => transaction.paymentMethod === 'CASH').reduce((sum, transaction) => sum + (transaction.total || 0), 0);
+    const cardSales = saleRows.filter((transaction) => transaction.paymentMethod === 'CARD').reduce((sum, transaction) => sum + (transaction.total || 0), 0);
+    const splitSales = saleRows.filter((transaction) => transaction.paymentMethod === 'SPLIT').reduce((sum, transaction) => sum + (transaction.total || 0), 0);
+    const estimatedCost = saleRows.reduce((sum, transaction) => {
+      return sum + (transaction.items?.reduce((itemSum, item) => {
+        const product = products.find((row) => row.id === item.productId || row.code === item.code);
+        const unitCost = product?.cost ?? item.price * 0.62;
+        return itemSum + unitCost * item.quantity;
+      }, 0) || 0);
+    }, 0);
+    const grossProfit = Math.max(0, grossSales - estimatedCost);
+    return {
+      grossSales,
+      transactionCount,
+      averageBasket: transactionCount > 0 ? grossSales / transactionCount : 0,
+      itemsSold,
+      cashSales,
+      cardSales,
+      splitSales,
+      grossProfit,
+      grossMargin: grossSales > 0 ? (grossProfit / grossSales) * 100 : 0
+    };
+  }, [todaysTransactions, transactions, products]);
+  const stockHealthSummary = React.useMemo(() => {
+    const ninetyDaysAgo = Date.now() - 90 * 24 * 60 * 60 * 1000;
+    const stockLevel = (product: Product) => product.stock ?? product.qtyOnHand ?? product.availableStock ?? 0;
+    const lowStockRows = products.filter((product) => stockLevel(product) > 0 && stockLevel(product) <= (product.minStock || 5));
+    const outOfStockRows = products.filter((product) => stockLevel(product) <= 0);
+    const deadStockRows = products.filter((product) => {
+      const lastMovement = product.lastMovementDate ? new Date(product.lastMovementDate).getTime() : 0;
+      return lastMovement > 0 && lastMovement < ninetyDaysAgo;
+    });
+    const fastMovers = products
+      .filter((product) => (product.healthStatus === 'Fast Moving' || stockLevel(product) > (product.minStock || 5) * 3) && stockLevel(product) > 0)
+      .slice(0, 6);
+    const reorderRows = products.filter((product) => stockLevel(product) <= (product.minStock || 5));
+    return {
+      lowStock: lowStockRows.length,
+      outOfStock: outOfStockRows.length,
+      deadStock: deadStockRows.length,
+      varianceRisk: Math.max(0, products.filter((product) => product.healthStatus === 'Low Stock' || product.healthStatus === 'Out of Stock').length),
+      slowMovers: deadStockRows.length,
+      fastMovers: fastMovers.length,
+      reorderRequired: reorderRows.length,
+      lowStockRows,
+      outOfStockRows,
+      deadStockRows,
+      fastMoverRows: fastMovers,
+      reorderRows
+    };
+  }, [products]);
+
+  const money = (value: number) => `USD ${value.toFixed(2)}`;
+  type AnalyticsSection = { title: string; rows: string[][] };
+  const analyticsSections = (kind: 'trading' | 'stock'): AnalyticsSection[] => {
+    if (kind === 'trading') {
+      return [
+        {
+          title: 'Sales Breakdown',
+          rows: [
+            ['Gross sales', money(tradingSummary.grossSales)],
+            ['Cash sales', money(tradingSummary.cashSales)],
+            ['Card sales', money(tradingSummary.cardSales)],
+            ['Split payments', money(tradingSummary.splitSales)],
+            ['Items sold', String(tradingSummary.itemsSold)]
+          ]
+        },
+        {
+          title: 'Profit Breakdown',
+          rows: [
+            ['Estimated gross profit', money(tradingSummary.grossProfit)],
+            ['Estimated margin', `${tradingSummary.grossMargin.toFixed(1)}%`],
+            ['Discount impact', money(Math.max(0, transactions.reduce((sum, transaction) => sum + (transaction.discount || 0), 0)))],
+            ['Average basket value', money(tradingSummary.averageBasket)]
+          ]
+        },
+        {
+          title: 'Transaction Analysis',
+          rows: [
+            ['Transaction count', String(tradingSummary.transactionCount)],
+            ['Average units per sale', tradingSummary.transactionCount > 0 ? (tradingSummary.itemsSold / tradingSummary.transactionCount).toFixed(1) : '0.0'],
+            ['Active branch', branchName],
+            ['Active terminal', terminalName]
+          ]
+        }
+      ];
+    }
+    return [
+      {
+        title: 'Stock Risk',
+        rows: [
+          ['Low stock', String(stockHealthSummary.lowStock)],
+          ['Out of stock', String(stockHealthSummary.outOfStock)],
+          ['Variance risk', String(stockHealthSummary.varianceRisk)],
+          ['Dead stock', String(stockHealthSummary.deadStock)]
+        ]
+      },
+      {
+        title: 'Slow Movers',
+        rows: stockHealthSummary.deadStockRows.slice(0, 6).map((product) => [
+          product.name || product.productName || product.code,
+          `${product.stock ?? product.qtyOnHand ?? product.availableStock ?? 0} on hand`
+        ]).concat(stockHealthSummary.deadStockRows.length === 0 ? [['No slow movers', '0 items']] : [])
+      },
+      {
+        title: 'Fast Movers',
+        rows: stockHealthSummary.fastMoverRows.map((product) => [
+          product.name || product.productName || product.code,
+          `${product.stock ?? product.qtyOnHand ?? product.availableStock ?? 0} on hand`
+        ]).concat(stockHealthSummary.fastMoverRows.length === 0 ? [['No fast movers', '0 items']] : [])
+      },
+      {
+        title: 'Reorder Analysis',
+        rows: [
+          ['Products requiring reorder', String(stockHealthSummary.reorderRequired)],
+          ['Critical zero stock', String(stockHealthSummary.outOfStock)],
+          ['Low stock watchlist', String(stockHealthSummary.lowStock)],
+          ['Recommended action', stockHealthSummary.reorderRequired > 0 ? 'Create supplier reorder review' : 'Maintain current stock levels']
+        ]
+      }
+    ];
+  };
+  const exportRows = (kind: 'trading' | 'stock'): string[][] => {
+    return [['Section', 'Metric', 'Value'], ...analyticsSections(kind).flatMap((section) => section.rows.map(([metric, value]) => [section.title, metric, value]))];
+  };
+  const exportExcel = (kind: 'trading' | 'stock') => {
+    const rows = exportRows(kind);
+    const csv = rows.map((row) => row.map((cell) => `"${cell.replace(/"/g, '""')}"`).join(',')).join('\n');
+    const url = URL.createObjectURL(new Blob([csv], { type: 'application/vnd.ms-excel;charset=utf-8' }));
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `${kind === 'trading' ? 'today-trading-summary' : 'stock-health'}-${todayKey}.xls`;
+    link.click();
+    URL.revokeObjectURL(url);
+    triggerNotification(`${kind === 'trading' ? 'Trading summary' : 'Stock health'} Excel export prepared.`, 'success');
+  };
+  const exportPdf = (kind: 'trading' | 'stock') => {
+    const title = kind === 'trading' ? 'Today Trading Summary' : 'Stock Health';
+    const sections = analyticsSections(kind);
+    const printWindow = window.open('', '_blank', 'noopener,noreferrer');
+    if (!printWindow) {
+      triggerNotification('PDF export blocked by browser popup settings.', 'warning');
+      return;
+    }
+    printWindow.document.write(`
+      <html>
+        <head>
+          <title>${title}</title>
+          <style>
+            body { font-family: Arial, sans-serif; color: #111827; padding: 24px; }
+            h1 { color: #f26a1b; font-size: 22px; margin-bottom: 4px; }
+            p { color: #475569; margin-top: 0; }
+            table { border-collapse: collapse; width: 100%; margin-top: 20px; }
+            th, td { border: 1px solid #cbd5e1; padding: 10px; text-align: left; }
+            th { background: #fff7ed; color: #9a3412; }
+          </style>
+        </head>
+        <body>
+          <h1>${title}</h1>
+          <p>${vendorName} | ${branchName} | ${todayKey}</p>
+          ${sections.map((section) => `
+            <h2>${section.title}</h2>
+            <table><thead><tr><th>Metric</th><th>Value</th></tr></thead><tbody>
+              ${section.rows.map(([label, value]) => `<tr><td>${label}</td><td>${value}</td></tr>`).join('')}
+            </tbody></table>
+          `).join('')}
+        </body>
+      </html>
+    `);
+    printWindow.document.close();
+    printWindow.focus();
+    printWindow.print();
+    triggerNotification(`${title} PDF export prepared.`, 'success');
+  };
 
   // Alert simulation triggers
   const triggerNotification = (message: string, type: 'info' | 'success' | 'warning' = 'info') => {
@@ -260,12 +445,12 @@ export default function PosDashboard({
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
               
               {/* Metric 1 */}
-              <div className="bg-[#10141e] border border-slate-800 p-4 relative flex flex-col justify-between h-28 hover:border-[#00f0ff] transition-all">
+              <div className="dashboard-analytics-card bg-[#10141e] border border-slate-800 p-4 relative flex flex-col justify-between h-28 hover:border-[#00f0ff] transition-all" onDoubleClick={() => setAnalyticsModal('trading')} title="Double click for trading analytics">
                 <div className="text-[9px] text-slate-500 uppercase font-black tracking-wider leading-none">
                   Gross Sales (USD)
                 </div>
                 <div className="text-lg font-black text-slate-50 font-mono tracking-tight my-1">
-                  USD 1,245.00
+                  {money(tradingSummary.grossSales)}
                 </div>
                 <div className="text-[9px] text-emerald-400 uppercase font-black tracking-widest flex items-center gap-1">
                   <span className="w-1.5 h-1.5 bg-emerald-500 rounded-none shrink-0" />
@@ -274,12 +459,12 @@ export default function PosDashboard({
               </div>
 
               {/* Metric 2 */}
-              <div className="bg-[#10141e] border border-slate-800 p-4 relative flex flex-col justify-between h-28 hover:border-[#00f0ff] transition-all">
+              <div className="dashboard-analytics-card bg-[#10141e] border border-slate-800 p-4 relative flex flex-col justify-between h-28 hover:border-[#00f0ff] transition-all" onDoubleClick={() => setAnalyticsModal('trading')} title="Double click for trading analytics">
                 <div className="text-[9px] text-slate-500 uppercase font-black tracking-wider leading-none">
                   Transactions
                 </div>
                 <div className="text-lg font-black text-slate-50 font-mono tracking-tight my-1">
-                  38 Units
+                  {tradingSummary.transactionCount} sales
                 </div>
                 <div className="text-[9px] text-indigo-400 uppercase font-black tracking-widest flex items-center gap-1">
                   <span className="w-1.5 h-1.5 bg-indigo-500 rounded-none shrink-0" />
@@ -288,12 +473,12 @@ export default function PosDashboard({
               </div>
 
               {/* Metric 3 */}
-              <div className="bg-[#10141e] border border-slate-800 p-4 relative flex flex-col justify-between h-28 hover:border-[#00f0ff] transition-all">
+              <div className="dashboard-analytics-card bg-[#10141e] border border-slate-800 p-4 relative flex flex-col justify-between h-28 hover:border-[#00f0ff] transition-all" onDoubleClick={() => setAnalyticsModal('trading')} title="Double click for trading analytics">
                 <div className="text-[9px] text-slate-500 uppercase font-black tracking-wider leading-none">
                   Average Basket
                 </div>
                 <div className="text-lg font-black text-slate-50 font-mono tracking-tight my-1">
-                  USD 32.76
+                  {money(tradingSummary.averageBasket)}
                 </div>
                 <div className="text-[9px] text-cyan-400 uppercase font-black tracking-widest flex items-center gap-1">
                   <span className="w-1.5 h-1.5 bg-cyan-400 rounded-none shrink-0" />
@@ -302,12 +487,12 @@ export default function PosDashboard({
               </div>
 
               {/* Metric 4 */}
-              <div className="bg-[#10141e] border border-slate-800 p-4 relative flex flex-col justify-between h-28 hover:border-[#00f0ff] transition-all">
+              <div className="dashboard-analytics-card bg-[#10141e] border border-slate-800 p-4 relative flex flex-col justify-between h-28 hover:border-[#00f0ff] transition-all" onDoubleClick={() => setAnalyticsModal('trading')} title="Double click for trading analytics">
                 <div className="text-[9px] text-slate-500 uppercase font-black tracking-wider leading-none">
                   Items Sold
                 </div>
                 <div className="text-lg font-black text-slate-50 font-mono tracking-tight my-1">
-                  96 Pcs
+                  {tradingSummary.itemsSold} pcs
                 </div>
                 <div className="text-[9px] text-[#00f0ff] uppercase font-black tracking-widest flex items-center gap-1">
                   <span className="w-1.5 h-1.5 bg-[#00f0ff] rounded-none shrink-0" />
@@ -315,6 +500,10 @@ export default function PosDashboard({
                 </div>
               </div>
 
+            </div>
+            <div className="dashboard-export-actions">
+              <button type="button" onClick={() => exportPdf('trading')}><FileText className="w-3.5 h-3.5" /> PDF</button>
+              <button type="button" onClick={() => exportExcel('trading')}><Download className="w-3.5 h-3.5" /> Excel</button>
             </div>
           </div>
 
@@ -380,42 +569,42 @@ export default function PosDashboard({
               <div className="bg-[#0f131a] border border-slate-800 p-4 space-y-3">
                 <div className="grid grid-cols-2 gap-3.5">
                   
-                  <div className="bg-slate-950 p-2.5 border border-slate-800 hover:border-amber-500/50 transition-colors">
+                  <div className="dashboard-analytics-card bg-slate-950 p-2.5 border border-slate-800 hover:border-amber-500/50 transition-colors" onDoubleClick={() => setAnalyticsModal('stock')} title="Double click for stock health analytics">
                     <div className="text-[9px] text-amber-500 uppercase font-black tracking-wider leading-none">
                       Low Stock
                     </div>
                     <div className="text-lg font-black text-slate-100 font-mono mt-1">
-                      12 Items
+                      {stockHealthSummary.lowStock} items
                     </div>
                     <span className="text-[8px] text-slate-500 block uppercase">BELOW SAFETY VAL</span>
                   </div>
 
-                  <div className="bg-slate-950 p-2.5 border border-slate-800 hover:border-rose-500/50 transition-colors">
+                  <div className="dashboard-analytics-card bg-slate-950 p-2.5 border border-slate-800 hover:border-rose-500/50 transition-colors" onDoubleClick={() => setAnalyticsModal('stock')} title="Double click for stock health analytics">
                     <div className="text-[9px] text-rose-500 uppercase font-black tracking-wider leading-none">
                       Out of Stock
                     </div>
                     <div className="text-lg font-black text-slate-100 font-mono mt-1">
-                      4 Items
+                      {stockHealthSummary.outOfStock} items
                     </div>
                     <span className="text-[8px] text-rose-400 block uppercase font-bold animate-pulse">0 BAL SHUTDOWN</span>
                   </div>
 
-                  <div className="bg-slate-950 p-2.5 border border-slate-800 hover:border-slate-700 transition-colors">
+                  <div className="dashboard-analytics-card bg-slate-950 p-2.5 border border-slate-800 hover:border-slate-700 transition-colors" onDoubleClick={() => setAnalyticsModal('stock')} title="Double click for stock health analytics">
                     <div className="text-[9px] text-slate-500 uppercase font-black tracking-wider leading-none">
                       Dead Stock
                     </div>
                     <div className="text-lg font-black text-slate-100 font-mono mt-1">
-                      7 Items
+                      {stockHealthSummary.deadStock} items
                     </div>
                     <span className="text-[8px] text-slate-500 block uppercase">NO MVMNT &gt; 90D</span>
                   </div>
 
-                  <div className="bg-slate-950 p-2.5 border border-slate-800 hover:border-amber-500 transition-colors">
+                  <div className="dashboard-analytics-card bg-slate-950 p-2.5 border border-slate-800 hover:border-amber-500 transition-colors" onDoubleClick={() => setAnalyticsModal('stock')} title="Double click for stock health analytics">
                     <div className="text-[9px] text-yellow-500 uppercase font-black tracking-wider leading-none">
                       Variance Risk
                     </div>
                     <div className="text-lg font-black text-slate-100 font-mono mt-1">
-                      3 Items
+                      {stockHealthSummary.varianceRisk} items
                     </div>
                     <span className="text-[8px] text-slate-500 block uppercase">DRIFT SUSPICION</span>
                   </div>
@@ -423,6 +612,10 @@ export default function PosDashboard({
                 </div>
 
                 <div className="pt-1">
+                  <div className="dashboard-export-actions dashboard-export-actions--stock">
+                    <button type="button" onClick={() => exportPdf('stock')}><FileText className="w-3.5 h-3.5" /> PDF</button>
+                    <button type="button" onClick={() => exportExcel('stock')}><Download className="w-3.5 h-3.5" /> Excel</button>
+                  </div>
                   <button
                     onClick={() => onNavigate('STOCK')}
                     className="w-full text-center py-2 bg-slate-950 hover:bg-slate-900 border border-slate-800 text-[#00f0ff] hover:text-[#4df5ff] transition-colors text-[9px] uppercase font-bold tracking-wider"
@@ -725,6 +918,17 @@ export default function PosDashboard({
         </div>
       </div>
 
+      {analyticsModal && (
+        <DashboardAnalyticsModal
+          title={analyticsModal === 'trading' ? 'Today Trading Summary' : 'Stock Health'}
+          subtitle={`${vendorName} | ${branchName} | ${todayKey}`}
+          sections={analyticsSections(analyticsModal)}
+          onExportPdf={() => exportPdf(analyticsModal)}
+          onExportExcel={() => exportExcel(analyticsModal)}
+          onClose={() => setAnalyticsModal(null)}
+        />
+      )}
+
     </div>
   );
 }
@@ -753,6 +957,57 @@ function DashboardBusinessMetric({ label, value }: { label: string; value: strin
     <div className="border border-[#d6d9e0] bg-slate-50 p-2 min-h-14">
       <span className="block text-[8px] text-slate-500 uppercase font-black">{label}</span>
       <strong className="block text-[10px] text-[#1e222b] uppercase break-words">{value}</strong>
+    </div>
+  );
+}
+
+function DashboardAnalyticsModal({
+  title,
+  subtitle,
+  sections,
+  onExportPdf,
+  onExportExcel,
+  onClose
+}: {
+  title: string;
+  subtitle: string;
+  sections: Array<{ title: string; rows: string[][] }>;
+  onExportPdf: () => void;
+  onExportExcel: () => void;
+  onClose: () => void;
+}) {
+  return (
+    <div className="dashboard-analytics-backdrop" onClick={onClose}>
+      <section className="dashboard-analytics-modal" onClick={(event) => event.stopPropagation()} role="dialog" aria-modal="true" aria-label={title}>
+        <header>
+          <div>
+            <p>Analytics</p>
+            <h2>{title}</h2>
+            <span>{subtitle}</span>
+          </div>
+          <button type="button" onClick={onClose} aria-label="Close analytics"><X className="w-4 h-4" /></button>
+        </header>
+        <div className="dashboard-analytics-grid dashboard-analytics-grid--sections">
+          {sections.map((section) => (
+            <section key={section.title} className="dashboard-analytics-section">
+              <h3>{section.title}</h3>
+              <div>
+                {section.rows.map(([label, value]) => (
+                  <p key={`${section.title}-${label}`}>
+                    <span>{label}</span>
+                    <strong>{value}</strong>
+                  </p>
+                ))}
+              </div>
+            </section>
+          ))}
+        </div>
+        <footer>
+          <button type="button" onClick={onExportPdf}><FileText className="w-4 h-4" /> Export PDF</button>
+          <button type="button" onClick={onExportExcel}><Download className="w-4 h-4" /> Export Excel</button>
+          <button type="button" onClick={onClose}>Close</button>
+        </footer>
+      </section>
     </div>
   );
 }

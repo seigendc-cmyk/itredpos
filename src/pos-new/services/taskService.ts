@@ -224,6 +224,7 @@ export const closeTask = async (taskId: string, staffId: string, closeNote: stri
 export const cancelTask = async (taskId: string, staffId: string, reason: string, staffName = staffId) => patchTask(taskId, { status: 'Cancelled', outcomeNote: reason }, 'TASK_CANCELLED', staffId, staffName, reason);
 export const reassignTask = async (taskId: string, staffId: string, newAssignedStaffId: string, note: string, staffName = staffId) => patchTask(taskId, { assignedStaffId: newAssignedStaffId.toUpperCase().replace(/\s+/g, '-'), assignedStaffName: newAssignedStaffId, notes: note }, 'TASK_REASSIGNED', staffId, staffName, `${note} Reassigned to ${newAssignedStaffId}.`);
 export const addTaskNote = async (taskId: string, staffId: string, note: string, staffName = staffId) => patchTask(taskId, { notes: note }, 'TASK_NOTE_ADDED', staffId, staffName, note);
+export const recordTaskRelatedRecordOpen = async (taskId: string, staffId: string, staffName = staffId) => patchTask(taskId, {}, 'TASK_RELATED_RECORD_OPENED', staffId, staffName, 'Related record opened through workflow routing.');
 export const linkTaskToBIAdvice = async (taskId: string, biAdviceId: string) => patchTask(taskId, { linkedBIAdviceId: biAdviceId }, 'TASK_BI_WARNING_CREATED', 'BI-DESK', 'BI Desk', `Linked BI advice ${biAdviceId}.`);
 export const linkTaskToApproval = async (taskId: string, approvalId: string) => patchTask(taskId, { linkedApprovalId: approvalId, status: 'WaitingApproval' }, 'TASK_APPROVAL_CREATED', 'APPROVALS', 'Approvals', `Linked approval ${approvalId}.`);
 

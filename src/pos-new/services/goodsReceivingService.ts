@@ -648,7 +648,7 @@ export async function postGRN(grnId: string, staffId: string, options: GoodsRece
         supplierName: note.supplierName,
         paymentDate: note.receivedDate,
         amount: paidAmount,
-        paymentMethod: options.paymentSource === 'CashDrawer' ? 'Cash' : options.paymentSource === 'BankPlaceholder' ? 'Bank Transfer Placeholder' : options.paymentSource === 'MobileMoneyPlaceholder' ? 'Mobile Money Placeholder' : options.paymentSource === 'OwnerFundsPlaceholder' ? 'Owner Funds Placeholder' : 'COGS Reserve',
+        paymentMethod: options.paymentSource === 'CashDrawer' ? 'Cash' : options.paymentSource === 'BankPlaceholder' ? 'Bank Transfer' : options.paymentSource === 'MobileMoneyPlaceholder' ? 'Mobile Money' : options.paymentSource === 'OwnerFundsPlaceholder' ? 'Owner Funds' : 'COGS Reserve',
         paymentReference: `${note.grnNumber}-PARTPAY`,
         source: options.paymentSource || 'COGSReserve',
         cogsReserveAmount: (options.paymentSource || 'COGSReserve') === 'COGSReserve' ? paidAmount : 0,
@@ -703,9 +703,9 @@ export async function reverseGRNPlaceholder(grnId: string, staffId: string, reas
   const notes = getGRNs();
   const note = notes.find((item) => item.grnId === grnId);
   if (!note || (note.receivingStatus !== 'Posted' && note.receivingStatus !== 'Partially Posted')) return null;
-  const updated = { ...note, receivingStatus: 'Reversed' as const, notes: `${note.notes}\nReversal placeholder: ${reason}`.trim(), updatedAt: nowIso() };
+  const updated = { ...note, receivingStatus: 'Reversed' as const, notes: `${note.notes}\nReversal review: ${reason}`.trim(), updatedAt: nowIso() };
   saveGRNs(notes.map((item) => item.grnId === grnId ? updated : item));
-  await recordActivity({ grnId, grnNumber: note.grnNumber, poId: note.poId, poNumber: note.poNumber, eventType: 'GRN_REVERSED_PLACEHOLDER', message: `${note.grnNumber} reversal placeholder recorded.`, operator: staffId });
+  await recordActivity({ grnId, grnNumber: note.grnNumber, poId: note.poId, poNumber: note.poNumber, eventType: 'GRN_REVERSED_PLACEHOLDER', message: `${note.grnNumber} reversal review recorded.`, operator: staffId });
   return updated;
 }
 
@@ -725,7 +725,7 @@ export async function reopenPOPlaceholder(poId: string, staffId: string, reason:
   const orders = getPOs();
   const order = orders.find((item) => item.poId === poId);
   if (!order) return null;
-  const updated = { ...order, status: 'Partially Received' as const, notes: `${order.notes}\nReopened placeholder: ${reason}`.trim(), updatedAt: nowIso() };
+  const updated = { ...order, status: 'Partially Received' as const, notes: `${order.notes}\nReopened: ${reason}`.trim(), updatedAt: nowIso() };
   savePOs(orders.map((item) => item.poId === poId ? updated : item));
   await recordActivity({ poId, poNumber: updated.poNumber, eventType: 'PURCHASE_ORDER_LEFT_OPEN_FOR_FULFILLMENT', message: `${updated.poNumber} left open for future fulfillment.`, operator: staffId });
   return updated;
@@ -734,8 +734,8 @@ export async function reopenPOPlaceholder(poId: string, staffId: string, reason:
 export async function exportGRNPlaceholder(grnId: string): Promise<{ success: boolean; message: string }> {
   const note = await getGoodsReceivingNoteById(grnId);
   if (!note) return { success: false, message: 'GRN not found.' };
-  await recordActivity({ grnId, grnNumber: note.grnNumber, poId: note.poId, poNumber: note.poNumber, eventType: 'GRN_DRAFT_UPDATED', message: `${note.grnNumber} export placeholder prepared.`, operator: note.receivedByStaffName });
-  return { success: true, message: `${note.grnNumber} export placeholder prepared.` };
+  await recordActivity({ grnId, grnNumber: note.grnNumber, poId: note.poId, poNumber: note.poNumber, eventType: 'GRN_DRAFT_UPDATED', message: `${note.grnNumber} export prepared.`, operator: note.receivedByStaffName });
+  return { success: true, message: `${note.grnNumber} export prepared.` };
 }
 
 export async function getGoodsReceivingActivityEvents(filters: GoodsReceivingFilterState = {}): Promise<GoodsReceivingActivityEvent[]> {

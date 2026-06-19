@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { CustomerCreditNote, CustomerDepositRecord, CustomerDepositSource, CustomerRecord } from '../types';
 import { applyCreditNoteToDebt, applyCustomerDepositToDebt, approveCustomerCreditNote, createCustomerCreditNote, getCustomerCreditNotes, getCustomerDebtRecords, getCustomerDeposits, receiveCustomerDeposit, refundCustomerDeposit } from '../services/customerCreditService';
+import RowActionMenu from './RowActionMenu';
 
 interface DepositsAndCreditNotesPanelProps {
   customers: CustomerRecord[];
@@ -26,6 +27,8 @@ export default function DepositsAndCreditNotesPanel({ customers, selectedCustome
   const [reference, setReference] = useState('');
   const [notes, setNotes] = useState('');
   const [selectedDebtId, setSelectedDebtId] = useState('');
+  const [openDepositMenuId, setOpenDepositMenuId] = useState<string | null>(null);
+  const [openCreditNoteMenuId, setOpenCreditNoteMenuId] = useState<string | null>(null);
 
   const load = async () => {
     setDeposits(getCustomerDeposits({ customerId }));
@@ -95,13 +98,13 @@ export default function DepositsAndCreditNotesPanel({ customers, selectedCustome
       <div className="collection-diary-table-scroll">
         <table className="sci-pos-table collection-diary-table">
           <thead><tr><th>Deposit</th><th>Received</th><th>Applied</th><th>Balance</th><th>Source</th><th>Status</th><th>Actions</th></tr></thead>
-          <tbody>{deposits.map((deposit) => <tr key={deposit.depositId}><td>{deposit.depositNumber}</td><td>{money(deposit.amountReceived)}</td><td>{money(deposit.amountApplied)}</td><td>{money(deposit.balance)}</td><td>{deposit.source}</td><td>{deposit.status}</td><td><button disabled={!selectedDebtId} onClick={() => void applyCustomerDepositToDebt(deposit.depositId, selectedDebtId, Math.min(deposit.balance, amount || deposit.balance)).then(load)}>Apply to Debt</button><button onClick={() => void refundCustomerDeposit(deposit.depositId, Math.min(deposit.balance, amount || deposit.balance), notes || 'Refunded locally.', staffName).then(load)}>Refund</button></td></tr>)}</tbody>
+          <tbody>{deposits.map((deposit) => <tr key={deposit.depositId}><td>{deposit.depositNumber}</td><td>{money(deposit.amountReceived)}</td><td>{money(deposit.amountApplied)}</td><td>{money(deposit.balance)}</td><td>{deposit.source}</td><td>{deposit.status}</td><td><RowActionMenu rowId={deposit.depositId} ariaLabel={`Deposit actions for ${deposit.depositNumber}`} open={openDepositMenuId === deposit.depositId} onOpenChange={(open) => setOpenDepositMenuId(open ? deposit.depositId : null)} items={[{ id: 'apply', label: 'Apply to Debt', disabled: !selectedDebtId, onClick: () => void applyCustomerDepositToDebt(deposit.depositId, selectedDebtId, Math.min(deposit.balance, amount || deposit.balance)).then(load) }, { id: 'refund', label: 'Refund', danger: true, onClick: () => void refundCustomerDeposit(deposit.depositId, Math.min(deposit.balance, amount || deposit.balance), notes || 'Refunded locally.', staffName).then(load) }]} /></td></tr>)}</tbody>
         </table>
       </div>
       <div className="collection-diary-table-scroll">
         <table className="sci-pos-table collection-diary-table">
           <thead><tr><th>Credit Note</th><th>Reason</th><th>Original</th><th>Applied</th><th>Balance</th><th>Status</th><th>Actions</th></tr></thead>
-          <tbody>{creditNotes.map((note) => <tr key={note.creditNoteId}><td>{note.creditNoteNumber}</td><td>{note.reason}</td><td>{money(note.originalAmount)}</td><td>{money(note.amountApplied)}</td><td>{money(note.balance)}</td><td>{note.status}</td><td><button disabled={!canApprove} onClick={() => void approveCustomerCreditNote(note.creditNoteId, staffName, notes || 'Approved locally.').then(load)}>Approve</button><button disabled={!selectedDebtId} onClick={() => void applyCreditNoteToDebt(note.creditNoteId, selectedDebtId, Math.min(note.balance, amount || note.balance)).then(load)}>Apply to Debt</button></td></tr>)}</tbody>
+          <tbody>{creditNotes.map((note) => <tr key={note.creditNoteId}><td>{note.creditNoteNumber}</td><td>{note.reason}</td><td>{money(note.originalAmount)}</td><td>{money(note.amountApplied)}</td><td>{money(note.balance)}</td><td>{note.status}</td><td><RowActionMenu rowId={note.creditNoteId} ariaLabel={`Credit note actions for ${note.creditNoteNumber}`} open={openCreditNoteMenuId === note.creditNoteId} onOpenChange={(open) => setOpenCreditNoteMenuId(open ? note.creditNoteId : null)} items={[{ id: 'approve', label: 'Approve', disabled: !canApprove, onClick: () => void approveCustomerCreditNote(note.creditNoteId, staffName, notes || 'Approved locally.').then(load) }, { id: 'apply', label: 'Apply to Debt', disabled: !selectedDebtId, onClick: () => void applyCreditNoteToDebt(note.creditNoteId, selectedDebtId, Math.min(note.balance, amount || note.balance)).then(load) }]} /></td></tr>)}</tbody>
         </table>
       </div>
     </section>

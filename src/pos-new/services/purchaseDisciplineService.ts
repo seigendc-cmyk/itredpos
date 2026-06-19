@@ -8,21 +8,26 @@ import type {
   PurchaseRiskLevel,
   ReorderProtectionDecision,
   ReorderProtectionRule,
-  SupplierPurchaseCommitment
+  SupplierPurchaseCommitment,
+  PurchaseOrder,
+  GoodsReceivingNote,
+  Sale
 } from '../types';
-import { mockProducts } from '../mock/mockPosData';
+import { mockProducts, mockRecentSales } from '../mock/mockPosData';
 import { createOperationalApproval } from './approvalService';
 import { createBIAdviceFromTrigger, createBIAdviceTaskFromAdvice } from './biAdviceService';
 import { getCOGSReserveSummary } from './cogsReserveService';
 import { getSupplierBills, getSupplierCreditProfile, getSupplierCreditProfiles } from './creditorsService';
 import { getCustomerDebtRecords } from './customerCreditService';
-import { createPurchaseOrder } from './purchaseOrderService';
+import { createPurchaseOrder, getPurchaseOrders } from './purchaseOrderService';
+import { getGoodsReceivingLines, getGoodsReceivingNotes } from './goodsReceivingService';
 
 const REQUEST_KEY = 'itred_pos_purchase_discipline_requests_v1';
 const ASSESSMENT_KEY = 'itred_pos_purchase_risk_assessments_v1';
 const COMMITMENT_KEY = 'itred_pos_supplier_purchase_commitments_v1';
 const RULE_KEY = 'itred_pos_reorder_protection_rules_v1';
 const ACTIVITY_KEY = 'itred_pos_purchase_discipline_activity_v1';
+const BI_RULE_KEY = 'itred_pos_purchasing_discipline_bi_rules_v1';
 
 export interface PurchaseDisciplineActivityEvent {
   eventId: string;
@@ -37,6 +42,63 @@ type RequestPayload = Omit<PurchaseDisciplineRequest, 'requestId' | 'requestNumb
   requestId?: string;
   requestNumber?: string;
 };
+
+export interface PurchasingDisciplineBIRule {
+  ruleId: string;
+  ruleCode: string;
+  title: string;
+  active: boolean;
+  threshold: number;
+  weight: number;
+  severity: PurchaseRiskLevel;
+  description: string;
+}
+
+export interface PurchasingSupplierAnalytics {
+  supplierId: string;
+  supplierName: string;
+  reliabilityScore: number;
+  riskScore: number;
+  leadTimeScore: number;
+  deliveryPerformance: number;
+  packagingComplaints: number;
+  correctSupplyRate: number;
+  recommendation: string;
+}
+
+export interface PurchasingProductAnalytics {
+  productId: string;
+  sku: string;
+  productName: string;
+  supplierName: string;
+  salesVelocity: number;
+  purchaseFrequency: number;
+  supplierAvailability: number;
+  brandTolerance: number;
+  marginPerformance: number;
+  recommendation: string;
+}
+
+export interface COGSReserveBIControl {
+  cogsReserveBalance: number;
+  supplierCommitments: number;
+  cashAvailable: number;
+  oneWeekForecast: number;
+  twoWeekForecast: number;
+  threeWeekForecast: number;
+  cogsHealthScore: number;
+  cogsHealthStatus: PurchaseRiskLevel;
+  summary: string;
+}
+
+export interface PurchasingDisciplineBISummary {
+  generatedAt: string;
+  cogs: COGSReserveBIControl;
+  suppliers: PurchasingSupplierAnalytics[];
+  products: PurchasingProductAnalytics[];
+  rules: PurchasingDisciplineBIRule[];
+  drillReports: Array<{ reportId: string; title: string; description: string; riskLevel: PurchaseRiskLevel; count: number }>;
+}
 
 function nowIso(): string {
   return new Date().toISOString();
@@ -121,6 +183,17 @@ const seedRules: ReorderProtectionRule[] = [
   { ruleId: 'RPR-008', ruleCode: 'PURCHASE_WITHOUT_APPROVAL', title: 'Purchase Without Approval', active: true, severity: 'Blocked', threshold: 75, decision: 'Block', description: 'High-risk purchase must not convert to PO without approval.' },
   { ruleId: 'RPR-009', ruleCode: 'PO_RAISED_WITHOUT_RESERVE_CHECK', title: 'PO Without Reserve Check', active: true, severity: 'Medium', threshold: 0, decision: 'Warn', description: 'Purchase order should reference a purchase discipline request.' },
   { ruleId: 'RPR-010', ruleCode: 'GRN_RECEIVED_WITHOUT_PURCHASE_DISCIPLINE', title: 'GRN Without Discipline', active: true, severity: 'High', threshold: 0, decision: 'RequireApproval', description: 'Goods received without purchase discipline review.' }
+];
+
+const seedBIRules: PurchasingDisciplineBIRule[] = [
+  { ruleId: 'PDBI-001', ruleCode: 'SUPPLIER_RELIABILITY_MINIMUM', title: 'Supplier Reliability Minimum', active: true, threshold: 70, weight: 14, severity: 'High', description: 'Flags suppliers with weak payment, delivery or fulfilment reliability.' },
+  { ruleId: 'PDBI-002', ruleCode: 'SUPPLIER_RISK_MAXIMUM', title: 'Supplier Risk Maximum', active: true, threshold: 45, weight: 12, severity: 'High', description: 'Raises BI risk when supplier overdue, disputed or credit-pressure score is high.' },
+  { ruleId: 'PDBI-003', ruleCode: 'LEAD_TIME_SCORE_MINIMUM', title: 'Lead Time Minimum', active: true, threshold: 65, weight: 8, severity: 'Medium', description: 'Warns when supplier lead-time score does not support urgent replenishment.' },
+  { ruleId: 'PDBI-004', ruleCode: 'CORRECT_SUPPLY_RATE_MINIMUM', title: 'Correct Supply Rate Minimum', active: true, threshold: 88, weight: 12, severity: 'High', description: 'Flags suppliers with short supply, damaged goods, wrong products or variance-heavy GRNs.' },
+  { ruleId: 'PDBI-005', ruleCode: 'SALES_VELOCITY_REORDER_SIGNAL', title: 'Sales Velocity Reorder Signal', active: true, threshold: 3, weight: 9, severity: 'Medium', description: 'Highlights products selling fast enough to justify earlier reorder checks.' },
+  { ruleId: 'PDBI-006', ruleCode: 'MARGIN_PERFORMANCE_MINIMUM', title: 'Margin Performance Minimum', active: true, threshold: 22, weight: 10, severity: 'High', description: 'Protects cash by warning on low-margin purchase decisions.' },
+  { ruleId: 'PDBI-007', ruleCode: 'COGS_HEALTH_MINIMUM', title: 'COGS Health Minimum', active: true, threshold: 75, weight: 18, severity: 'Critical', description: 'Blocks aggressive buying when COGS reserve health is below safe threshold.' },
+  { ruleId: 'PDBI-008', ruleCode: 'COMMITMENT_PRESSURE_MAXIMUM', title: 'Supplier Commitment Pressure', active: true, threshold: 60, weight: 17, severity: 'High', description: 'Compares active supplier commitments with protected reserve capacity.' }
 ];
 
 function seedRequests(): PurchaseDisciplineRequest[] {
@@ -578,6 +651,186 @@ export function updateReorderProtectionRule(ruleId: string, patch: Partial<Reord
   let updated: ReorderProtectionRule | null = null;
   saveList(RULE_KEY, getReorderProtectionRules().map((rule) => rule.ruleId === ruleId ? (updated = { ...rule, ...patch }) : rule));
   return updated;
+}
+
+export function getPurchasingDisciplineBIRules(): PurchasingDisciplineBIRule[] {
+  return readList<PurchasingDisciplineBIRule>(BI_RULE_KEY, seedBIRules);
+}
+
+export function updatePurchasingDisciplineBIRule(ruleId: string, patch: Partial<PurchasingDisciplineBIRule>): PurchasingDisciplineBIRule | null {
+  let updated: PurchasingDisciplineBIRule | null = null;
+  saveList(BI_RULE_KEY, getPurchasingDisciplineBIRules().map((rule) => {
+    if (rule.ruleId !== ruleId) return rule;
+    updated = { ...rule, ...patch };
+    return updated;
+  }));
+  return updated;
+}
+
+function clampScore(value: number): number {
+  return Math.max(0, Math.min(100, Math.round(value)));
+}
+
+function healthFromScore(score: number): PurchaseRiskLevel {
+  if (score < 35) return 'Critical';
+  if (score < 55) return 'High';
+  if (score < 75) return 'Medium';
+  return 'Low';
+}
+
+function saleUnitCost(item: Sale['items'][number]): number {
+  return Number(item.unitCost ?? item.costPrice ?? 0);
+}
+
+function weeklyCOGSDemand(sales: Sale[]): number {
+  const completed = sales.filter((sale) => sale.status === 'COMPLETED');
+  const cogs = completed.reduce((sum, sale) => sum + sale.items.reduce((lineSum, item) => lineSum + saleUnitCost(item) * item.quantity, 0), 0);
+  return Math.max(250, Math.round((cogs / Math.max(1, completed.length)) * 5));
+}
+
+function supplierPOs(supplierId: string, purchaseOrders: PurchaseOrder[]): PurchaseOrder[] {
+  return purchaseOrders.filter((order) => order.supplierId === supplierId || order.supplierName.toLowerCase().includes(supplierId.toLowerCase()));
+}
+
+function supplierGRNs(supplierName: string, notes: GoodsReceivingNote[]): GoodsReceivingNote[] {
+  return notes.filter((note) => note.supplierName.toLowerCase() === supplierName.toLowerCase());
+}
+
+export async function getPurchasingDisciplineBISummary(): Promise<PurchasingDisciplineBISummary> {
+  const rules = getPurchasingDisciplineBIRules();
+  const reserve = getCOGSBuyingCapacitySummary();
+  const commitments = getSupplierPurchaseCommitments().filter((commitment) => !['Cancelled', 'Fulfilled'].includes(commitment.status));
+  const purchaseOrders = await getPurchaseOrders();
+  const grns = await getGoodsReceivingNotes();
+  const supplierLineStats = new Map<string, { received: number; accepted: number; complaints: number; varianceNotes: number }>();
+
+  for (const note of grns) {
+    const lines = await getGoodsReceivingLines(note.grnId);
+    const current = supplierLineStats.get(note.supplierName) || { received: 0, accepted: 0, complaints: 0, varianceNotes: 0 };
+    lines.forEach((line) => {
+      current.received += Math.max(0, line.qtyReceivedNow || 0);
+      current.accepted += Math.max(0, line.qtyAccepted || 0);
+      if (line.varianceType === 'Damaged' || line.varianceType === 'Wrong Product') current.complaints += 1;
+      if (line.varianceType && line.varianceType !== 'None') current.varianceNotes += 1;
+    });
+    supplierLineStats.set(note.supplierName, current);
+  }
+
+  const suppliers = getSupplierCreditProfiles().map<PurchasingSupplierAnalytics>((profile) => {
+    const profilePOs = supplierPOs(profile.supplierId, purchaseOrders);
+    const profileGRNs = supplierGRNs(profile.supplierName, grns);
+    const lineStats = supplierLineStats.get(profile.supplierName) || { received: 0, accepted: 0, complaints: 0, varianceNotes: 0 };
+    const creditUsage = profile.supplierCreditLimit > 0 ? (profile.currentPayableBalance / profile.supplierCreditLimit) * 100 : 0;
+    const overduePenalty = profile.overduePayableBalance > 0 ? 18 : 0;
+    const disputePenalty = profile.disputedAmount > 0 ? 10 : 0;
+    const latePenalty = Math.min(24, profile.latePaymentCount * 6);
+    const reliabilityScore = clampScore(100 - overduePenalty - disputePenalty - latePenalty - Math.max(0, creditUsage - 70) / 2);
+    const riskScore = clampScore(100 - reliabilityScore + Math.max(0, creditUsage - 60) / 2 + profile.latePaymentCount * 4);
+    const averageLeadDays = profilePOs.length
+      ? profilePOs.reduce((sum, po) => {
+        const start = new Date(`${po.poDate}T12:00:00`).getTime();
+        const expected = new Date(`${po.expectedDeliveryDate}T12:00:00`).getTime();
+        return sum + Math.max(1, Math.round((expected - start) / 86400000));
+      }, 0) / profilePOs.length
+      : profile.paymentTermsDays;
+    const leadTimeScore = clampScore(100 - averageLeadDays * 2);
+    const deliveryPerformance = profilePOs.length ? clampScore((profileGRNs.length / profilePOs.length) * 100) : profile.preferredSupplier ? 85 : 65;
+    const correctSupplyRate = lineStats.received > 0 ? clampScore((lineStats.accepted / lineStats.received) * 100 - lineStats.varianceNotes * 2) : 80;
+    const recommendation = riskScore > 60 || correctSupplyRate < 75
+      ? 'Require manager review before replenishment'
+      : reliabilityScore >= 80 && deliveryPerformance >= 75
+        ? 'Preferred for controlled replenishment'
+        : 'Use with monitored purchase discipline';
+    return {
+      supplierId: profile.supplierId,
+      supplierName: profile.supplierName,
+      reliabilityScore,
+      riskScore,
+      leadTimeScore,
+      deliveryPerformance,
+      packagingComplaints: lineStats.complaints,
+      correctSupplyRate,
+      recommendation
+    };
+  }).sort((a, b) => b.riskScore - a.riskScore);
+
+  const requests = getPurchaseDisciplineRequests();
+  const products = mockProducts.slice(0, 24).map<PurchasingProductAnalytics>((product) => {
+    const productId = product.id;
+    const sku = productSku(product);
+    const salesQty = mockRecentSales
+      .filter((sale) => sale.status === 'COMPLETED')
+      .flatMap((sale) => sale.items)
+      .filter((item) => item.productId === productId || item.code === sku)
+      .reduce((sum, item) => sum + item.quantity, 0);
+    const productRequests = requests.filter((request) => request.productId === productId || request.sku === sku);
+    const productCommitments = commitments.filter((commitment) => commitment.productId === productId || commitment.productName === productName(product));
+    const cost = productCost(product);
+    const price = productPrice(product);
+    const marginPercent = price > 0 ? ((price - cost) / price) * 100 : 0;
+    const salesVelocity = Number((salesQty / 3).toFixed(1));
+    const purchaseFrequency = productRequests.length + productCommitments.length;
+    const supplierAvailability = clampScore((product.supplierId || product.supplierName ? 50 : 20) + (productStock(product) > 0 ? 25 : 0) + (product.reorderLevel ? 15 : 0) + (productCommitments.length > 0 ? 10 : 0));
+    const brandTolerance = clampScore((product.brand ? 55 : 35) + (product.manufacturer ? 15 : 0) + (product.category ? 10 : 0) + (product.stockStatus === 'Fast Moving' || product.healthStatus === 'Fast Moving' ? 15 : 0));
+    const marginPerformance = clampScore(marginPercent * 2.4);
+    const recommendation = marginPercent < 18
+      ? 'Do not buy without margin review'
+      : salesVelocity >= 3 && supplierAvailability >= 65
+        ? 'Replenishment candidate'
+        : purchaseFrequency > 1 && salesVelocity < 1
+          ? 'Check slow-moving risk before purchase'
+          : 'Monitor demand before buying';
+    return {
+      productId,
+      sku,
+      productName: productName(product),
+      supplierName: product.supplierName || 'Unassigned',
+      salesVelocity,
+      purchaseFrequency,
+      supplierAvailability,
+      brandTolerance,
+      marginPerformance,
+      recommendation
+    };
+  }).sort((a, b) => b.salesVelocity - a.salesVelocity);
+
+  const weeklyDemand = weeklyCOGSDemand(mockRecentSales);
+  const supplierCommitments = commitments.reduce((sum, commitment) => sum + commitment.reserveNeeded, 0);
+  const cashAvailable = reserve.safeBuyingCapacity;
+  const coverageScore = clampScore(reserve.reserveCoveragePercent);
+  const commitmentPressure = reserve.currentReserveBalance > 0 ? (supplierCommitments / reserve.currentReserveBalance) * 100 : 100;
+  const forecastScore = clampScore((cashAvailable - weeklyDemand * 2) / Math.max(1, weeklyDemand * 2) * 100 + 70);
+  const cogsHealthScore = clampScore(coverageScore * 0.45 + (100 - Math.min(100, commitmentPressure)) * 0.3 + forecastScore * 0.25);
+  const cogsHealthStatus = healthFromScore(cogsHealthScore);
+  const cogs: COGSReserveBIControl = {
+    cogsReserveBalance: reserve.currentReserveBalance,
+    supplierCommitments,
+    cashAvailable,
+    oneWeekForecast: Number((cashAvailable - weeklyDemand).toFixed(2)),
+    twoWeekForecast: Number((cashAvailable - weeklyDemand * 2).toFixed(2)),
+    threeWeekForecast: Number((cashAvailable - weeklyDemand * 3).toFixed(2)),
+    cogsHealthScore,
+    cogsHealthStatus,
+    summary: cogsHealthScore >= 75
+      ? 'COGS reserve can support controlled replenishment.'
+      : cogsHealthScore >= 55
+        ? 'COGS reserve requires monitored buying decisions.'
+        : 'COGS reserve is under pressure. Require approval before aggressive buying.'
+  };
+
+  return {
+    generatedAt: nowIso(),
+    cogs,
+    suppliers,
+    products,
+    rules,
+    drillReports: [
+      { reportId: 'supplier-risk', title: 'Supplier risk analytics', description: 'Reliability, delivery, packaging and correct-supply supplier scorecard.', riskLevel: suppliers.some((supplier) => supplier.riskScore > 60) ? 'High' : 'Low', count: suppliers.length },
+      { reportId: 'product-buying', title: 'Product buying analytics', description: 'Sales velocity, purchase frequency, margin and availability intelligence.', riskLevel: products.some((product) => product.marginPerformance < 45 && product.salesVelocity > 1) ? 'High' : 'Medium', count: products.length },
+      { reportId: 'cogs-control', title: 'COGS reserve control', description: 'Reserve balance, supplier commitments, available cash and three-week forecast.', riskLevel: cogs.cogsHealthStatus, count: rules.filter((rule) => rule.active).length },
+      { reportId: 'rule-config', title: 'Configurable rule library', description: 'Default system rules controlling supplier, product and COGS reserve BI scoring.', riskLevel: rules.some((rule) => !rule.active) ? 'Medium' : 'Low', count: rules.length }
+    ]
+  };
 }
 
 export function getCOGSBuyingCapacitySummary() {

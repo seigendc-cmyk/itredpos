@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
-import { HelpCircle, Maximize2, Minimize2, RotateCcw, Upload, X } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, Database, FileSpreadsheet, Search, Upload, X } from 'lucide-react';
 import type {
   IndustrialSectorCode,
   InventoryImportColumn,
@@ -7,19 +7,20 @@ import type {
   ProductImportActivityEvent,
   ProductImportBatch,
   ProductImportColumnMapping,
+  ProductImportDataCategory,
+  ProductImportMode,
   ProductImportPreviewSummary,
   ProductImportRow,
   ProductImportSource
 } from '../types';
 import InventoryImportIssueReport from './InventoryImportIssueReport';
-import InventoryImportMappingTemplateModal from './InventoryImportMappingTemplateModal';
 import { getInventoryImportFieldDefinitions } from '../services/inventoryImportFieldDefinitions';
 import {
   createImportValidationIssues,
   detectColumns,
   detectImportFileType,
-  mapWizardColumnsToProductMappings,
   parseCsvText,
+  saveWizardMappingsToBatch,
   validateImportMapping
 } from '../services/inventoryImportService';
 
@@ -32,216 +33,505 @@ interface WizardProps {
   staffId: string;
   staffName: string;
   onClose: () => void;
-  onCreateBatch: (payload: { industrialSectorCode: IndustrialSectorCode; source: ProductImportSource; fileName?: string; notes?: string }) => Promise<void>;
+  onCreateBatch: (payload: {
+    industrialSectorCode: IndustrialSectorCode;
+    importMode: ProductImportMode;
+    dataCategory: ProductImportDataCategory;
+    source: ProductImportSource;
+    fileName?: string;
+    worksheetName?: string;
+    startRowNumber?: number;
+    notes?: string;
+  }) => Promise<void>;
   onParseCsv: (batchId: string, csvText: string) => Promise<void>;
   onAutoMap: (batchId: string, sectorCode: IndustrialSectorCode) => Promise<void>;
   onValidate: (batchId: string) => Promise<void>;
   onSubmitApproval: (batchId: string) => Promise<void>;
   onApprove: (batchId: string) => Promise<void>;
   onImport: (batchId: string) => Promise<void>;
+  onRollback: (batchId: string) => Promise<void>;
   onSkipRow: (batchId: string, rowId: string) => Promise<void>;
   onExportErrors: (batchId: string) => Promise<void>;
 }
 
-type WizardStep = 1 | 2 | 3 | 4 | 5 | 6 | 7;
-type WindowMode = 'normal' | 'minimized' | 'maximized';
-
-const sampleCsv = `Item Name,Item Number,Regular Price,Average Unit Cost,On Hand,Department,Supplier,Location,Make,Model,Part No
-Toyota Hilux GD6 Mirror Right Chrome,MIR-GD6-RC,68,34,2,Body Parts,Motor Spares Wholesalers,A1-S4,Toyota,Hilux GD6,MIR-GD6-RC
-Brake Pads Toyota GD6 Front,BP-GD6-F,28,34,4,Braking,,B2-S2,Toyota,Hilux GD6,BP-GD6-F
-Universal Radiator Cap 1.1 Bar,RAD-CAP-11,8,,10,Cooling,Motor Spares Wholesalers,A2-S2,,,RAD-CAP-11`;
+type WizardStep = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8;
 
 const steps: Array<{ id: WizardStep; label: string }> = [
-  { id: 1, label: 'Select File / Paste Data' },
-  { id: 2, label: 'Sheet / Start Row' },
-  { id: 3, label: 'Column Preview' },
-  { id: 4, label: 'Mapping' },
-  { id: 5, label: 'Validation Preview' },
-  { id: 6, label: 'Import Preview' },
-  { id: 7, label: 'Submit / Approve / Post' }
+  { id: 1, label: 'Import Mode' },
+  { id: 2, label: 'Data Category' },
+  { id: 3, label: 'Source Type' },
+  { id: 4, label: 'Upload File' },
+  { id: 5, label: 'Worksheet' },
+  { id: 6, label: 'Mapping' },
+  { id: 7, label: 'Validation' },
+  { id: 8, label: 'Import' }
 ];
+
+const sectorProfiles: Array<{ label: string; code: IndustrialSectorCode; keywords: string[] }> = [
+  { label: 'Grocery', code: 'GROCERY', keywords: ['barcode', 'expiryDate', 'batchNumber', 'unitOfMeasure', 'packSize'] },
+  { label: 'Agriculture', code: 'AGRICULTURE', keywords: ['seedVariety', 'chemicalActiveIngredient', 'applicationRate', 'expiryDate', 'regulatoryNotes'] },
+  { label: 'Motor Spares', code: 'MOTOR_SPARES', keywords: ['make', 'model', 'vehicleMake', 'vehicleModel', 'yearRange', 'partNumber', 'oemNumber', 'side'] },
+  { label: 'Hardware', code: 'HARDWARE', keywords: ['size', 'material', 'grade', 'weight', 'unitOfMeasure'] },
+  { label: 'Pharmacy', code: 'PHARMACY', keywords: ['dosage', 'strength', 'batchNumber', 'expiryDate', 'prescriptionRequired'] },
+  { label: 'Clothing', code: 'CLOTHING', keywords: ['size', 'colour', 'gender', 'fabric', 'style'] },
+  { label: 'Electronics', code: 'ELECTRONICS', keywords: ['modelNumber', 'serialNumberSupport', 'warranty', 'powerRating'] },
+  { label: 'Logistics / Warehousing', code: 'LOGISTICS_WAREHOUSING', keywords: ['weight', 'dimensions', 'fragileFlag', 'storageRequirement'] }
+];
+
+const categoryFields: Record<ProductImportDataCategory, Array<{ key: string; label: string; required?: boolean }>> = {
+  'Inventory List': [],
+  Images: [
+    { key: 'sku', label: 'SKU', required: true },
+    { key: 'barcode', label: 'Barcode' },
+    { key: 'imageUrl', label: 'Image URL', required: true }
+  ],
+  Vendors: [
+    { key: 'supplierName', label: 'Vendor Name', required: true },
+    { key: 'supplierItemCode', label: 'Vendor Item Code' },
+    { key: 'supplierEmail', label: 'Vendor Email' }
+  ],
+  Customers: [
+    { key: 'customerName', label: 'Customer Name', required: true },
+    { key: 'phone', label: 'Phone Number' },
+    { key: 'email', label: 'Email Address' }
+  ]
+};
+
+const sampleSheet = `Product Name,SKU,Barcode,Selling Price,Cost Price,Qty,Category,Supplier Name,Shelf Location,Make,Model,Part Number
+Toyota Hilux GD6 Mirror Right Chrome,MIR-GD6-RC,,68,34,2,Body Parts,Motor Spares Wholesalers,A1-S4,Toyota,Hilux GD6,MIR-GD6-RC
+Brake Pads Toyota GD6 Front,BP-GD6-F,,28,16,4,Braking,Motor Spares Wholesalers,B2-S2,Toyota,Hilux GD6,04465-0K290
+Universal Radiator Cap 1.1 Bar,RAD-CAP-11,,8,3.5,10,Cooling,Motor Spares Wholesalers,A2-S2,,,RAD-CAP-11`;
+
+function normalize(value: string): string {
+  return value.toLowerCase().replace(/[^a-z0-9]/g, '');
+}
+
+function parseWorksheetText(text: string): string[][] {
+  if (text.includes('\t')) return text.split(/\r?\n/).filter(Boolean).map((row) => row.split('\t').map((cell) => cell.trim()));
+  return parseCsvText(text);
+}
 
 export default function InventoryImportMappingWizard(props: WizardProps) {
   const [step, setStep] = useState<WizardStep>(1);
-  const [mode, setMode] = useState<WindowMode>('normal');
-  const [fileName, setFileName] = useState(props.batch?.fileName || 'quickbooks-pos-style-import.csv');
-  const [manualText, setManualText] = useState(sampleCsv);
-  const [startRow, setStartRow] = useState(1);
-  const [sheetName, setSheetName] = useState('Sheet1');
-  const [sector, setSector] = useState<IndustrialSectorCode>(props.batch?.industrialSectorCode || 'MOTOR_SPARES');
+  const [importMode, setImportMode] = useState<ProductImportMode>(props.batch?.importMode || 'New Import');
+  const [dataCategory, setDataCategory] = useState<ProductImportDataCategory>(props.batch?.dataCategory || 'Inventory List');
+  const [sectorLabel, setSectorLabel] = useState(() => sectorProfiles.find((profile) => profile.code === props.batch?.industrialSectorCode)?.label || 'Motor Spares');
+  const [sourceType, setSourceType] = useState<'Custom Excel File'>('Custom Excel File');
+  const [fileName, setFileName] = useState(props.batch?.fileName || 'inventory-import.xlsx');
+  const [worksheetName, setWorksheetName] = useState(props.batch?.worksheetName || 'Sheet1');
+  const [startRow, setStartRow] = useState(props.batch?.startRowNumber || 1);
+  const [worksheetText, setWorksheetText] = useState(sampleSheet);
   const [columns, setColumns] = useState<InventoryImportColumn[]>([]);
+  const [fieldSearch, setFieldSearch] = useState('');
+  const [notice, setNotice] = useState('');
   const [mappingIssues, setMappingIssues] = useState<InventoryImportValidationIssue[]>([]);
   const [rowIssues, setRowIssues] = useState<InventoryImportValidationIssue[]>([]);
-  const [templateOpen, setTemplateOpen] = useState(false);
-  const [notice, setNotice] = useState('');
+  const [processing, setProcessing] = useState(false);
+  const [progress, setProgress] = useState(0);
+  const [rollbackLog, setRollbackLog] = useState<string[]>([]);
 
-  const parsedRows = useMemo(() => parseCsvText(manualText), [manualText]);
-  const fileType = detectImportFileType(fileName);
+  const selectedSector = sectorProfiles.find((profile) => profile.label === sectorLabel) || sectorProfiles[2];
+  const parsedRows = useMemo(() => parseWorksheetText(worksheetText), [worksheetText]);
+  const sheetRows = useMemo(() => parsedRows.slice(Math.max(0, startRow - 1)), [parsedRows, startRow]);
   const currentBatchId = props.batch?.batchId || '';
-  const shellClass = mode === 'maximized'
-    ? 'fixed inset-4 z-50 bg-white border-2 border-[#1e222b] shadow-2xl flex flex-col'
-    : 'fixed inset-x-4 top-8 z-50 mx-auto max-w-[1400px] max-h-[92vh] bg-white border-2 border-[#1e222b] shadow-2xl flex flex-col';
+  const allDefinitions = getInventoryImportFieldDefinitions();
 
-  useEffect(() => {
-    if (parsedRows.length) setColumns(detectColumns(parsedRows.slice(Math.max(0, startRow - 1))));
-  }, [manualText, startRow]);
-
-  useEffect(() => {
-    if (props.mappings.length && !columns.length) {
-      setColumns(props.mappings.map((mapping, index) => ({ columnIndex: index, columnLetter: String.fromCharCode(65 + index), sourceColumnName: mapping.sourceColumn, sampleValues: [mapping.sampleValue], detectedFieldKey: mapping.targetField, mappedFieldKey: mapping.targetField, confidenceScore: mapping.status === 'Mapped' ? 100 : 0, ignored: mapping.targetField === 'Ignore', notes: mapping.status })));
+  const systemFields = useMemo(() => {
+    if (dataCategory !== 'Inventory List') {
+      return categoryFields[dataCategory]
+        .filter((field) => {
+          const search = normalize(fieldSearch);
+          return !search || normalize(`${field.label} ${field.key}`).includes(search);
+        })
+        .map((field) => ({
+          fieldKey: field.key,
+          fieldLabel: field.label,
+          fieldType: field.required ? 'Required' : 'Optional',
+          required: Boolean(field.required),
+          targetDomain: dataCategory,
+          validationType: 'Text'
+        }));
     }
-  }, [props.mappings, columns.length]);
+    return allDefinitions.filter((definition) => {
+      const search = normalize(fieldSearch);
+      const searchMatch = !search || normalize(`${definition.fieldLabel} ${definition.fieldKey} ${definition.targetDomain}`).includes(search);
+      const sectorMatch = selectedSector.keywords.includes(definition.fieldKey) || definition.required || ['Product', 'Stock', 'Pricing', 'Supplier', 'Location'].includes(definition.targetDomain);
+      return searchMatch && sectorMatch;
+    });
+  }, [allDefinitions, dataCategory, fieldSearch, selectedSector]);
 
-  const fields = getInventoryImportFieldDefinitions();
-  const estimatedValue = props.rows.reduce((sum, row) => sum + (Number(row.mappedProduct.qty || 0) * Number(row.mappedProduct.costPrice || row.mappedProduct.unitCost || 0)), 0);
-  const validationRows = props.rows.flatMap((row) => row.validationIssues);
+  const validationSummary = useMemo(() => {
+    const issues = [...mappingIssues, ...rowIssues];
+    return {
+      errors: issues.filter((issue) => issue.severity === 'Error').length,
+      warnings: issues.filter((issue) => issue.severity === 'Warning').length,
+      missingMappings: issues.filter((issue) => issue.code === 'REQUIRED_FIELD_UNMAPPED').length,
+      duplicateProducts: props.rows.filter((row) => row.status === 'Duplicate' || row.duplicateProductId).length,
+      missingIdentifiers: props.rows.filter((row) => {
+        const mapped = row.mappedProduct;
+        return !mapped.sku && !mapped.barcode && !mapped.alu && !mapped.vendorSku;
+      }).length,
+      invalidPrices: props.rows.filter((row) => row.validationIssues.some((issue) => issue.field === 'sellingPrice' || issue.field === 'costPrice')).length,
+      invalidQuantities: props.rows.filter((row) => row.validationIssues.some((issue) => issue.field === 'qty')).length
+    };
+  }, [mappingIssues, props.rows, rowIssues]);
+
+  useEffect(() => {
+    setColumns(detectColumns(sheetRows));
+  }, [sheetRows]);
+
+  useEffect(() => {
+    if (!props.mappings.length) return;
+    setColumns((current) => current.map((column) => {
+      const saved = props.mappings.find((mapping) => normalize(mapping.sourceColumn) === normalize(column.sourceColumnName));
+      return saved ? { ...column, mappedFieldKey: saved.targetField, ignored: false, confidenceScore: 100, notes: 'Saved mapping' } : column;
+    }));
+  }, [props.mappings]);
 
   const showNotice = (message: string) => {
     setNotice(message);
-    window.setTimeout(() => setNotice(''), 4000);
+    window.setTimeout(() => setNotice(''), 4200);
   };
 
-  const createBatchAndParse = async () => {
-    await props.onCreateBatch({ industrialSectorCode: sector, source: fileType === 'CSV' ? 'CSV Upload' : fileType === 'ManualPaste' ? 'Paste Table' : 'Excel Upload Placeholder', fileName, notes: `Sheet ${sheetName}; start row ${startRow}. Created from mapping wizard.` });
-    showNotice('Draft import batch created. Parse CSV after batch is selected.');
+  const selectedColumnForField = (fieldKey: string) => columns.find((column) => column.mappedFieldKey === fieldKey)?.sourceColumnName || '';
+
+  const mapFieldToColumn = (fieldKey: string, sourceColumnName: string) => {
+    setColumns((current) => current.map((column) => {
+      if (column.mappedFieldKey === fieldKey && column.sourceColumnName !== sourceColumnName) {
+        return { ...column, mappedFieldKey: undefined, ignored: true };
+      }
+      if (column.sourceColumnName === sourceColumnName) {
+        return { ...column, mappedFieldKey: fieldKey || undefined, ignored: !fieldKey, confidenceScore: 100, notes: fieldKey ? 'Mapped by import desk user.' : 'Ignored by user.' };
+      }
+      return column;
+    }));
+  };
+
+  const handleFile = async (file?: File) => {
+    if (!file) return;
+    setFileName(file.name);
+    const detectedType = detectImportFileType(file.name);
+    if (detectedType === 'CSV') {
+      setWorksheetText(await file.text());
+      showNotice('Worksheet rows loaded from upload.');
+      return;
+    }
+    showNotice('Excel workbook captured locally. Enter worksheet details in the next step. For offline preview, paste exported worksheet rows if needed.');
+  };
+
+  const createBatch = async () => {
+    await props.onCreateBatch({
+      industrialSectorCode: selectedSector.code,
+      importMode,
+      dataCategory,
+      source: 'Excel Upload',
+      fileName,
+      worksheetName,
+      startRowNumber: startRow,
+      notes: `${importMode}; ${dataCategory}; ${sourceType}; worksheet ${worksheetName}; start row ${startRow}.`
+    });
+    showNotice('Import batch created locally.');
   };
 
   const parseIntoBatch = async () => {
     if (!currentBatchId) {
-      await createBatchAndParse();
+      await createBatch();
+      showNotice('Batch created. Continue with Parse Worksheet once the batch is loaded.');
       return;
     }
-    await props.onParseCsv(currentBatchId, manualText);
-    showNotice('CSV/manual paste parsed locally.');
-    setStep(3);
+    const rowsToParse = sheetRows.length ? sheetRows : parseWorksheetText(sampleSheet);
+    await props.onParseCsv(currentBatchId, rowsToParse.map((row) => row.join(',')).join('\n'));
+    showNotice('Worksheet rows parsed into the import batch.');
+    setStep(6);
   };
 
-  const saveCurrentMapping = async () => {
+  const autoMap = () => {
+    setColumns(detectColumns(sheetRows).map((column) => {
+      const source = normalize(column.sourceColumnName);
+      const sectorField = allDefinitions.find((definition) => {
+        const aliases = [definition.fieldKey, definition.fieldLabel, ...definition.acceptedAliases];
+        return aliases.some((alias) => normalize(alias) === source || source.includes(normalize(alias)));
+      });
+      return sectorField ? { ...column, mappedFieldKey: sectorField.fieldKey, confidenceScore: 96, ignored: false, notes: `${sectorLabel} sector match` } : column;
+    }));
+    showNotice(`${sectorLabel} sector mapping applied.`);
+  };
+
+  const saveMapping = async () => {
     if (!currentBatchId) {
-      showNotice('Create a batch before saving mappings.');
+      showNotice('Create and parse a batch before saving mappings.');
       return;
     }
-    const mappings = mapWizardColumnsToProductMappings(currentBatchId, columns);
-    if (!mappings.length) {
-      showNotice('No mapped columns to save.');
+    await saveWizardMappingsToBatch(currentBatchId, columns);
+    showNotice('Mapping grid saved to the import batch.');
+  };
+
+  const validateAll = async () => {
+    const nextMappingIssues = validateImportMapping(columns);
+    const categoryIssues: InventoryImportValidationIssue[] = dataCategory === 'Inventory List' ? [] : categoryFields[dataCategory]
+      .filter((field) => field.required && !columns.some((column) => !column.ignored && column.mappedFieldKey === field.key))
+      .map((field) => ({
+        issueId: `IMP-CAT-${field.key}`,
+        batchId: currentBatchId || 'DRAFT',
+        fieldKey: field.key,
+        severity: 'Error',
+        code: 'REQUIRED_FIELD_UNMAPPED',
+        message: `${field.label} is required for ${dataCategory} imports.`,
+        recommendedAction: `Map an Excel column to ${field.label}.`,
+        createdAt: new Date().toISOString()
+      }));
+
+    setMappingIssues([...nextMappingIssues, ...categoryIssues]);
+    if (currentBatchId) {
+      await props.onValidate(currentBatchId);
+      setRowIssues(await createImportValidationIssues(currentBatchId));
+    }
+    setStep(7);
+    showNotice('Validation preview updated.');
+  };
+
+  const canStartImport = currentBatchId && validationSummary.errors === 0 && validationSummary.missingMappings === 0;
+
+  const processImport = async () => {
+    if (!currentBatchId) {
+      showNotice('Create and validate a batch before starting import.');
       return;
     }
-    await props.onAutoMap(currentBatchId, sector);
-    showNotice(`${mappings.length} mapping row(s) prepared. Auto-match refreshed existing local batch mapping.`);
+    if (!canStartImport) {
+      showNotice('Import is blocked by required field mapping errors or row validation errors.');
+      return;
+    }
+    setProcessing(true);
+    setProgress(10);
+    await props.onSubmitApproval(currentBatchId);
+    setProgress(35);
+    await props.onApprove(currentBatchId);
+    setProgress(65);
+    await props.onImport(currentBatchId);
+    setProgress(100);
+    setRollbackLog((current) => [`${new Date().toLocaleTimeString()} - Import completed for ${props.batch?.batchNumber || currentBatchId}.`, ...current]);
+    setProcessing(false);
+    showNotice('Import completed with local execution log and rollback point.');
   };
 
-  const validateMapping = () => {
-    const issues = validateImportMapping(columns);
-    setMappingIssues(issues);
-    showNotice(issues.length ? `${issues.length} mapping issue(s) found.` : 'Mapping validation passed.');
-    return issues.length === 0;
-  };
-
-  const validateRows = async () => {
-    if (!currentBatchId) return;
-    await props.onValidate(currentBatchId);
-    const issues = await createImportValidationIssues(currentBatchId);
-    setRowIssues(issues);
-    setStep(5);
-  };
-
-  const printSummary = () => {
-    const popup = window.open('', '_blank', 'width=980,height=720');
-    if (!popup) return;
-    popup.document.write(`<html><head><title>Inventory Import Summary</title><style>body{font-family:Arial;padding:24px;color:#1e222b}table{width:100%;border-collapse:collapse}td,th{border:1px solid #b1b5c2;padding:8px;text-align:left}th{background:#1e222b;color:white}</style></head><body><h1>Inventory Import Batch Summary</h1><p>${props.batch?.batchNumber || 'Draft'} - ${fileName}</p><p>Rows ${props.preview?.totalRows || props.rows.length}; Valid ${props.preview?.validRows || 0}; Warnings ${props.preview?.warningRows || 0}; Errors ${props.preview?.errorRows || 0}; Estimated Value ${estimatedValue.toFixed(2)}</p><p>Local/mock preview only. Imported product data does not update live stock before approval and local post.</p></body></html>`);
-    popup.document.close();
-    popup.print();
-  };
-
-  const exportPreview = () => {
-    const csv = ['Row,SKU,Product,Status,Action,Estimated Value', ...props.rows.map((row) => [row.rowNumber, row.mappedProduct.sku || row.mappedProduct.productCode || '', row.mappedProduct.productName || '', row.status, row.duplicateAction, Number(row.mappedProduct.qty || 0) * Number(row.mappedProduct.costPrice || row.mappedProduct.unitCost || 0)].map((value) => `"${String(value).replace(/"/g, '""')}"`).join(','))].join('\n');
-    const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8;' }));
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = 'inventory-import-preview.csv';
-    link.click();
-    URL.revokeObjectURL(url);
+  const rollbackImport = async () => {
+    if (!currentBatchId) {
+      showNotice('No imported batch is loaded for rollback.');
+      return;
+    }
+    await props.onRollback(currentBatchId);
+    setProgress(0);
+    setProcessing(false);
+    setRollbackLog((current) => [`${new Date().toLocaleTimeString()} - Rollback executed for ${props.batch?.batchNumber || currentBatchId}.`, ...current]);
+    showNotice('Rollback completed where local reversal was possible.');
   };
 
   return (
-    <div className="fixed inset-0 z-40 bg-black/35">
-      <section className={shellClass}>
-        <header className="bg-[#1e222b] text-white px-4 py-3 flex items-center justify-between">
+    <div className="industrial-import-overlay">
+      <section className="industrial-import-wizard">
+        <header className="industrial-import-header">
           <div>
-            <p className="text-[9px] uppercase text-orange-400 font-black">Inventory Import Mapping Wizard</p>
-            <h2 className="text-sm font-black uppercase">Map spreadsheet columns to iTredPOS product, stock, supplier, tax, motor spares, and financial fields.</h2>
+            <span>Product Import Desk</span>
+            <h2>Industrial Grade Data Import Wizard</h2>
+            <p>{props.batch?.batchNumber || 'Draft batch'} | {fileName} | {sectorLabel}</p>
           </div>
-          <div className="flex items-center gap-1">
-            <button className="p-2 bg-zinc-800 border border-zinc-700" onClick={() => setMode('minimized')} title="Minimize"><Minimize2 size={14} /></button>
-            <button className="p-2 bg-zinc-800 border border-zinc-700" onClick={() => setMode('normal')} title="Restore"><RotateCcw size={14} /></button>
-            <button className="p-2 bg-zinc-800 border border-zinc-700" onClick={() => setMode('maximized')} title="Maximize"><Maximize2 size={14} /></button>
-            <button className="p-2 bg-orange-600 border border-orange-700" onClick={props.onClose} title="Close"><X size={14} /></button>
-          </div>
+          <button type="button" onClick={props.onClose} aria-label="Close import wizard"><X size={18} /></button>
         </header>
-        {mode === 'minimized' ? (
-          <button className="p-4 text-left font-black text-xs uppercase" onClick={() => setMode('normal')}>{props.batch?.batchNumber || 'Inventory Import Wizard'} minimized. Click to restore.</button>
-        ) : (
-          <>
-            <div className="p-3 bg-orange-50 border-b border-orange-200 text-[11px] font-bold text-orange-950">
-              Imported product data is held as draft/import preview until validated, approved, and posted locally. No Firestore, cloud upload, or final stock posting is connected.
-            </div>
-            {notice && <div className="mx-4 mt-3 border border-orange-200 bg-orange-50 text-orange-900 p-2 text-[10px] font-bold uppercase">{notice}</div>}
-            <nav className="flex flex-wrap gap-1 p-3 border-b border-[#d6d9e0] bg-slate-50">
-              {steps.map((item) => <button key={item.id} className={`px-3 py-2 border text-[10px] font-black uppercase ${step === item.id ? 'bg-orange-600 text-white border-orange-700' : 'bg-white border-[#b1b5c2] text-[#1e222b]'}`} onClick={() => setStep(item.id)}>{item.id}. {item.label}</button>)}
-            </nav>
-            <main className="p-4 overflow-auto">
-              {step === 1 && <StepPanel title="Select File / Paste Data"><div className="grid grid-cols-1 md:grid-cols-4 gap-3"><Field label="File Name" value={fileName} onChange={setFileName} /><Field label="Detected Type" value={fileType} readOnly /><Select label="Sector" value={sector} options={['MOTOR_SPARES', 'HARDWARE', 'GROCERY', 'PHARMACY', 'GENERAL_RETAIL', 'OTHER']} onChange={(value) => setSector(value as IndustrialSectorCode)} /><label className="text-[9px] uppercase font-black text-slate-500">Local File Input<input type="file" accept=".csv,.txt,.xlsx,.xls" className="w-full p-2 border border-[#b1b5c2] bg-white text-xs" onChange={(event) => setFileName(event.target.files?.[0]?.name || fileName)} /></label></div><label className="block text-[9px] uppercase font-black text-slate-500 mt-3">Manual Paste / CSV Text<textarea className="w-full border border-[#b1b5c2] p-3 text-xs min-h-52 font-mono" value={manualText} onChange={(event) => setManualText(event.target.value)} /></label><div className="mt-3 flex flex-wrap gap-2"><button className="sci-pos-button sci-pos-button--primary" onClick={() => void parseIntoBatch()}><Upload size={14} /> Create / Parse Preview</button><button className="sci-pos-button sci-pos-button--secondary" onClick={() => setManualText(sampleCsv)}>Load Sample</button></div></StepPanel>}
-              {step === 2 && <StepPanel title="Choose Sheet / Start Row"><div className="grid grid-cols-1 md:grid-cols-3 gap-3"><Select label="Sheet" value={sheetName} options={['Sheet1', 'Inventory', 'Products', 'QuickBooks Export']} onChange={setSheetName} /><Field label="Start Row" value={String(startRow)} onChange={(value) => setStartRow(Math.max(1, Number(value) || 1))} /><Field label="Rows Detected" value={String(parsedRows.length)} readOnly /></div><PreviewTable rows={parsedRows.slice(0, 8)} /></StepPanel>}
-              {step === 3 && <StepPanel title="Column Preview"><SimpleTable headers={['Column', 'Source Column', 'Samples', 'Detected Field', 'Confidence', 'Ignore']}>{columns.map((column) => <tr key={column.columnIndex}><Td>{column.columnLetter}</Td><Td>{column.sourceColumnName}</Td><Td>{column.sampleValues.join(' | ')}</Td><Td>{column.detectedFieldKey || '-'}</Td><Td>{column.confidenceScore}%</Td><Td><input type="checkbox" checked={column.ignored} onChange={(event) => setColumns((current) => current.map((item) => item.columnIndex === column.columnIndex ? { ...item, ignored: event.target.checked } : item))} /></Td></tr>)}</SimpleTable></StepPanel>}
-              {step === 4 && <StepPanel title="QuickBooks-Like Column Mapping"><div className="flex flex-wrap gap-2 mb-3"><button className="sci-pos-button sci-pos-button--primary" onClick={() => setColumns(detectColumns(parsedRows))}>Auto Match Fields</button><button className="sci-pos-button sci-pos-button--secondary" onClick={validateMapping}>Validate Mapping</button><button className="sci-pos-button sci-pos-button--secondary" onClick={() => setTemplateOpen(true)}>Manage Templates</button><button className="sci-pos-button sci-pos-button--secondary" onClick={() => void saveCurrentMapping()}>Save Draft Mapping</button></div><SimpleTable headers={['Import Data: Source Column', 'Sample Values', 'iTredPOS Field: Target Destination', 'Required?', 'Status']}>{columns.map((column) => { const definition = fields.find((field) => field.fieldKey === column.mappedFieldKey); return <tr key={column.columnIndex}><Td>{column.sourceColumnName}</Td><Td>{column.sampleValues.join(' | ')}</Td><Td><select className="border border-[#b1b5c2] p-2 bg-white min-w-64" value={column.mappedFieldKey || ''} onChange={(event) => setColumns((current) => current.map((item) => item.columnIndex === column.columnIndex ? { ...item, mappedFieldKey: event.target.value || undefined, ignored: !event.target.value } : item))}><option value="">Ignore / Unmapped</option>{fields.map((field) => <option key={field.fieldKey} value={field.fieldKey}>{field.fieldLabel} ({field.fieldType})</option>)}</select></Td><Td>{definition?.required ? 'Required' : definition?.fieldType || '-'}</Td><Td>{column.ignored ? 'Ignored' : column.mappedFieldKey ? 'Mapped' : 'Unmapped'}</Td></tr>; })}</SimpleTable>{mappingIssues.length > 0 && <InventoryImportIssueReport issues={mappingIssues} onCreateTask={(issue) => showNotice(`Task placeholder created for ${issue.code}.`)} onCreateBIWarning={(issue) => showNotice(`BI warning placeholder created for ${issue.code}.`)} />}</StepPanel>}
-              {step === 5 && <StepPanel title="Validation Preview"><div className="flex flex-wrap gap-2 mb-3"><button className="sci-pos-button sci-pos-button--primary" disabled={!currentBatchId} onClick={() => void validateRows()}>Validate Rows</button><button className="sci-pos-button sci-pos-button--secondary" disabled={!currentBatchId} onClick={() => void props.onExportErrors(currentBatchId)}>Export Issues</button></div><InventoryImportIssueReport issues={rowIssues.length ? rowIssues : validationRows.map((issue) => ({ issueId: issue.issueId, batchId: issue.batchId, rowId: issue.rowId, rowNumber: issue.rowNumber, fieldKey: issue.field, severity: issue.severity === 'Error' ? 'Error' : issue.severity === 'Warning' ? 'Warning' : 'Info', code: issue.issueType.replace(/\s+/g, '_').toUpperCase(), message: issue.message, recommendedAction: issue.suggestedFix, createdAt: new Date().toISOString() }))} onCreateTask={(issue) => showNotice(`Import task placeholder created for ${issue.code}.`)} onCreateBIWarning={(issue) => showNotice(`Import BI warning placeholder created for ${issue.code}.`)} /></StepPanel>}
-              {step === 6 && <StepPanel title="Import Preview"><Summary preview={props.preview} estimatedValue={estimatedValue} /><SimpleTable headers={['Row', 'SKU', 'Product', 'Cost', 'Price', 'Qty', 'Action', 'Status', 'Issues']}>{props.rows.map((row) => <tr key={row.rowId}><Td>{row.rowNumber}</Td><Td>{String(row.mappedProduct.sku || row.mappedProduct.productCode || '-')}</Td><Td>{String(row.mappedProduct.productName || '-')}</Td><Td>{String(row.mappedProduct.costPrice || row.mappedProduct.unitCost || '-')}</Td><Td>{String(row.mappedProduct.sellingPrice || '-')}</Td><Td>{String(row.mappedProduct.qty || row.mappedProduct.openingQuantity || '-')}</Td><Td>{row.duplicateProductId ? 'Needs Review' : row.status === 'Skipped' ? 'Skip Row' : 'Create New Product / Opening Stock Draft'}</Td><Td>{row.status}</Td><Td>{row.validationIssues.length}</Td></tr>)}</SimpleTable><div className="mt-3 flex gap-2"><button className="sci-pos-button sci-pos-button--secondary" onClick={exportPreview}>Export Preview Rows</button><button className="sci-pos-button sci-pos-button--secondary" onClick={printSummary}>Print Import Summary</button></div></StepPanel>}
-              {step === 7 && <StepPanel title="Submit / Approve / Post"><Summary preview={props.preview} estimatedValue={estimatedValue} /><div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-4"><Metric label="Batch" value={props.batch?.batchNumber || 'Draft'} /><Metric label="Status" value={props.batch?.status || 'Not Created'} /><Metric label="File" value={fileName} /></div><div className="flex flex-wrap gap-2"><button className="sci-pos-button sci-pos-button--secondary" disabled={!currentBatchId} onClick={() => void props.onSubmitApproval(currentBatchId)}>Submit for Approval</button><button className="sci-pos-button sci-pos-button--primary" disabled={!currentBatchId} onClick={() => void props.onApprove(currentBatchId)}>Approve Locally</button><button className="sci-pos-button sci-pos-button--primary" disabled={!currentBatchId || props.batch?.status !== 'Approved'} onClick={() => void props.onImport(currentBatchId)}>Post Import Local</button><button className="sci-pos-button sci-pos-button--secondary" onClick={printSummary}>Print Posted Summary</button></div><div className="a5-tool-note mt-4">Posting creates product drafts and opening balance drafts locally only. Error rows do not post. No Firestore business reads/writes or final live stock posting.</div><Activity rows={props.activity} /></StepPanel>}
-            </main>
-            <footer className="p-3 border-t border-[#d6d9e0] flex flex-wrap gap-2 justify-between">
-              <button className="sci-pos-button sci-pos-button--secondary"><HelpCircle size={14} /> Help</button>
-              <div className="flex flex-wrap gap-2"><button className="sci-pos-button sci-pos-button--secondary" disabled={step === 1} onClick={() => setStep((Math.max(1, step - 1) as WizardStep))}>Previous</button><button className="sci-pos-button sci-pos-button--primary" disabled={step === 7} onClick={() => setStep((Math.min(7, step + 1) as WizardStep))}>Next</button><button className="sci-pos-button sci-pos-button--secondary" onClick={props.onClose}>Close</button></div>
-            </footer>
-          </>
-        )}
+
+        {notice && <div className="industrial-import-notice">{notice}</div>}
+
+        <nav className="industrial-import-steps" aria-label="Import wizard steps">
+          {steps.map((item) => (
+            <button key={item.id} type="button" className={step === item.id ? 'active' : ''} onClick={() => setStep(item.id)}>
+              <span>{item.id}</span>{item.label}
+            </button>
+          ))}
+        </nav>
+
+        <main className="industrial-import-body">
+          {step === 1 && (
+            <Step title="Step 1" subtitle="Import Mode">
+              <ChoiceGrid value={importMode} options={['New Import', 'Update Existing Inventory List']} onChange={(value) => setImportMode(value as ProductImportMode)} />
+              <InfoGrid rows={[['Current batch', props.batch?.batchNumber || 'Not created'], ['Operator', props.staffName], ['Mode effect', importMode === 'New Import' ? 'Creates new local product drafts.' : 'Updates matched local inventory records where possible.']]} />
+            </Step>
+          )}
+
+          {step === 2 && (
+            <Step title="Step 2" subtitle="Data Category">
+              <ChoiceGrid value={dataCategory} options={['Inventory List', 'Images', 'Vendors', 'Customers']} onChange={(value) => setDataCategory(value as ProductImportDataCategory)} />
+              <div className="industrial-import-sector-grid">
+                {sectorProfiles.map((profile) => (
+                  <button key={profile.label} type="button" className={sectorLabel === profile.label ? 'active' : ''} onClick={() => setSectorLabel(profile.label)}>
+                    <strong>{profile.label}</strong>
+                    <span>{profile.keywords.slice(0, 4).join(', ')}</span>
+                  </button>
+                ))}
+              </div>
+            </Step>
+          )}
+
+          {step === 3 && (
+            <Step title="Step 3" subtitle="Source File Type">
+              <ChoiceGrid value={sourceType} options={['Custom Excel File']} onChange={() => setSourceType('Custom Excel File')} />
+              <InfoGrid rows={[['Accepted file types', '.xlsx, .xls, .csv, .tsv, .txt'], ['Source registration', 'Excel uploads are staged locally inside Product Import Desk.'], ['Selected source', sourceType]]} />
+            </Step>
+          )}
+
+          {step === 4 && (
+            <Step title="Step 4" subtitle="Browse And Upload Excel File">
+              <div className="industrial-import-file-panel">
+                <FileSpreadsheet size={38} />
+                <div>
+                  <strong>Custom Excel File Upload</strong>
+                  <span>Upload the supplier or internal workbook. Text-based sheets load directly for preview. Binary Excel workbooks are registered locally with worksheet metadata for controlled mapping and validation.</span>
+                </div>
+                <input type="file" accept=".xlsx,.xls,.csv,.tsv,.txt" onChange={(event) => void handleFile(event.target.files?.[0])} />
+              </div>
+              <InfoGrid rows={[['File name', fileName], ['Detected file type', detectImportFileType(fileName)], ['Preview rows detected', String(parsedRows.length)]]} />
+              <div className="industrial-import-actions"><button type="button" onClick={() => void createBatch()}><Upload size={14} /> Create Batch</button></div>
+            </Step>
+          )}
+
+          {step === 5 && (
+            <Step title="Step 5" subtitle="Worksheet And Starting Row">
+              <div className="industrial-import-form-grid">
+                <label>Worksheet / Tab Name<input value={worksheetName} onChange={(event) => setWorksheetName(event.target.value)} /></label>
+                <label>Starting Row Number<input type="number" min={1} value={startRow} onChange={(event) => setStartRow(Math.max(1, Number(event.target.value) || 1))} /></label>
+              </div>
+              <textarea className="industrial-import-worksheet-input" value={worksheetText} onChange={(event) => setWorksheetText(event.target.value)} />
+              <Preview rows={sheetRows.slice(0, 8)} />
+              <div className="industrial-import-actions"><button type="button" onClick={() => void parseIntoBatch()}><Database size={14} /> Parse Worksheet</button></div>
+            </Step>
+          )}
+
+          {step === 6 && (
+            <Step title="Step 6" subtitle="Mapping Modal">
+              <div className="industrial-import-toolbar">
+                <div className="industrial-import-search"><Search size={15} /><input value={fieldSearch} onChange={(event) => setFieldSearch(event.target.value)} placeholder="Search system fields" /></div>
+                <button type="button" onClick={autoMap}>Apply Sector Mapping</button>
+                <button type="button" onClick={() => void props.onAutoMap(currentBatchId, selectedSector.code)} disabled={!currentBatchId}>Auto Map Batch</button>
+                <button type="button" onClick={() => void saveMapping()} disabled={!currentBatchId}>Save Mapping</button>
+              </div>
+              <div className="industrial-import-mapping-grid">
+                <div className="industrial-import-mapping-head">System Inventory Fields</div>
+                <div className="industrial-import-mapping-head">Excel Sheet Columns</div>
+                {systemFields.map((field) => (
+                  <div className="industrial-import-mapping-row" key={field.fieldKey}>
+                    <div>
+                      <strong>{field.fieldLabel}{field.required ? ' *' : ''}</strong>
+                      <span>{field.fieldKey} | {field.targetDomain} | {field.required ? 'Required' : field.fieldType}</span>
+                    </div>
+                    <SearchableColumnCombo
+                      fieldKey={field.fieldKey}
+                      value={selectedColumnForField(field.fieldKey)}
+                      columns={columns}
+                      onChange={(value) => mapFieldToColumn(field.fieldKey, value)}
+                    />
+                  </div>
+                ))}
+              </div>
+            </Step>
+          )}
+
+          {step === 7 && (
+            <Step title="Step 7" subtitle="Validation Preview">
+              <div className="industrial-import-actions">
+                <button type="button" onClick={() => void validateAll()}><CheckCircle2 size={14} /> Run Validation</button>
+                <button type="button" disabled={!currentBatchId} onClick={() => void props.onExportErrors(currentBatchId)}>Export Issues</button>
+              </div>
+              <SummaryCards rows={[
+                ['Valid rows', props.preview?.validRows || 0],
+                ['Warning rows', props.preview?.warningRows || 0],
+                ['Error rows', props.preview?.errorRows || 0],
+                ['Duplicate products', validationSummary.duplicateProducts],
+                ['Missing SKU / barcode', validationSummary.missingIdentifiers],
+                ['Invalid prices', validationSummary.invalidPrices],
+                ['Invalid quantities', validationSummary.invalidQuantities],
+                ['Missing required mappings', validationSummary.missingMappings]
+              ]} />
+              <InventoryImportIssueReport
+                issues={[...mappingIssues, ...rowIssues]}
+                onCreateTask={(issue) => showNotice(`Task logged for ${issue.code}.`)}
+                onCreateBIWarning={(issue) => showNotice(`BI warning logged for ${issue.code}.`)}
+              />
+            </Step>
+          )}
+
+          {step === 8 && (
+            <Step title="Step 8" subtitle="Start Import Process">
+              <SummaryCards rows={[
+                ['Progress', `${progress}%`],
+                ['Products to create', props.preview?.productsToCreate || 0],
+                ['Rows to import', props.preview?.totalRows || props.batch?.totalRows || 0],
+                ['Opening balance drafts', props.preview?.openingBalanceDraftsToCreate || 0],
+                ['Status', props.batch?.status || 'Draft']
+              ]} />
+              <div className="industrial-import-progress"><span style={{ width: `${progress}%` }} /></div>
+              <div className="industrial-import-actions">
+                <button type="button" onClick={() => void processImport()} disabled={processing || !canStartImport}>{processing ? 'Processing...' : 'Start Import Process'}</button>
+                <button type="button" onClick={() => void rollbackImport()} disabled={!currentBatchId}><AlertTriangle size={14} /> Rollback</button>
+              </div>
+              <div className="industrial-import-log-grid">
+                <LogPanel title="Import Log" rows={props.activity.map((event) => `${event.createdAt.replace('T', ' ').slice(0, 16)} - ${event.eventType.replace(/_/g, ' ')} - ${event.message}`)} />
+                <LogPanel title="Rollback Log" rows={rollbackLog} />
+              </div>
+            </Step>
+          )}
+        </main>
+
+        <footer className="industrial-import-footer">
+          <button type="button" disabled={step === 1} onClick={() => setStep(Math.max(1, step - 1) as WizardStep)}>Previous</button>
+          <button type="button" disabled={step === 8} onClick={() => setStep(Math.min(8, step + 1) as WizardStep)}>Next</button>
+        </footer>
       </section>
-      <InventoryImportMappingTemplateModal open={templateOpen} columns={columns} staffName={props.staffName} onClose={() => setTemplateOpen(false)} onApply={setColumns} onNotice={showNotice} />
     </div>
   );
 }
 
-function StepPanel({ title, children }: { title: string; children: ReactNode }) {
-  return <section className="space-y-4"><div className="bg-[#1e222b] text-white p-3"><h3 className="font-black uppercase text-sm">{title}</h3></div>{children}</section>;
+function SearchableColumnCombo({
+  fieldKey,
+  value,
+  columns,
+  onChange
+}: {
+  fieldKey: string;
+  value: string;
+  columns: InventoryImportColumn[];
+  onChange: (value: string) => void;
+}) {
+  const listId = `import-cols-${fieldKey}`;
+  return (
+    <div className="industrial-import-mapping-combo">
+      <input value={value} onChange={(event) => onChange(event.target.value)} list={listId} placeholder="Search or select column" />
+      <datalist id={listId}>
+        {columns.map((column) => (
+          <option key={column.columnIndex} value={column.sourceColumnName}>{column.columnLetter} - {column.sourceColumnName}</option>
+        ))}
+      </datalist>
+    </div>
+  );
 }
 
-function Summary({ preview, estimatedValue }: { preview: ProductImportPreviewSummary | null; estimatedValue: number }) {
-  return <div className="grid grid-cols-2 md:grid-cols-6 gap-2 mb-3"><Metric label="Rows" value={preview?.totalRows || 0} /><Metric label="Valid" value={preview?.validRows || 0} /><Metric label="Warnings" value={preview?.warningRows || 0} /><Metric label="Errors" value={preview?.errorRows || 0} /><Metric label="Duplicates" value={preview?.duplicateRows || 0} /><Metric label="Est. Value" value={estimatedValue.toFixed(2)} /></div>;
+function Step({ title, subtitle, children }: { title: string; subtitle: string; children: ReactNode }) {
+  return <section className="industrial-import-step"><div className="industrial-import-step-title"><span>{title}</span><h3>{subtitle}</h3></div>{children}</section>;
 }
 
-function Metric({ label, value }: { label: string; value: ReactNode }) {
-  return <div className="border border-[#b1b5c2] bg-slate-50 p-3"><span className="block text-[9px] text-slate-500 uppercase font-black">{label}</span><strong className="block text-sm text-[#1e222b]">{value}</strong></div>;
+function ChoiceGrid({ value, options, onChange }: { value: string; options: string[]; onChange: (value: string) => void }) {
+  return <div className="industrial-import-choice-grid">{options.map((option) => <button key={option} type="button" className={value === option ? 'active' : ''} onClick={() => onChange(option)}>{option}</button>)}</div>;
 }
 
-function PreviewTable({ rows }: { rows: string[][] }) {
-  return <div className="overflow-x-auto mt-3"><table className="sci-pos-table"><tbody>{rows.map((row, index) => <tr key={index}>{row.map((cell, cellIndex) => <td key={cellIndex}>{cell}</td>)}</tr>)}</tbody></table></div>;
+function InfoGrid({ rows }: { rows: Array<[string, ReactNode]> }) {
+  return <div className="industrial-import-info-grid">{rows.map(([label, value]) => <div key={label}><span>{label}</span><strong>{value}</strong></div>)}</div>;
 }
 
-function Activity({ rows }: { rows: ProductImportActivityEvent[] }) {
-  return <SimpleTable headers={['Date', 'Event', 'Message']}>{rows.slice(0, 8).map((row) => <tr key={row.eventId}><Td>{row.createdAt.replace('T', ' ').slice(0, 16)}</Td><Td>{row.eventType.replace(/_/g, ' ')}</Td><Td>{row.message}</Td></tr>)}</SimpleTable>;
+function SummaryCards({ rows }: { rows: Array<[string, ReactNode]> }) {
+  return <div className="industrial-import-summary-grid">{rows.map(([label, value]) => <div key={label}><span>{label}</span><strong>{value}</strong></div>)}</div>;
 }
 
-function SimpleTable({ headers, children }: { headers: string[]; children: ReactNode }) {
-  return <div className="overflow-x-auto"><table className="w-full min-w-[980px] text-[10.5px] text-left border-collapse"><thead><tr className="bg-[#1e222b] text-white uppercase text-[8.5px] font-black">{headers.map((header) => <th key={header} className="py-2 px-3">{header}</th>)}</tr></thead><tbody className="divide-y divide-[#d6d9e0]">{children}</tbody></table></div>;
+function Preview({ rows }: { rows: string[][] }) {
+  return <div className="industrial-import-preview"><table><tbody>{rows.map((row, rowIndex) => <tr key={rowIndex}>{row.map((cell, cellIndex) => <td key={`${rowIndex}-${cellIndex}`}>{cell}</td>)}</tr>)}</tbody></table></div>;
 }
 
-function Td({ children }: { children: ReactNode }) {
-  return <td className="py-2 px-3 align-top font-semibold text-slate-700">{children}</td>;
-}
-
-function Field({ label, value, onChange, readOnly }: { label: string; value: string; onChange?: (value: string) => void; readOnly?: boolean }) {
-  return <label className="text-[9px] uppercase font-black text-slate-500">{label}<input className="w-full p-2 border border-[#b1b5c2] text-xs bg-white" value={value} readOnly={readOnly} onChange={(event) => onChange?.(event.target.value)} /></label>;
-}
-
-function Select({ label, value, options, onChange }: { label: string; value: string; options: string[]; onChange: (value: string) => void }) {
-  return <label className="text-[9px] uppercase font-black text-slate-500">{label}<select className="w-full p-2 border border-[#b1b5c2] text-xs bg-white" value={value} onChange={(event) => onChange(event.target.value)}>{options.map((option) => <option key={option} value={option}>{option}</option>)}</select></label>;
+function LogPanel({ title, rows }: { title: string; rows: string[] }) {
+  return <section className="industrial-import-log-panel"><h4>{title}</h4>{rows.length ? rows.slice(0, 12).map((row, index) => <p key={`${row}-${index}`}>{row}</p>) : <p>No log entries yet.</p>}</section>;
 }

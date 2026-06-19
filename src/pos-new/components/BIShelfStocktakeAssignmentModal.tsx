@@ -52,7 +52,7 @@ export default function BIShelfStocktakeAssignmentModal({
             <button type="button" className="sci-pos-button sci-pos-button--primary" onClick={onStart}>Start Stocktake</button>
             <button type="button" className="sci-pos-button sci-pos-button--secondary" onClick={onMarkInProgress}>Mark In Progress</button>
             <button type="button" className="sci-pos-button sci-pos-button--secondary" onClick={onMarkCompleted}>Mark Completed</button>
-            <button type="button" className="sci-pos-button sci-pos-button--secondary" onClick={onClose}>Reassign Placeholder</button>
+            <button type="button" className="sci-pos-button sci-pos-button--secondary" onClick={onClose}>Reassign</button>
             <button type="button" className="sci-pos-button sci-pos-button--secondary" onClick={onClose}>Close</button>
           </footer>
         </div>

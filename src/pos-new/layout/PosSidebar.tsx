@@ -7,6 +7,7 @@ import {
   ClipboardCheck,
   Clock,
   DollarSign,
+  FileBarChart,
   History,
   HelpCircle,
   Landmark,
@@ -36,7 +37,7 @@ interface PosSidebarProps {
   allowedPages?: PosPageId[];
 }
 
-type SidebarGroupId = 'operations' | 'stock' | 'control' | 'finance' | 'system';
+type SidebarGroupId = 'operations' | 'stock' | 'control' | 'reports' | 'finance' | 'system';
 type SidebarNavItem = { id: PosPageId; label: string; icon: typeof Monitor };
 type SidebarGroup = { id: SidebarGroupId; label: string; icon: typeof Monitor; items: SidebarNavItem[] };
 
@@ -47,31 +48,31 @@ const sidebarGroups: SidebarGroup[] = [
     icon: Store,
     items: [
       { id: 'DASHBOARD', label: 'Dashboard', icon: Monitor },
-      { id: 'SALES', label: 'Sales Terminal', icon: Terminal },
-      { id: 'SALES_HISTORY', label: 'Sales History', icon: History },
-      { id: 'CUSTOMER_CENTRE', label: 'Customer Centre', icon: Users },
-      { id: 'DELIVERY', label: 'Delivery Desk', icon: Truck }
+      { id: 'SALES', label: 'Sales terminal', icon: Terminal },
+      { id: 'SALES_HISTORY', label: 'Sales history', icon: History },
+      { id: 'CUSTOMER_CENTRE', label: 'Customer centre', icon: Users },
+      { id: 'DELIVERY', label: 'Delivery desk', icon: Truck }
     ]
   },
   {
     id: 'stock',
-    label: 'Stock & Purchasing',
+    label: 'Stock and purchasing',
     icon: Box,
     items: [
       { id: 'STOCK', label: 'Inventory', icon: Box },
-      { id: 'PURCHASE_DISCIPLINE', label: 'Purchase Discipline', icon: ShoppingCart },
+      { id: 'PURCHASE_DISCIPLINE', label: 'Purchasing discipline', icon: ShoppingCart },
       { id: 'CREDITORS', label: 'Creditors', icon: Landmark }
     ]
   },
   {
     id: 'control',
-    label: 'Control Desk',
+    label: 'Control desk',
     icon: ShieldCheck,
     items: [
-      { id: 'TASK_DESK', label: 'Task Desk', icon: ListChecks },
+      { id: 'TASK_DESK', label: 'Task desk', icon: ListChecks },
       { id: 'APPROVALS', label: 'Approvals', icon: ClipboardCheck },
-      { id: 'SHIFT', label: 'Shift Control', icon: Clock },
-      { id: 'CASH', label: 'Cash Control', icon: DollarSign }
+      { id: 'SHIFT', label: 'Shift control', icon: Clock },
+      { id: 'CASH', label: 'Cash control', icon: DollarSign }
     ]
   },
   {
@@ -79,18 +80,26 @@ const sidebarGroups: SidebarGroup[] = [
     label: 'Finance',
     icon: Landmark,
     items: [
-      { id: 'FINANCIAL_CONTROL', label: 'Financial Control', icon: Landmark },
-      { id: 'OWNER_DESK', label: 'Owner Desk', icon: BriefcaseBusiness }
+      { id: 'FINANCIAL_CONTROL', label: 'Financial control', icon: Landmark },
+      { id: 'OWNER_DESK', label: 'Owner desk', icon: BriefcaseBusiness }
+    ]
+  },
+  {
+    id: 'reports',
+    label: 'REPORTS',
+    icon: FileBarChart,
+    items: [
+      { id: 'REPORTS', label: 'Reports', icon: FileBarChart }
     ]
   },
   {
     id: 'system',
-    label: 'Intelligence & System',
+    label: 'Intelligence and system',
     icon: BarChart2,
     items: [
-      { id: 'BI_DESK', label: 'BI Desk', icon: BarChart2 },
-      { id: 'SYNC_DESK', label: 'Sync Desk', icon: RefreshCw },
-      { id: 'HELP_DESK', label: 'Help Desk', icon: HelpCircle },
+      { id: 'BI_DESK', label: 'BI desk', icon: BarChart2 },
+      { id: 'SYNC_DESK', label: 'Sync desk', icon: RefreshCw },
+      { id: 'HELP_DESK', label: 'Help desk', icon: HelpCircle },
       { id: 'SETTINGS', label: 'Settings', icon: Settings }
     ]
   }
@@ -157,8 +166,8 @@ export default function PosSidebar({
       <div className="p-4 border-b border-slate-800 flex items-center gap-2.5 bg-slate-900/40 shrink-0">
         <Layers className="w-5 h-5 text-orange-400" />
         <div className="min-w-0">
-          <div className="font-extrabold text-sm text-slate-100 tracking-wider truncate">iTred Commerce POS</div>
-          <div className="text-[9px] text-orange-400 uppercase tracking-widest font-bold leading-none truncate">Vendor Commerce Terminal</div>
+          <div className="font-extrabold text-sm text-orange-300 tracking-wider truncate">iTred Commerce OS</div>
+          <div className="text-[9px] text-orange-500 font-bold leading-none truncate">Marketplace ready</div>
         </div>
       </div>
 
@@ -166,7 +175,7 @@ export default function PosSidebar({
       <div className="p-3 bg-slate-950 border-b border-slate-900 text-[10px] space-y-2 shrink-0">
         {session ? (
           <div className="space-y-1.5 border border-slate-800 bg-slate-900/30 p-2 font-mono">
-            <div className="text-[9px] text-orange-300 font-bold uppercase tracking-wider">Active Session</div>
+            <div className="text-[9px] text-orange-300 font-bold tracking-wider">Active session</div>
             <div className="flex justify-between items-center text-slate-500 gap-2">
               <span>Vendor:</span>
               <span className="text-orange-300 font-bold truncate max-w-[130px]" title={session.vendor}>{session.vendor}</span>
@@ -184,7 +193,7 @@ export default function PosSidebar({
               <span className="text-emerald-400 font-bold truncate max-w-[130px]" title={`${session.staffName} [${session.role}]`}>{session.staffName}</span>
             </div>
             <div className="flex justify-between items-center text-slate-500 gap-2">
-              <span>ROLE:</span>
+              <span>Role:</span>
               <span className="text-amber-600 font-bold text-[9px] truncate max-w-[130px]">{session.role}</span>
             </div>
           </div>
@@ -208,7 +217,7 @@ export default function PosSidebar({
       {/* Menu list */}
       <nav className="pos-sidebar-menu p-2 space-y-1 flex-1 min-h-0 overflow-y-auto pos-custom-scroll" aria-label="POS navigation">
         <div className="text-[9px] text-slate-500 font-bold px-2 py-1.5 uppercase tracking-wider">
-          Main Menu
+          Main menu
         </div>
 
         <div className="space-y-1">
@@ -265,12 +274,14 @@ export default function PosSidebar({
       {/* Footer warning logs inside sidebar */}
       <div className="p-4 border-t border-slate-900 bg-slate-900/10 text-[9px] text-slate-500 space-y-1.5 font-mono shrink-0">
         <div className="flex items-center gap-1.5">
-          <span className="inline-block w-1.5 h-1.5 bg-emerald-500 rounded-none shrink-0"></span>
-          <span>TERMINAL DEVICES: READY</span>
+          <span className={`inline-block w-1.5 h-1.5 rounded-none shrink-0 ${activeShiftStatus === 'ACTIVE' ? 'bg-emerald-500' : 'bg-rose-500'}`}></span>
+          <span className={activeShiftStatus === 'ACTIVE' ? 'text-emerald-400 font-bold' : 'text-rose-400 font-bold'}>
+            Terminal devices: {activeShiftStatus === 'ACTIVE' ? 'READY' : 'NOT READY'}
+          </span>
         </div>
         <div className="flex items-center gap-1.5">
-          <span className="inline-block w-1.5 h-1.5 bg-slate-500 rounded-none shrink-0"></span>
-          <span>BACKEND: MOCK / LOCAL SERVICES</span>
+          <span className="inline-block w-1.5 h-1.5 bg-orange-500 rounded-none shrink-0"></span>
+          <span className="text-orange-300 font-bold">Marketplace Ready</span>
         </div>
 
         <div className="pt-2 border-t border-slate-900 space-y-2">

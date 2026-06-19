@@ -107,7 +107,7 @@ export default function InventoryAccountingReadinessForm({
 
             <div className="px-4 pb-4 space-y-4">
               <Table title="Readiness Lines" headers={['SKU', 'Product', 'Movement Type', 'Qty In', 'Qty Out', 'Unit Cost', 'Value Impact', 'Debit Account', 'Credit Account', 'Mapping Status', 'Notes']} rows={lines.map((line) => [line.sku, line.productName, line.movementType, line.qtyIn, line.qtyOut, money(line.unitCost), money(line.valueImpact), `${line.debitAccountCode || '-'} ${line.debitAccountName || ''}`, `${line.creditAccountCode || '-'} ${line.creditAccountName || ''}`, line.mappingStatus, line.notes])} />
-              <Table title="Chart Of Accounts Placeholder" headers={['Account Code', 'Account Name', 'Account Type', 'Normal Balance', 'Linked Domain', 'Status']} rows={accounts.map((account) => [account.accountCode, account.accountName, account.accountType, account.normalBalance, account.linkedDomain, account.status])} />
+              <Table title="Chart Of Accounts Preview" headers={['Account Code', 'Account Name', 'Account Type', 'Normal Balance', 'Linked Domain', 'Status']} rows={accounts.map((account) => [account.accountCode, account.accountName, account.accountType, account.normalBalance, account.linkedDomain, account.status])} />
               <Table title="Impact Mapping Rules" headers={['Movement Type', 'Impact Type', 'Debit', 'Credit', 'Mapping Status', 'Notes']} rows={mappingRules.map((rule) => [rule.movementType, rule.impactType, rule.debitAccountCode || '-', rule.creditAccountCode || '-', rule.mappingStatus, rule.notes])} />
 
               <label className="block">
@@ -121,7 +121,7 @@ export default function InventoryAccountingReadinessForm({
               <Action onClick={() => onApprove(notes)} label="Approve For Posting" primary />
               <Action onClick={() => onHold(notes)} label="Hold" />
               <Action onClick={() => onReject(notes)} label="Reject" />
-              <Action onClick={() => onMarkPosted(notes)} label="Mark Posted Placeholder" />
+              <Action onClick={() => onMarkPosted(notes)} label="Mark Posted Preview" />
               <button type="button" onClick={onExport} className="px-3 py-2 border border-[#b1b5c2] text-[#252a31] text-[10px] font-black uppercase rounded-none flex items-center gap-2"><Download className="w-4 h-4" /> Prepare Export</button>
               <Action onClick={onClose} label="Close" />
             </div>

@@ -266,6 +266,9 @@ export type PermissionKey =
   | 'productMaster.view'
   | 'productMaster.create'
   | 'productMaster.edit'
+  | 'inventory.product.create'
+  | 'inventory.product.createDraft'
+  | 'inventory.product.reviewNewFromPO'
   | 'productMaster.activate'
   | 'productMaster.block'
   | 'productMaster.export'
@@ -302,6 +305,8 @@ export type PermissionKey =
   | 'purchaseOrders.cancel'
   | 'purchaseOrders.receive'
   | 'purchaseOrders.export'
+  | 'purchaseOrder.productSearch'
+  | 'purchaseOrder.productCreateFromPO'
   | 'goodsReceiving.view'
   | 'goodsReceiving.create'
   | 'goodsReceiving.edit'
@@ -354,6 +359,11 @@ export type PermissionKey =
   | 'tasks.view'
   | 'tasks.assign'
   | 'tasks.close'
+  | 'workflow.openRelatedRecord'
+  | 'notifications.view'
+  | 'notifications.markRead'
+  | 'notifications.createTask'
+  | 'notifications.dismiss'
   | 'taskDesk.view'
   | 'taskDesk.create'
   | 'taskDesk.viewDetail'
@@ -785,6 +795,9 @@ const ALL_PERMISSIONS: PermissionKey[] = [
   'productMaster.view',
   'productMaster.create',
   'productMaster.edit',
+  'inventory.product.create',
+  'inventory.product.createDraft',
+  'inventory.product.reviewNewFromPO',
   'productMaster.activate',
   'productMaster.block',
   'productMaster.export',
@@ -821,6 +834,8 @@ const ALL_PERMISSIONS: PermissionKey[] = [
   'purchaseOrders.cancel',
   'purchaseOrders.receive',
   'purchaseOrders.export',
+  'purchaseOrder.productSearch',
+  'purchaseOrder.productCreateFromPO',
   'goodsReceiving.view',
   'goodsReceiving.create',
   'goodsReceiving.edit',
@@ -873,6 +888,11 @@ const ALL_PERMISSIONS: PermissionKey[] = [
   'tasks.view',
   'tasks.assign',
   'tasks.close',
+  'workflow.openRelatedRecord',
+  'notifications.view',
+  'notifications.markRead',
+  'notifications.createTask',
+  'notifications.dismiss',
   'taskDesk.view',
   'taskDesk.create',
   'taskDesk.viewDetail',
@@ -1033,15 +1053,15 @@ const ALL_PERMISSIONS: PermissionKey[] = [
 ];
 
 const ROLE_MENUS: Record<Role, PosPageId[]> = {
-  Owner: ['DASHBOARD', 'OWNER_DESK', 'SALES', 'SALES_HISTORY', 'CUSTOMER_CENTRE', 'DELIVERY', 'STOCK', 'PURCHASE_DISCIPLINE', 'CREDITORS', 'TASK_DESK', 'APPROVALS', 'SHIFT', 'CASH', 'FINANCIAL_CONTROL', 'BI_DESK', 'SYNC_DESK', 'HELP_DESK', 'SETTINGS'],
-  SysAdmin: ['DASHBOARD', 'OWNER_DESK', 'SALES', 'SALES_HISTORY', 'CUSTOMER_CENTRE', 'DELIVERY', 'STOCK', 'PURCHASE_DISCIPLINE', 'CREDITORS', 'TASK_DESK', 'APPROVALS', 'SHIFT', 'CASH', 'FINANCIAL_CONTROL', 'BI_DESK', 'SYNC_DESK', 'HELP_DESK', 'SETTINGS'],
-  Manager: ['DASHBOARD', 'OWNER_DESK', 'SALES', 'SALES_HISTORY', 'CUSTOMER_CENTRE', 'DELIVERY', 'STOCK', 'PURCHASE_DISCIPLINE', 'CREDITORS', 'TASK_DESK', 'APPROVALS', 'SHIFT', 'CASH', 'FINANCIAL_CONTROL', 'BI_DESK', 'SYNC_DESK', 'HELP_DESK', 'SETTINGS'],
-  Supervisor: ['DASHBOARD', 'SALES', 'SALES_HISTORY', 'CUSTOMER_CENTRE', 'DELIVERY', 'STOCK', 'PURCHASE_DISCIPLINE', 'TASK_DESK', 'APPROVALS', 'SHIFT', 'CASH', 'BI_DESK', 'SYNC_DESK', 'HELP_DESK'],
+  Owner: ['DASHBOARD', 'OWNER_DESK', 'SALES', 'SALES_HISTORY', 'CUSTOMER_CENTRE', 'DELIVERY', 'STOCK', 'PURCHASE_DISCIPLINE', 'CREDITORS', 'TASK_DESK', 'APPROVALS', 'SHIFT', 'CASH', 'FINANCIAL_CONTROL', 'REPORTS', 'BI_DESK', 'SYNC_DESK', 'HELP_DESK', 'SETTINGS'],
+  SysAdmin: ['DASHBOARD', 'OWNER_DESK', 'SALES', 'SALES_HISTORY', 'CUSTOMER_CENTRE', 'DELIVERY', 'STOCK', 'PURCHASE_DISCIPLINE', 'CREDITORS', 'TASK_DESK', 'APPROVALS', 'SHIFT', 'CASH', 'FINANCIAL_CONTROL', 'REPORTS', 'BI_DESK', 'SYNC_DESK', 'HELP_DESK', 'SETTINGS'],
+  Manager: ['DASHBOARD', 'OWNER_DESK', 'SALES', 'SALES_HISTORY', 'CUSTOMER_CENTRE', 'DELIVERY', 'STOCK', 'PURCHASE_DISCIPLINE', 'CREDITORS', 'TASK_DESK', 'APPROVALS', 'SHIFT', 'CASH', 'FINANCIAL_CONTROL', 'REPORTS', 'BI_DESK', 'SYNC_DESK', 'HELP_DESK', 'SETTINGS'],
+  Supervisor: ['DASHBOARD', 'SALES', 'SALES_HISTORY', 'CUSTOMER_CENTRE', 'DELIVERY', 'STOCK', 'PURCHASE_DISCIPLINE', 'TASK_DESK', 'APPROVALS', 'SHIFT', 'CASH', 'REPORTS', 'BI_DESK', 'SYNC_DESK', 'HELP_DESK'],
   Cashier: ['DASHBOARD', 'SALES', 'SALES_HISTORY', 'CUSTOMER_CENTRE', 'DELIVERY', 'SHIFT', 'CASH', 'TASK_DESK', 'SYNC_DESK', 'HELP_DESK'],
-  'Stock Controller': ['DASHBOARD', 'STOCK', 'PURCHASE_DISCIPLINE', 'CREDITORS', 'TASK_DESK', 'APPROVALS', 'BI_DESK', 'SYNC_DESK', 'HELP_DESK'],
-  'Delivery Staff': ['DASHBOARD', 'DELIVERY', 'TASK_DESK', 'SYNC_DESK', 'HELP_DESK'],
-  Accountant: ['DASHBOARD', 'SALES_HISTORY', 'CUSTOMER_CENTRE', 'PURCHASE_DISCIPLINE', 'CREDITORS', 'CASH', 'FINANCIAL_CONTROL', 'BI_DESK', 'SYNC_DESK', 'HELP_DESK'],
-  Viewer: ['DASHBOARD', 'CUSTOMER_CENTRE', 'HELP_DESK']
+  'Stock Controller': ['DASHBOARD', 'STOCK', 'PURCHASE_DISCIPLINE', 'CREDITORS', 'TASK_DESK', 'APPROVALS', 'REPORTS', 'BI_DESK', 'SYNC_DESK', 'HELP_DESK'],
+  'Delivery Staff': ['DASHBOARD', 'DELIVERY', 'TASK_DESK', 'REPORTS', 'SYNC_DESK', 'HELP_DESK'],
+  Accountant: ['DASHBOARD', 'SALES_HISTORY', 'CUSTOMER_CENTRE', 'PURCHASE_DISCIPLINE', 'CREDITORS', 'CASH', 'FINANCIAL_CONTROL', 'REPORTS', 'BI_DESK', 'SYNC_DESK', 'HELP_DESK'],
+  Viewer: ['DASHBOARD', 'CUSTOMER_CENTRE', 'REPORTS', 'HELP_DESK']
 };
 
 const ROLE_PERMISSIONS: Record<Role, PermissionKey[]> = {
@@ -1102,13 +1122,13 @@ const ROLE_PERMISSIONS: Record<Role, PermissionKey[]> = {
     'inventory.import.submitApproval', 'inventory.import.approve', 'inventory.import.post', 'inventory.import.reject',
     'inventory.import.cancel', 'inventory.import.export', 'inventory.import.print', 'inventory.import.createTask',
     'inventory.import.createBIWarning', 'inventory.approveImport', 'inventory.adjust', 'inventory.approveAdjustment',
-    'productMaster.view', 'productMaster.create', 'productMaster.edit', 'productMaster.activate', 'productMaster.block', 'productMaster.export',
+    'productMaster.view', 'productMaster.create', 'productMaster.edit', 'inventory.product.create', 'inventory.product.createDraft', 'inventory.product.reviewNewFromPO', 'productMaster.activate', 'productMaster.block', 'productMaster.export',
     'openingBalance.view', 'openingBalance.create', 'openingBalance.approve', 'openingBalance.post', 'openingBalance.cancel',
     'stockBalances.view', 'stockBalances.adjust', 'stockBalances.transfer',
     'inventoryReports.view', 'inventoryReports.export', 'stockHealth.view', 'stockHealth.review', 'reorderRecommendations.create', 'stocktakeRecommendations.create', 'transferRecommendations.create', 'supplierPerformance.view',
     'stockAdjustments.view', 'stockAdjustments.create', 'stockAdjustments.edit', 'stockAdjustments.approve', 'stockAdjustments.post', 'stockAdjustments.cancel', 'stockAdjustments.reverse',
     'inventoryMovements.view', 'inventoryMovements.export', 'productLedger.view',
-    'purchaseOrders.view', 'purchaseOrders.create', 'purchaseOrders.edit', 'purchaseOrders.approve', 'purchaseOrders.cancel', 'purchaseOrders.receive', 'purchaseOrders.export',
+    'purchaseOrders.view', 'purchaseOrders.create', 'purchaseOrders.edit', 'purchaseOrders.approve', 'purchaseOrders.cancel', 'purchaseOrders.receive', 'purchaseOrders.export', 'purchaseOrder.productSearch', 'purchaseOrder.productCreateFromPO',
     'goodsReceiving.view', 'goodsReceiving.create', 'goodsReceiving.edit', 'goodsReceiving.approve', 'goodsReceiving.post', 'goodsReceiving.cancel',
     'supplierReturns.view', 'supplierReturns.create', 'supplierReturns.edit', 'supplierReturns.approve', 'supplierReturns.post', 'supplierReturns.cancel', 'supplierReturns.dispatch', 'supplierReturns.close',
     'stocktake.view', 'stocktake.create', 'stocktake.count', 'stocktake.submit', 'stocktake.approve', 'stocktake.post', 'stocktake.cancel', 'stocktake.export', 'stocktake.approveAdjustment',
@@ -1183,13 +1203,13 @@ const ROLE_PERMISSIONS: Record<Role, PermissionKey[]> = {
     'customers.debtors.paymentAllocation.view', 'customers.debtors.paymentAllocation.manage',
     'customers.creditWorthiness.view', 'customers.behaviourAnalytics.view', 'customers.whatsappReminder',
     'inventory.view',
-    'productMaster.view', 'productMaster.create', 'productMaster.edit',
+    'productMaster.view', 'productMaster.create', 'productMaster.edit', 'inventory.product.create', 'inventory.product.createDraft', 'inventory.product.reviewNewFromPO',
     'openingBalance.view', 'openingBalance.create',
     'stockBalances.view',
     'inventoryReports.view', 'stockHealth.view', 'stockHealth.review', 'reorderRecommendations.create', 'stocktakeRecommendations.create', 'transferRecommendations.create', 'supplierPerformance.view',
     'stockAdjustments.view', 'stockAdjustments.create', 'stockAdjustments.edit', 'stockAdjustments.post',
     'inventoryMovements.view', 'productLedger.view',
-    'purchaseOrders.view', 'purchaseOrders.create', 'purchaseOrders.edit', 'purchaseOrders.receive',
+    'purchaseOrders.view', 'purchaseOrders.create', 'purchaseOrders.edit', 'purchaseOrders.receive', 'purchaseOrder.productSearch', 'purchaseOrder.productCreateFromPO',
     'purchaseDiscipline.view', 'purchaseDiscipline.request.create', 'purchaseDiscipline.request.approve', 'purchaseDiscipline.risk.view', 'purchaseDiscipline.commitments.view', 'purchaseDiscipline.cogsBuying.view',
     'goodsReceiving.view', 'goodsReceiving.create', 'goodsReceiving.edit', 'goodsReceiving.post',
     'supplierReturns.view', 'supplierReturns.create', 'supplierReturns.edit', 'supplierReturns.post', 'supplierReturns.dispatch',
@@ -1237,13 +1257,13 @@ const ROLE_PERMISSIONS: Record<Role, PermissionKey[]> = {
     'inventory.import.template.view', 'inventory.import.validate', 'inventory.import.submitApproval',
     'inventory.import.export', 'inventory.import.print', 'inventory.import.createTask', 'inventory.import.createBIWarning',
     'inventory.adjust',
-    'productMaster.view', 'productMaster.create', 'productMaster.edit', 'productMaster.export',
+    'productMaster.view', 'productMaster.create', 'productMaster.edit', 'inventory.product.create', 'inventory.product.createDraft', 'inventory.product.reviewNewFromPO', 'productMaster.export',
     'openingBalance.view', 'openingBalance.create',
     'stockBalances.view', 'stockBalances.adjust', 'stockBalances.transfer',
     'inventoryReports.view', 'inventoryReports.export', 'stockHealth.view', 'stockHealth.review', 'reorderRecommendations.create', 'stocktakeRecommendations.create', 'transferRecommendations.create', 'supplierPerformance.view',
     'stockAdjustments.view', 'stockAdjustments.create', 'stockAdjustments.edit',
     'inventoryMovements.view', 'productLedger.view',
-    'purchaseOrders.view', 'purchaseOrders.create', 'purchaseOrders.edit', 'purchaseOrders.receive',
+    'purchaseOrders.view', 'purchaseOrders.create', 'purchaseOrders.edit', 'purchaseOrders.receive', 'purchaseOrder.productSearch', 'purchaseOrder.productCreateFromPO',
     'goodsReceiving.view', 'goodsReceiving.create', 'goodsReceiving.edit',
     'supplierReturns.view', 'supplierReturns.create', 'supplierReturns.edit',
     'stocktake.view', 'stocktake.create', 'stocktake.count', 'stocktake.submit', 'stocktake.export',

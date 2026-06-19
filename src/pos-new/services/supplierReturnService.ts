@@ -438,7 +438,7 @@ export async function submitSupplierReturnForApproval(supplierReturnId: string):
       amountOrValue: `USD ${value.toFixed(2)}`,
       risk: value > 250 || updated.reason === 'Wrong Product' ? 'High' : 'Medium',
       reason: updated.reason,
-      context: 'Supplier Return approval placeholder. No cashbook, payment, sales or COGS posting.',
+      context: 'Supplier Return approval review. No cashbook, payment, sales or COGS posting.',
       requiredPermission: 'approvals.approve'
     });
     await recordActivity({
@@ -524,7 +524,7 @@ export async function postSupplierReturn(supplierReturnId: string, staffId: stri
         staffId,
         staffName: staffId,
         movementDate: nowIso(),
-        notes: `Supplier Return ${record.supplierReturnNumber}: ${line.returnReason}. Pending Accounting Review Placeholder only.`,
+        notes: `Supplier Return ${record.supplierReturnNumber}: ${line.returnReason}. Pending accounting review only.`,
         riskFlag: record.reason === 'Wrong Product' || record.reason === 'Damaged' ? 'Medium' : 'Low',
         approvalRequired: false,
         status: 'Posted'
@@ -644,7 +644,7 @@ export async function recordSupplierCreditNotePlaceholder(supplierReturnId: stri
     supplierCreditNoteAmount: payload.supplierCreditNoteAmount,
     receivedDate: today(),
     status: 'Pending Accounting Review',
-    notes: payload.notes || 'Supplier credit note captured as accounting review placeholder only.',
+    notes: payload.notes || 'Supplier credit note captured for accounting review only.',
     createdAt: nowIso()
   };
   saveCreditNotes([credit, ...getCreditNotes()]);
@@ -654,7 +654,7 @@ export async function recordSupplierCreditNotePlaceholder(supplierReturnId: stri
     supplierCreditNoteAmount: payload.supplierCreditNoteAmount
   });
   if (updated) {
-    await recordActivity({ supplierReturnId, supplierReturnNumber: updated.supplierReturnNumber, grnId: updated.grnId, grnNumber: updated.grnNumber, poId: updated.poId, poNumber: updated.poNumber, eventType: 'SUPPLIER_CREDIT_NOTE_RECORDED', operator: updated.requestedByStaffName, message: `${updated.supplierReturnNumber} supplier credit note placeholder captured. No cashbook posting.` });
+    await recordActivity({ supplierReturnId, supplierReturnNumber: updated.supplierReturnNumber, grnId: updated.grnId, grnNumber: updated.grnNumber, poId: updated.poId, poNumber: updated.poNumber, eventType: 'SUPPLIER_CREDIT_NOTE_RECORDED', operator: updated.requestedByStaffName, message: `${updated.supplierReturnNumber} supplier credit note captured. No cashbook posting.` });
   }
   return updated;
 }
@@ -669,7 +669,7 @@ export async function recordReplacementExpected(supplierReturnId: string, payloa
     notes: `${record.notes}\nReplacement expected: ${payload.notes || 'Awaiting supplier replacement.'}`
   });
   if (updated) {
-    await recordActivity({ supplierReturnId, supplierReturnNumber: updated.supplierReturnNumber, grnId: updated.grnId, grnNumber: updated.grnNumber, poId: updated.poId, poNumber: updated.poNumber, eventType: 'SUPPLIER_REPLACEMENT_EXPECTED', operator: updated.requestedByStaffName, message: `${updated.supplierReturnNumber} replacement expected placeholder recorded.` });
+    await recordActivity({ supplierReturnId, supplierReturnNumber: updated.supplierReturnNumber, grnId: updated.grnId, grnNumber: updated.grnNumber, poId: updated.poId, poNumber: updated.poNumber, eventType: 'SUPPLIER_REPLACEMENT_EXPECTED', operator: updated.requestedByStaffName, message: `${updated.supplierReturnNumber} replacement expected recorded.` });
   }
   return updated;
 }
@@ -699,7 +699,7 @@ export async function exportSupplierReturnPlaceholder(supplierReturnId: string):
   const record = await getSupplierReturnById(supplierReturnId);
   const lines = record ? await getSupplierReturnLines(supplierReturnId) : [];
   return {
-    message: record ? `${record.supplierReturnNumber} export placeholder prepared.` : 'Supplier Return not found.',
+    message: record ? `${record.supplierReturnNumber} export prepared.` : 'Supplier Return not found.',
     payload: { record, lines }
   };
 }

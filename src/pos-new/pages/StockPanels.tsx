@@ -359,6 +359,7 @@ export default function StockPanels({
     category: '',
     subcategory: '',
     unitOfMeasure: 'pcs',
+    status: 'Active',
     condition: 'New',
     productStatus: 'Draft',
     taxMode: 'VAT Registered',
@@ -679,6 +680,8 @@ export default function StockPanels({
   const [poFormOrder, setPoFormOrder] = useState<PurchaseOrder | null>(null);
   const [poFormLines, setPoFormLines] = useState<PurchaseOrderLine[]>([]);
   const [poFeedback, setPoFeedback] = useState<string | null>(null);
+  const [purchaseOrderFilterDrawerOpen, setPurchaseOrderFilterDrawerOpen] = useState(false);
+  const [openPurchaseOrderMenuId, setOpenPurchaseOrderMenuId] = useState<string | null>(null);
 
   const refreshPurchaseOrders = async (filters = purchaseOrderFilters) => {
     const [orders, summary, events] = await Promise.all([
@@ -758,6 +761,10 @@ export default function StockPanels({
   const [goodsReceivingFormOpen, setGoodsReceivingFormOpen] = useState(false);
   const [activeGoodsReceivingNote, setActiveGoodsReceivingNote] = useState<GoodsReceivingNote | null>(null);
   const [goodsReceivingNotice, setGoodsReceivingNotice] = useState<string | null>(null);
+  const [goodsReceivingFilterDrawerOpen, setGoodsReceivingFilterDrawerOpen] = useState(false);
+  const [openGoodsReceivingMenuId, setOpenGoodsReceivingMenuId] = useState<string | null>(null);
+  const [outstandingPOModalOpen, setOutstandingPOModalOpen] = useState(false);
+  const [outstandingPOSupplier, setOutstandingPOSupplier] = useState('');
 
   const refreshGoodsReceiving = async (filters = goodsReceivingFilters) => {
     const [notes, events] = await Promise.all([
@@ -812,6 +819,10 @@ export default function StockPanels({
   const [supplierReturnFormOpen, setSupplierReturnFormOpen] = useState(false);
   const [activeSupplierReturn, setActiveSupplierReturn] = useState<SupplierReturn | null>(null);
   const [supplierReturnNotice, setSupplierReturnNotice] = useState<string | null>(null);
+  const [supplierReturnFilterDrawerOpen, setSupplierReturnFilterDrawerOpen] = useState(false);
+  const [openSupplierReturnMenuId, setOpenSupplierReturnMenuId] = useState<string | null>(null);
+  const [supplierGRNModalOpen, setSupplierGRNModalOpen] = useState(false);
+  const [supplierGRNSupplier, setSupplierGRNSupplier] = useState('');
 
   const refreshSupplierReturns = async (filters = supplierReturnFilters) => {
     const [records, events, summary] = await Promise.all([
@@ -1016,6 +1027,8 @@ export default function StockPanels({
   const [selectedStockTransfer, setSelectedStockTransfer] = useState<StockTransfer | null>(null);
   const [selectedStockTransferLines, setSelectedStockTransferLines] = useState<StockTransferLine[]>([]);
   const [stockTransferFormOpen, setStockTransferFormOpen] = useState(false);
+  const [openStockTransferMenuId, setOpenStockTransferMenuId] = useState<string | null>(null);
+  const [openStocktakeMenuId, setOpenStocktakeMenuId] = useState<string | null>(null);
 
   const refreshStocktakeDesk = async (filters = stocktakeDeskFilters) => {
     const [sessions, summary, events] = await Promise.all([
@@ -1621,7 +1634,7 @@ export default function StockPanels({
       };
       localStorage.setItem('itred_pos_bi_events', JSON.stringify([newEvent, ...events]));
     } catch (e) {
-      console.error("Failed to append global BI event:", e);
+      console.warn("Failed to append global BI event:", e);
     }
   };
 
@@ -1654,10 +1667,6 @@ export default function StockPanels({
   // =========================================================================
 
   const openPurchaseOrderForm = async (po?: PurchaseOrder) => {
-    if (po && po.status !== 'Draft') {
-      setPoFeedback('Approved or sent Purchase Orders cannot be edited except status actions.');
-      return;
-    }
     setPoFormOrder(po || null);
     setPoFormLines(po ? await getPurchaseOrderLines(po.poId) : []);
     setPoFormOpen(true);
@@ -1675,7 +1684,20 @@ export default function StockPanels({
     setActiveTab('Goods Receiving');
   };
 
-  const handlePOStatusAction = async (po: PurchaseOrder, action: 'submit' | 'approve' | 'sent' | 'cancel' | 'close' | 'export') => {
+  const handlePOStatusAction = async (po: PurchaseOrder, action: 'submit' | 'approve' | 'sent' | 'cancel' | 'close' | 'export' | 'edit' | 'revoke') => {
+    if (action === 'edit') {
+      if (!canPerformAction(simulatedRole, 'purchaseOrders.edit')) {
+        setPoFeedback('You do not have permission to edit Purchase Orders.');
+        return;
+      }
+      await openPurchaseOrderForm(po);
+      if (['Fully Received', 'Closed', 'Closed With Outstanding', 'Cancelled'].includes(po.status)) {
+        setPoFeedback(`${po.poNumber} is locked and cannot be edited.`);
+      } else {
+        setPoFeedback(`${po.poNumber} opened for controlled edit.`);
+      }
+      return;
+    }
     if (action === 'submit') {
       if (!canPerformAction(simulatedRole, 'purchaseOrders.edit') && !canPerformAction(simulatedRole, 'purchaseOrders.create')) {
         setPoFeedback('You do not have permission to perform this action.');
@@ -1706,6 +1728,20 @@ export default function StockPanels({
       await cancelPurchaseOrder(po.poId, staffName, reason);
       setPoFeedback(`${po.poNumber} cancelled.`);
     }
+    if (action === 'revoke') {
+      if (!canPerformAction(simulatedRole, 'purchaseOrders.cancel')) {
+        setPoFeedback('You do not have permission to revoke Purchase Orders.');
+        return;
+      }
+      if (['Fully Received', 'Closed', 'Closed With Outstanding', 'Cancelled'].includes(po.status)) {
+        setPoFeedback(`${po.poNumber} cannot be revoked because it is ${po.status}.`);
+        return;
+      }
+      const reason = window.prompt(`Reason for revoking ${po.poNumber}?`);
+      if (!reason) return;
+      await cancelPurchaseOrder(po.poId, staffName, `Revoked: ${reason}`);
+      setPoFeedback(`${po.poNumber} revoked.`);
+    }
     if (action === 'close') {
       await closePurchaseOrder(po.poId, staffName, 'Closed from Purchase Orders tab.');
       setPoFeedback(`${po.poNumber} closed.`);
@@ -1719,6 +1755,115 @@ export default function StockPanels({
       setPoFeedback(result.message);
     }
     refreshPurchaseOrders();
+  };
+
+  const applyPurchaseOrderFilters = async () => {
+    await refreshPurchaseOrders(purchaseOrderFilters);
+    setPurchaseOrderFilterDrawerOpen(false);
+  };
+
+  const clearPurchaseOrderFilters = async () => {
+    const reset = { status: 'ALL' as const, priority: 'ALL' as const, source: 'ALL' as const };
+    setPurchaseOrderFilters(reset);
+    await refreshPurchaseOrders(reset);
+    setPurchaseOrderFilterDrawerOpen(false);
+  };
+
+  const applyGoodsReceivingFilters = async () => {
+    await refreshGoodsReceiving(goodsReceivingFilters);
+    setGoodsReceivingFilterDrawerOpen(false);
+  };
+
+  const clearGoodsReceivingFilters = async () => {
+    const reset = { status: 'ALL' as const, varianceType: 'ALL' as const };
+    setGoodsReceivingFilters(reset);
+    await refreshGoodsReceiving(reset);
+    setGoodsReceivingFilterDrawerOpen(false);
+  };
+
+  const applySupplierReturnFilters = async () => {
+    await refreshSupplierReturns(supplierReturnFilters);
+    setSupplierReturnFilterDrawerOpen(false);
+  };
+
+  const clearSupplierReturnFilters = async () => {
+    const reset = { status: 'ALL' as const, reason: 'ALL' as const, resolution: 'ALL' as const };
+    setSupplierReturnFilters(reset);
+    await refreshSupplierReturns(reset);
+    setSupplierReturnFilterDrawerOpen(false);
+  };
+
+  const outstandingPOOptions = useMemo(() => {
+    const supplier = outstandingPOSupplier.trim().toLowerCase();
+    return purchaseOrders.filter((order) => {
+      const statusMatch = ['Approved', 'Sent To Supplier', 'Partially Received'].includes(order.status);
+      const supplierMatch = !supplier || order.supplierName.toLowerCase().includes(supplier);
+      const outstandingQty = (purchaseOrderLines[order.poId] || []).reduce((sum, line) => sum + line.qtyOutstanding, 0);
+      return statusMatch && supplierMatch && outstandingQty > 0;
+    });
+  }, [outstandingPOSupplier, purchaseOrderLines, purchaseOrders]);
+
+  const supplierGRNOptions = useMemo(() => {
+    const supplier = supplierGRNSupplier.trim().toLowerCase();
+    return goodsReceivingNotes.filter((note) => {
+      const statusMatch = note.receivingStatus === 'Posted' || note.receivingStatus === 'Partially Posted';
+      const supplierMatch = !supplier || note.supplierName.toLowerCase().includes(supplier);
+      const returnableQty = (goodsReceivingLineMap[note.grnId] || []).reduce((sum, line) => sum + Math.max(line.qtyAccepted - line.qtyAlreadyReturned, 0), 0);
+      return statusMatch && supplierMatch && returnableQty > 0;
+    });
+  }, [goodsReceivingLineMap, goodsReceivingNotes, supplierGRNSupplier]);
+
+  const openOutstandingPOModal = () => {
+    setOutstandingPOSupplier(goodsReceivingFilters.supplier || '');
+    setOutstandingPOModalOpen(true);
+  };
+
+  const openSupplierGRNModal = () => {
+    setSupplierGRNSupplier(supplierReturnFilters.supplier || '');
+    setSupplierGRNModalOpen(true);
+  };
+
+  const getPurchaseOrderActionItems = (po: PurchaseOrder): RowActionMenuItem[] => {
+    const canReceive = ['Approved', 'Sent To Supplier', 'Partially Received'].includes(po.status);
+    const terminal = ['Cancelled', 'Closed', 'Fully Received', 'Closed With Outstanding'].includes(po.status);
+    return [
+      { label: 'View', icon: <Eye className="w-3.5 h-3.5" />, onClick: () => void handleViewPurchaseOrder(po) },
+      { label: po.status === 'Draft' ? 'Edit PO' : 'Open PO', icon: <Pencil className="w-3.5 h-3.5" />, permissionKey: 'purchaseOrders.edit', onClick: () => void handlePOStatusAction(po, 'edit') },
+      po.status === 'Draft' && { label: 'Submit for Approval', icon: <Clock className="w-3.5 h-3.5" />, permissionKey: 'purchaseOrders.edit', onClick: () => void handlePOStatusAction(po, 'submit') },
+      po.status === 'Pending Approval' && { label: 'Approve', icon: <CheckCircle className="w-3.5 h-3.5" />, permissionKey: 'purchaseOrders.approve', onClick: () => void handlePOStatusAction(po, 'approve') },
+      po.status === 'Approved' && { label: 'Mark Sent', icon: <Clock className="w-3.5 h-3.5" />, onClick: () => void handlePOStatusAction(po, 'sent') },
+      canReceive && { label: 'Receive Goods', icon: <ShoppingBag className="w-3.5 h-3.5" />, permissionKey: 'purchaseOrders.receive', onClick: () => void handleQuickReceivePO(po) },
+      !terminal && { label: 'Revoke PO', icon: <Ban className="w-3.5 h-3.5" />, danger: true, permissionKey: 'purchaseOrders.cancel', onClick: () => void handlePOStatusAction(po, 'revoke') },
+      { label: 'Prepare Export', icon: <Download className="w-3.5 h-3.5" />, permissionKey: 'purchaseOrders.export', onClick: () => void handlePOStatusAction(po, 'export') }
+    ];
+  };
+
+  const getGoodsReceivingActionItems = (note: GoodsReceivingNote): RowActionMenuItem[] => [
+    { label: 'View / Edit', icon: <Eye className="w-3.5 h-3.5" />, permissionKey: 'goodsReceiving.view', onClick: () => openGoodsReceivingForm(note) },
+    note.receivingStatus === 'Draft' && { label: 'Post GRN', icon: <Check className="w-3.5 h-3.5" />, permissionKey: 'goodsReceiving.post', onClick: () => void handleGoodsReceivingAction(note, 'post') },
+    note.receivingStatus === 'Draft' && { label: 'Submit for Approval', icon: <Clock className="w-3.5 h-3.5" />, permissionKey: 'goodsReceiving.edit', onClick: () => void handleGoodsReceivingAction(note, 'submit') },
+    note.receivingStatus === 'Pending Approval' && { label: 'Approve', icon: <CheckCircle className="w-3.5 h-3.5" />, permissionKey: 'goodsReceiving.approve', onClick: () => void handleGoodsReceivingAction(note, 'approve') },
+    note.receivingStatus === 'Draft' && { label: 'Cancel', icon: <X className="w-3.5 h-3.5" />, danger: true, permissionKey: 'goodsReceiving.cancel', onClick: () => void handleGoodsReceivingAction(note, 'cancel') },
+    (note.receivingStatus === 'Posted' || note.receivingStatus === 'Partially Posted') && { label: 'Reverse', icon: <RotateCcw className="w-3.5 h-3.5" />, danger: true, permissionKey: 'goodsReceiving.reverse', onClick: () => void handleGoodsReceivingAction(note, 'reverse') },
+    (note.receivingStatus === 'Posted' || note.receivingStatus === 'Partially Posted') && { label: 'Create Supplier Return', icon: <ArrowRightLeft className="w-3.5 h-3.5" />, permissionKey: 'supplierReturns.create', onClick: () => void handleCreateSupplierReturnFromGRN(note) },
+    { label: 'Prepare Export', icon: <Download className="w-3.5 h-3.5" />, onClick: () => void handleGoodsReceivingAction(note, 'export') }
+  ];
+
+  const getSupplierReturnActionItems = (record: SupplierReturn): RowActionMenuItem[] => {
+    const editableReturn = record.status === 'Draft';
+    const terminalReturn = record.status === 'Closed' || record.status === 'Cancelled';
+    return [
+      { label: 'View / Edit', icon: <Eye className="w-3.5 h-3.5" />, permissionKey: 'supplierReturns.view', onClick: () => openSupplierReturnForm(record) },
+      editableReturn && { label: 'Submit for Approval', icon: <Clock className="w-3.5 h-3.5" />, permissionKey: 'supplierReturns.edit', onClick: () => void handleSupplierReturnAction(record, 'submit') },
+      record.status === 'Pending Approval' && { label: 'Approve', icon: <CheckCircle className="w-3.5 h-3.5" />, permissionKey: 'supplierReturns.approve', onClick: () => void handleSupplierReturnAction(record, 'approve') },
+      (record.status === 'Draft' || record.status === 'Approved') && { label: 'Post Return', icon: <Check className="w-3.5 h-3.5" />, permissionKey: 'supplierReturns.post', onClick: () => void handleSupplierReturnAction(record, 'post') },
+      !terminalReturn && { label: 'Dispatch To Supplier', icon: <ArrowRightLeft className="w-3.5 h-3.5" />, permissionKey: 'supplierReturns.dispatch', onClick: () => void handleSupplierReturnAction(record, 'dispatch') },
+      !terminalReturn && { label: 'Record Credit Note', icon: <ClipboardList className="w-3.5 h-3.5" />, onClick: () => void handleSupplierReturnAction(record, 'credit') },
+      !terminalReturn && { label: 'Record Replacement', icon: <ShoppingBag className="w-3.5 h-3.5" />, onClick: () => void handleSupplierReturnAction(record, 'replacement') },
+      !terminalReturn && { label: 'Close', icon: <Archive className="w-3.5 h-3.5" />, permissionKey: 'supplierReturns.close', onClick: () => void handleSupplierReturnAction(record, 'close') },
+      editableReturn && { label: 'Cancel', icon: <X className="w-3.5 h-3.5" />, danger: true, permissionKey: 'supplierReturns.cancel', onClick: () => void handleSupplierReturnAction(record, 'cancel') },
+      { label: 'Prepare Export', icon: <Download className="w-3.5 h-3.5" />, onClick: () => void handleSupplierReturnAction(record, 'export') }
+    ];
   };
 
   const openGoodsReceivingForm = async (note: GoodsReceivingNote) => {
@@ -1813,10 +1958,10 @@ export default function StockPanels({
       setGoodsReceivingNotice(`${note.grnNumber} cancelled. No stock was updated.`);
     }
     if (action === 'reverse') {
-      const reason = window.prompt(`Reason for reversing ${note.grnNumber} placeholder?`);
+      const reason = window.prompt(`Reason for reversing ${note.grnNumber}?`);
       if (!reason) return;
       await reverseGRNPlaceholder(note.grnId, staffName, reason);
-      setGoodsReceivingNotice(`${note.grnNumber} reversal placeholder recorded.`);
+      setGoodsReceivingNotice(`${note.grnNumber} reversal review recorded.`);
     }
     if (action === 'export') {
       const result = await exportGRNPlaceholder(note.grnId);
@@ -1954,13 +2099,13 @@ export default function StockPanels({
       await recordSupplierCreditNotePlaceholder(record.supplierReturnId, {
         supplierCreditNoteNumber: number.toUpperCase(),
         supplierCreditNoteAmount: Number(amountInput) || 0,
-        notes: 'Credit note placeholder recorded from Supplier Returns tab.'
+        notes: 'Credit note recorded from Supplier Returns tab.'
       });
-      setSupplierReturnNotice(`${record.supplierReturnNumber} credit note placeholder recorded. No cashbook posting.`);
+      setSupplierReturnNotice(`${record.supplierReturnNumber} credit note recorded. No cashbook posting.`);
     }
     if (action === 'replacement') {
       await recordReplacementExpected(record.supplierReturnId, { notes: 'Replacement expected from supplier.' });
-      setSupplierReturnNotice(`${record.supplierReturnNumber} replacement expected placeholder recorded.`);
+      setSupplierReturnNotice(`${record.supplierReturnNumber} replacement expected recorded.`);
     }
     if (action === 'close') {
       if (!canPerformAction(simulatedRole, 'supplierReturns.close')) {
@@ -2079,8 +2224,8 @@ export default function StockPanels({
         setStockAdjustmentNotice('You do not have permission to perform this action.');
         return;
       }
-      await reverseStockAdjustmentPlaceholder(record.adjustmentId, staffName, 'Reverse adjustment placeholder prepared. Final reversal workflow will create a controlled correction movement.');
-      setStockAdjustmentNotice('Reverse adjustment placeholder prepared. Final reversal workflow will create a controlled correction movement.');
+      await reverseStockAdjustmentPlaceholder(record.adjustmentId, staffName, 'Reverse adjustment preview prepared. Final reversal workflow will create a controlled correction movement.');
+      setStockAdjustmentNotice('Reverse adjustment preview prepared. Final reversal workflow will create a controlled correction movement.');
     }
     if (action === 'export') {
       await exportStockAdjustmentPlaceholder(record.adjustmentId);
@@ -2092,8 +2237,8 @@ export default function StockPanels({
         setStockAdjustmentNotice('You do not have permission to perform this action.');
         return;
       }
-      await recordStockAdjustmentPlaceholderActivity(record.adjustmentId, staffName, 'STOCK_ADJUSTMENT_DUPLICATED_PLACEHOLDER', `${record.adjustmentNumber} duplicate as new placeholder prepared.`);
-      setStockAdjustmentNotice(`${record.adjustmentNumber} duplicate as new placeholder prepared.`);
+      await recordStockAdjustmentPlaceholderActivity(record.adjustmentId, staffName, 'STOCK_ADJUSTMENT_DUPLICATED_PLACEHOLDER', `${record.adjustmentNumber} duplicate as new draft prepared.`);
+      setStockAdjustmentNotice(`${record.adjustmentNumber} duplicate as new draft prepared.`);
     }
     await refreshStockAdjustments();
   };
@@ -2131,16 +2276,16 @@ export default function StockPanels({
       if (canView) items.push({ label: 'Prepare Export', icon: <Download className="w-3.5 h-3.5" />, onClick: () => void handleStockAdjustmentAction(record, 'export') });
     } else if (record.status === 'Approved') {
       if (canPost) items.push({ label: 'Post Adjustment', icon: <Check className="w-3.5 h-3.5" />, onClick: () => void handleStockAdjustmentAction(record, 'post') });
-      if (canApprove) items.push({ label: 'Reject / Return for Correction Placeholder', icon: <Ban className="w-3.5 h-3.5" />, danger: true, onClick: () => void handleStockAdjustmentAction(record, 'reject') });
+      if (canApprove) items.push({ label: 'Reject / Return for Correction', icon: <Ban className="w-3.5 h-3.5" />, danger: true, onClick: () => void handleStockAdjustmentAction(record, 'reject') });
       if (canView) items.push({ label: 'Prepare Export', icon: <Download className="w-3.5 h-3.5" />, onClick: () => void handleStockAdjustmentAction(record, 'export') });
     } else if (record.status === 'Posted') {
       if (canView) {
         items.push({ label: 'View Ledger', icon: <History className="w-3.5 h-3.5" />, onClick: () => setStockAdjustmentNotice('Product Ledger can be opened from the Inventory Product Ledger tab; posted adjustment movements are recorded as STOCK_ADJUSTMENT_IN or STOCK_ADJUSTMENT_OUT.') });
       }
-      if (canPost) items.push({ label: 'Reverse Placeholder', icon: <Archive className="w-3.5 h-3.5" />, danger: true, onClick: () => void handleStockAdjustmentAction(record, 'reverse') });
+      if (canPost) items.push({ label: 'Reverse', icon: <Archive className="w-3.5 h-3.5" />, danger: true, onClick: () => void handleStockAdjustmentAction(record, 'reverse') });
       if (canView) items.push({ label: 'Prepare Export', icon: <Download className="w-3.5 h-3.5" />, onClick: () => void handleStockAdjustmentAction(record, 'export') });
     } else {
-      if (canCreate) items.push({ label: 'Duplicate as New Placeholder', icon: <PlusCircle className="w-3.5 h-3.5" />, onClick: () => void handleStockAdjustmentAction(record, 'duplicate') });
+      if (canCreate) items.push({ label: 'Duplicate as New', icon: <PlusCircle className="w-3.5 h-3.5" />, onClick: () => void handleStockAdjustmentAction(record, 'duplicate') });
       if (canView) items.push({ label: 'Prepare Export', icon: <Download className="w-3.5 h-3.5" />, onClick: () => void handleStockAdjustmentAction(record, 'export') });
     }
 
@@ -3040,7 +3185,7 @@ export default function StockPanels({
                 }
                 const updated = await updateProductMasterPlaceholder(selectedProductMaster.productId, patch, staffName);
                 if (updated) {
-                  setProductMasterNotice('Product Master draft placeholder saved locally.');
+                  setProductMasterNotice('Product Master draft saved locally.');
                   await refreshProductMaster(productMasterFilters);
                   await openProductMaster(updated);
                 }
@@ -3117,7 +3262,7 @@ export default function StockPanels({
             </div>
             <button
               type="button"
-              onClick={() => handleCreateGRNFromPO()}
+              onClick={openOutstandingPOModal}
               className="px-4 py-2 bg-orange-600 hover:bg-orange-700 border border-orange-700 text-white font-black uppercase text-[9.5px] rounded-none cursor-pointer flex items-center gap-2 self-start"
             >
               <PlusCircle className="w-4 h-4" />
@@ -3146,10 +3291,30 @@ export default function StockPanels({
             <POMetric label="Awaiting Stock Posting" value={goodsReceivingSummary.awaitingStockPosting} />
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3 bg-slate-50 border border-[#b1b5c2] p-3">
+          <div className="procurement-toolbar">
+            <button type="button" onClick={openOutstandingPOModal} className="procurement-primary-button">
+              <PlusCircle className="w-4 h-4" />
+              Load From PO
+            </button>
+            <button type="button" onClick={() => setGoodsReceivingFilterDrawerOpen(true)} className="procurement-secondary-button">
+              <Filter className="w-4 h-4" />
+              Filters
+            </button>
+            <span>{goodsReceivingNotes.length} GRN records</span>
+          </div>
+
+          {goodsReceivingFilterDrawerOpen && (
+            <div className="procurement-drawer-backdrop" onClick={() => setGoodsReceivingFilterDrawerOpen(false)}>
+              <aside className="procurement-drawer" onClick={(event) => event.stopPropagation()}>
+                <div className="procurement-drawer-header"><div><h3>Goods Receiving Filters</h3><p>Analytics stay visible while filters sit in this drawer.</p></div><button type="button" onClick={() => setGoodsReceivingFilterDrawerOpen(false)}><X className="w-4 h-4" /></button></div>
+                <div className="procurement-drawer-body">
             <POFilterInput label="GRN Number" value={goodsReceivingFilters.grnNumber || ''} onChange={(value) => setGoodsReceivingFilters((prev) => ({ ...prev, grnNumber: value }))} />
             <POFilterInput label="PO Number" value={goodsReceivingFilters.poNumber || ''} onChange={(value) => setGoodsReceivingFilters((prev) => ({ ...prev, poNumber: value }))} />
-            <POFilterInput label="Supplier" value={goodsReceivingFilters.supplier || ''} onChange={(value) => setGoodsReceivingFilters((prev) => ({ ...prev, supplier: value }))} />
+            <POFilterInput label="Supplier" value={goodsReceivingFilters.supplier || ''} onChange={(value) => {
+              setGoodsReceivingFilters((prev) => ({ ...prev, supplier: value }));
+              setOutstandingPOSupplier(value);
+              if (value.trim()) setOutstandingPOModalOpen(true);
+            }} />
             <POFilterInput label="Branch" value={goodsReceivingFilters.branch || ''} onChange={(value) => setGoodsReceivingFilters((prev) => ({ ...prev, branch: value }))} />
             <POFilterInput label="Warehouse" value={goodsReceivingFilters.warehouse || ''} onChange={(value) => setGoodsReceivingFilters((prev) => ({ ...prev, warehouse: value }))} />
             <POFilterSelect label="Status" value={goodsReceivingFilters.status || 'ALL'} options={['ALL', 'Draft', 'Pending Approval', 'Posted', 'Partially Posted', 'Cancelled', 'Rejected', 'Reversed']} onChange={(value) => setGoodsReceivingFilters((prev) => ({ ...prev, status: value as GoodsReceivingStatus | 'ALL' }))} />
@@ -3157,22 +3322,14 @@ export default function StockPanels({
             <POFilterInput label="Date To" type="date" value={goodsReceivingFilters.dateTo || ''} onChange={(value) => setGoodsReceivingFilters((prev) => ({ ...prev, dateTo: value }))} />
             <POFilterSelect label="Variance Type" value={goodsReceivingFilters.varianceType || 'ALL'} options={['ALL', 'None', 'Short', 'Over', 'Cost Increase', 'Cost Decrease', 'Unordered Item', 'Damaged', 'Wrong Product', 'Missing Supplier Invoice']} onChange={(value) => setGoodsReceivingFilters((prev) => ({ ...prev, varianceType: value as ReceivingVarianceType | 'ALL' }))} />
             <POFilterInput label="Received By" value={goodsReceivingFilters.receivedBy || ''} onChange={(value) => setGoodsReceivingFilters((prev) => ({ ...prev, receivedBy: value }))} />
-            <button type="button" onClick={() => refreshGoodsReceiving(goodsReceivingFilters)} className="px-3 py-2 bg-[#1e222b] text-white border border-[#1e222b] font-black uppercase text-[9px] rounded-none self-end">Apply Filters</button>
-            <button
-              type="button"
-              onClick={() => {
-                const reset = { status: 'ALL' as const, varianceType: 'ALL' as const };
-                setGoodsReceivingFilters(reset);
-                refreshGoodsReceiving(reset);
-              }}
-              className="px-3 py-2 bg-white text-[#1e222b] border border-[#b1b5c2] font-black uppercase text-[9px] rounded-none self-end"
-            >
-              Clear Filters
-            </button>
-          </div>
+                </div>
+                <div className="procurement-drawer-actions"><button type="button" onClick={() => void applyGoodsReceivingFilters()}>Apply Filters</button><button type="button" onClick={() => void clearGoodsReceivingFilters()}>Clear Filters</button></div>
+              </aside>
+            </div>
+          )}
 
-          <div className="overflow-x-auto pos-custom-scroll">
-            <table className="w-full min-w-[1360px] text-[10px] text-left border-collapse">
+          <div className="procurement-table-scroll pos-custom-scroll">
+            <table className="procurement-table">
               <thead>
                 <tr className="bg-[#1e222b] text-white font-black uppercase text-[8px] h-9 select-none">
                   <th className="py-2 px-3">GRN Number</th>
@@ -3223,16 +3380,13 @@ export default function StockPanels({
                       <td className="py-2 px-3 uppercase font-bold">{varianceText}</td>
                       <td className="py-2 px-3 uppercase">{note.receivedByStaffName}</td>
                       <td className="py-2 px-3">
-                        <div className="flex flex-wrap gap-1 justify-center">
-                          <POAction label="View / Edit" onClick={() => openGoodsReceivingForm(note)} />
-                          {note.receivingStatus === 'Draft' && <POAction label="Post GRN" primary onClick={() => handleGoodsReceivingAction(note, 'post')} />}
-                          {note.receivingStatus === 'Draft' && <POAction label="Submit for Approval" onClick={() => handleGoodsReceivingAction(note, 'submit')} />}
-                          {note.receivingStatus === 'Pending Approval' && <POAction label="Approve" onClick={() => handleGoodsReceivingAction(note, 'approve')} />}
-                          {note.receivingStatus === 'Draft' && <POAction label="Cancel" onClick={() => handleGoodsReceivingAction(note, 'cancel')} />}
-                          {(note.receivingStatus === 'Posted' || note.receivingStatus === 'Partially Posted') && <POAction label="Reverse Placeholder" onClick={() => handleGoodsReceivingAction(note, 'reverse')} />}
-                          {(note.receivingStatus === 'Posted' || note.receivingStatus === 'Partially Posted') && <POAction label="Create Supplier Return" primary onClick={() => handleCreateSupplierReturnFromGRN(note)} />}
-                          <POAction label="Prepare Export" onClick={() => handleGoodsReceivingAction(note, 'export')} />
-                        </div>
+                        <RowActionMenu
+                          ariaLabel={`Goods receiving actions for ${note.grnNumber}`}
+                          open={openGoodsReceivingMenuId === note.grnId}
+                          align="top"
+                          items={getGoodsReceivingActionItems(note)}
+                          onOpenChange={(open) => setOpenGoodsReceivingMenuId(open ? note.grnId : null)}
+                        />
                       </td>
                     </tr>
                   );
@@ -3251,11 +3405,15 @@ export default function StockPanels({
                       <div className="font-black text-[#1e222b]">{po.poNumber} - {po.supplierName}</div>
                       <div className="text-slate-600 font-semibold">Status: {po.status} | Expected: {po.expectedDeliveryDate}</div>
                     </div>
-                    <div className="flex flex-wrap gap-1">
-                      <POAction label="Create GRN" primary onClick={() => handleCreateGRNFromPO(po)} />
-                      <POAction label="Keep PO Open" onClick={() => handleKeepPOOpen(po)} />
-                      <POAction label="Close PO With Outstanding" onClick={() => handleClosePOWithOutstanding(po)} />
-                    </div>
+                    <RowActionMenu
+                      ariaLabel={`Receiving actions for ${po.poNumber}`}
+                      align="top"
+                      items={[
+                        { label: 'Create GRN', icon: <PlusCircle className="w-3.5 h-3.5" />, onClick: () => void handleCreateGRNFromPO(po), permissionKey: 'goodsReceiving.create' },
+                        { label: 'Keep PO Open', icon: <Clock className="w-3.5 h-3.5" />, onClick: () => void handleKeepPOOpen(po), permissionKey: 'purchaseOrders.receive' },
+                        { label: 'Close PO With Outstanding', icon: <Archive className="w-3.5 h-3.5" />, danger: true, onClick: () => void handleClosePOWithOutstanding(po), permissionKey: 'purchaseOrders.cancel' }
+                      ]}
+                    />
                   </div>
                 ))}
               </div>
@@ -3632,7 +3790,19 @@ export default function StockPanels({
             <POMetric label="Outstanding Qty" value={purchaseOrderSummary.outstandingQty} />
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3 bg-slate-50 border border-[#b1b5c2] p-3">
+          <div className="procurement-toolbar">
+            <button type="button" onClick={() => setPurchaseOrderFilterDrawerOpen(true)} className="procurement-secondary-button">
+              <Filter className="w-4 h-4" />
+              Filters
+            </button>
+            <span>{purchaseOrders.length} purchase order records</span>
+          </div>
+
+          {purchaseOrderFilterDrawerOpen && (
+            <div className="procurement-drawer-backdrop" onClick={() => setPurchaseOrderFilterDrawerOpen(false)}>
+              <aside className="procurement-drawer" onClick={(event) => event.stopPropagation()}>
+                <div className="procurement-drawer-header"><div><h3>Purchase Order Filters</h3><p>Filter procurement memo documents without hiding analytics.</p></div><button type="button" onClick={() => setPurchaseOrderFilterDrawerOpen(false)}><X className="w-4 h-4" /></button></div>
+                <div className="procurement-drawer-body">
             <POFilterInput label="PO Number" value={purchaseOrderFilters.poNumber || ''} onChange={(value) => setPurchaseOrderFilters((prev) => ({ ...prev, poNumber: value }))} />
             <POFilterInput label="Supplier" value={purchaseOrderFilters.supplier || ''} onChange={(value) => setPurchaseOrderFilters((prev) => ({ ...prev, supplier: value }))} />
             <POFilterInput label="Branch" value={purchaseOrderFilters.branch || ''} onChange={(value) => setPurchaseOrderFilters((prev) => ({ ...prev, branch: value }))} />
@@ -3644,28 +3814,14 @@ export default function StockPanels({
             <POFilterInput label="Date To" type="date" value={purchaseOrderFilters.dateTo || ''} onChange={(value) => setPurchaseOrderFilters((prev) => ({ ...prev, dateTo: value }))} />
             <POFilterInput label="Expected Delivery From" type="date" value={purchaseOrderFilters.expectedDeliveryFrom || ''} onChange={(value) => setPurchaseOrderFilters((prev) => ({ ...prev, expectedDeliveryFrom: value }))} />
             <POFilterInput label="Expected Delivery To" type="date" value={purchaseOrderFilters.expectedDeliveryTo || ''} onChange={(value) => setPurchaseOrderFilters((prev) => ({ ...prev, expectedDeliveryTo: value }))} />
-            <button
-              type="button"
-              onClick={() => refreshPurchaseOrders(purchaseOrderFilters)}
-              className="px-3 py-2 bg-[#1e222b] text-white border border-[#1e222b] font-black uppercase text-[9px] rounded-none self-end"
-            >
-              Apply Filters
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                const reset = { status: 'ALL' as const, priority: 'ALL' as const, source: 'ALL' as const };
-                setPurchaseOrderFilters(reset);
-                refreshPurchaseOrders(reset);
-              }}
-              className="px-3 py-2 bg-white text-[#1e222b] border border-[#b1b5c2] font-black uppercase text-[9px] rounded-none self-end"
-            >
-              Clear Filters
-            </button>
-          </div>
+                </div>
+                <div className="procurement-drawer-actions"><button type="button" onClick={() => void applyPurchaseOrderFilters()}>Apply Filters</button><button type="button" onClick={() => void clearPurchaseOrderFilters()}>Clear Filters</button></div>
+              </aside>
+            </div>
+          )}
 
-          <div className="overflow-x-auto pos-custom-scroll">
-            <table className="w-full min-w-[1380px] text-[10px] text-left border-collapse">
+          <div className="procurement-table-scroll pos-custom-scroll">
+            <table className="procurement-table">
               <thead>
                 <tr className="bg-[#1e222b] text-white font-black uppercase text-[8px] h-9 select-none">
                   <th className="py-2 px-3">PO Number</th>
@@ -3710,16 +3866,13 @@ export default function StockPanels({
                       <td className="py-2 px-3 uppercase">{po.requestedByStaffName}</td>
                       <td className="py-2 px-3 uppercase">{po.approvedByStaffName || 'N/A'}</td>
                       <td className="py-2 px-3">
-                        <div className="flex flex-wrap gap-1 justify-center">
-                          <POAction label="View" onClick={() => handleViewPurchaseOrder(po)} />
-                          {po.status === 'Draft' && <POAction label="Edit Draft" onClick={() => openPurchaseOrderForm(po)} />}
-                          {po.status === 'Draft' && <POAction label="Submit for Approval" onClick={() => handlePOStatusAction(po, 'submit')} />}
-                          {po.status === 'Pending Approval' && <POAction label="Approve" onClick={() => handlePOStatusAction(po, 'approve')} />}
-                          {po.status === 'Approved' && <POAction label="Mark Sent" onClick={() => handlePOStatusAction(po, 'sent')} />}
-                          {canReceive && <POAction label="Receive Goods" primary onClick={() => handleQuickReceivePO(po)} />}
-                          {!['Cancelled', 'Closed', 'Fully Received'].includes(po.status) && <POAction label="Cancel" onClick={() => handlePOStatusAction(po, 'cancel')} />}
-                          <POAction label="Prepare Export" onClick={() => handlePOStatusAction(po, 'export')} />
-                        </div>
+                        <RowActionMenu
+                          ariaLabel={`Purchase order actions for ${po.poNumber}`}
+                          open={openPurchaseOrderMenuId === po.poId}
+                          align="top"
+                          items={getPurchaseOrderActionItems(po)}
+                          onOpenChange={(open) => setOpenPurchaseOrderMenuId(open ? po.poId : null)}
+                        />
                       </td>
                     </tr>
                   );
@@ -3771,7 +3924,7 @@ export default function StockPanels({
             </div>
             <button
               type="button"
-              onClick={() => handleCreateSupplierReturnFromGRN()}
+              onClick={openSupplierGRNModal}
               className="px-4 py-2 bg-orange-600 hover:bg-orange-700 border border-orange-700 text-white font-black uppercase text-[9px] rounded-none"
             >
               Create From Posted GRN
@@ -3801,9 +3954,29 @@ export default function StockPanels({
             <POMetric label="Return Value Estimate" value={`USD ${supplierReturnSummary.returnValueEstimate.toFixed(2)}`} />
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3 bg-slate-50 border border-[#b1b5c2] p-3">
+          <div className="procurement-toolbar">
+            <button type="button" onClick={openSupplierGRNModal} className="procurement-primary-button">
+              <PlusCircle className="w-4 h-4" />
+              Create From Posted GRN
+            </button>
+            <button type="button" onClick={() => setSupplierReturnFilterDrawerOpen(true)} className="procurement-secondary-button">
+              <Filter className="w-4 h-4" />
+              Filters
+            </button>
+            <span>{supplierReturnRecords.length} supplier return records</span>
+          </div>
+
+          {supplierReturnFilterDrawerOpen && (
+            <div className="procurement-drawer-backdrop" onClick={() => setSupplierReturnFilterDrawerOpen(false)}>
+              <aside className="procurement-drawer" onClick={(event) => event.stopPropagation()}>
+                <div className="procurement-drawer-header"><div><h3>Supplier Return Filters</h3><p>Filter return records while summary analytics remain visible.</p></div><button type="button" onClick={() => setSupplierReturnFilterDrawerOpen(false)}><X className="w-4 h-4" /></button></div>
+                <div className="procurement-drawer-body">
             <POFilterInput label="Supplier Return Number" value={supplierReturnFilters.supplierReturnNumber || ''} onChange={(value) => setSupplierReturnFilters((prev) => ({ ...prev, supplierReturnNumber: value }))} />
-            <POFilterInput label="Supplier" value={supplierReturnFilters.supplier || ''} onChange={(value) => setSupplierReturnFilters((prev) => ({ ...prev, supplier: value }))} />
+            <POFilterInput label="Supplier" value={supplierReturnFilters.supplier || ''} onChange={(value) => {
+              setSupplierReturnFilters((prev) => ({ ...prev, supplier: value }));
+              setSupplierGRNSupplier(value);
+              if (value.trim()) setSupplierGRNModalOpen(true);
+            }} />
             <POFilterInput label="PO Number" value={supplierReturnFilters.poNumber || ''} onChange={(value) => setSupplierReturnFilters((prev) => ({ ...prev, poNumber: value }))} />
             <POFilterInput label="GRN Number" value={supplierReturnFilters.grnNumber || ''} onChange={(value) => setSupplierReturnFilters((prev) => ({ ...prev, grnNumber: value }))} />
             <POFilterInput label="Branch" value={supplierReturnFilters.branch || ''} onChange={(value) => setSupplierReturnFilters((prev) => ({ ...prev, branch: value }))} />
@@ -3813,22 +3986,14 @@ export default function StockPanels({
             <POFilterSelect label="Resolution" value={supplierReturnFilters.resolution || 'ALL'} options={['ALL', 'Credit Note Expected', 'Replacement Expected', 'Supplier Refund Expected', 'No Credit', 'Internal Write Off Review', 'Pending Supplier Decision']} onChange={(value) => setSupplierReturnFilters((prev) => ({ ...prev, resolution: value as SupplierReturnResolution | 'ALL' }))} />
             <POFilterInput label="Date From" type="date" value={supplierReturnFilters.dateFrom || ''} onChange={(value) => setSupplierReturnFilters((prev) => ({ ...prev, dateFrom: value }))} />
             <POFilterInput label="Date To" type="date" value={supplierReturnFilters.dateTo || ''} onChange={(value) => setSupplierReturnFilters((prev) => ({ ...prev, dateTo: value }))} />
-            <button type="button" onClick={() => refreshSupplierReturns(supplierReturnFilters)} className="px-3 py-2 bg-[#1e222b] text-white border border-[#1e222b] font-black uppercase text-[9px] rounded-none self-end">Apply Filters</button>
-            <button
-              type="button"
-              onClick={() => {
-                const reset = { status: 'ALL' as const, reason: 'ALL' as const, resolution: 'ALL' as const };
-                setSupplierReturnFilters(reset);
-                refreshSupplierReturns(reset);
-              }}
-              className="px-3 py-2 bg-white text-[#1e222b] border border-[#b1b5c2] font-black uppercase text-[9px] rounded-none self-end"
-            >
-              Clear Filters
-            </button>
-          </div>
+                </div>
+                <div className="procurement-drawer-actions"><button type="button" onClick={() => void applySupplierReturnFilters()}>Apply Filters</button><button type="button" onClick={() => void clearSupplierReturnFilters()}>Clear Filters</button></div>
+              </aside>
+            </div>
+          )}
 
-          <div className="overflow-x-auto pos-custom-scroll">
-            <table className="w-full min-w-[1500px] text-[10px] text-left border-collapse">
+          <div className="procurement-table-scroll pos-custom-scroll">
+            <table className="procurement-table">
               <thead>
                 <tr className="bg-[#1e222b] text-white font-black uppercase text-[8px] h-9 select-none">
                   <th className="py-2 px-3">Return No.</th>
@@ -3880,18 +4045,13 @@ export default function StockPanels({
                       </td>
                       <td className="py-2 px-3 uppercase">{record.requestedByStaffName}</td>
                       <td className="py-2 px-3">
-                        <div className="flex flex-wrap gap-1 justify-center">
-                          <POAction label="View / Edit" onClick={() => openSupplierReturnForm(record)} />
-                          {editableReturn && <POAction label="Submit for Approval" onClick={() => handleSupplierReturnAction(record, 'submit')} />}
-                          {record.status === 'Pending Approval' && <POAction label="Approve" onClick={() => handleSupplierReturnAction(record, 'approve')} />}
-                          {(record.status === 'Draft' || record.status === 'Approved') && <POAction label="Post Return" primary onClick={() => handleSupplierReturnAction(record, 'post')} />}
-                          {!terminalReturn && <POAction label="Dispatch To Supplier" onClick={() => handleSupplierReturnAction(record, 'dispatch')} />}
-                          {!terminalReturn && <POAction label="Record Credit Note" onClick={() => handleSupplierReturnAction(record, 'credit')} />}
-                          {!terminalReturn && <POAction label="Record Replacement" onClick={() => handleSupplierReturnAction(record, 'replacement')} />}
-                          {!terminalReturn && <POAction label="Close" onClick={() => handleSupplierReturnAction(record, 'close')} />}
-                          {editableReturn && <POAction label="Cancel" onClick={() => handleSupplierReturnAction(record, 'cancel')} />}
-                          <POAction label="Prepare Export" onClick={() => handleSupplierReturnAction(record, 'export')} />
-                        </div>
+                        <RowActionMenu
+                          ariaLabel={`Supplier return actions for ${record.supplierReturnNumber}`}
+                          open={openSupplierReturnMenuId === record.supplierReturnId}
+                          align="top"
+                          items={getSupplierReturnActionItems(record)}
+                          onOpenChange={(open) => setOpenSupplierReturnMenuId(open ? record.supplierReturnId : null)}
+                        />
                       </td>
                     </tr>
                   );
@@ -4497,18 +4657,24 @@ export default function StockPanels({
                       <td className="py-2 px-3"><span className="sci-status-pill rounded-none">{transfer.status}</span></td>
                       <td className="py-2 px-3 uppercase">{transfer.requestedByStaffName}</td>
                       <td className="py-2 px-3">
-                        <div className="flex flex-wrap gap-1">
-                          <button type="button" onClick={() => handleStockTransferTableAction('view', transfer)} className="px-2 py-1 border border-[#b1b5c2] text-[8px] font-black uppercase rounded-none">View / Edit</button>
-                          <button type="button" onClick={() => handleStockTransferTableAction('submit', transfer)} disabled={locked} className="px-2 py-1 border border-[#b1b5c2] text-[8px] font-black uppercase rounded-none disabled:bg-slate-100">Submit</button>
-                          <button type="button" onClick={() => handleStockTransferTableAction('approve', transfer)} disabled={locked} className="px-2 py-1 border border-[#b1b5c2] text-[8px] font-black uppercase rounded-none disabled:bg-slate-100">Approve</button>
-                          <button type="button" onClick={() => handleStockTransferTableAction('reject', transfer)} disabled={locked} className="px-2 py-1 border border-[#b1b5c2] text-[8px] font-black uppercase rounded-none disabled:bg-slate-100">Reject</button>
-                          <button type="button" onClick={() => handleStockTransferTableAction('dispatch', transfer)} disabled={locked} className="px-2 py-1 border border-[#b1b5c2] text-[8px] font-black uppercase rounded-none disabled:bg-slate-100">Dispatch</button>
-                          <button type="button" onClick={() => handleStockTransferTableAction('receive', transfer)} disabled={locked} className="px-2 py-1 border border-[#b1b5c2] text-[8px] font-black uppercase rounded-none disabled:bg-slate-100">Receive</button>
-                          <button type="button" onClick={() => handleStockTransferTableAction('postReceipt', transfer)} disabled={locked} className="px-2 py-1 bg-orange-600 text-white border border-orange-700 text-[8px] font-black uppercase rounded-none disabled:bg-slate-100 disabled:text-slate-400">Post Receipt</button>
-                          <button type="button" onClick={() => handleStockTransferTableAction('close', transfer)} disabled={locked} className="px-2 py-1 border border-[#b1b5c2] text-[8px] font-black uppercase rounded-none disabled:bg-slate-100">Close Outstanding</button>
-                          <button type="button" onClick={() => handleStockTransferTableAction('cancel', transfer)} disabled={locked} className="px-2 py-1 border border-[#b1b5c2] text-[8px] font-black uppercase rounded-none disabled:bg-slate-100">Cancel</button>
-                          <button type="button" onClick={() => handleStockTransferTableAction('export', transfer)} className="px-2 py-1 border border-[#b1b5c2] text-[8px] font-black uppercase rounded-none">Prepare Export</button>
-                        </div>
+                        <RowActionMenu
+                          rowId={transfer.transferId}
+                          ariaLabel={`Stock transfer actions for ${transfer.transferNumber}`}
+                          open={openStockTransferMenuId === transfer.transferId}
+                          onOpenChange={(open) => setOpenStockTransferMenuId(open ? transfer.transferId : null)}
+                          items={[
+                            { id: 'view', label: 'View / Edit', onClick: () => void handleStockTransferTableAction('view', transfer) },
+                            { id: 'submit', label: 'Submit', disabled: locked, onClick: () => void handleStockTransferTableAction('submit', transfer) },
+                            { id: 'approve', label: 'Approve', disabled: locked, onClick: () => void handleStockTransferTableAction('approve', transfer) },
+                            { id: 'reject', label: 'Reject', disabled: locked, onClick: () => void handleStockTransferTableAction('reject', transfer) },
+                            { id: 'dispatch', label: 'Dispatch', disabled: locked, separatorBefore: true, onClick: () => void handleStockTransferTableAction('dispatch', transfer) },
+                            { id: 'receive', label: 'Receive', disabled: locked, onClick: () => void handleStockTransferTableAction('receive', transfer) },
+                            { id: 'postReceipt', label: 'Post Receipt', disabled: locked, onClick: () => void handleStockTransferTableAction('postReceipt', transfer) },
+                            { id: 'close', label: 'Close Outstanding', disabled: locked, separatorBefore: true, onClick: () => void handleStockTransferTableAction('close', transfer) },
+                            { id: 'cancel', label: 'Cancel', disabled: locked, danger: true, onClick: () => void handleStockTransferTableAction('cancel', transfer) },
+                            { id: 'export', label: 'Prepare Export', separatorBefore: true, onClick: () => void handleStockTransferTableAction('export', transfer) }
+                          ]}
+                        />
                       </td>
                     </tr>
                   );
@@ -4651,16 +4817,22 @@ export default function StockPanels({
                       <td className="py-2 px-3">{session.requestedByStaffName}</td>
                       <td className="py-2 px-3">{session.countedByStaffName || 'N/A'}</td>
                       <td className="py-2 px-3">
-                        <div className="flex flex-wrap gap-1">
-                          <button type="button" onClick={() => handleStocktakeTableAction('view', session)} className="px-2 py-1 border border-[#b1b5c2] text-[8px] font-black uppercase rounded-none">View / Edit</button>
-                          <button type="button" onClick={() => handleStocktakeTableAction('start', session)} disabled={session.status === 'Posted'} className="px-2 py-1 border border-[#b1b5c2] text-[8px] font-black uppercase rounded-none disabled:bg-slate-100">Start Counting</button>
-                          <button type="button" onClick={() => handleStocktakeTableAction('submit', session)} disabled={session.status === 'Posted'} className="px-2 py-1 border border-[#b1b5c2] text-[8px] font-black uppercase rounded-none disabled:bg-slate-100">Submit</button>
-                          <button type="button" onClick={() => handleStocktakeTableAction('recount', session)} disabled={session.status === 'Posted'} className="px-2 py-1 border border-[#b1b5c2] text-[8px] font-black uppercase rounded-none disabled:bg-slate-100">Request Recount</button>
-                          <button type="button" onClick={() => handleStocktakeTableAction('approve', session)} disabled={session.status === 'Posted'} className="px-2 py-1 border border-[#b1b5c2] text-[8px] font-black uppercase rounded-none disabled:bg-slate-100">Approve</button>
-                          <button type="button" onClick={() => handleStocktakeTableAction('post', session)} disabled={session.status === 'Posted'} className="px-2 py-1 bg-orange-600 text-white border border-orange-700 text-[8px] font-black uppercase rounded-none disabled:bg-slate-100 disabled:text-slate-400">Post Variance</button>
-                          <button type="button" onClick={() => handleStocktakeTableAction('cancel', session)} disabled={session.status === 'Posted'} className="px-2 py-1 border border-[#b1b5c2] text-[8px] font-black uppercase rounded-none disabled:bg-slate-100">Cancel</button>
-                          <button type="button" onClick={() => handleStocktakeTableAction('export', session)} className="px-2 py-1 border border-[#b1b5c2] text-[8px] font-black uppercase rounded-none">Prepare Export</button>
-                        </div>
+                        <RowActionMenu
+                          rowId={session.stocktakeId}
+                          ariaLabel={`Stocktake actions for ${session.stocktakeNumber}`}
+                          open={openStocktakeMenuId === session.stocktakeId}
+                          onOpenChange={(open) => setOpenStocktakeMenuId(open ? session.stocktakeId : null)}
+                          items={[
+                            { id: 'view', label: 'View / Edit', onClick: () => void handleStocktakeTableAction('view', session) },
+                            { id: 'start', label: 'Start Counting', disabled: session.status === 'Posted', onClick: () => void handleStocktakeTableAction('start', session) },
+                            { id: 'submit', label: 'Submit', disabled: session.status === 'Posted', onClick: () => void handleStocktakeTableAction('submit', session) },
+                            { id: 'recount', label: 'Request Recount', disabled: session.status === 'Posted', onClick: () => void handleStocktakeTableAction('recount', session) },
+                            { id: 'approve', label: 'Approve', disabled: session.status === 'Posted', separatorBefore: true, onClick: () => void handleStocktakeTableAction('approve', session) },
+                            { id: 'post', label: 'Post Variance', disabled: session.status === 'Posted', onClick: () => void handleStocktakeTableAction('post', session) },
+                            { id: 'cancel', label: 'Cancel', disabled: session.status === 'Posted', danger: true, separatorBefore: true, onClick: () => void handleStocktakeTableAction('cancel', session) },
+                            { id: 'export', label: 'Prepare Export', separatorBefore: true, onClick: () => void handleStocktakeTableAction('export', session) }
+                          ]}
+                        />
                       </td>
                     </tr>
                   );
@@ -4952,6 +5124,79 @@ export default function StockPanels({
         </div>
 
       </div>
+
+
+      {outstandingPOModalOpen && (
+        <div className="procurement-modal-backdrop">
+          <div className="procurement-selection-modal">
+            <div className="procurement-selection-header">
+              <div><span>Goods Receiving</span><h3>Outstanding PO Selection</h3></div>
+              <button type="button" onClick={() => setOutstandingPOModalOpen(false)}><X className="w-4 h-4" /></button>
+            </div>
+            <div className="procurement-selection-search">
+              <Search className="w-4 h-4" />
+              <input value={outstandingPOSupplier} onChange={(event) => setOutstandingPOSupplier(event.target.value)} placeholder="Search supplier with outstanding POs" />
+            </div>
+            <div className="procurement-selection-list">
+              {outstandingPOOptions.length === 0 ? (
+                <div className="procurement-selection-empty">No outstanding Purchase Orders found for this supplier.</div>
+              ) : outstandingPOOptions.map((po) => {
+                const lines = purchaseOrderLines[po.poId] || [];
+                const outstandingQty = lines.reduce((sum, line) => sum + line.qtyOutstanding, 0);
+                return (
+                  <button
+                    type="button"
+                    key={po.poId}
+                    onClick={() => {
+                      setOutstandingPOModalOpen(false);
+                      void handleCreateGRNFromPO(po);
+                    }}
+                  >
+                    <strong>{po.poNumber} - {po.supplierName}</strong>
+                    <span>Status: {po.status} | Outstanding Qty: {outstandingQty} | Expected: {po.expectedDeliveryDate || 'N/A'}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {supplierGRNModalOpen && (
+        <div className="procurement-modal-backdrop">
+          <div className="procurement-selection-modal">
+            <div className="procurement-selection-header">
+              <div><span>Supplier Returns</span><h3>Posted GRN Selection</h3></div>
+              <button type="button" onClick={() => setSupplierGRNModalOpen(false)}><X className="w-4 h-4" /></button>
+            </div>
+            <div className="procurement-selection-search">
+              <Search className="w-4 h-4" />
+              <input value={supplierGRNSupplier} onChange={(event) => setSupplierGRNSupplier(event.target.value)} placeholder="Search supplier posted GRNs" />
+            </div>
+            <div className="procurement-selection-list">
+              {supplierGRNOptions.length === 0 ? (
+                <div className="procurement-selection-empty">No posted returnable GRNs found for this supplier.</div>
+              ) : supplierGRNOptions.map((note) => {
+                const lines = goodsReceivingLineMap[note.grnId] || [];
+                const returnableQty = lines.reduce((sum, line) => sum + Math.max(line.qtyAccepted - line.qtyAlreadyReturned, 0), 0);
+                return (
+                  <button
+                    type="button"
+                    key={note.grnId}
+                    onClick={() => {
+                      setSupplierGRNModalOpen(false);
+                      void handleCreateSupplierReturnFromGRN(note);
+                    }}
+                  >
+                    <strong>{note.grnNumber} - {note.supplierName}</strong>
+                    <span>PO: {note.poNumber || 'Manual'} | Returnable Qty: {returnableQty} | Invoice: {note.supplierInvoiceNumber || 'Missing'}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      )}
 
 
       {/* VIEW DRILLDOWN MODAL FOR PURCHASE ORDER */}

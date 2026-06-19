@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import type { SupplierCreditProfile } from '../types';
 import { blockSupplierCredit, getSupplierCreditProfiles, releaseSupplierCredit, updateSupplierCreditProfile } from '../services/creditorsService';
+import RowActionMenu, { type RowActionMenuItem } from './RowActionMenu';
 
 const money = (value: number) => `$${value.toFixed(2)}`;
 
@@ -8,6 +9,7 @@ export default function SupplierCreditProfilePanel() {
   const [profiles, setProfiles] = useState<SupplierCreditProfile[]>([]);
   const [search, setSearch] = useState('');
   const [notice, setNotice] = useState('');
+  const [openMenuId, setOpenMenuId] = useState<string | null>(null);
 
   const load = () => setProfiles(getSupplierCreditProfiles({ search }));
   useEffect(load, [search]);
@@ -17,6 +19,12 @@ export default function SupplierCreditProfilePanel() {
     setNotice(`${profile.supplierName} preferred supplier flag updated locally.`);
     load();
   };
+
+  const supplierActions = (profile: SupplierCreditProfile): RowActionMenuItem[] => [
+    { id: 'preferred', label: profile.preferredSupplier ? 'Clear Preferred' : 'Mark Preferred', onClick: () => updatePreferred(profile) },
+    { id: 'block', label: 'Block', danger: true, separatorBefore: true, disabled: profile.creditStatus === 'CreditBlocked', onClick: async () => { await blockSupplierCredit(profile.supplierId, 'Build 19AO supplier credit block review.', 'Manager'); setNotice('Supplier credit block approval placeholder created.'); load(); } },
+    { id: 'release', label: 'Release', disabled: profile.creditStatus !== 'CreditBlocked', onClick: async () => { await releaseSupplierCredit(profile.supplierId, 'Build 19AO supplier release review.', 'Manager'); setNotice('Supplier credit release approval placeholder created.'); load(); } }
+  ];
 
   return (
     <section className="creditors-panel">
@@ -50,9 +58,7 @@ export default function SupplierCreditProfilePanel() {
             <p>{profile.notes}</p>
             {profile.blockedReason && <p className="creditors-warning">{profile.blockedReason}</p>}
             <div className="creditors-actions">
-              <button onClick={() => updatePreferred(profile)}>Mark Preferred</button>
-              <button onClick={async () => { await blockSupplierCredit(profile.supplierId, 'Build 19AO supplier credit block review.', 'Manager'); setNotice('Supplier credit block approval placeholder created.'); load(); }}>Block</button>
-              <button onClick={async () => { await releaseSupplierCredit(profile.supplierId, 'Build 19AO supplier release review.', 'Manager'); setNotice('Supplier credit release approval placeholder created.'); load(); }}>Release</button>
+              <RowActionMenu rowId={profile.supplierId} ariaLabel={`Supplier actions for ${profile.supplierName}`} open={openMenuId === profile.supplierId} onOpenChange={(open) => setOpenMenuId(open ? profile.supplierId : null)} items={supplierActions(profile)} />
             </div>
           </article>
         ))}

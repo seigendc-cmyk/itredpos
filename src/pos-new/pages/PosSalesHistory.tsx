@@ -19,7 +19,7 @@ import ReceiptOutputModal from '../components/ReceiptOutputModal';
 import ReceiptPrintDocument from '../components/ReceiptPrintDocument';
 import { mockReceiptLines, mockReceiptPayments, mockReceiptRecords } from '../mock/mockPosData';
 import { getDeliveryRequests } from '../services/deliveryService';
-import { formatReceiptCurrency, prepareReceiptWhatsAppMessage } from '../services/receiptService';
+import { formatReceiptCurrency, getActiveReceiptBlueprint, prepareReceiptWhatsAppMessage } from '../services/receiptService';
 import { DeliveryRequest, PosSession, ReceiptLine, ReceiptPrintPreview, ReceiptRecord, Role } from '../types';
 import { hasPermission, PermissionKey } from '../utils/posPermissions';
 import { matchesFreeOrderSearch } from '../utils/searchUtils';
@@ -39,6 +39,7 @@ const returnStatuses = ['All', 'Completed', 'Refunded', 'Partially Refunded', 'V
 function makeReceiptPreview(receipt: ReceiptRecord): ReceiptPrintPreview {
   const lines = mockReceiptLines.filter((line) => line.receiptNumber === receipt.receiptNumber);
   const payments = mockReceiptPayments.filter((payment) => payment.receiptNumber === receipt.receiptNumber);
+  const blueprint = getActiveReceiptBlueprint();
   return {
     receipt,
     lines,
@@ -52,7 +53,8 @@ function makeReceiptPreview(receipt: ReceiptRecord): ReceiptPrintPreview {
       nonTaxableAmount: 0,
       taxLabel: receipt.businessDetails.vatRegistered ? 'VAT' : 'No VAT'
     },
-    format: '80mm',
+    format: blueprint.layout || 'Receipt Roll',
+    blueprint,
     isReprint: receipt.reprintCount > 0
   };
 }

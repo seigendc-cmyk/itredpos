@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import type { CustomerRecord, DebtorOpeningBalance } from '../types';
 import { approveDebtorOpeningBalance, createDebtorOpeningBalance, getDebtorOpeningBalances, postDebtorOpeningBalance, rejectDebtorOpeningBalance, reverseDebtorOpeningBalance } from '../services/customerCreditService';
+import RowActionMenu from './RowActionMenu';
 
 interface DebtorOpeningBalancesPanelProps {
   customers: CustomerRecord[];
@@ -24,6 +25,7 @@ export default function DebtorOpeningBalancesPanel({ customers, selectedCustomer
   const [paidAmount, setPaidAmount] = useState(0);
   const [dueDate, setDueDate] = useState(new Date().toISOString().slice(0, 10));
   const [notes, setNotes] = useState('');
+  const [openMenuId, setOpenMenuId] = useState<string | null>(null);
 
   const load = () => setRows(getDebtorOpeningBalances({ customerId: customerId || undefined }));
 
@@ -74,7 +76,7 @@ export default function DebtorOpeningBalancesPanel({ customers, selectedCustomer
         <table className="sci-pos-table collection-diary-table">
           <thead><tr><th>Reference</th><th>Date</th><th>Original</th><th>Paid</th><th>Outstanding</th><th>Due</th><th>Status</th><th>Actions</th></tr></thead>
           <tbody>
-            {rows.map((row) => <tr key={row.openingBalanceId}><td>{row.openingReference}</td><td>{row.openingBalanceDate}</td><td>{money(row.originalAmount)}</td><td>{money(row.paidAmount)}</td><td>{money(row.outstandingAmount)}</td><td>{row.dueDate}</td><td>{row.status}</td><td><button disabled={!canApprove} onClick={() => void action(row, 'Approve')}>Approve</button><button disabled={!canApprove} onClick={() => void action(row, 'Post')}>Post</button><button disabled={!canApprove} onClick={() => void action(row, 'Reject')}>Reject</button><button disabled={!canApprove} onClick={() => void action(row, 'Reverse')}>Reverse</button></td></tr>)}
+            {rows.map((row) => <tr key={row.openingBalanceId}><td>{row.openingReference}</td><td>{row.openingBalanceDate}</td><td>{money(row.originalAmount)}</td><td>{money(row.paidAmount)}</td><td>{money(row.outstandingAmount)}</td><td>{row.dueDate}</td><td>{row.status}</td><td><RowActionMenu rowId={row.openingBalanceId} ariaLabel={`Opening balance actions for ${row.openingReference}`} open={openMenuId === row.openingBalanceId} onOpenChange={(open) => setOpenMenuId(open ? row.openingBalanceId : null)} items={[{ id: 'approve', label: 'Approve', disabled: !canApprove, onClick: () => void action(row, 'Approve') }, { id: 'post', label: 'Post', disabled: !canApprove, onClick: () => void action(row, 'Post') }, { id: 'reject', label: 'Reject', disabled: !canApprove, danger: true, separatorBefore: true, onClick: () => void action(row, 'Reject') }, { id: 'reverse', label: 'Reverse', disabled: !canApprove, danger: true, onClick: () => void action(row, 'Reverse') }]} /></td></tr>)}
             {rows.length === 0 && <tr><td colSpan={8}>No opening balances found.</td></tr>}
           </tbody>
         </table>

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { CheckCircle2, ClipboardCheck, Download, Eye, FileText, Flag, PlayCircle, Printer, RefreshCw, Search, ShieldAlert, StickyNote, XCircle } from 'lucide-react';
-import { PosSession, Role, TaskActivityEvent, TaskFilterState, TaskPriority, TaskRecord, TaskSourceModule, TaskStatus, TaskSummary } from '../types';
+import { PosPageId, PosSession, Role, TaskActivityEvent, TaskFilterState, TaskPriority, TaskRecord, TaskSourceModule, TaskStatus, TaskSummary } from '../types';
 import RowActionMenu, { RowActionMenuItem } from '../components/RowActionMenu';
 import { hasPermission, type PermissionKey } from '../utils/posPermissions';
 import {
@@ -15,12 +15,15 @@ import {
   linkTaskToApproval,
   linkTaskToBIAdvice,
   markTaskPendingInfo,
+  recordTaskRelatedRecordOpen,
   reassignTask,
   startTaskReview
 } from '../services/taskService';
+import { openRelatedRecord } from '../services/workflowRoutingService';
 
 interface PosTaskDeskProps {
   session: PosSession;
+  onNavigate?: (page: PosPageId) => void;
 }
 
 type TaskModalMode = 'view' | 'note' | 'reassign' | 'pendingInfo' | 'escalate' | 'complete' | 'close' | 'approval' | 'bi' | 'related';
@@ -31,7 +34,7 @@ const moduleOptions: Array<TaskSourceModule | 'All'> = ['All', 'Customer Centre'
 const staffOptions = ['Admin User', 'Mary Cashier', 'Tawanda Supervisor', 'John Connor', 'Elena Rostova', 'Cassie Reilly', 'Accountant', 'Stock Controller', 'Cash Control', 'BI Desk'];
 const escalationTargets = ['Manager', 'Owner', 'Accountant', 'Stock Controller', 'Cash Control', 'BI Desk'];
 
-export default function PosTaskDesk({ session }: PosTaskDeskProps) {
+export default function PosTaskDesk({ session, onNavigate }: PosTaskDeskProps) {
   const [tasks, setTasks] = useState<TaskRecord[]>([]);
   const [activity, setActivity] = useState<TaskActivityEvent[]>([]);
   const [summary, setSummary] = useState<TaskSummary | null>(null);
@@ -88,6 +91,14 @@ export default function PosTaskDesk({ session }: PosTaskDeskProps) {
       await addTaskNote(task.taskId, staffId, 'Task viewed.', staffName);
       await load();
     }
+  };
+
+  const handleOpenRelatedRecord = async (task: TaskRecord) => {
+    if (!requirePermission('taskDesk.openRelatedRecord')) return;
+    openRelatedRecord(task, { navigate: onNavigate, setNotice, currentStaff: session });
+    await recordTaskRelatedRecordOpen(task.taskId, staffId, staffName);
+    setOpenMenuId(null);
+    await load();
   };
 
   const saveWorkflow = async () => {
@@ -262,7 +273,7 @@ export default function PosTaskDesk({ session }: PosTaskDeskProps) {
                       onEscalate={() => void openModal('escalate', task)}
                       onApproval={() => void openModal('approval', task)}
                       onBI={() => void openModal('bi', task)}
-                      onRelated={() => void openModal('related', task)}
+                      onRelated={() => void handleOpenRelatedRecord(task)}
                       onComplete={() => void openModal('complete', task)}
                       onClose={() => void openModal('close', task)}
                       onPrint={() => void printTask(task)}
