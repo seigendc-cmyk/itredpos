@@ -13,8 +13,8 @@ import {
   ReceiptSequenceControl,
   ReceiptStatus,
   Sale,
-  VATMode
-} from '../types/posTypes';
+  VATMode,
+} from "../types/posTypes";
 import {
   mockFiscalizationPlaceholderRecords,
   mockReceiptAuditEvents,
@@ -22,9 +22,9 @@ import {
   mockReceiptPayments,
   mockReceiptRecords,
   mockReceiptReprintAudits,
-  mockReceiptSequenceControls
-} from '../mock/mockPosData';
-import { calculateReceiptTaxSummary } from '../utils/taxUtils';
+  mockReceiptSequenceControls,
+} from "../mock/mockPosData";
+import { calculateReceiptTaxSummary } from "../utils/taxUtils";
 
 export interface ReceiptFilters {
   vendorId?: string;
@@ -33,9 +33,9 @@ export interface ReceiptFilters {
   cashier?: string;
   customer?: string;
   receiptNumber?: string;
-  paymentMode?: PaymentMode | 'All';
-  receiptStatus?: ReceiptStatus | 'All';
-  fiscalizationStatus?: FiscalizationStatus | 'All';
+  paymentMode?: PaymentMode | "All";
+  receiptStatus?: ReceiptStatus | "All";
+  fiscalizationStatus?: FiscalizationStatus | "All";
   dateFrom?: string;
   dateTo?: string;
 }
@@ -57,37 +57,38 @@ export interface ReceiptSalePayload {
   customerTaxNumber?: string;
   customerBillingAddress?: string;
   customerDeliveryAddress?: string;
-  customerCreditStatus?: ReceiptRecord['customer']['creditStatus'];
+  customerCreditStatus?: ReceiptRecord["customer"]["creditStatus"];
   paymentMode: PaymentMode;
   paymentLines?: Array<{ method: string; amount: number; reference?: string }>;
-  creditDetails?: ReceiptRecord['creditDetails'];
+  creditDetails?: ReceiptRecord["creditDetails"];
   vatMode?: VATMode;
   vatRate?: number;
 }
 
-const RECEIPTS_KEY = 'itred_pos_receipts_v1';
-const LINES_KEY = 'itred_pos_receipt_lines_v1';
-const PAYMENTS_KEY = 'itred_pos_receipt_payments_v1';
-const SEQUENCE_KEY = 'itred_pos_receipt_sequence_v1';
-const FISCAL_KEY = 'itred_pos_fiscal_placeholder_v1';
-const AUDIT_KEY = 'itred_pos_receipt_audit_v1';
-const RECEIPT_SETTING_KEY = 'itred_pos_receipt_setting';
+const RECEIPTS_KEY = "itred_pos_receipts_v1";
+const LINES_KEY = "itred_pos_receipt_lines_v1";
+const PAYMENTS_KEY = "itred_pos_receipt_payments_v1";
+const SEQUENCE_KEY = "itred_pos_receipt_sequence_v1";
+const FISCAL_KEY = "itred_pos_fiscal_placeholder_v1";
+const AUDIT_KEY = "itred_pos_receipt_audit_v1";
+const RECEIPT_SETTING_KEY = "itred_pos_receipt_setting";
 
 const DEFAULT_RECEIPT_BLUEPRINT: ReceiptSetting = {
-  header: 'INDUSTRIAL HEAVY MACHINE SUPPLY',
-  footer: 'THANK YOU FOR YOUR PATRONAGE. SECURE TRANSACTION CORES.',
-  slipWidth: '32_COLUMNS (STANDARD_SLIP)',
+  header: "INDUSTRIAL HEAVY MACHINE SUPPLY",
+  footer: "THANK YOU FOR YOUR PATRONAGE. SECURE TRANSACTION CORES.",
+  slipWidth: "32_COLUMNS (STANDARD_SLIP)",
   showTaxBreakdown: true,
-  layout: 'Thermal Receipt Roll',
-  headerMessage: 'INDUSTRIAL HEAVY MACHINE SUPPLY',
-  footerMessage: 'THANK YOU FOR YOUR PATRONAGE. SECURE TRANSACTION CORES.',
-  termsAndConditions: 'Goods may be returned according to store policy with a valid receipt.',
-  businessAddress: '12 Enterprise Road, Harare',
-  contactNumbers: '+263 242 000 100 | +263 77 000 0100',
-  emailAddress: 'sales@itredcommerce.local',
-  socialMediaHandles: '@itredcommerce',
-  contactInformation: '+263 242 000 100 | +263 77 000 0100',
-  socialMediaInformation: '@itredcommerce'
+  layout: "Thermal Receipt Roll",
+  headerMessage: "INDUSTRIAL HEAVY MACHINE SUPPLY",
+  footerMessage: "THANK YOU FOR YOUR PATRONAGE. SECURE TRANSACTION CORES.",
+  termsAndConditions:
+    "Goods may be returned according to store policy with a valid receipt.",
+  businessAddress: "12 Enterprise Road, Harare",
+  contactNumbers: "+263 242 000 100 | +263 77 000 0100",
+  emailAddress: "sales@itredcommerce.local",
+  socialMediaHandles: "@itredcommerce",
+  contactInformation: "+263 242 000 100 | +263 77 000 0100",
+  socialMediaInformation: "@itredcommerce",
 };
 
 function readList<T>(key: string, fallback: T[]): T[] {
@@ -110,99 +111,217 @@ function saveList<T>(key: string, value: T[]): T[] {
   return value;
 }
 
+function extractReceiptOrdinal(receiptNumber?: string): number {
+  const value = Number(receiptNumber?.replace(/\D/g, ""));
+  return Number.isFinite(value) ? value : 0;
+}
+
+function formatSequenceReceiptNumber(prefix: string, value: number): string {
+  return `${prefix}-${String(value).padStart(4, "0")}`;
+}
+
 export function getActiveReceiptBlueprint(): ReceiptSetting {
   try {
     const raw = localStorage.getItem(RECEIPT_SETTING_KEY);
-    const stored: Partial<ReceiptSetting> = raw ? JSON.parse(raw) as ReceiptSetting : {};
+    const stored: Partial<ReceiptSetting> = raw
+      ? (JSON.parse(raw) as ReceiptSetting)
+      : {};
     return {
       ...DEFAULT_RECEIPT_BLUEPRINT,
       ...stored,
-      footerMessage: stored.footerMessage || stored.footer || DEFAULT_RECEIPT_BLUEPRINT.footerMessage,
-      headerMessage: stored.headerMessage || stored.header || DEFAULT_RECEIPT_BLUEPRINT.headerMessage,
-      businessAddress: stored.businessAddress || DEFAULT_RECEIPT_BLUEPRINT.businessAddress,
-      contactNumbers: stored.contactNumbers || stored.contactInformation || DEFAULT_RECEIPT_BLUEPRINT.contactNumbers,
-      emailAddress: stored.emailAddress || DEFAULT_RECEIPT_BLUEPRINT.emailAddress,
-      socialMediaHandles: stored.socialMediaHandles || stored.socialMediaInformation || DEFAULT_RECEIPT_BLUEPRINT.socialMediaHandles,
-      contactInformation: stored.contactInformation || stored.contactNumbers || DEFAULT_RECEIPT_BLUEPRINT.contactInformation,
-      socialMediaInformation: stored.socialMediaInformation || stored.socialMediaHandles || DEFAULT_RECEIPT_BLUEPRINT.socialMediaInformation,
-      layout: stored.layout || 'Thermal Receipt Roll'
+      footerMessage:
+        stored.footerMessage ||
+        stored.footer ||
+        DEFAULT_RECEIPT_BLUEPRINT.footerMessage,
+      headerMessage:
+        stored.headerMessage ||
+        stored.header ||
+        DEFAULT_RECEIPT_BLUEPRINT.headerMessage,
+      businessAddress:
+        stored.businessAddress || DEFAULT_RECEIPT_BLUEPRINT.businessAddress,
+      contactNumbers:
+        stored.contactNumbers ||
+        stored.contactInformation ||
+        DEFAULT_RECEIPT_BLUEPRINT.contactNumbers,
+      emailAddress:
+        stored.emailAddress || DEFAULT_RECEIPT_BLUEPRINT.emailAddress,
+      socialMediaHandles:
+        stored.socialMediaHandles ||
+        stored.socialMediaInformation ||
+        DEFAULT_RECEIPT_BLUEPRINT.socialMediaHandles,
+      contactInformation:
+        stored.contactInformation ||
+        stored.contactNumbers ||
+        DEFAULT_RECEIPT_BLUEPRINT.contactInformation,
+      socialMediaInformation:
+        stored.socialMediaInformation ||
+        stored.socialMediaHandles ||
+        DEFAULT_RECEIPT_BLUEPRINT.socialMediaInformation,
+      layout: stored.layout || "Thermal Receipt Roll",
     };
   } catch {
     return DEFAULT_RECEIPT_BLUEPRINT;
   }
 }
 
-function addAudit(eventType: ReceiptAuditEventType, receiptNumber: string, message: string, operator = 'Admin User'): ReceiptAuditEvent[] {
-  const current = readList<ReceiptAuditEvent>(AUDIT_KEY, mockReceiptAuditEvents);
+function addAudit(
+  eventType: ReceiptAuditEventType,
+  receiptNumber: string,
+  message: string,
+  operator = "Admin User",
+): ReceiptAuditEvent[] {
+  const current = readList<ReceiptAuditEvent>(
+    AUDIT_KEY,
+    mockReceiptAuditEvents,
+  );
   const next: ReceiptAuditEvent = {
     id: `RAE-${Math.floor(10000 + Math.random() * 90000)}`,
     timestamp: new Date().toISOString(),
     eventType,
     receiptNumber,
     message,
-    operator
+    operator,
   };
   return saveList(AUDIT_KEY, [next, ...current].slice(0, 60));
 }
 
 function branchMatch(rowBranch: string, branch?: string): boolean {
-  return !branch || branch === 'All Branches' || rowBranch === branch;
+  return !branch || branch === "All Branches" || rowBranch === branch;
 }
 
 function terminalMatch(rowTerminal: string, terminal?: string): boolean {
-  return !terminal || terminal === 'All Terminals' || rowTerminal === terminal;
+  return !terminal || terminal === "All Terminals" || rowTerminal === terminal;
 }
 
 function cashierMatch(rowCashier: string, cashier?: string): boolean {
-  return !cashier || cashier === 'All Staff' || rowCashier === cashier;
+  return !cashier || cashier === "All Staff" || rowCashier === cashier;
 }
 
 function normalizePaymentMode(method: string): PaymentMode {
-  if (method === 'Credit / Account') return 'Credit Sale';
-  if (method === 'Mixed Payment') return 'Split Payment';
-  if (method === 'Card' || method === 'CARD') return 'Swipe';
-  if (method === 'Already Paid' || method === 'No Payment Due') return 'Cash';
-  if (method === 'Innbucks' || method === 'Mukuru' || method === 'ZIPIT') return 'Bank Transfer';
-  if (method === 'EcoCash') return 'EcoCash';
-  if (method === 'Bank Transfer') return 'Bank Transfer';
-  return 'Cash';
+  if (method === "Credit / Account") return "Credit Sale";
+  if (method === "Mixed Payment") return "Split Payment";
+  if (method === "Card" || method === "CARD") return "Swipe";
+  if (method === "Already Paid" || method === "No Payment Due") return "Cash";
+  if (method === "Innbucks" || method === "Mukuru" || method === "ZIPIT")
+    return "Bank Transfer";
+  if (method === "EcoCash") return "EcoCash";
+  if (method === "Bank Transfer") return "Bank Transfer";
+  return "Cash";
 }
 
-export async function getReceipts(filters: ReceiptFilters): Promise<ReceiptRecord[]> {
-  return readList<ReceiptRecord>(RECEIPTS_KEY, mockReceiptRecords).filter((receipt) =>
-    branchMatch(receipt.branch, filters.branch) &&
-    terminalMatch(receipt.terminal, filters.terminal) &&
-    cashierMatch(receipt.cashier, filters.cashier) &&
-    (!filters.customer || receipt.customer.customerName.toLowerCase().includes(filters.customer.toLowerCase())) &&
-    (!filters.receiptNumber || receipt.receiptNumber.toLowerCase().includes(filters.receiptNumber.toLowerCase())) &&
-    (!filters.paymentMode || filters.paymentMode === 'All' || receipt.paymentMode === filters.paymentMode) &&
-    (!filters.receiptStatus || filters.receiptStatus === 'All' || receipt.status === filters.receiptStatus) &&
-    (!filters.fiscalizationStatus || filters.fiscalizationStatus === 'All' || receipt.fiscalizationStatus === filters.fiscalizationStatus)
+export async function getReceipts(
+  filters: ReceiptFilters,
+): Promise<ReceiptRecord[]> {
+  return readList<ReceiptRecord>(RECEIPTS_KEY, mockReceiptRecords).filter(
+    (receipt) =>
+      branchMatch(receipt.branch, filters.branch) &&
+      terminalMatch(receipt.terminal, filters.terminal) &&
+      cashierMatch(receipt.cashier, filters.cashier) &&
+      (!filters.customer ||
+        receipt.customer.customerName
+          .toLowerCase()
+          .includes(filters.customer.toLowerCase())) &&
+      (!filters.receiptNumber ||
+        receipt.receiptNumber
+          .toLowerCase()
+          .includes(filters.receiptNumber.toLowerCase())) &&
+      (!filters.paymentMode ||
+        filters.paymentMode === "All" ||
+        receipt.paymentMode === filters.paymentMode) &&
+      (!filters.receiptStatus ||
+        filters.receiptStatus === "All" ||
+        receipt.status === filters.receiptStatus) &&
+      (!filters.fiscalizationStatus ||
+        filters.fiscalizationStatus === "All" ||
+        receipt.fiscalizationStatus === filters.fiscalizationStatus),
   );
 }
 
-export async function getReceiptByNumber(receiptNumber: string): Promise<ReceiptRecord | undefined> {
-  return readList<ReceiptRecord>(RECEIPTS_KEY, mockReceiptRecords).find((receipt) => receipt.receiptNumber === receiptNumber);
+export async function getReceiptByNumber(
+  receiptNumber: string,
+): Promise<ReceiptRecord | undefined> {
+  return readList<ReceiptRecord>(RECEIPTS_KEY, mockReceiptRecords).find(
+    (receipt) => receipt.receiptNumber === receiptNumber,
+  );
 }
 
-export async function generateReceiptNumber(branchId: string, terminalId: string): Promise<string> {
-  const sequenceRows = readList<ReceiptSequenceControl>(SEQUENCE_KEY, mockReceiptSequenceControls);
-  const sequence = sequenceRows.find((row) => row.terminal === terminalId || row.terminal === branchId) || sequenceRows[0];
-  const nextNumber = Number(sequence.nextReceiptNo.replace(/\D/g, '')) || mockReceiptRecords.length + 1;
-  return `${sequence.prefix}-${String(nextNumber).padStart(4, '0')}`;
+export async function generateReceiptNumber(
+  branchId: string,
+  terminalId: string,
+): Promise<string> {
+  const sequenceRows = readList<ReceiptSequenceControl>(
+    SEQUENCE_KEY,
+    mockReceiptSequenceControls,
+  );
+  const sequenceIndex = sequenceRows.findIndex(
+    (row) => row.terminal === terminalId,
+  );
+  const sequence = sequenceRows[sequenceIndex] || sequenceRows[0];
+  const prefix = sequence?.prefix || "RCT";
+  const existingReceiptNumbers = new Set(
+    readList<ReceiptRecord>(RECEIPTS_KEY, mockReceiptRecords).map(
+      (receipt) => receipt.receiptNumber,
+    ),
+  );
+  const highestExistingNumber = Math.max(
+    0,
+    ...Array.from(existingReceiptNumbers).map(extractReceiptOrdinal),
+  );
+  let nextNumber =
+    extractReceiptOrdinal(sequence?.nextReceiptNo) || highestExistingNumber + 1;
+  let receiptNumber = formatSequenceReceiptNumber(prefix, nextNumber);
+
+  while (existingReceiptNumbers.has(receiptNumber)) {
+    nextNumber += 1;
+    receiptNumber = formatSequenceReceiptNumber(prefix, nextNumber);
+  }
+
+  const nextReceiptNo = formatSequenceReceiptNumber(prefix, nextNumber + 1);
+
+  const updatedSequence = {
+    ...(sequence || {}),
+    id: sequence?.id || `SEQ-${terminalId}`,
+    vendorId: sequence?.vendorId || "SCI-LOG-ZW",
+    businessVendor: sequence?.businessVendor || "iTred Commerce POS",
+    branch: sequence?.branch || branchId,
+    terminal: sequence?.terminal || terminalId,
+    prefix,
+    lastReceiptNo: receiptNumber,
+    nextReceiptNo,
+    duplicateRisk: "Low",
+    sequenceStatus: "Healthy",
+    gapCount: sequence?.gapCount ?? 0,
+    lastChecked: new Date().toISOString(),
+  } as ReceiptSequenceControl;
+
+  const updatedRows =
+    sequenceIndex >= 0
+      ? sequenceRows.map((row, index) =>
+          index === sequenceIndex ? updatedSequence : row,
+        )
+      : [updatedSequence, ...sequenceRows];
+
+  saveList(SEQUENCE_KEY, updatedRows);
+
+  return receiptNumber;
 }
 
 export function formatReceiptNumber(value?: number): string {
-  return `RCT-${String(value || Date.now() % 10000).padStart(4, '0')}`;
+  return `RCT-${String(value || Date.now() % 10000).padStart(4, "0")}`;
 }
 
 export function formatReceiptCurrency(value: number): string {
   return `USD ${value.toFixed(2)}`;
 }
 
-export async function createReceiptFromSale(payload: ReceiptSalePayload): Promise<ReceiptRecord> {
+export async function createReceiptFromSale(
+  payload: ReceiptSalePayload,
+): Promise<ReceiptRecord> {
   const blueprint = getActiveReceiptBlueprint();
-  const receiptNumber = await generateReceiptNumber(payload.branchId, payload.terminal);
+  const receiptNumber = await generateReceiptNumber(
+    payload.branchId,
+    payload.terminalId,
+  );
   const now = payload.sale.date || new Date().toISOString();
   const lines: ReceiptLine[] = payload.sale.items.map((item, index) => ({
     id: `RL-${receiptNumber}-${index + 1}`,
@@ -214,10 +333,17 @@ export async function createReceiptFromSale(payload: ReceiptSalePayload): Promis
     unitPrice: item.price,
     discountAmount: 0,
     lineNetAmount: item.total,
-    vatAmount: payload.vatMode === 'Not VAT Registered' ? 0 : item.total * ((payload.vatRate || 15) / 100),
-    lineTotal: item.total
+    vatAmount:
+      payload.vatMode === "Not VAT Registered"
+        ? 0
+        : item.total * ((payload.vatRate || 15) / 100),
+    lineTotal: item.total,
   }));
-  const taxSummary = calculateReceiptTaxSummary(lines, payload.vatMode || 'Inclusive', payload.vatRate || 15);
+  const taxSummary = calculateReceiptTaxSummary(
+    lines,
+    payload.vatMode || "Inclusive",
+    payload.vatRate || 15,
+  );
   const receipt: ReceiptRecord = {
     id: `REC-${receiptNumber}`,
     receiptNumber,
@@ -233,25 +359,30 @@ export async function createReceiptFromSale(payload: ReceiptSalePayload): Promis
     dateTime: now,
     customer: {
       customerId: payload.customerId,
-      customerName: payload.customerName || 'Walk-in Customer',
+      customerName: payload.customerName || "Walk-in Customer",
       customerPhone: payload.customerPhone,
       customerWhatsApp: payload.customerWhatsApp,
       customerTaxNo: payload.customerTaxNumber,
-      customerAddress: payload.customerDeliveryAddress || payload.customerBillingAddress,
+      customerAddress:
+        payload.customerDeliveryAddress || payload.customerBillingAddress,
       billingAddress: payload.customerBillingAddress,
       deliveryAddress: payload.customerDeliveryAddress,
-      creditStatus: payload.customerCreditStatus
+      creditStatus: payload.customerCreditStatus,
     },
     businessDetails: {
       businessName: payload.businessVendor,
       tradingName: payload.businessVendor,
       vendorId: payload.vendorId,
       branch: payload.branch,
-      address: blueprint.businessAddress || (payload.branch === 'Bulawayo Branch' ? '4 Plumtree Road, Bulawayo' : '12 Enterprise Road, Harare'),
-      phone: '+263 242 000 100',
-      whatsApp: '+263 77 000 0100',
-      vatNumber: 'VAT-ZW-82190B',
-      vatRegistered: payload.vatMode !== 'Not VAT Registered',
+      address:
+        blueprint.businessAddress ||
+        (payload.branch === "Bulawayo Branch"
+          ? "4 Plumtree Road, Bulawayo"
+          : "12 Enterprise Road, Harare"),
+      phone: "+263 242 000 100",
+      whatsApp: "+263 77 000 0100",
+      vatNumber: "VAT-ZW-82190B",
+      vatRegistered: payload.vatMode !== "Not VAT Registered",
       footerMessage: blueprint.footerMessage || blueprint.footer,
       logoDataUrl: blueprint.logoDataUrl,
       headerMessage: blueprint.headerMessage || blueprint.header,
@@ -260,9 +391,11 @@ export async function createReceiptFromSale(payload: ReceiptSalePayload): Promis
       contactNumbers: blueprint.contactNumbers,
       emailAddress: blueprint.emailAddress,
       socialMediaHandles: blueprint.socialMediaHandles,
-      contactInformation: blueprint.contactInformation || blueprint.contactNumbers,
-      socialMediaInformation: blueprint.socialMediaInformation || blueprint.socialMediaHandles,
-      receiptLayout: blueprint.layout || 'Thermal Receipt Roll'
+      contactInformation:
+        blueprint.contactInformation || blueprint.contactNumbers,
+      socialMediaInformation:
+        blueprint.socialMediaInformation || blueprint.socialMediaHandles,
+      receiptLayout: blueprint.layout || "Thermal Receipt Roll",
     },
     subtotal: payload.sale.subtotal,
     discountTotal: payload.sale.discount,
@@ -270,47 +403,86 @@ export async function createReceiptFromSale(payload: ReceiptSalePayload): Promis
     grandTotal: payload.sale.total,
     paymentMode: payload.paymentMode,
     creditDetails: payload.creditDetails,
-    status: 'Completed',
-    fiscalizationStatus: 'Disabled In Development',
+    status: "Completed",
+    fiscalizationStatus: "Disabled In Development",
     fiscalReferencePlaceholder: `FISC-DEV-${receiptNumber}`,
     reprintCount: 0,
     offlineQueued: false,
     createdByStaffId: payload.cashierId,
     createdAt: now,
-    updatedAt: now
+    updatedAt: now,
   };
 
-  saveList(RECEIPTS_KEY, [receipt, ...readList<ReceiptRecord>(RECEIPTS_KEY, mockReceiptRecords)]);
-  saveList(LINES_KEY, [...lines, ...readList<ReceiptLine>(LINES_KEY, mockReceiptLines)]);
-  const paymentRows: ReceiptPaymentLine[] = (payload.paymentLines && payload.paymentLines.length > 0
-    ? payload.paymentLines
-    : [{ method: payload.paymentMode, amount: payload.sale.total, reference: `${payload.paymentMode}-${payload.terminal}` }]
+  const currentReceipts = readList<ReceiptRecord>(
+    RECEIPTS_KEY,
+    mockReceiptRecords,
+  ).filter((currentReceipt) => currentReceipt.receiptNumber !== receiptNumber);
+  saveList(RECEIPTS_KEY, [
+    receipt,
+    ...currentReceipts,
+  ]);
+  const currentLines = readList<ReceiptLine>(LINES_KEY, mockReceiptLines).filter(
+    (line) => line.receiptNumber !== receiptNumber,
+  );
+  saveList(LINES_KEY, [
+    ...lines,
+    ...currentLines,
+  ]);
+  const paymentRows: ReceiptPaymentLine[] = (
+    payload.paymentLines && payload.paymentLines.length > 0
+      ? payload.paymentLines
+      : [
+          {
+            method: payload.paymentMode,
+            amount: payload.sale.total,
+            reference: `${payload.paymentMode}-${payload.terminal}`,
+          },
+        ]
   ).map((payment, index) => ({
     id: `RP-${receiptNumber}-${index + 1}`,
     receiptNumber,
     paymentMode: normalizePaymentMode(payment.method),
     amount: payment.amount,
     reference: payment.reference,
-    confirmed: true
+    confirmed: true,
   }));
-  saveList(PAYMENTS_KEY, [...paymentRows, ...readList<ReceiptPaymentLine>(PAYMENTS_KEY, mockReceiptPayments)]);
-  addAudit('RECEIPT_CREATED', receiptNumber, `Receipt ${receiptNumber} created from completed sale.`, payload.cashier);
+  const currentPayments = readList<ReceiptPaymentLine>(
+    PAYMENTS_KEY,
+    mockReceiptPayments,
+  ).filter((payment) => payment.receiptNumber !== receiptNumber);
+  saveList(PAYMENTS_KEY, [
+    ...paymentRows,
+    ...currentPayments,
+  ]);
+  addAudit(
+    "RECEIPT_CREATED",
+    receiptNumber,
+    `Receipt ${receiptNumber} created from completed sale.`,
+    payload.cashier,
+  );
   return receipt;
 }
 
-export async function generateReceiptFromCompletedSale(sale: Sale): Promise<ReceiptRecord> {
+export async function generateReceiptFromCompletedSale(
+  sale: Sale,
+): Promise<ReceiptRecord> {
   return createReceiptFromSale({
     sale,
-    vendorId: 'SCI-LOG-ZW',
-    businessVendor: 'iTred Commerce POS',
-    branchId: 'BR-HARARE',
-    branch: 'Harare Main',
-    terminalId: sale.terminal || 'POS-01',
-    terminal: sale.terminal || 'POS-01',
+    vendorId: "SCI-LOG-ZW",
+    businessVendor: "iTred Commerce POS",
+    branchId: "BR-HARARE",
+    branch: "Harare Main",
+    terminalId: sale.terminal || "POS-01",
+    terminal: sale.terminal || "POS-01",
     cashierId: sale.operator,
     cashier: sale.operator,
     customerName: sale.customerName,
-    paymentMode: sale.paymentMethod === 'CASH' ? 'Cash' : sale.paymentMethod === 'SPLIT' ? 'Split Payment' : 'Swipe'
+    paymentMode:
+      sale.paymentMethod === "CASH"
+        ? "Cash"
+        : sale.paymentMethod === "SPLIT"
+          ? "Split Payment"
+          : "Swipe",
   });
 }
 
@@ -322,112 +494,270 @@ export async function getRecentReceipts(): Promise<ReceiptRecord[]> {
   return readList<ReceiptRecord>(RECEIPTS_KEY, mockReceiptRecords).slice(0, 10);
 }
 
-export function prepareReceiptPrintPayload(receipt: ReceiptRecord): ReceiptRecord {
-  addAudit('RECEIPT_PRINT_STARTED', receipt.receiptNumber, `Receipt ${receipt.receiptNumber} print started.`, receipt.cashier);
+export function prepareReceiptPrintPayload(
+  receipt: ReceiptRecord,
+): ReceiptRecord {
+  addAudit(
+    "RECEIPT_PRINT_STARTED",
+    receipt.receiptNumber,
+    `Receipt ${receipt.receiptNumber} print started.`,
+    receipt.cashier,
+  );
   return receipt;
 }
 
-export function prepareReceiptPdfPrintPayload(receipt: ReceiptRecord): ReceiptRecord {
-  addAudit('RECEIPT_PDF_PREPARED', receipt.receiptNumber, `Receipt ${receipt.receiptNumber} PDF print path prepared.`, receipt.cashier);
+export function prepareReceiptPdfPrintPayload(
+  receipt: ReceiptRecord,
+): ReceiptRecord {
+  addAudit(
+    "RECEIPT_PDF_PREPARED",
+    receipt.receiptNumber,
+    `Receipt ${receipt.receiptNumber} PDF print path prepared.`,
+    receipt.cashier,
+  );
   return receipt;
 }
 
-export function prepareReceiptWhatsAppMessage(receipt: ReceiptRecord, phone: string): string {
-  addAudit('RECEIPT_WHATSAPP_SHARE_PREPARED', receipt.receiptNumber, `Receipt ${receipt.receiptNumber} WhatsApp share prepared for ${phone}.`, receipt.cashier);
-  const status = receipt.status === 'Completed' ? 'Paid/Completed' : receipt.status;
-  const contact = receipt.businessDetails.contactNumbers || receipt.businessDetails.contactInformation;
+export function prepareReceiptWhatsAppMessage(
+  receipt: ReceiptRecord,
+  phone: string,
+): string {
+  addAudit(
+    "RECEIPT_WHATSAPP_SHARE_PREPARED",
+    receipt.receiptNumber,
+    `Receipt ${receipt.receiptNumber} WhatsApp share prepared for ${phone}.`,
+    receipt.cashier,
+  );
+  const status =
+    receipt.status === "Completed" ? "Paid/Completed" : receipt.status;
+  const contact =
+    receipt.businessDetails.contactNumbers ||
+    receipt.businessDetails.contactInformation;
   const email = receipt.businessDetails.emailAddress;
   return [
-    receipt.businessDetails.footerMessage || `Thank you for shopping with ${receipt.businessDetails.businessName}.`,
+    receipt.businessDetails.footerMessage ||
+      `Thank you for shopping with ${receipt.businessDetails.businessName}.`,
     `Receipt ${receipt.receiptNumber}, ${new Date(receipt.dateTime).toLocaleDateString()}.`,
     `Total ${formatReceiptCurrency(receipt.grandTotal)}.`,
-    receipt.creditDetails ? `Balance due ${formatReceiptCurrency(receipt.creditDetails.balanceDue)} by ${new Date(receipt.creditDetails.dueDate).toLocaleDateString()}.` : '',
-    receipt.creditDetails ? 'Please settle your account by the due date.' : '',
+    receipt.creditDetails
+      ? `Balance due ${formatReceiptCurrency(receipt.creditDetails.balanceDue)} by ${new Date(receipt.creditDetails.dueDate).toLocaleDateString()}.`
+      : "",
+    receipt.creditDetails ? "Please settle your account by the due date." : "",
     `Payment status: ${status}.`,
-    receipt.customer.deliveryAddress ? `Delivery: ${receipt.customer.deliveryAddress}.` : '',
-    receipt.businessDetails.termsAndConditions || 'Please keep this message for your records.',
-    contact ? `Contact: ${contact}.` : '',
-    email ? `Email: ${email}.` : ''
-  ].filter(Boolean).join(' ');
+    receipt.customer.deliveryAddress
+      ? `Delivery: ${receipt.customer.deliveryAddress}.`
+      : "",
+    receipt.businessDetails.termsAndConditions ||
+      "Please keep this message for your records.",
+    contact ? `Contact: ${contact}.` : "",
+    email ? `Email: ${email}.` : "",
+  ]
+    .filter(Boolean)
+    .join(" ");
 }
 
 export async function getReceiptActivityEvents(): Promise<ReceiptAuditEvent[]> {
   return getReceiptAuditEvents();
 }
 
-export async function getReceiptPreview(receiptNumber: string, format: ReceiptFormat): Promise<ReceiptPrintPreview | undefined> {
+export async function getReceiptPreview(
+  receiptNumber: string,
+  format: ReceiptFormat,
+): Promise<ReceiptPrintPreview | undefined> {
   const receipt = await getReceiptByNumber(receiptNumber);
   if (!receipt) return undefined;
-  const lines = readList<ReceiptLine>(LINES_KEY, mockReceiptLines).filter((line) => line.receiptNumber === receiptNumber);
-  const payments = readList<ReceiptPaymentLine>(PAYMENTS_KEY, mockReceiptPayments).filter((payment) => payment.receiptNumber === receiptNumber);
+  const lines = readList<ReceiptLine>(LINES_KEY, mockReceiptLines).filter(
+    (line) => line.receiptNumber === receiptNumber,
+  );
+  const payments = readList<ReceiptPaymentLine>(
+    PAYMENTS_KEY,
+    mockReceiptPayments,
+  ).filter((payment) => payment.receiptNumber === receiptNumber);
   return {
     receipt,
     lines,
     payments,
-    taxSummary: calculateReceiptTaxSummary(lines, receipt.businessDetails.vatRegistered ? 'Inclusive' : 'Not VAT Registered', 15),
+    taxSummary: calculateReceiptTaxSummary(
+      lines,
+      receipt.businessDetails.vatRegistered
+        ? "Inclusive"
+        : "Not VAT Registered",
+      15,
+    ),
     format: receipt.businessDetails.receiptLayout || format,
     blueprint: {
       ...getActiveReceiptBlueprint(),
-      logoDataUrl: receipt.businessDetails.logoDataUrl || getActiveReceiptBlueprint().logoDataUrl,
-      headerMessage: receipt.businessDetails.headerMessage || getActiveReceiptBlueprint().headerMessage,
-      footerMessage: receipt.businessDetails.footerMessage || getActiveReceiptBlueprint().footerMessage,
-      termsAndConditions: receipt.businessDetails.termsAndConditions || getActiveReceiptBlueprint().termsAndConditions,
-      businessAddress: receipt.businessDetails.businessAddress || receipt.businessDetails.address || getActiveReceiptBlueprint().businessAddress,
-      contactNumbers: receipt.businessDetails.contactNumbers || getActiveReceiptBlueprint().contactNumbers,
-      emailAddress: receipt.businessDetails.emailAddress || getActiveReceiptBlueprint().emailAddress,
-      socialMediaHandles: receipt.businessDetails.socialMediaHandles || getActiveReceiptBlueprint().socialMediaHandles,
-      contactInformation: receipt.businessDetails.contactInformation || receipt.businessDetails.contactNumbers || getActiveReceiptBlueprint().contactInformation,
-      socialMediaInformation: receipt.businessDetails.socialMediaInformation || receipt.businessDetails.socialMediaHandles || getActiveReceiptBlueprint().socialMediaInformation,
-      layout: receipt.businessDetails.receiptLayout || getActiveReceiptBlueprint().layout
+      logoDataUrl:
+        receipt.businessDetails.logoDataUrl ||
+        getActiveReceiptBlueprint().logoDataUrl,
+      headerMessage:
+        receipt.businessDetails.headerMessage ||
+        getActiveReceiptBlueprint().headerMessage,
+      footerMessage:
+        receipt.businessDetails.footerMessage ||
+        getActiveReceiptBlueprint().footerMessage,
+      termsAndConditions:
+        receipt.businessDetails.termsAndConditions ||
+        getActiveReceiptBlueprint().termsAndConditions,
+      businessAddress:
+        receipt.businessDetails.businessAddress ||
+        receipt.businessDetails.address ||
+        getActiveReceiptBlueprint().businessAddress,
+      contactNumbers:
+        receipt.businessDetails.contactNumbers ||
+        getActiveReceiptBlueprint().contactNumbers,
+      emailAddress:
+        receipt.businessDetails.emailAddress ||
+        getActiveReceiptBlueprint().emailAddress,
+      socialMediaHandles:
+        receipt.businessDetails.socialMediaHandles ||
+        getActiveReceiptBlueprint().socialMediaHandles,
+      contactInformation:
+        receipt.businessDetails.contactInformation ||
+        receipt.businessDetails.contactNumbers ||
+        getActiveReceiptBlueprint().contactInformation,
+      socialMediaInformation:
+        receipt.businessDetails.socialMediaInformation ||
+        receipt.businessDetails.socialMediaHandles ||
+        getActiveReceiptBlueprint().socialMediaInformation,
+      layout:
+        receipt.businessDetails.receiptLayout ||
+        getActiveReceiptBlueprint().layout,
     },
-    isReprint: receipt.reprintCount > 0 || receipt.status === 'Reprinted'
+    isReprint: receipt.reprintCount > 0 || receipt.status === "Reprinted",
   };
 }
 
-export async function reprintReceiptPlaceholder(receiptNumber: string, staffId: string, reason: string): Promise<ReceiptAuditEvent[]> {
-  const receipts = readList<ReceiptRecord>(RECEIPTS_KEY, mockReceiptRecords).map((receipt) =>
+export async function reprintReceiptPlaceholder(
+  receiptNumber: string,
+  staffId: string,
+  reason: string,
+): Promise<ReceiptAuditEvent[]> {
+  const receipts = readList<ReceiptRecord>(
+    RECEIPTS_KEY,
+    mockReceiptRecords,
+  ).map((receipt) =>
     receipt.receiptNumber === receiptNumber
-      ? { ...receipt, status: 'Reprinted' as const, reprintCount: receipt.reprintCount + 1, updatedAt: new Date().toISOString() }
-      : receipt
+      ? {
+          ...receipt,
+          status: "Reprinted" as const,
+          reprintCount: receipt.reprintCount + 1,
+          updatedAt: new Date().toISOString(),
+        }
+      : receipt,
   );
   saveList(RECEIPTS_KEY, receipts);
-  return addAudit('RECEIPT_REPRINTED', receiptNumber, `Receipt reprint placeholder recorded: ${reason}`, staffId);
-}
-
-export async function voidReceiptPlaceholder(receiptNumber: string, staffId: string, reason: string): Promise<ReceiptAuditEvent[]> {
-  saveList(RECEIPTS_KEY, readList<ReceiptRecord>(RECEIPTS_KEY, mockReceiptRecords).map((receipt) =>
-    receipt.receiptNumber === receiptNumber ? { ...receipt, status: 'Voided', voidReference: `VOID-${receiptNumber}`, updatedAt: new Date().toISOString() } : receipt
-  ));
-  return addAudit('RECEIPT_VOIDED', receiptNumber, `Void placeholder recorded: ${reason}`, staffId);
-}
-
-export async function refundReceiptPlaceholder(receiptNumber: string, staffId: string, reason: string): Promise<ReceiptAuditEvent[]> {
-  saveList(RECEIPTS_KEY, readList<ReceiptRecord>(RECEIPTS_KEY, mockReceiptRecords).map((receipt) =>
-    receipt.receiptNumber === receiptNumber ? { ...receipt, status: 'Partially Refunded', refundReference: `REF-${receiptNumber}`, updatedAt: new Date().toISOString() } : receipt
-  ));
-  return addAudit('RECEIPT_REFUNDED', receiptNumber, `Refund placeholder recorded: ${reason}`, staffId);
-}
-
-export async function getReceiptSequenceControl(filters: ReceiptFilters): Promise<ReceiptSequenceControl[]> {
-  return readList<ReceiptSequenceControl>(SEQUENCE_KEY, mockReceiptSequenceControls).filter((row) =>
-    branchMatch(row.branch, filters.branch) && terminalMatch(row.terminal, filters.terminal)
+  return addAudit(
+    "RECEIPT_REPRINTED",
+    receiptNumber,
+    `Receipt reprint placeholder recorded: ${reason}`,
+    staffId,
   );
 }
 
-export async function runReceiptSequenceCheck(filters: ReceiptFilters): Promise<ReceiptSequenceControl[]> {
+export async function voidReceiptPlaceholder(
+  receiptNumber: string,
+  staffId: string,
+  reason: string,
+): Promise<ReceiptAuditEvent[]> {
+  saveList(
+    RECEIPTS_KEY,
+    readList<ReceiptRecord>(RECEIPTS_KEY, mockReceiptRecords).map((receipt) =>
+      receipt.receiptNumber === receiptNumber
+        ? {
+            ...receipt,
+            status: "Voided",
+            voidReference: `VOID-${receiptNumber}`,
+            updatedAt: new Date().toISOString(),
+          }
+        : receipt,
+    ),
+  );
+  return addAudit(
+    "RECEIPT_VOIDED",
+    receiptNumber,
+    `Void placeholder recorded: ${reason}`,
+    staffId,
+  );
+}
+
+export async function refundReceiptPlaceholder(
+  receiptNumber: string,
+  staffId: string,
+  reason: string,
+): Promise<ReceiptAuditEvent[]> {
+  saveList(
+    RECEIPTS_KEY,
+    readList<ReceiptRecord>(RECEIPTS_KEY, mockReceiptRecords).map((receipt) =>
+      receipt.receiptNumber === receiptNumber
+        ? {
+            ...receipt,
+            status: "Partially Refunded",
+            refundReference: `REF-${receiptNumber}`,
+            updatedAt: new Date().toISOString(),
+          }
+        : receipt,
+    ),
+  );
+  return addAudit(
+    "RECEIPT_REFUNDED",
+    receiptNumber,
+    `Refund placeholder recorded: ${reason}`,
+    staffId,
+  );
+}
+
+export async function getReceiptSequenceControl(
+  filters: ReceiptFilters,
+): Promise<ReceiptSequenceControl[]> {
+  return readList<ReceiptSequenceControl>(
+    SEQUENCE_KEY,
+    mockReceiptSequenceControls,
+  ).filter(
+    (row) =>
+      branchMatch(row.branch, filters.branch) &&
+      terminalMatch(row.terminal, filters.terminal),
+  );
+}
+
+export async function runReceiptSequenceCheck(
+  filters: ReceiptFilters,
+): Promise<ReceiptSequenceControl[]> {
   const rows = await getReceiptSequenceControl(filters);
-  addAudit('RECEIPT_SEQUENCE_CHECKED', rows[0]?.lastReceiptNo || 'ALL', 'Receipt sequence check run.');
+  addAudit(
+    "RECEIPT_SEQUENCE_CHECKED",
+    rows[0]?.lastReceiptNo || "ALL",
+    "Receipt sequence check run.",
+  );
   if (rows.some((row) => row.gapCount > 0)) {
-    addAudit('RECEIPT_GAP_DETECTED', rows[0]?.lastReceiptNo || 'ALL', 'Receipt gap warning detected.');
+    addAudit(
+      "RECEIPT_GAP_DETECTED",
+      rows[0]?.lastReceiptNo || "ALL",
+      "Receipt gap warning detected.",
+    );
   }
-  if (rows.some((row) => row.duplicateRisk === 'High' || row.sequenceStatus === 'Duplicate Risk')) {
-    addAudit('DUPLICATE_RECEIPT_RISK', rows[0]?.lastReceiptNo || 'ALL', 'Duplicate receipt risk detected.');
+  if (
+    rows.some(
+      (row) =>
+        row.duplicateRisk === "High" || row.sequenceStatus === "Duplicate Risk",
+    )
+  ) {
+    addAudit(
+      "DUPLICATE_RECEIPT_RISK",
+      rows[0]?.lastReceiptNo || "ALL",
+      "Duplicate receipt risk detected.",
+    );
   }
   return rows;
 }
 
-export async function queueFiscalizationPlaceholder(receiptNumber: string): Promise<ReceiptAuditEvent[]> {
-  const fiscalRows = readList<FiscalizationPlaceholderRecord>(FISCAL_KEY, mockFiscalizationPlaceholderRecords);
+export async function queueFiscalizationPlaceholder(
+  receiptNumber: string,
+): Promise<ReceiptAuditEvent[]> {
+  const fiscalRows = readList<FiscalizationPlaceholderRecord>(
+    FISCAL_KEY,
+    mockFiscalizationPlaceholderRecords,
+  );
   const exists = fiscalRows.some((row) => row.receiptNumber === receiptNumber);
   if (!exists) {
     saveList(FISCAL_KEY, [
@@ -435,29 +765,54 @@ export async function queueFiscalizationPlaceholder(receiptNumber: string): Prom
         id: `FISC-${Math.floor(10000 + Math.random() * 90000)}`,
         receiptNumber,
         dateTime: new Date().toISOString(),
-        branch: 'Harare Main',
-        terminal: 'POS-01',
-        fiscalStatus: 'Queued',
+        branch: "Harare Main",
+        terminal: "POS-01",
+        fiscalStatus: "Queued",
         fiscalReferencePlaceholder: `FISC-DEV-${receiptNumber}`,
-        queueStatus: 'Queued'
+        queueStatus: "Queued",
       },
-      ...fiscalRows
+      ...fiscalRows,
     ]);
   }
-  return addAudit('FISCALIZATION_QUEUED', receiptNumber, 'Fiscalization placeholder queued.');
+  return addAudit(
+    "FISCALIZATION_QUEUED",
+    receiptNumber,
+    "Fiscalization placeholder queued.",
+  );
 }
 
-export async function getFiscalizationPlaceholderStatus(receiptNumber?: string): Promise<FiscalizationPlaceholderRecord[]> {
-  const rows = readList<FiscalizationPlaceholderRecord>(FISCAL_KEY, mockFiscalizationPlaceholderRecords);
-  return receiptNumber ? rows.filter((row) => row.receiptNumber === receiptNumber) : rows;
+export async function getFiscalizationPlaceholderStatus(
+  receiptNumber?: string,
+): Promise<FiscalizationPlaceholderRecord[]> {
+  const rows = readList<FiscalizationPlaceholderRecord>(
+    FISCAL_KEY,
+    mockFiscalizationPlaceholderRecords,
+  );
+  return receiptNumber
+    ? rows.filter((row) => row.receiptNumber === receiptNumber)
+    : rows;
 }
 
-export async function exportReceiptPlaceholder(receiptNumber: string, format: ReceiptFormat): Promise<{ message: string; activity: ReceiptAuditEvent[] }> {
-  const activity = addAudit(format === 'PDF Placeholder' ? 'RECEIPT_PDF_EXPORT_PREPARED' : 'RECEIPT_PRINTED', receiptNumber, `${format} receipt export placeholder prepared.`);
-  return { message: `${format} receipt export placeholder prepared.`, activity };
+export async function exportReceiptPlaceholder(
+  receiptNumber: string,
+  format: ReceiptFormat,
+): Promise<{ message: string; activity: ReceiptAuditEvent[] }> {
+  const activity = addAudit(
+    format === "PDF Placeholder"
+      ? "RECEIPT_PDF_EXPORT_PREPARED"
+      : "RECEIPT_PRINTED",
+    receiptNumber,
+    `${format} receipt export placeholder prepared.`,
+  );
+  return {
+    message: `${format} receipt export placeholder prepared.`,
+    activity,
+  };
 }
 
-export async function getReceiptReprintAudits(): Promise<typeof mockReceiptReprintAudits> {
+export async function getReceiptReprintAudits(): Promise<
+  typeof mockReceiptReprintAudits
+> {
   return mockReceiptReprintAudits;
 }
 

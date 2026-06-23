@@ -52,6 +52,7 @@ import {
 } from './mock/mockPosData';
 import { getEffectivePageIdsForRole, normalizeRoleKey } from './auth/effectivePermissionService';
 import { recordSecurityMatrixEvent } from './auth/permissionMatrixService';
+import { loadLocalProducts, POS_PRODUCT_STORE_EVENT, updateLocalProductStock } from './utils/localProductStore';
 import './posNew.css';
 
 const PosReports = lazy(() => import('./pages/PosReports'));
@@ -131,7 +132,7 @@ export default function PosPrototypeApp() {
 
   // Shared database states (re-hydrating from localStorage if present to maintain feel)
   const [products, setProducts] = useState<Product[]>(() => {
-    return readStoredValue<Product[]>('itred_pos_products', INITIAL_PRODUCTS);
+    return loadLocalProducts();
   });
 
   const [transactions, setTransactions] = useState<Transaction[]>(() => {
@@ -243,6 +244,12 @@ export default function PosPrototypeApp() {
   useEffect(() => {
     writeStoredValue('itred_pos_products', products);
   }, [products]);
+
+  useEffect(() => {
+    const refreshProducts = () => setProducts(loadLocalProducts());
+    window.addEventListener(POS_PRODUCT_STORE_EVENT, refreshProducts);
+    return () => window.removeEventListener(POS_PRODUCT_STORE_EVENT, refreshProducts);
+  }, []);
 
   useEffect(() => {
     writeStoredValue('itred_pos_transactions', transactions);
@@ -369,21 +376,7 @@ export default function PosPrototypeApp() {
   };
 
   const handleProductStockChange = (productId: string, quantitySold: number) => {
-    setProducts(prev => 
-      prev.map(p => {
-        if (p.id === productId) {
-          const nextStock = Math.max(0, p.stock - quantitySold);
-          const nextStatus = nextStock === 0 ? 'Out of Stock' : (nextStock <= p.minStock ? 'Low Stock' : p.healthStatus || 'In Stock');
-          return {
-            ...p,
-            stock: nextStock,
-            healthStatus: nextStatus as any,
-            lastMovementDate: new Date().toISOString().substring(0, 10)
-          };
-        }
-        return p;
-      })
-    );
+    setProducts(updateLocalProductStock(productId, -quantitySold));
   };
 
   const handleUpdateStockLevel = (productId: string, nextStock: number) => {

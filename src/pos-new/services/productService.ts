@@ -1,19 +1,18 @@
 import { Product } from '../types/posTypes';
-import { mockProducts } from '../mock/mockPosData';
 import { matchesFreeOrderSearch } from '../utils/searchUtils';
+import { loadLocalProducts } from '../utils/localProductStore';
 
 export const productService = {
   getProducts: async (): Promise<Product[]> => {
-    return mockProducts;
+    return loadLocalProducts();
   },
 
   getProductsByBranch: async (branchId: string): Promise<Product[]> => {
-    // In low-fidelity local mock, return all parts
-    return mockProducts;
+    return loadLocalProducts().filter((product) => !branchId || product.branchId === branchId || product.branch === branchId);
   },
 
   searchProducts: async (query: string): Promise<Product[]> => {
-    return mockProducts.filter((product) => matchesFreeOrderSearch(product, query, [
+    return loadLocalProducts().filter((product) => matchesFreeOrderSearch(product, query, [
       'name',
       'code',
       'category',
@@ -34,6 +33,9 @@ export const productService = {
   },
 
   getProductBySku: async (sku: string): Promise<Product | null> => {
-    return mockProducts.find(p => p.code.toLowerCase() === sku.toLowerCase()) || null;
+    return loadLocalProducts().find((product) => (
+      product.code.toLowerCase() === sku.toLowerCase() ||
+      product.sku?.toLowerCase() === sku.toLowerCase()
+    )) || null;
   }
 };

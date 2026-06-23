@@ -283,6 +283,7 @@ export default function InventoryImportMappingWizard(props: WizardProps) {
 
     setMappingIssues([...nextMappingIssues, ...categoryIssues]);
     if (currentBatchId) {
+      await saveWizardMappingsToBatch(currentBatchId, columns);
       await props.onValidate(currentBatchId);
       setRowIssues(await createImportValidationIssues(currentBatchId));
     }
@@ -290,7 +291,8 @@ export default function InventoryImportMappingWizard(props: WizardProps) {
     showNotice('Validation preview updated.');
   };
 
-  const canStartImport = currentBatchId && validationSummary.errors === 0 && validationSummary.missingMappings === 0;
+  const validImportRows = props.preview?.validRows || props.rows.filter((row) => row.status === 'Valid').length;
+  const canStartImport = currentBatchId && validImportRows > 0 && validationSummary.errors === 0 && validationSummary.missingMappings === 0;
 
   const processImport = async () => {
     if (!currentBatchId) {

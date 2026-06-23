@@ -82,8 +82,10 @@ import StockPanels from './StockPanels';
 import InventoryImportMappingWizard from '../components/InventoryImportMappingWizard';
 import InventoryReportPrintView from '../components/InventoryReportPrintView';
 import RowActionMenu, { RowActionMenuItem } from '../components/RowActionMenu';
+import SimpleProductSeeder from '../components/SimpleProductSeeder';
 import { normalizeProductNumericNumber } from '../utils/productNumberUtils';
 import { matchesFreeOrderSearch } from '../utils/searchUtils';
+import { loadLocalProducts, saveLocalProducts } from '../utils/localProductStore';
 import { roleHasEffectivePermission } from '../auth/effectivePermissionService';
 import {
   exportProductLedgerPlaceholder,
@@ -184,12 +186,29 @@ interface StockActivityEvent {
   message: string;
 }
 
-type StockTab = 'Stock List' | 'Product List' | 'Product Master' | 'Product Import Desk' | 'Product Ledger' | 'Inventory Movements' | 'Stock Health' | 'Inventory Reports' | 'Goods Receiving' | 'Purchase Orders' | 'Supplier Returns' | 'Stock Adjustments' | 'Stocktake' | 'Stock Transfers';
+function textMeta(item: StockProduct, key: string): string {
+  const product = item as StockProduct & Record<string, unknown>;
+  const directValue = product[key];
+  if (directValue !== undefined && directValue !== null) return String(directValue);
+
+  const metadataContainers = ['metadata', 'meta', 'attributes', 'sectorAttributes', 'vehicleAttributes', 'supplierAttributes'];
+  for (const containerKey of metadataContainers) {
+    const container = product[containerKey];
+    if (container && typeof container === 'object' && key in container) {
+      const value = (container as Record<string, unknown>)[key];
+      if (value !== undefined && value !== null) return String(value);
+    }
+  }
+
+  return '';
+}
+
+type StockTab = 'Stock List' | 'Product List' | 'Product Master' | 'Product Import Desk' | 'Product Import' | 'Product Ledger' | 'Inventory Movements' | 'Stock Health' | 'Inventory Reports' | 'Goods Receiving' | 'Purchase Orders' | 'Supplier Returns' | 'Stock Adjustments' | 'Stocktake' | 'Stock Transfers';
 type InventoryGroup = 'Stock List' | 'Product Master' | 'Procurement' | 'Stock Control' | 'Intelligence';
 
 const INVENTORY_GROUPS: Array<{ group: InventoryGroup; tabs: StockTab[] }> = [
   { group: 'Stock List', tabs: ['Stock List', 'Product List', 'Product Ledger', 'Inventory Movements'] },
-  { group: 'Product Master', tabs: ['Product Master', 'Product Import Desk'] },
+  { group: 'Product Master', tabs: ['Product Master', 'Product Import'] },
   { group: 'Procurement', tabs: ['Purchase Orders', 'Goods Receiving', 'Supplier Returns'] },
   { group: 'Stock Control', tabs: ['Stock Adjustments', 'Stock Transfers', 'Stocktake'] },
   { group: 'Intelligence', tabs: ['Stock Health', 'Inventory Reports'] }
@@ -404,13 +423,13 @@ export default function PosStock({
 
   // State of local Stock database (allowing real modifications & audits locally)
   const [localStock, setLocalStock] = useState<StockProduct[]>(() => {
-    const cached = localStorage.getItem('sci_pos_stock_catalog');
-    return cached ? JSON.parse(cached) : DEFAULT_STOCK_ITEMS;
+    const products = loadLocalProducts();
+    return (products.length > 0 ? products : DEFAULT_STOCK_ITEMS) as StockProduct[];
   });
 
   const saveLocalStockState = (newStock: StockProduct[]) => {
     setLocalStock(newStock);
-    localStorage.setItem('sci_pos_stock_catalog', JSON.stringify(newStock));
+    saveLocalProducts(newStock);
   };
 
   // State of Stock event feed
@@ -1214,7 +1233,7 @@ export default function PosStock({
       setInventoryReportSummary(await getInventoryReportSummary(reportFilters));
       setInventoryValueRows(await getStockValueReport(reportFilters));
       setSupplierPerformanceRows(await getSupplierPerformanceReport(reportFilters));
-      setGRNDelayRows(await getGRNDelayReport(reportFilters));
+      setGrnDelayRows(await getGRNDelayReport(reportFilters));
       setTransferDelayRows(await getTransferDelayReport());
       setMovementAuditRows(await getStockMovementAuditReport(reportFilters));
       setReorderRecommendationRows(await getReorderRecommendations(reportFilters));
@@ -1920,7 +1939,9 @@ export default function PosStock({
         </div>
       </section>
 
-      {activeTab === 'Product Import Desk' ? (
+      {activeTab === 'Product Import' ? (
+        <SimpleProductSeeder sourceContext="Stock" />
+      ) : activeTab === 'Product Import Desk' ? (
         <ProductImportDeskPanel
           batches={productImportBatches}
           filters={productImportFilters}
@@ -1960,8 +1981,9 @@ export default function PosStock({
           }}
           onImport={async (batchId) => {
             if (!requireProductImportPermission('productImport.import')) return;
-            await importApprovedBatch(batchId, staffName);
-            showProductImportNotice('Approved import created product drafts and opening balance drafts only. Stock was not posted.');
+            const importedBatch = await importApprovedBatch(batchId, staffName);
+            setLocalStock(loadLocalProducts() as StockProduct[]);
+            showProductImportNotice(`Import completed locally. ${importedBatch?.importedRows || 0} product row(s) imported into POS inventory.`);
             await loadProductImportDesk(productImportFilters, batchId);
           }}
           onExport={async (batchId) => {
@@ -3753,8 +3775,9 @@ export default function PosStock({
           }}
           onImport={async (batchId) => {
             if (!requireProductImportPermission('productImport.import')) return;
-            await importApprovedBatch(batchId, staffName);
-            showProductImportNotice('Import process completed locally. Inventory imports remain non-posting until stock drafts are approved and posted.');
+            const importedBatch = await importApprovedBatch(batchId, staffName);
+            setLocalStock(loadLocalProducts() as StockProduct[]);
+            showProductImportNotice(`Import completed locally. ${importedBatch?.importedRows || 0} product row(s) imported into POS inventory.`);
             await loadProductImportDesk(productImportFilters, batchId);
           }}
           onRollback={async (batchId) => {

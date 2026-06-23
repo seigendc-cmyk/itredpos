@@ -20,6 +20,7 @@ import {
   getProductStockBalances as getStockBalanceRows,
   getProductTotalAvailableStock as getTotalAvailableStock
 } from './stockBalanceService';
+import { loadLocalProducts, productMasterToPosProduct, saveLocalProducts, upsertLocalProducts } from '../utils/localProductStore';
 
 const PRODUCT_MASTER_KEY = 'sci_pos_product_master_records';
 const PRODUCT_AUDIT_KEY = 'sci_pos_product_master_audit';
@@ -197,6 +198,7 @@ export async function createProductMasterDraft(payload: Omit<ProductMasterRecord
     updatedAt: now
   };
   writeProducts([product, ...readProducts()]);
+  upsertLocalProducts([productMasterToPosProduct(product, 0)]);
   recordProductAudit(product.productId, 'PRODUCT_MASTER_CREATED', `${product.productName} created.`, product.createdByStaffId);
   return product;
 }
@@ -213,7 +215,11 @@ export async function updateProductMasterPlaceholder(productId: string, patch: P
     return updated;
   });
   writeProducts(next);
-  if (updated) recordProductAudit(productId, 'PRODUCT_MASTER_UPDATED', `${updated.productName} updated.`, staffId);
+  if (updated) {
+    const existingPosProduct = loadLocalProducts().find((product) => product.id === productId);
+    upsertLocalProducts([productMasterToPosProduct(updated, existingPosProduct?.qtyOnHand ?? existingPosProduct?.stock ?? 0)]);
+    recordProductAudit(productId, 'PRODUCT_MASTER_UPDATED', `${updated.productName} updated.`, staffId);
+  }
   return updated;
 }
 
@@ -226,6 +232,7 @@ export async function deleteProductMasterPlaceholder(productId: string, staffId 
   const target = existing.find((product) => product.productId === productId);
   if (!target) return false;
   writeProducts(existing.filter((product) => product.productId !== productId));
+  saveLocalProducts(loadLocalProducts().filter((product) => product.id !== productId));
   recordProductAudit(productId, 'PRODUCT_MASTER_DELETED', `${target.productName} deleted from local Product Master.`, staffId);
   return true;
 }

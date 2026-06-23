@@ -11,7 +11,7 @@ export const roleMenuDefinitions: RoleMenuDefinition[] = [
   { menuKey: 'deliveryDesk', menuLabel: 'Delivery Desk', group: 'Main', pageId: 'DELIVERY' },
   { menuKey: 'inventory', menuLabel: 'Inventory', group: 'Inventory', pageId: 'STOCK' },
   { menuKey: 'productMaster', menuLabel: 'Product Master', group: 'Inventory', pageId: 'STOCK' },
-  { menuKey: 'productImportDesk', menuLabel: 'Product Import Desk', group: 'Inventory', pageId: 'STOCK' },
+  { menuKey: 'productImportDesk', menuLabel: 'Product Import', group: 'Inventory', pageId: 'STOCK' },
   { menuKey: 'stocktakeDesk', menuLabel: 'Stocktake Desk', group: 'Inventory', pageId: 'STOCK' },
   { menuKey: 'stockAdjustments', menuLabel: 'Stock Adjustments', group: 'Inventory', pageId: 'STOCK' },
   { menuKey: 'purchaseOrders', menuLabel: 'Purchase Orders', group: 'Inventory', pageId: 'STOCK' },

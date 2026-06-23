@@ -8889,6 +8889,21 @@ div[class*="border-t border-r border-amber"] {
   text-transform: uppercase;
 }
 
+.inventory-import-cta {
+  color: #ffffff !important;
+}
+
+.inventory-import-cta svg,
+.inventory-import-cta span {
+  color: #ffffff !important;
+  fill: #ffffff !important;
+}
+
+.inventory-mapping-title {
+  color: #ffffff !important;
+  font-weight: 800;
+}
+
 .industrial-import-header p {
   color: #cbd5e1;
   font-size: 0.68rem;

@@ -8,6 +8,7 @@ import ReorderProtectionRulesPanel from '../components/ReorderProtectionRulesPan
 import PurchaseBIWarningsPanel from '../components/PurchaseBIWarningsPanel';
 import PurchaseDisciplineActivityPanel from '../components/PurchaseDisciplineActivityPanel';
 import PurchasingDisciplineBIPanel from '../components/PurchasingDisciplineBIPanel';
+import SimpleProductSeeder from '../components/SimpleProductSeeder';
 import { getPurchasingDisciplineBISummary, type COGSReserveBIControl } from '../services/purchaseDisciplineService';
 
 type PurchaseDisciplineTab =
@@ -17,10 +18,11 @@ type PurchaseDisciplineTab =
   | 'Supplier Commitments'
   | 'COGS Buying Control'
   | 'Reorder Protection Rules'
+  | 'Product Import'
   | 'Purchase BI Warnings'
   | 'Activity / Audit';
 
-const tabs: PurchaseDisciplineTab[] = ['BI Overview', 'Reorder Requests', 'Purchase Risk Review', 'Supplier Commitments', 'COGS Buying Control', 'Reorder Protection Rules', 'Purchase BI Warnings', 'Activity / Audit'];
+const tabs: PurchaseDisciplineTab[] = ['BI Overview', 'Reorder Requests', 'Purchase Risk Review', 'Supplier Commitments', 'COGS Buying Control', 'Reorder Protection Rules', 'Product Import', 'Purchase BI Warnings', 'Activity / Audit'];
 const money = (value: number) => `$${value.toFixed(2)}`;
 
 export default function PosPurchaseDiscipline({ session }: { session?: PosSession | null }) {
@@ -62,6 +64,7 @@ export default function PosPurchaseDiscipline({ session }: { session?: PosSessio
       {activeTab === 'Supplier Commitments' && <SupplierCommitmentsPanel />}
       {activeTab === 'COGS Buying Control' && <COGSBuyingControlPanel />}
       {activeTab === 'Reorder Protection Rules' && <ReorderProtectionRulesPanel />}
+      {activeTab === 'Product Import' && <SimpleProductSeeder sourceContext="Purchasing" />}
       {activeTab === 'Purchase BI Warnings' && <PurchaseBIWarningsPanel />}
       {activeTab === 'Activity / Audit' && <PurchaseDisciplineActivityPanel />}
     </div>

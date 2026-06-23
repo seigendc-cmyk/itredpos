@@ -1011,6 +1011,8 @@ export default function PosSales({
 
   const handleCompleteSale = async (): Promise<boolean> => {
     collapseProductFieldsForOperation('Complete Sale');
+    setPreparedReceiptPreview(null);
+    setReceiptOutputPreview(null);
     const validationMessage = validateSale();
     if (validationMessage) {
       setStatusMessage(validationMessage);
@@ -1321,6 +1323,9 @@ export default function PosSales({
         logEvent('SALE_COMPLETION_SERVICE_PLACEHOLDER', 'Optional accounting, payment, or BI placeholder service was skipped safely.');
       }
       const preview = await getReceiptPreview(receipt.receiptNumber, '80mm');
+      if (!preview || preview.receipt.receiptNumber !== receipt.receiptNumber) {
+        throw new Error('Receipt preview could not be created for the completed sale.');
+      }
       if (deliveryMode !== 'No Delivery') {
         const deliveryRequest = await createDeliveryRequestFromReceipt({
           vendorId: VENDOR_ID,
@@ -1383,8 +1388,8 @@ export default function PosSales({
         }
       }
       const completedSaleForReceipts = { ...sale, invoiceNo: receipt.receiptNumber };
-      setPreparedReceiptPreview(preview || null);
-      setReceiptOutputPreview(preview || null);
+      setPreparedReceiptPreview(preview);
+      setReceiptOutputPreview(preview);
       setRecentSales((current) => [completedSaleForReceipts, ...current].slice(0, 6));
       clearCartState();
       setStatusMessage('Sale completed successfully.');
