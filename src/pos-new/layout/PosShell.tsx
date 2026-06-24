@@ -169,6 +169,7 @@ export default function PosShell({
           </div>
           <strong>{tenantName}</strong>
           <span>iTred Commerce OS</span>
+          <div className="pos-startup-powerby">powered by seiGEN Commerce</div>
         </div>
       )}
 

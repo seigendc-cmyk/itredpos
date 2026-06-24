@@ -146,8 +146,8 @@ const fieldConfigs: ProductFieldConfig[] = [
   { key: 'manufacturer', label: 'Manufacturer', className: 'pos-field-compact', value: (product) => product.manufacturer || '-' },
   { key: 'supplier', label: 'Supplier', className: 'pos-field-compact', value: (product) => product.supplierName || '-' },
   { key: 'shelf', label: 'Shelf / Location', className: 'pos-field-compact', value: productShelf },
-  { key: 'qty', label: 'Qty', className: 'pos-field-number', value: (product) => String(productQty(product)) },
-  { key: 'price', label: 'Price', className: 'pos-field-number', value: (product) => `USD ${productPrice(product).toFixed(2)}` },
+  { key: 'qty', label: 'Qty', className: 'pos-field-number pos-field-qty', value: (product) => String(productQty(product)) },
+  { key: 'price', label: 'Price', className: 'pos-field-number pos-field-price', value: (product) => productPrice(product).toFixed(2) },
   { key: 'stockStatus', label: 'Stock Status', className: 'pos-field-status', value: stockLabel },
   { key: 'sector', label: 'Sector', className: 'pos-field-compact', value: (product) => product.industrialSector || '-' },
   { key: 'category', label: 'Category', className: 'pos-field-compact', value: (product) => product.productCategory || product.category },
@@ -604,7 +604,7 @@ export default function ProductSearchCard({
                 </div>
                 <div className="pos-product-grid-card__details">
                   <span>Qty: <strong>{productQty(product)}</strong></span>
-                  <span>{`USD ${productPrice(product).toFixed(2)}`}</span>
+                  <span>{productPrice(product).toFixed(2)}</span>
                   <span title={productShelf(product)}>{productShelf(product)}</span>
                 </div>
                 <div>

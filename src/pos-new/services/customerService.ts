@@ -2,8 +2,18 @@ import {
   mockCustomerActivityEvents,
   mockCustomerNotes,
   mockCustomerPurchaseHistory,
-  mockCustomers
+  mockCustomers,
+  mockRecentSales
 } from '../mock/mockPosData';
+
+/*
+ * Placeholder / Mock Data Sources Audited (Phase 2):
+ * - mockCustomers: Seeded list of 10 customers including walk-in, tapiwa, rudo, farai, memory, brian, apex-fleet, mutsa-closet, and pending/duplicate examples.
+ * - mockCustomerAddresses: Billing and delivery address structures mapped from mockCustomers.
+ * - mockCustomerPurchaseHistory: Fallback customer sales history rows containing records for Tapiwa, Rudo, Farai, and Apex Fleet.
+ * - mockCustomerNotes: Seeded note objects for Tapiwa, Rudo, and Memory.
+ * - mockCustomerActivityEvents: Seeded activity history actions including pending request creation, purchase, duplicate flag, and credit review.
+ */
 import {
   CustomerActivityEvent,
   CustomerCreditStatus,
@@ -14,7 +24,8 @@ import {
   CustomerSource,
   CustomerSummary,
   CustomerType,
-  Role
+  Role,
+  Transaction
 } from '../types';
 import { createOperationalApproval } from './approvalService';
 
@@ -23,6 +34,44 @@ const CUSTOMER_HISTORY_KEY = 'itred_pos_customer_purchase_history_v1';
 const CUSTOMER_NOTES_KEY = 'itred_pos_customer_notes_v1';
 const CUSTOMER_ACTIVITY_KEY = 'itred_pos_customer_activity_v1';
 const VENDOR_ID = 'SCI-LOG-ZW';
+
+export function realRecordsExist(): boolean {
+  if (typeof localStorage === 'undefined') return false;
+  try {
+    // 1. Check transactions key
+    const rawTxs = localStorage.getItem('itred_pos_transactions');
+    if (rawTxs) {
+      const txs = JSON.parse(rawTxs);
+      if (Array.isArray(txs)) {
+        const hasRealTxs = txs.some(
+          (tx: any) => tx.branch || tx.terminal || tx.customerId || (tx.id && !['TXN-88220', 'TXN-88221'].includes(tx.id))
+        );
+        if (hasRealTxs) return true;
+      }
+    }
+
+    // 2. Check customer key
+    const rawCusts = localStorage.getItem('itred_pos_customers_v1');
+    if (rawCusts) {
+      const custs = JSON.parse(rawCusts);
+      if (Array.isArray(custs)) {
+        const mockIds = ['CUST-WALKIN', 'CUST-TAPIWA', 'CUST-RUDO', 'CUST-FARAI', 'CUST-MEMORY', 'CUST-BRIAN', 'CUST-APEX-FLEET', 'CUST-MUTSA-CLOSET', 'CUST-PENDING-001', 'CUST-DUP-001'];
+        const hasRealCusts = custs.some((c: any) => c.customerId && !mockIds.includes(c.customerId));
+        if (hasRealCusts) return true;
+      }
+    }
+
+    // 3. Check debts key
+    const rawDebts = localStorage.getItem('itred_pos_customer_debts_v1');
+    if (rawDebts) {
+      const debts = JSON.parse(rawDebts);
+      if (Array.isArray(debts) && debts.length > 0) return true;
+    }
+  } catch (e) {
+    // Ignore error
+  }
+  return false;
+}
 
 export interface CustomerCreatePayload {
   customerName: string;
@@ -146,11 +195,29 @@ async function recordCustomerActivity(event: Omit<CustomerActivityEvent, 'id' | 
 }
 
 export async function getCustomers(filters: CustomerFilterState = {}): Promise<CustomerRecord[]> {
-  return readList<CustomerRecord>(CUSTOMER_KEY, mockCustomers).filter((customer) => matchesFilters(customer, filters));
+  let list = readList<CustomerRecord>(CUSTOMER_KEY, mockCustomers);
+  if (realRecordsExist()) {
+    const mockIds = [
+      'CUST-TAPIWA', 'CUST-RUDO', 'CUST-FARAI', 'CUST-MEMORY',
+      'CUST-BRIAN', 'CUST-APEX-FLEET', 'CUST-MUTSA-CLOSET',
+      'CUST-PENDING-001', 'CUST-DUP-001'
+    ];
+    list = list.filter((c) => c.customerId === 'CUST-WALKIN' || !mockIds.includes(c.customerId));
+  }
+  return list.filter((customer) => matchesFilters(customer, filters));
 }
 
 export async function getCustomerById(customerId: string): Promise<CustomerRecord | null> {
-  return readList<CustomerRecord>(CUSTOMER_KEY, mockCustomers).find((customer) => customer.customerId === customerId) || null;
+  let list = readList<CustomerRecord>(CUSTOMER_KEY, mockCustomers);
+  if (realRecordsExist()) {
+    const mockIds = [
+      'CUST-TAPIWA', 'CUST-RUDO', 'CUST-FARAI', 'CUST-MEMORY',
+      'CUST-BRIAN', 'CUST-APEX-FLEET', 'CUST-MUTSA-CLOSET',
+      'CUST-PENDING-001', 'CUST-DUP-001'
+    ];
+    list = list.filter((c) => c.customerId === 'CUST-WALKIN' || !mockIds.includes(c.customerId));
+  }
+  return list.find((customer) => customer.customerId === customerId) || null;
 }
 
 export async function searchCustomers(query: string, filters: CustomerFilterState = {}): Promise<CustomerRecord[]> {
@@ -159,7 +226,20 @@ export async function searchCustomers(query: string, filters: CustomerFilterStat
 
 export async function getCustomerSummary(filters: CustomerFilterState = {}): Promise<CustomerSummary> {
   const customers = await getCustomers(filters);
-  const history = readList<CustomerPurchaseHistoryRow>(CUSTOMER_HISTORY_KEY, mockCustomerPurchaseHistory);
+  let history: { customerId: string }[] = [];
+  if (realRecordsExist()) {
+    try {
+      const raw = localStorage.getItem('itred_pos_transactions');
+      if (raw) {
+        const txs = JSON.parse(raw);
+        if (Array.isArray(txs)) {
+          history = txs.filter((tx) => tx.id !== 'TXN-88220' && tx.id !== 'TXN-88221');
+        }
+      }
+    } catch {}
+  } else {
+    history = readList<CustomerPurchaseHistoryRow>(CUSTOMER_HISTORY_KEY, mockCustomerPurchaseHistory);
+  }
   return {
     totalCustomers: customers.length,
     activeCustomers: customers.filter((customer) => customer.status === 'Active').length,
@@ -351,11 +431,82 @@ export async function updateCustomerPlaceholder(customerId: string, patch: Parti
 }
 
 export async function getCustomerPurchaseHistory(customerId: string): Promise<CustomerPurchaseHistoryRow[]> {
-  return readList<CustomerPurchaseHistoryRow>(CUSTOMER_HISTORY_KEY, mockCustomerPurchaseHistory).filter((row) => row.customerId === customerId);
+  const customer = await getCustomerById(customerId);
+  if (!customer) return [];
+
+  let txs: any[] = [];
+  try {
+    const raw = localStorage.getItem('itred_pos_transactions');
+    if (raw) {
+      txs = JSON.parse(raw);
+    }
+  } catch (e) {
+    txs = [];
+  }
+
+  // Check if there are any real completed sales in the transactions list
+  const hasRealSales = txs.some(
+    (tx) => tx.branch || tx.terminal || tx.customerId || (tx.id && !['TXN-88220', 'TXN-88221'].includes(tx.id))
+  );
+
+  if (!hasRealSales) {
+    // Keep mock data only as fallback when there are no completed sales
+    return mockCustomerPurchaseHistory.filter((row) => row.customerId === customerId);
+  }
+
+  // Do not use placeholder/mock data when real completed sales exist
+  const realTxs = txs.filter((tx) => tx.id !== 'TXN-88220' && tx.id !== 'TXN-88221');
+
+  const matched = realTxs.filter((tx) => {
+    // Match sales to customers using customerId first
+    if (tx.customerId) {
+      return tx.customerId === customerId;
+    }
+
+    // Walk-in sales can remain separate or show under WALK-IN customer
+    if (customerId === 'CUST-WALKIN') {
+      return !tx.customerName || tx.customerName === 'Walk-in Customer';
+    }
+
+    // Customer code/name/phone only as fallback
+    if (tx.customerCode && customer.customerCode && tx.customerCode === customer.customerCode) {
+      return true;
+    }
+    if (tx.customerName && customer.customerName && tx.customerName.toLowerCase() === customer.customerName.toLowerCase()) {
+      return true;
+    }
+    if (tx.customerPhone && (tx.customerPhone === customer.phone || tx.customerPhone === customer.whatsapp)) {
+      return true;
+    }
+    return false;
+  });
+
+  return matched.map((tx) => {
+    const itemsCount = tx.items ? tx.items.reduce((sum: number, item: any) => sum + (item.quantity || 1), 0) : 0;
+    return {
+      id: tx.id || `CPH-${Math.random()}`,
+      customerId: customerId,
+      customerName: tx.customerName || customer.customerName || 'Walk-in Customer',
+      receiptNo: tx.invoiceNo || tx.receiptNo || 'N/A',
+      date: tx.date || tx.dateTime || new Date().toISOString(),
+      branch: tx.branch || 'Harare Main',
+      cashier: tx.operator || 'Unknown',
+      items: itemsCount,
+      total: tx.total || tx.grandTotal || 0,
+      paymentMethod: tx.paymentMethod || 'Cash',
+      deliveryStatus: tx.deliveryStatus || 'No Delivery',
+      returnStatus: tx.returnStatus || (tx.status === 'RETURNED' ? 'Returned' : 'None')
+    };
+  });
 }
 
 export async function getCustomerNotes(customerId: string): Promise<CustomerNote[]> {
-  return readList<CustomerNote>(CUSTOMER_NOTES_KEY, mockCustomerNotes).filter((note) => note.customerId === customerId);
+  let notes = readList<CustomerNote>(CUSTOMER_NOTES_KEY, mockCustomerNotes);
+  if (realRecordsExist()) {
+    const mockNoteIds = ['CN-TAPIWA-001', 'CN-RUDO-001', 'CN-MEMORY-001'];
+    notes = notes.filter((n) => !mockNoteIds.includes(n.id));
+  }
+  return notes.filter((note) => note.customerId === customerId);
 }
 
 export async function addCustomerNote(customerId: string, staffId: string, note: string, role: Role = 'Cashier', relatedRecord = ''): Promise<CustomerNote[]> {
@@ -368,7 +519,11 @@ export async function addCustomerNote(customerId: string, staffId: string, note:
 
 export async function getCustomerActivityEvents(filter: string | { customerId?: string } = {}): Promise<CustomerActivityEvent[]> {
   const customerId = typeof filter === 'string' ? filter : filter.customerId;
-  const events = readList<CustomerActivityEvent>(CUSTOMER_ACTIVITY_KEY, mockCustomerActivityEvents);
+  let events = readList<CustomerActivityEvent>(CUSTOMER_ACTIVITY_KEY, mockCustomerActivityEvents);
+  if (realRecordsExist()) {
+    const mockEventIds = ['CAE-001', 'CAE-002', 'CAE-003', 'CAE-004'];
+    events = events.filter((e) => !mockEventIds.includes(e.id));
+  }
   return customerId ? events.filter((event) => event.customerId === customerId) : events;
 }
 

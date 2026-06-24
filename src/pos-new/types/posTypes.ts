@@ -1180,6 +1180,10 @@ export interface Sale {
   date: string;
   operator: string;
   customerName?: string;
+  customerId?: string;
+  customerCode?: string;
+  customerPhone?: string;
+  branch?: string;
   terminal?: string;
   items: {
     productId: string;
@@ -3444,6 +3448,7 @@ export interface CustomerApprovalRequest {
 export interface CustomerPurchaseHistoryRow {
   id: string;
   customerId: string;
+  customerName?: string;
   receiptNo: string;
   date: string;
   branch: string;

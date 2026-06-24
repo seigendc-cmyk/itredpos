@@ -1069,6 +1069,10 @@ export default function PosSales({
       date: now,
       operator: staffName,
       customerName,
+      customerId: selectedCustomerId || undefined,
+      customerCode: selectedCustomer?.customerCode,
+      customerPhone: customerPhone || selectedCustomer?.phone,
+      branch: branchName,
       terminal: terminalName,
       items: cart.map((item) => ({
         productId: item.product.id,
@@ -1100,6 +1104,10 @@ export default function PosSales({
       onAddTransaction({
         operator: sale.operator,
         customerName: sale.customerName,
+        customerId: sale.customerId,
+        customerCode: sale.customerCode,
+        customerPhone: sale.customerPhone,
+        branch: sale.branch,
         terminal: sale.terminal,
         items: sale.items,
         subtotal: sale.subtotal,

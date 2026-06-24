@@ -389,6 +389,18 @@ export const securityRightsCatalog: SecurityPermissionRight[] = [
   right('BI', 'bi.reorderBlock.review', stock, 'Review stagnant-stock reorder block warnings.'),
   right('BI', 'bi.reorderBlock.override', manager, 'Override reorder block warnings after manager review.'),
 
+  right('BI', 'bi.sales.operational', cashier, 'Access operational BI guidance inside the Sales Terminal.'),
+  right('BI', 'bi.sales.history', supervisor, 'Access branch-wide detailed Sales History BI and summaries.'),
+  right('BI', 'bi.sales.cashierPerformance', supervisor, 'Access cashier sales performance indicators and comparisons.'),
+  right('BI', 'bi.customer.purchaseHistory', viewer, 'Access detailed customer purchase history and patterns.'),
+  right('BI', 'bi.customer.creditAgeing', accountant, 'Access customer credit ageing reports and debtor ledgers.'),
+  right('BI', 'bi.customer.creditWorthiness', accountant, 'Access credit worthiness score evaluations and risk analysis.'),
+  right('BI', 'bi.customer.statement', accountant, 'Access customer account statements and transaction ledgers.'),
+  right('BI', 'bi.stock.risk', stock, 'Access stock risk indicators, dead stock and low stock warnings.'),
+  right('BI', 'bi.finance.owner', owner, 'Access owner-level financial performance, profit margin and drawer summaries.'),
+  right('BI', 'bi.audit.exceptions', manager, 'Access cashier exceptions audit log and exception flags.'),
+
+
   right('Audit', 'audit.view', owner, 'View audit events.'),
   right('Audit', 'audit.export', owner, 'Export audit events.'),
   right('Audit', 'audit.lockedDayReview', owner, 'Review locked-day audit exceptions.', true)

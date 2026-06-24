@@ -9,6 +9,7 @@ interface DepositsAndCreditNotesPanelProps {
   staffName: string;
   canApprove: boolean;
   onNotice: (message: string) => void;
+  onChanged?: () => void;
 }
 
 const sources: CustomerDepositSource[] = ['Cash', 'EcoCashPlaceholder', 'InnbucksPlaceholder', 'MukuruPlaceholder', 'BankTransfer', 'CardPlaceholder', 'Other'];
@@ -17,7 +18,7 @@ function money(value: number): string {
   return `USD ${value.toFixed(2)}`;
 }
 
-export default function DepositsAndCreditNotesPanel({ customers, selectedCustomerId = '', staffName, canApprove, onNotice }: DepositsAndCreditNotesPanelProps) {
+export default function DepositsAndCreditNotesPanel({ customers, selectedCustomerId = '', staffName, canApprove, onNotice, onChanged }: DepositsAndCreditNotesPanelProps) {
   const [customerId, setCustomerId] = useState(selectedCustomerId || customers[0]?.customerId || '');
   const [deposits, setDeposits] = useState<CustomerDepositRecord[]>([]);
   const [creditNotes, setCreditNotes] = useState<CustomerCreditNote[]>([]);
@@ -60,6 +61,7 @@ export default function DepositsAndCreditNotesPanel({ customers, selectedCustome
     await receiveCustomerDeposit({ customerId: customer.customerId, customerName: customer.customerName, amountReceived: amount, source, paymentReference: reference || `DEP-${Date.now()}`, receivedBy: staffName, notes: notes || 'Customer deposit received locally.' });
     onNotice('Customer deposit received locally.');
     await load();
+    onChanged?.();
   };
 
   const createNote = async () => {
@@ -67,6 +69,7 @@ export default function DepositsAndCreditNotesPanel({ customers, selectedCustome
     await createCustomerCreditNote({ customerId: customer.customerId, customerName: customer.customerName, linkedDebtId: selectedDebtId || undefined, reason: notes || 'Customer credit note placeholder.', originalAmount: amount, createdBy: staffName, notes });
     onNotice('Credit note created and sent for local approval.');
     await load();
+    onChanged?.();
   };
 
   return (
@@ -98,13 +101,13 @@ export default function DepositsAndCreditNotesPanel({ customers, selectedCustome
       <div className="collection-diary-table-scroll">
         <table className="sci-pos-table collection-diary-table">
           <thead><tr><th>Deposit</th><th>Received</th><th>Applied</th><th>Balance</th><th>Source</th><th>Status</th><th>Actions</th></tr></thead>
-          <tbody>{deposits.map((deposit) => <tr key={deposit.depositId}><td>{deposit.depositNumber}</td><td>{money(deposit.amountReceived)}</td><td>{money(deposit.amountApplied)}</td><td>{money(deposit.balance)}</td><td>{deposit.source}</td><td>{deposit.status}</td><td><RowActionMenu rowId={deposit.depositId} ariaLabel={`Deposit actions for ${deposit.depositNumber}`} open={openDepositMenuId === deposit.depositId} onOpenChange={(open) => setOpenDepositMenuId(open ? deposit.depositId : null)} items={[{ id: 'apply', label: 'Apply to Debt', disabled: !selectedDebtId, onClick: () => void applyCustomerDepositToDebt(deposit.depositId, selectedDebtId, Math.min(deposit.balance, amount || deposit.balance)).then(load) }, { id: 'refund', label: 'Refund', danger: true, onClick: () => void refundCustomerDeposit(deposit.depositId, Math.min(deposit.balance, amount || deposit.balance), notes || 'Refunded locally.', staffName).then(load) }]} /></td></tr>)}</tbody>
+          <tbody>{deposits.map((deposit) => <tr key={deposit.depositId}><td>{deposit.depositNumber}</td><td>{money(deposit.amountReceived)}</td><td>{money(deposit.amountApplied)}</td><td>{money(deposit.balance)}</td><td>{deposit.source}</td><td>{deposit.status}</td><td><RowActionMenu rowId={deposit.depositId} ariaLabel={`Deposit actions for ${deposit.depositNumber}`} open={openDepositMenuId === deposit.depositId} onOpenChange={(open) => setOpenDepositMenuId(open ? deposit.depositId : null)} items={[{ id: 'apply', label: 'Apply to Debt', disabled: !selectedDebtId, onClick: () => void applyCustomerDepositToDebt(deposit.depositId, selectedDebtId, Math.min(deposit.balance, amount || deposit.balance)).then(load).then(() => onChanged?.()) }, { id: 'refund', label: 'Refund', danger: true, onClick: () => void refundCustomerDeposit(deposit.depositId, Math.min(deposit.balance, amount || deposit.balance), notes || 'Refunded locally.', staffName).then(load).then(() => onChanged?.()) }]} /></td></tr>)}</tbody>
         </table>
       </div>
       <div className="collection-diary-table-scroll">
         <table className="sci-pos-table collection-diary-table">
           <thead><tr><th>Credit Note</th><th>Reason</th><th>Original</th><th>Applied</th><th>Balance</th><th>Status</th><th>Actions</th></tr></thead>
-          <tbody>{creditNotes.map((note) => <tr key={note.creditNoteId}><td>{note.creditNoteNumber}</td><td>{note.reason}</td><td>{money(note.originalAmount)}</td><td>{money(note.amountApplied)}</td><td>{money(note.balance)}</td><td>{note.status}</td><td><RowActionMenu rowId={note.creditNoteId} ariaLabel={`Credit note actions for ${note.creditNoteNumber}`} open={openCreditNoteMenuId === note.creditNoteId} onOpenChange={(open) => setOpenCreditNoteMenuId(open ? note.creditNoteId : null)} items={[{ id: 'approve', label: 'Approve', disabled: !canApprove, onClick: () => void approveCustomerCreditNote(note.creditNoteId, staffName, notes || 'Approved locally.').then(load) }, { id: 'apply', label: 'Apply to Debt', disabled: !selectedDebtId, onClick: () => void applyCreditNoteToDebt(note.creditNoteId, selectedDebtId, Math.min(note.balance, amount || note.balance)).then(load) }]} /></td></tr>)}</tbody>
+          <tbody>{creditNotes.map((note) => <tr key={note.creditNoteId}><td>{note.creditNoteNumber}</td><td>{note.reason}</td><td>{money(note.originalAmount)}</td><td>{money(note.amountApplied)}</td><td>{money(note.balance)}</td><td>{note.status}</td><td><RowActionMenu rowId={note.creditNoteId} ariaLabel={`Credit note actions for ${note.creditNoteNumber}`} open={openCreditNoteMenuId === note.creditNoteId} onOpenChange={(open) => setOpenCreditNoteMenuId(open ? note.creditNoteId : null)} items={[{ id: 'approve', label: 'Approve', disabled: !canApprove, onClick: () => void approveCustomerCreditNote(note.creditNoteId, staffName, notes || 'Approved locally.').then(load).then(() => onChanged?.()) }, { id: 'apply', label: 'Apply to Debt', disabled: !selectedDebtId, onClick: () => void applyCreditNoteToDebt(note.creditNoteId, selectedDebtId, Math.min(note.balance, amount || note.balance)).then(load).then(() => onChanged?.()) }]} /></td></tr>)}</tbody>
         </table>
       </div>
     </section>

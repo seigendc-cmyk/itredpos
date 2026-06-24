@@ -1,8 +1,24 @@
 import { createBIAdviceFromTrigger } from './biAdviceService';
 import { createOperationalApproval } from './approvalService';
 import { createAccountingPostingPlaceholder } from './accountingService';
-import { getCustomerById, getCustomerPurchaseHistory } from './customerService';
+import { getCustomerById, getCustomerPurchaseHistory, realRecordsExist } from './customerService';
 import { mockCustomers } from '../mock/mockPosData';
+
+/*
+ * Placeholder / Mock Data Sources Audited (Phase 2):
+ * - seededDebtRows: Generates mock debt records for active customers with outstanding balance from mockCustomers (excluding WALK-IN).
+ * - seedCreditApplications: Returns a single mock credit application for Brian Dube.
+ * - seedPromises: Returns mock promises to pay for Apex Fleet and Brian Dube.
+ * - seedCreditBlocks: Returns a mock credit block for Brian Dube.
+ * - seedStatementAcknowledgements: Returns a mock statement acknowledgement for Apex Fleet.
+ * - seedDebtDisputes: Returns a mock debt dispute for Brian Dube.
+ * - seedCollectionDiary: Returns mock collection diary entries for Apex Fleet and Brian Dube.
+ * - seedOpeningBalances: Returns a mock opening balance for Brian Dube.
+ * - seedDeposits: Returns a mock deposit for Tapiwa Moyo.
+ * - seedCreditNotes: Returns a mock credit note for Brian Dube.
+ * - seedBulkCollectionBatches: Returns a mock bulk collection batch for Build Development.
+ * - seedPeriodLocks: Returns a mock locked period for Build Development.
+ */
 import type {
   BulkCollectionActionType,
   BulkCollectionBatch,
@@ -213,12 +229,41 @@ function readList<T>(key: string, fallback: T[] = []): T[] {
   if (!canUseLocalStorage()) return fallback;
   try {
     const raw = localStorage.getItem(key);
+    let parsed: T[];
     if (!raw) {
       localStorage.setItem(key, JSON.stringify(fallback));
-      return fallback;
+      parsed = fallback;
+    } else {
+      const p = JSON.parse(raw);
+      parsed = Array.isArray(p) ? p as T[] : fallback;
     }
-    const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed as T[] : fallback;
+    if (realRecordsExist()) {
+      const mockIds = [
+        'CUST-TAPIWA', 'CUST-RUDO', 'CUST-FARAI', 'CUST-MEMORY',
+        'CUST-BRIAN', 'CUST-APEX-FLEET', 'CUST-MUTSA-CLOSET',
+        'CUST-PENDING-001', 'CUST-DUP-001'
+      ];
+      return parsed.filter((item: any) => {
+        if (!item || typeof item !== 'object') return true;
+        if (item.customerId && mockIds.includes(item.customerId)) return false;
+        if (item.debtId && item.debtId.startsWith('DEBT-SEED-')) return false;
+        if (item.receiptId && item.receiptId.startsWith('REC-SEED-')) return false;
+        if (item.saleId && item.saleId.startsWith('SALE-SEED-')) return false;
+        if (item.applicationId && item.applicationId.startsWith('CAPP-BUILD-DEV-')) return false;
+        if (item.promiseId && item.promiseId.startsWith('PTP-BUILD-DEV-')) return false;
+        if (item.blockId && item.blockId.startsWith('CBLOCK-BUILD-DEV-')) return false;
+        if (item.acknowledgementId && item.acknowledgementId.startsWith('ST-ACK-BUILD-DEV-')) return false;
+        if (item.disputeId && item.disputeId.startsWith('DDISP-BUILD-DEV-')) return false;
+        if (item.diaryItemId && item.diaryItemId.startsWith('CDIARY-BUILD-DEV-')) return false;
+        if (item.openingBalanceId && item.openingBalanceId.startsWith('OBAL-BUILD-DEV-')) return false;
+        if (item.depositId && item.depositId.startsWith('DEP-BUILD-DEV-')) return false;
+        if (item.creditNoteId && item.creditNoteId.startsWith('CN-BUILD-DEV-')) return false;
+        if (item.batchId && item.batchId.startsWith('BCOLL-BUILD-DEV-')) return false;
+        if (item.periodLockId && item.periodLockId.startsWith('DLOCK-BUILD-DEV-')) return false;
+        return true;
+      });
+    }
+    return parsed;
   } catch {
     return fallback;
   }
@@ -329,6 +374,7 @@ function saveValue<T>(key: string, value: T): T {
 }
 
 function seededDebtRows(): CustomerDebtRecord[] {
+  if (realRecordsExist()) return [];
   const config = defaultConfig();
   return mockCustomers
     .filter((customer) => customer.customerId !== 'CUST-WALKIN' && (customer.currentBalance || 0) > 0)
@@ -426,6 +472,7 @@ function priorityFromDebt(debt?: CustomerDebtRecord): RiskLevel {
 }
 
 function seedCreditApplications(): CustomerCreditApplication[] {
+  if (realRecordsExist()) return [];
   return [{
     applicationId: 'CAPP-BUILD-DEV-001',
     customerId: 'CUST-BRIAN',
@@ -447,6 +494,7 @@ function seedCreditApplications(): CustomerCreditApplication[] {
 }
 
 function seedPromises(): PromiseToPayRecord[] {
+  if (realRecordsExist()) return [];
   return [{
     promiseId: 'PTP-BUILD-DEV-001',
     customerId: 'CUST-APEX-FLEET',
@@ -481,6 +529,7 @@ function seedPromises(): PromiseToPayRecord[] {
 }
 
 function seedCreditBlocks(): CustomerCreditBlockRecord[] {
+  if (realRecordsExist()) return [];
   return [{
     blockId: 'CBLOCK-BUILD-DEV-001',
     customerId: 'CUST-BRIAN',
@@ -495,6 +544,7 @@ function seedCreditBlocks(): CustomerCreditBlockRecord[] {
 }
 
 function seedStatementAcknowledgements(): StatementAcknowledgementRecord[] {
+  if (realRecordsExist()) return [];
   return [{
     acknowledgementId: 'ST-ACK-BUILD-DEV-001',
     statementId: 'STATEMENT-BUILD-DEV-001',
@@ -513,6 +563,7 @@ function seedStatementAcknowledgements(): StatementAcknowledgementRecord[] {
 }
 
 function seedDebtDisputes(): DebtDisputeRecord[] {
+  if (realRecordsExist()) return [];
   return [{
     disputeId: 'DDISP-BUILD-DEV-001',
     customerId: 'CUST-BRIAN',
@@ -529,6 +580,7 @@ function seedDebtDisputes(): DebtDisputeRecord[] {
 }
 
 function seedCollectionDiary(): CollectionDiaryItem[] {
+  if (realRecordsExist()) return [];
   return [{
     diaryItemId: 'CDIARY-BUILD-DEV-001',
     customerId: 'CUST-APEX-FLEET',
@@ -559,6 +611,7 @@ function seedCollectionDiary(): CollectionDiaryItem[] {
 }
 
 function seedOpeningBalances(): DebtorOpeningBalance[] {
+  if (realRecordsExist()) return [];
   return [{
     openingBalanceId: 'OBAL-BUILD-DEV-001',
     customerId: 'CUST-BRIAN',
@@ -580,6 +633,7 @@ function seedOpeningBalances(): DebtorOpeningBalance[] {
 }
 
 function seedDeposits(): CustomerDepositRecord[] {
+  if (realRecordsExist()) return [];
   return [{
     depositId: 'DEP-BUILD-DEV-001',
     depositNumber: 'DEP-000001',
@@ -599,6 +653,7 @@ function seedDeposits(): CustomerDepositRecord[] {
 }
 
 function seedCreditNotes(): CustomerCreditNote[] {
+  if (realRecordsExist()) return [];
   return [{
     creditNoteId: 'CN-BUILD-DEV-001',
     creditNoteNumber: 'CN-000001',
@@ -617,6 +672,7 @@ function seedCreditNotes(): CustomerCreditNote[] {
 }
 
 function seedBulkCollectionBatches(): BulkCollectionBatch[] {
+  if (realRecordsExist()) return [];
   return [{
     batchId: 'BCOLL-BUILD-DEV-001',
     batchNumber: 'BC-000001',
@@ -633,6 +689,7 @@ function seedBulkCollectionBatches(): BulkCollectionBatch[] {
 }
 
 function seedPeriodLocks(): DebtorPeriodLock[] {
+  if (realRecordsExist()) return [];
   return [{
     periodLockId: 'DLOCK-BUILD-DEV-001',
     periodStart: addDays(nowIso(), -90).slice(0, 10),
@@ -953,7 +1010,10 @@ function matchesAnyOrderSearch(row: DebtorsControlRow, query?: string): boolean 
 }
 
 export async function getDebtorsControlRows(filters: DebtorsControlFilters = {}): Promise<DebtorsControlRow[]> {
-  const [debts, customerRows] = await Promise.all([getCustomerDebtRecords(), Promise.resolve(mockCustomers)]);
+  const [debts, customerRows] = await Promise.all([
+    getCustomerDebtRecords(),
+    Promise.resolve(readList<CustomerRecord>('itred_pos_customers_v1', mockCustomers))
+  ]);
   const customers = new Map(customerRows.map((customer) => [customer.customerId, customer]));
   return debts.map((debt) => {
     const customer = customers.get(debt.customerId);

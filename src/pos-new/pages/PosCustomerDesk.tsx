@@ -767,9 +767,9 @@ export default function PosCustomerDesk({ session, onNavigate }: PosCustomerDesk
 
       {activeTab === 'Purchase History' && (
         selectedCustomer
-          ? <SimpleTable title={`Purchase History - ${selectedCustomer.customerName}`} icon={<History size={18} />} headings={['Receipt No.', 'Date', 'Branch', 'Cashier', 'Items', 'Total', 'Payment', 'Delivery', 'Return']}>
-              {history.map((row) => <tr key={row.id}><td>{row.receiptNo}</td><td>{dateLabel(row.date)}</td><td>{row.branch}</td><td>{row.cashier}</td><td>{row.items}</td><td>{money(row.total)}</td><td>{row.paymentMethod}</td><td>{row.deliveryStatus}</td><td>{row.returnStatus}</td></tr>)}
-              {history.length === 0 && <EmptyTableRow colSpan={9} label="No purchase history found." />}
+          ? <SimpleTable title={`Purchase History - ${selectedCustomer.customerName}`} icon={<History size={18} />} headings={['Receipt No.', 'Date', 'Customer', 'Branch', 'Cashier', 'Items', 'Total', 'Payment', 'Delivery', 'Return']}>
+              {history.map((row) => <tr key={row.id}><td>{row.receiptNo}</td><td>{dateLabel(row.date)}</td><td>{row.customerName || 'Walk-in Customer'}</td><td>{row.branch}</td><td>{row.cashier}</td><td>{row.items}</td><td>{money(row.total)}</td><td>{row.paymentMethod}</td><td>{row.deliveryStatus}</td><td>{row.returnStatus}</td></tr>)}
+              {history.length === 0 && <EmptyTableRow colSpan={10} label="No purchase history found." />}
             </SimpleTable>
           : <EmptyState title="No Customer Selected" message="Select a customer to view purchase history." />
       )}
@@ -852,7 +852,7 @@ export default function PosCustomerDesk({ session, onNavigate }: PosCustomerDesk
 
       {activeTab === 'Deposits & Credit Notes' && (
         hasPermission(roleName, 'customers.deposit.view') || hasPermission(roleName, 'customers.creditNote.view')
-          ? <DepositsAndCreditNotesPanel customers={customers} selectedCustomerId={selectedCustomerId} staffName={session.staffName} canApprove={hasPermission(roleName, 'customers.creditNote.approve')} onNotice={setNotice} />
+          ? <DepositsAndCreditNotesPanel customers={customers} selectedCustomerId={selectedCustomerId} staffName={session.staffName} canApprove={hasPermission(roleName, 'customers.creditNote.approve')} onNotice={setNotice} onChanged={() => void refreshCreditPanels(selectedCustomerId)} />
           : <EmptyState title="Restricted" message="You do not have permission to view deposits and credit notes." />
       )}
 

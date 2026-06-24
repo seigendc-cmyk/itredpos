@@ -207,7 +207,16 @@ const managerDirectPermissions = [
   'bi.taxReadiness.view',
   'bi.profitSnapshot.view',
   'bi.reorderBlock.review',
-  'bi.reorderBlock.override'
+  'bi.reorderBlock.override',
+  'bi.sales.operational',
+  'bi.sales.history',
+  'bi.sales.cashierPerformance',
+  'bi.customer.purchaseHistory',
+  'bi.customer.creditAgeing',
+  'bi.customer.creditWorthiness',
+  'bi.customer.statement',
+  'bi.stock.risk',
+  'bi.audit.exceptions'
 ];
 
 const directRolePermissions: Record<SecurityRoleKey, string[]> = {
@@ -262,7 +271,16 @@ const directRolePermissions: Record<SecurityRoleKey, string[]> = {
     'bi.advice.view',
     'bi.advice.generate',
     'bi.advice.resolve',
-    'bi.advice.createTask'
+    'bi.advice.createTask',
+    'bi.sales.operational',
+    'bi.sales.history',
+    'bi.sales.cashierPerformance',
+    'bi.customer.purchaseHistory',
+    'bi.customer.creditAgeing',
+    'bi.customer.creditWorthiness',
+    'bi.customer.statement',
+    'bi.stock.risk',
+    'bi.audit.exceptions'
   ],
   Accountant: [
     'dashboard.view',
@@ -350,7 +368,14 @@ const directRolePermissions: Record<SecurityRoleKey, string[]> = {
     'businessRegistration.dashboardView',
     'businessTax.view',
     'businessAdministrator.view',
-    'bi.advice.view'
+    'bi.advice.view',
+    'bi.sales.history',
+    'bi.customer.purchaseHistory',
+    'bi.customer.creditAgeing',
+    'bi.customer.creditWorthiness',
+    'bi.customer.statement',
+    'bi.sales.cashierPerformance',
+    'bi.audit.exceptions'
   ],
   StockController: [
     'dashboard.view',
@@ -415,7 +440,8 @@ const directRolePermissions: Record<SecurityRoleKey, string[]> = {
     'helpDesk.print',
     'helpDesk.copy',
     'helpDesk.reportIssue',
-    'helpDesk.openFunctionLinks'
+    'helpDesk.openFunctionLinks',
+    'bi.stock.risk'
   ],
   Cashier: [
     'dashboard.view',
@@ -440,7 +466,9 @@ const directRolePermissions: Record<SecurityRoleKey, string[]> = {
     'helpDesk.view',
     'helpDesk.copy',
     'helpDesk.reportIssue',
-    'helpDesk.openFunctionLinks'
+    'helpDesk.openFunctionLinks',
+    'bi.sales.operational',
+    'bi.customer.purchaseHistory'
   ],
   DeliveryStaff: [
     'dashboard.view',
@@ -465,7 +493,8 @@ const directRolePermissions: Record<SecurityRoleKey, string[]> = {
     'reports.view',
     'audit.view',
     'businessProfile.view',
-    'helpDesk.view'
+    'helpDesk.view',
+    'bi.customer.purchaseHistory'
   ]
 };
 

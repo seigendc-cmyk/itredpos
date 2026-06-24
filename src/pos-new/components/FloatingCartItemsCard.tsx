@@ -84,13 +84,13 @@ export default function FloatingCartItemsCard({
             <table className="floating-cart-table">
               <thead>
                 <tr>
-                  <th>Product</th>
-                  <th>SKU</th>
-                  <th>Qty</th>
-                  <th>Unit Price</th>
-                  <th>Discount</th>
-                  <th>Line Total</th>
-                  <th>Action</th>
+                  <th className="cart-field-product">Product</th>
+                  <th className="cart-field-sku">SKU</th>
+                  <th className="cart-field-qty">Qty</th>
+                  <th className="cart-field-price">Unit Price</th>
+                  <th className="cart-field-discount">Discount</th>
+                  <th className="cart-field-total">Line Total</th>
+                  <th className="cart-field-action">Action</th>
                 </tr>
               </thead>
               <tbody>
@@ -98,22 +98,22 @@ export default function FloatingCartItemsCard({
                   const status = stockStatus(item);
                   return (
                     <tr key={item.product.id}>
-                      <td>
+                      <td className="cart-field-product">
                         <strong>{item.product.productName || item.product.name}</strong>
                         <span className={`sales-status-text sales-status-text--${status.tone}`}>{status.label}</span>
                       </td>
-                      <td className={`sales-sku ${item.lineType === 'MiscellaneousItem' ? 'sales-sku--misc' : ''}`}>{item.sku || item.product.sku || item.product.code}</td>
-                      <td>
+                      <td className="cart-field-sku">{item.sku || item.product.sku || item.product.code}</td>
+                      <td className="cart-field-qty">
                         <div className="floating-cart-qty">
                           <button type="button" onClick={() => onQuantityChange(item.product.id, -1)} disabled={item.quantity <= 1} aria-label="Decrease quantity"><Minus size={13} /></button>
                           <input type="number" min={1} value={item.quantity} onChange={(event) => onQuantitySet(item.product.id, Number(event.target.value) || 1)} />
                           <button type="button" onClick={() => onQuantityChange(item.product.id, 1)} aria-label="Increase quantity"><Plus size={13} /></button>
                         </div>
                       </td>
-                      <td>{money(unitPrice(item))}</td>
-                      <td><button type="button" className="sci-pos-link-button" onClick={() => onApplyLineDiscount(item.product.id)}>{item.discount > 0 ? `${item.discount}%` : 'Apply Discount'}</button></td>
-                      <td><strong>{money(lineTotal(item))}</strong></td>
-                      <td>
+                      <td className="cart-field-price">{money(unitPrice(item))}</td>
+                      <td className="cart-field-discount"><button type="button" className="sci-pos-link-button" onClick={() => onApplyLineDiscount(item.product.id)}>{item.discount > 0 ? `${item.discount}%` : 'Apply Discount'}</button></td>
+                      <td className="cart-field-total"><strong>{money(lineTotal(item))}</strong></td>
+                      <td className="cart-field-action">
                         <div className="floating-cart-actions">
                           <button type="button" className="sci-pos-link-button" onClick={() => onNotice?.(`Product detail opened locally for ${item.product.productName || item.product.name}.`)}>View Product</button>
                           <button type="button" className="sci-pos-link-button" onClick={() => onNotice?.(`Line note editor opened locally for ${item.product.productName || item.product.name}.`)}>Line Note</button>

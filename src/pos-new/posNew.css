@@ -155,7 +155,24 @@ th {
   transform: scale(1.002);
 }
 
-.pos-startup-splash,
+.pos-startup-splash {
+  align-items: center;
+  background-color: #f26a1b; /* seiGEN Commerce corporate orange */
+  border: 0;
+  display: flex;
+  flex-direction: column;
+  font-family: 'Public Sans', sans-serif;
+  inset: 0;
+  justify-content: center;
+  min-width: 0;
+  overflow: hidden;
+  padding: clamp(24px, 5vw, 56px);
+  position: fixed;
+  text-align: center;
+  z-index: 1100;
+  border-radius: 0 !important; /* Ensure square edges */
+}
+
 .pos-standby-screen {
   align-items: center;
   background:
@@ -174,13 +191,20 @@ th {
   position: fixed;
   text-align: center;
   z-index: 1100;
-}
-
-.pos-standby-screen {
   cursor: pointer;
 }
 
-.pos-startup-splash strong,
+.pos-startup-splash strong {
+  color: #ffffff; /* pure white text for strong contrast */
+  font-size: clamp(22px, 4vw, 48px);
+  font-weight: 900;
+  letter-spacing: 0;
+  max-width: min(720px, 90vw);
+  overflow-wrap: anywhere;
+  text-transform: none;
+  text-align: center;
+}
+
 .pos-standby-screen strong {
   color: #ffffff;
   font-size: clamp(22px, 4vw, 48px);
@@ -191,7 +215,15 @@ th {
   text-transform: none;
 }
 
-.pos-startup-splash span,
+.pos-startup-splash span {
+  color: #1e222b; /* charcoal/matt grey text for contrast */
+  font-size: clamp(13px, 1.5vw, 20px);
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  margin-top: 8px;
+  text-transform: uppercase;
+}
+
 .pos-standby-screen span,
 .pos-standby-screen small {
   color: #f26a1b;
@@ -224,20 +256,22 @@ th {
 .pos-splash-logo {
   align-items: center;
   background: #ffffff;
-  border: 2px solid #f26a1b;
-  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.28);
-  color: #111827;
+  border: 3px solid #1e222b; /* charcoal/matt grey border */
+  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.15);
+  color: #1e222b;
   display: flex;
   height: clamp(82px, 12vw, 112px);
   justify-content: center;
   margin-bottom: 18px;
   overflow: hidden;
   width: clamp(82px, 12vw, 112px);
+  border-radius: 0 !important; /* Ensure square edges */
 }
 
 .pos-splash-logo--standby {
   height: clamp(92px, 13vw, 128px);
   width: clamp(92px, 13vw, 128px);
+  border-color: #f26a1b;
 }
 
 .pos-splash-logo img,
@@ -252,10 +286,23 @@ th {
 }
 
 .pos-splash-logo span {
-  color: #111827;
+  color: #1e222b; /* charcoal/matt grey */
   font-size: 28px;
   font-weight: 900;
   margin: 0;
+}
+
+.pos-startup-powerby {
+  position: absolute;
+  bottom: clamp(16px, 3vw, 32px);
+  right: clamp(16px, 3vw, 32px);
+  color: #1e222b; /* charcoal/matt grey */
+  font-size: clamp(10px, 1.2vw, 13px);
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  font-family: 'Public Sans', sans-serif;
+  user-select: none;
 }
 
 .receipt-blueprint-logo-preview {
@@ -12465,4 +12512,220 @@ div[class*="border-t border-r border-amber"] {
   .customer-statement-document__footer div {
     grid-template-columns: 1fr;
   }
+}
+
+/* ==========================================================================
+   seiGEN Commerce POS UI Refinement overrides
+   ========================================================================== */
+
+/* 1. TYPOGRAPHY CONTROLS */
+h1, h2, h3, h4, h5, h6,
+.pos-section-heading,
+.pos-product-card-bar h2,
+.floating-cart-card-header h3 {
+  font-weight: 600 !important;
+}
+
+label,
+.sales-label,
+.pos-field-chooser__options label {
+  font-weight: 500 !important;
+}
+
+.pos-field-product-name,
+.pos-field-product-name .pos-product-value,
+.sales-product-name,
+.pos-product-grid-card__header strong,
+.cart-field-product strong {
+  font-weight: 400 !important;
+}
+
+/* 2. SHARP SQUARE CORNERS */
+.sci-pos-card,
+.sales-terminal-card,
+.pos-cart-card,
+.sales-cart-session-card,
+.sales-cart-mini-card,
+.sales-cart-items-card,
+.sales-cart-summary-card,
+.floating-cart-card,
+.sales-profit-card,
+.pos-product-grid-card,
+.industrial-card,
+.sci-pos-button,
+.industrial-tab,
+.pos-view-toggle button,
+.floating-cart-qty button,
+.floating-cart-qty input,
+.sales-search-input,
+.pos-search-input,
+.cart-icon-cta,
+.pos-startup-splash,
+.pos-splash-logo {
+  border-radius: 0 !important;
+}
+
+/* 3. PRODUCT LIST TABLE REFINEMENTS */
+.pos-product-compact-table {
+  border-collapse: collapse !important;
+  table-layout: fixed !important;
+  width: 100% !important;
+}
+
+.pos-product-compact-table th {
+  position: sticky !important;
+  top: 0 !important;
+  z-index: 10 !important;
+}
+
+.pos-product-compact-table tbody tr {
+  height: 38px !important;
+}
+
+.pos-product-compact-table th,
+.pos-product-compact-table td {
+  padding: 3px 0.45rem !important;
+}
+
+/* Product list columns percentages */
+.pos-product-compact-table th.pos-field-sku,
+.pos-product-compact-table td.pos-field-sku {
+  width: 10% !important;
+}
+.pos-product-compact-table th.pos-field-product-name,
+.pos-product-compact-table td.pos-field-product-name {
+  width: 50% !important;
+}
+.pos-product-compact-table th.pos-field-qty,
+.pos-product-compact-table td.pos-field-qty {
+  width: 8% !important;
+  text-align: center !important;
+}
+.pos-product-compact-table th.pos-field-price,
+.pos-product-compact-table td.pos-field-price {
+  width: 12% !important;
+  text-align: right !important;
+}
+.pos-product-compact-table th.pos-field-status,
+.pos-product-compact-table td.pos-field-status {
+  width: 12% !important;
+}
+.pos-product-compact-table th.pos-field-action,
+.pos-product-compact-table td.pos-field-action {
+  width: 8% !important;
+  text-align: center !important;
+}
+
+/* Wrap product name naturally without truncation or ellipsis */
+.pos-product-compact-table td.pos-field-product-name,
+.pos-product-compact-table td.pos-field-product-name .pos-product-value {
+  white-space: normal !important;
+  overflow: visible !important;
+  text-overflow: clip !important;
+  line-height: 1.3 !important;
+}
+
+/* 4. CART TABLE RESPONSIVE LAYOUT */
+.floating-cart-table {
+  border-collapse: collapse !important;
+  table-layout: fixed !important;
+  width: 100% !important;
+  min-width: 0 !important;
+}
+
+.floating-cart-table tbody tr {
+  height: 38px !important;
+}
+
+.floating-cart-table th,
+.floating-cart-table td {
+  padding: 3px 0.45rem !important;
+  vertical-align: middle !important;
+}
+
+/* Cart column percentages */
+.cart-field-product {
+  width: 35% !important;
+}
+.cart-field-sku {
+  width: 12% !important;
+}
+.cart-field-qty {
+  width: 10% !important;
+  text-align: center !important;
+}
+.cart-field-price {
+  width: 12% !important;
+  text-align: right !important;
+}
+.cart-field-discount {
+  width: 8% !important;
+  text-align: center !important;
+}
+.cart-field-total {
+  width: 18% !important;
+  text-align: right !important;
+}
+.cart-field-action {
+  width: 5% !important;
+  text-align: center !important;
+}
+
+/* Align values in cart cells */
+.floating-cart-table th.cart-field-price,
+.floating-cart-table td.cart-field-price,
+.floating-cart-table th.cart-field-total,
+.floating-cart-table td.cart-field-total {
+  text-align: right !important;
+}
+.floating-cart-table th.cart-field-qty,
+.floating-cart-table td.cart-field-qty,
+.floating-cart-table th.cart-field-discount,
+.floating-cart-table td.cart-field-discount,
+.floating-cart-table th.cart-field-action,
+.floating-cart-table td.cart-field-action {
+  text-align: center !important;
+}
+
+/* Center quantity control buttons block */
+.cart-field-qty .floating-cart-qty {
+  margin: 0 auto !important;
+  justify-content: center !important;
+}
+
+/* Wrap product name in cart table, font weight = 400 */
+.floating-cart-table td.cart-field-product strong {
+  font-weight: 400 !important;
+  white-space: normal !important;
+  overflow: visible !important;
+  text-overflow: clip !important;
+  line-height: 1.3 !important;
+}
+
+/* Scoped Customer Centre Form Styling Fixes */
+.pos-customer-centre input,
+.pos-customer-centre select,
+.pos-customer-centre textarea,
+.pos-customer-centre .pos-credit-config-grid input,
+.pos-customer-centre .pos-credit-config-grid select,
+.pos-customer-centre .pos-credit-config-grid textarea,
+.pos-customer-centre .pos-new-customer-grid input,
+.pos-customer-centre .pos-new-customer-grid select,
+.pos-customer-centre .pos-new-customer-grid textarea,
+.pos-customer-centre .pos-modal-backdrop input,
+.pos-customer-centre .pos-modal-backdrop select,
+.pos-customer-centre .pos-modal-backdrop textarea {
+  min-height: 32px !important;
+  padding-left: 8px !important;
+  padding-right: 8px !important;
+  font-size: 14px !important;
+  border-radius: 0 !important;
+  box-sizing: border-box !important;
+}
+
+.pos-customer-centre textarea,
+.pos-customer-centre .pos-modal-backdrop textarea {
+  min-height: 60px !important;
+  padding-top: 6px !important;
+  padding-bottom: 6px !important;
 }

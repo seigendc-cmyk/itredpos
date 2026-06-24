@@ -2787,10 +2787,10 @@ export const mockCustomerAddresses: CustomerAddress[] = mockCustomers.flatMap((c
 ]);
 
 export const mockCustomerPurchaseHistory: CustomerPurchaseHistoryRow[] = [
-  { id: 'CPH-001', customerId: 'CUST-TAPIWA', receiptNo: 'RCT-0005', date: '2026-06-09T13:40:00Z', branch: 'Harare Main', cashier: 'Mary Cashier', items: 1, total: 460, paymentMethod: 'Bank Transfer', deliveryStatus: 'No Delivery', returnStatus: 'None' },
-  { id: 'CPH-002', customerId: 'CUST-RUDO', receiptNo: 'RCT-0006', date: '2026-06-09T14:15:00Z', branch: 'Harare Main', cashier: 'Mary Cashier', items: 1, total: 70, paymentMethod: 'Cash', deliveryStatus: 'No Delivery', returnStatus: 'Partial Refund' },
-  { id: 'CPH-003', customerId: 'CUST-FARAI', receiptNo: 'RCT-0003', date: '2026-06-09T11:20:00Z', branch: 'Harare Main', cashier: 'Admin User', items: 2, total: 200, paymentMethod: 'Split Payment', deliveryStatus: 'Customer Collection', returnStatus: 'None' },
-  { id: 'CPH-004', customerId: 'CUST-APEX-FLEET', receiptNo: 'RCT-0004', date: '2026-06-09T12:05:00Z', branch: 'Bulawayo Branch', cashier: 'Tawanda Supervisor', items: 1, total: 315, paymentMethod: 'Swipe', deliveryStatus: 'Vendor Delivery', returnStatus: 'None' }
+  { id: 'CPH-001', customerId: 'CUST-TAPIWA', customerName: 'Tapiwa Moyo', receiptNo: 'RCT-0005', date: '2026-06-09T13:40:00Z', branch: 'Harare Main', cashier: 'Mary Cashier', items: 1, total: 460, paymentMethod: 'Bank Transfer', deliveryStatus: 'No Delivery', returnStatus: 'None' },
+  { id: 'CPH-002', customerId: 'CUST-RUDO', customerName: 'Rudo Ncube', receiptNo: 'RCT-0006', date: '2026-06-09T14:15:00Z', branch: 'Harare Main', cashier: 'Mary Cashier', items: 1, total: 70, paymentMethod: 'Cash', deliveryStatus: 'No Delivery', returnStatus: 'Partial Refund' },
+  { id: 'CPH-003', customerId: 'CUST-FARAI', customerName: 'Farai Sithole', receiptNo: 'RCT-0003', date: '2026-06-09T11:20:00Z', branch: 'Harare Main', cashier: 'Admin User', items: 2, total: 200, paymentMethod: 'Split Payment', deliveryStatus: 'Customer Collection', returnStatus: 'None' },
+  { id: 'CPH-004', customerId: 'CUST-APEX-FLEET', customerName: 'Apex Fleet Buyer', receiptNo: 'RCT-0004', date: '2026-06-09T12:05:00Z', branch: 'Bulawayo Branch', cashier: 'Tawanda Supervisor', items: 1, total: 315, paymentMethod: 'Swipe', deliveryStatus: 'Vendor Delivery', returnStatus: 'None' }
 ];
 
 export const mockCustomerNotes: CustomerNote[] = [
