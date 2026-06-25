@@ -1,4 +1,5 @@
 import type { CommerceEvent, CommerceEventInput } from './commerceEvents';
+import { dispatchCommerceEvent } from './eventDispatcher';
 
 function createCorrelationId(): string {
   return `corr_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
@@ -18,5 +19,8 @@ export async function publishCommerceEvent(input: CommerceEventInput): Promise<C
   };
 
   console.info('[CommerceEvent]', event);
+
+  await dispatchCommerceEvent(event);
+
   return event;
 }
