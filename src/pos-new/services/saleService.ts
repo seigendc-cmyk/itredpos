@@ -1,5 +1,6 @@
 import { Sale, HeldTransaction, CartItem } from '../types/posTypes';
 import { mockHeldTransactions, mockRecentSales } from '../mock/mockPosData';
+import { publishCommerceEvent } from '../../commerce-integration/events/publishCommerceEvent';
 
 export const saleService = {
   getHeldTransactions: async (): Promise<HeldTransaction[]> => {
@@ -37,6 +38,22 @@ export const saleService = {
       date: new Date().toISOString()
     };
     mockRecentSales.push(freshSale);
+
+    void publishCommerceEvent({
+      eventType: 'SaleCompleted',
+      vendorId: freshSale.vendorId,
+      branchId: freshSale.branchId,
+      staffId: freshSale.staffId,
+      terminalId: freshSale.terminalId,
+      module: 'Sales',
+      entityType: 'Sale',
+      entityId: freshSale.id,
+      payload: {
+        summary: `Sale ${freshSale.invoiceNo} completed.`,
+        amount: freshSale.total,
+        items: freshSale.items
+      }
+    });
     return freshSale;
   }
 };

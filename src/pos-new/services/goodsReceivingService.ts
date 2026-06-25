@@ -23,6 +23,7 @@ import {
 import { createOperationalApproval } from './approvalService';
 import { postGoodsReceivedMovement } from './inventoryMovementService';
 import { createSupplierBillFromGRN, createSupplierPayment, markSupplierPaymentPaid } from './creditorsService';
+import { publishCommerceEvent } from '../../commerce-integration/events/publishCommerceEvent';
 
 const GRN_KEY = 'itred_pos_goods_receiving_notes_v1';
 const GRN_LINE_KEY = 'itred_pos_goods_receiving_lines_v1';
@@ -684,6 +685,23 @@ export async function postGRN(grnId: string, staffId: string, options: GoodsRece
   }
 
   await recordActivity({ grnId, grnNumber: note.grnNumber, poId: note.poId, poNumber: note.poNumber, eventType: 'GRN_SUPPLIER_BILL_CREATED', message: creditorMessage, operator: staffId });
+
+  void publishCommerceEvent({
+    eventType: 'StockReceived',
+    vendorId: note.vendorId,
+    branchId: note.branchId,
+    staffId,
+    terminalId: 'N/A',
+    module: 'Inventory',
+    entityType: 'GoodsReceivingNote',
+    entityId: grnId,
+    payload: {
+      summary: `GRN ${note.grnNumber} posted to stock.`,
+      items: postedLines,
+      metadata: { poNumber: note.poNumber, supplierName: note.supplierName }
+    }
+  });
+
   return { grnId, grnNumber: note.grnNumber, status: nextStatus, stockPosted: true, approvalRequired: false, postedLines, skippedLines, supplierBillId, supplierBillNumber, supplierPaymentId, supplierPaymentNumber, acquisitionType: options.acquisitionType, message: `${note.grnNumber} posted. Accepted quantities updated inventory. ${creditorMessage}` };
 }
 

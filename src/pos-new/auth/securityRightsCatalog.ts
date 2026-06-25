@@ -111,6 +111,8 @@ export const securityRightsCatalog: SecurityPermissionRight[] = [
   right('Sales', 'sales.open', cashier, 'Open and use the sales terminal.'),
   right('Sales', 'sales.complete', cashier, 'Complete a sale and issue the receipt.'),
   right('Sales', 'sales.hold', cashier, 'Place a sale on hold.'),
+  right('Sales', 'sales.heldSale.delete', supervisor, 'Delete held or draft sales.'),
+  right('Sales', 'sales.heldSale.reopenExpired', manager, 'Reopen expired held sales.'),
   right('Sales', 'sales.discount', supervisor, 'Apply a discount to a sale.'),
   right('Sales', 'sales.priceChange', supervisor, 'Change a selling price at the terminal.'),
   right('Sales', 'sales.void', supervisor, 'Void a sale or sale line.'),

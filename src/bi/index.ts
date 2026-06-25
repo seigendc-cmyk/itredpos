@@ -16,3 +16,5 @@ export * from "./recommendations/recommendationEngine";
 export * from "./predictions/predictiveModelsEngine";
 export * from "./dashboard/biDashboardSummary";
 export * from "./BIEngine";
+export * from "./behaviour/staffBehaviourEngine";
+export * from "./behaviour/productBehaviourEngine";

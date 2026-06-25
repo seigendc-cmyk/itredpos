@@ -4563,6 +4563,43 @@ div[class*="border-t border-r border-amber"] {
   font-size: var(--font-sm);
   font-weight: 600;
 }
+.held-sale-status {
+  border-radius: var(--radius-card);
+  display: inline-flex;
+  font-size: var(--font-2xs);
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  padding: 0.2rem 0.45rem;
+  text-transform: uppercase;
+}
+.held-sale-status--active {
+  background: #ecfdf5;
+  border: 1px solid #10b981;
+  color: #065f46;
+}
+.held-sale-status--expiring-soon {
+  background: #fffbeb;
+  border: 1px solid #f59e0b;
+  color: #92400e;
+}
+.held-sale-status--expired {
+  background: #fff1f2;
+  border: 1px solid #f43f5e;
+  color: #9f1239;
+}
+.held-sale-expired-warning {
+  color: #9f1239;
+  display: block;
+  font-size: var(--font-2xs);
+  font-weight: 600;
+}
+.sales-drawer-row--cancelled {
+  opacity: 0.75;
+}
+.sci-pos-link-button--danger {
+  color: #dc2626 !important;
+  font-weight: 600;
+}
 .sales-activity-drawer-feed {
   max-height: none;
   padding: 0;

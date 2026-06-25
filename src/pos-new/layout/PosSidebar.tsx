@@ -97,7 +97,7 @@ const sidebarGroups: SidebarGroup[] = [
     label: 'Intelligence and system',
     icon: BarChart2,
     items: [
-      { id: 'BI_DESK', label: 'BI desk', icon: BarChart2 },
+      { id: 'BI_DESK', label: 'BI Layer', icon: BarChart2 },
       { id: 'SYNC_DESK', label: 'Sync desk', icon: RefreshCw },
       { id: 'HELP_DESK', label: 'Help desk', icon: HelpCircle },
       { id: 'SETTINGS', label: 'Settings', icon: Settings }

@@ -1,5 +1,6 @@
 import {
   InventoryMovement,
+  InventoryMovementType,
   StockAdjustment,
   StockAdjustmentActivityEvent,
   StockAdjustmentDirection,
@@ -17,6 +18,7 @@ import {
 } from '../mock/mockPosData';
 import { createOperationalApproval } from './approvalService';
 import { calculateRunningBalance, postStockAdjustmentMovement } from './inventoryMovementService';
+import { publishCommerceEvent } from '../../commerce-integration/events/publishCommerceEvent';
 
 const ADJUSTMENT_KEY = 'itred_pos_stock_adjustments_v1';
 const ADJUSTMENT_LINE_KEY = 'itred_pos_stock_adjustment_lines_v1';
@@ -476,6 +478,28 @@ export async function postStockAdjustment(adjustmentId: string, staffId: string)
   const updated = updateAdjustment(adjustmentId, { status: 'Posted', postedByStaffId: staffId, postedByStaffName: staffId });
   if (updated) {
     await recordActivity({ adjustmentId, adjustmentNumber: updated.adjustmentNumber, eventType: 'STOCK_ADJUSTMENT_POSTED', operator: staffId, message: `${updated.adjustmentNumber} posted. Inventory movements created; no cashbook, supplier payment or tax posting.` });
+
+    const eventTypeMap: Record<InventoryMovementType, 'StockIssued' | 'StockReceived' | 'StockAdjusted'> = {
+      'WRITE_OFF': 'StockAdjusted',
+      'STOCK_ADJUSTMENT_IN': 'StockReceived',
+      'STOCK_ADJUSTMENT_OUT': 'StockIssued',
+    };
+
+    void publishCommerceEvent({
+      eventType: 'StockAdjusted',
+      vendorId: updated.vendorId,
+      branchId: updated.branchId,
+      staffId,
+      terminalId: 'N/A',
+      module: 'Inventory',
+      entityType: 'StockAdjustment',
+      entityId: updated.adjustmentId,
+      payload: {
+        summary: `Stock Adjustment ${updated.adjustmentNumber} posted.`,
+        items: movements,
+        metadata: { reason: updated.reason }
+      }
+    });
   }
   return {
     adjustmentId,

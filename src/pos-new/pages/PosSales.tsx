@@ -49,6 +49,9 @@ import { enqueueOfflineAction, getNetworkStatus } from '../services/offlineSyncS
 import { getProductTotalAvailableStock } from '../services/stockBalanceService';
 import {
   cancelHeldSalePlaceholder,
+  deleteAllHeldSales,
+  deleteHeldSale,
+  getHeldSaleExpiryStatus,
   getHeldSales,
   HeldSaleRecord,
   holdCurrentSale,
@@ -491,7 +494,9 @@ export default function PosSales({
     (row) => row.items.map((item) => item.code).join(' ')
   ])), [recentReceiptSearch, recentSales]);
 
-  const filteredHeldSales = useMemo(() => heldSales.filter((heldSale) => matchesFreeOrderSearch(heldSale, heldSaleSearch, [
+  const visibleHeldSales = useMemo(() => heldSales.filter((sale) => sale.status !== 'Deleted'), [heldSales]);
+
+  const filteredHeldSales = useMemo(() => visibleHeldSales.filter((heldSale) => matchesFreeOrderSearch(heldSale, heldSaleSearch, [
     'heldSaleNumber',
     'customerName',
     'customerPhone',
@@ -499,9 +504,10 @@ export default function PosSales({
     'note',
     'status',
     'total',
+    'expiryDateTime',
     (row) => row.items.map((item) => item.product.productName || item.product.name).join(' '),
     (row) => row.items.map((item) => item.product.sku || item.product.code).join(' ')
-  ])), [heldSaleSearch, heldSales]);
+  ])), [heldSaleSearch, visibleHeldSales]);
 
   const filteredAuditEvents = useMemo(() => auditEvents.filter((event) => matchesFreeOrderSearch(event, activitySearch, [
     'eventType',
@@ -1412,7 +1418,7 @@ export default function PosSales({
     }
   };
 
-  const handleHoldSale = async () => {
+  const handleHoldSale = async (payload?: { expiryDateTime?: string }) => {
     if (!canPerformAction(roleName, 'sales.hold')) {
       setStatusMessage('You do not have permission to hold sales.');
       return;
@@ -1447,7 +1453,8 @@ export default function PosSales({
       deliveryPriority,
       deliveryPaymentMode,
       vatMode,
-      vatRate
+      vatRate,
+      expiryDateTime: payload?.expiryDateTime
     });
     setHeldSales(await getHeldSales());
     clearCartState();
@@ -1458,6 +1465,11 @@ export default function PosSales({
   const handleResumeHeldSale = async (heldSale: HeldSaleRecord) => {
     if (!canPerformAction(roleName, 'sales.open') && !canPerformAction(roleName, 'sales.hold')) {
       setStatusMessage('You do not have permission to reopen held sales.');
+      return;
+    }
+    const expiryStatus = getHeldSaleExpiryStatus(heldSale.expiryDateTime);
+    if (expiryStatus === 'Expired' && !canReopenExpiredHeldSale) {
+      setStatusMessage('Expired — manager approval required.');
       return;
     }
     const record = await reopenHeldSale(heldSale.id);
@@ -1497,6 +1509,56 @@ export default function PosSales({
     await cancelHeldSalePlaceholder(heldSale.id, staffName, 'Cancelled from Held Sales drawer');
     setHeldSales(await getHeldSales());
     setStatusMessage(`Held sale cancelled locally for ${heldSale.heldSaleNumber}.`);
+    logEvent('SALE_CANCELLED', `Held sale ${heldSale.heldSaleNumber} cancelled.`);
+  };
+
+  const canReopenExpiredHeldSale = canPerformAction(roleName, 'sales.heldSale.reopenExpired') && ['Owner', 'SysAdmin', 'Manager'].includes(roleName);
+
+  const canDeleteHeldSale = (heldSale: HeldSaleRecord) => {
+    if (!canPerformAction(roleName, 'sales.heldSale.delete')) return false;
+    if (['Owner', 'SysAdmin'].includes(roleName)) return true;
+    if (['Manager', 'Supervisor'].includes(roleName)) return true;
+    if (roleName === 'Cashier' && heldSale.heldBy === staffName) return true;
+    return false;
+  };
+
+  const canDeleteAllHeldSales = canPerformAction(roleName, 'sales.heldSale.delete') && ['Owner', 'SysAdmin', 'Manager', 'Supervisor'].includes(roleName);
+
+  const handleDeleteHeldSale = async (heldSale: HeldSaleRecord) => {
+    if (!canDeleteHeldSale(heldSale)) {
+      setStatusMessage('You do not have permission to delete this held sale.');
+      return;
+    }
+    const confirmed = window.confirm(
+      `Delete held sale ${heldSale.heldSaleNumber} for customer "${heldSale.customerName}" (${money(heldSale.total)})? This cannot be undone.`
+    );
+    if (!confirmed) return;
+    await deleteHeldSale(heldSale.id, staffName, staffName, `Deleted from Held Sales drawer by ${staffName}`);
+    setHeldSales(await getHeldSales());
+    setStatusMessage(`Held sale ${heldSale.heldSaleNumber} deleted.`);
+    logEvent('HELD_SALE_DELETED', `Held sale ${heldSale.heldSaleNumber} deleted. Customer: ${heldSale.customerName}, Amount: ${money(heldSale.total)}, Staff: ${staffName}.`);
+  };
+
+  const handleDeleteAllHeldSales = async () => {
+    if (!canDeleteAllHeldSales) {
+      setStatusMessage('You do not have permission to delete all held sales.');
+      return;
+    }
+    const activeCount = heldSales.filter((sale) => sale.status === 'Held').length;
+    if (activeCount === 0) {
+      setStatusMessage('No active held sales to delete.');
+      return;
+    }
+    const confirmed = window.confirm(
+      `Are you sure you want to delete ALL ${activeCount} held sale(s)? This action cannot be undone.`
+    );
+    if (!confirmed) return;
+    const strongConfirm = window.confirm('This will permanently remove all active held sales for this session. Confirm again?');
+    if (!strongConfirm) return;
+    await deleteAllHeldSales(staffName, staffName, `Bulk deleted from Held Sales drawer by ${staffName}`);
+    setHeldSales(await getHeldSales());
+    setStatusMessage(`All ${activeCount} held sales cleared.`);
+    logEvent('HELD_SALES_CLEARED', `All held sales cleared by ${staffName}. Total: ${activeCount}.`);
   };
 
   const handleOpenReceiptReview = async (sale: Sale) => {
@@ -2015,18 +2077,32 @@ export default function PosSales({
                 <div className="sales-drawer-list">
                   <p className="sales-drawer-note">Double-click a held sale to reopen it into the active cart.</p>
                   <label className="sales-drawer-search">Search Held Sales<input value={heldSaleSearch} onChange={(event) => setHeldSaleSearch(event.target.value)} placeholder="Search hold no., customer, phone, note, SKU, product..." /></label>
-                  {filteredHeldSales.map((heldSale) => (
-                    <article key={heldSale.id} className="sales-drawer-row" onDoubleClick={() => { void handleResumeHeldSale(heldSale); setWorkspaceDrawer(null); }}>
-                      <div><strong>{heldSale.heldSaleNumber}</strong><span>{heldSale.customerName} | {heldSale.items.length} item(s) | Held by {heldSale.heldBy}</span></div>
-                      <b>{money(heldSale.total)}</b>
-                      <small>{heldSale.heldAt} | {heldSale.status} | {heldSale.note || 'No note / reason'}</small>
-                      <div className="pos-recent-receipt__actions">
-                        <button type="button" className="sci-pos-link-button" disabled={heldSale.status !== 'Held'} onClick={() => { void handleResumeHeldSale(heldSale); setWorkspaceDrawer(null); }}><RotateCcw size={14} aria-hidden="true" /> Reopen Sale</button>
-                        <button type="button" className="sci-pos-link-button" onClick={() => setStatusMessage(`${heldSale.heldSaleNumber}: ${heldSale.note || 'No details note captured.'}`)}>View Details</button>
-                        <button type="button" className="sci-pos-link-button" disabled={heldSale.status !== 'Held'} onClick={() => { void handleCancelHeldSale(heldSale); }}>Cancel Held Sale</button>
-                      </div>
-                    </article>
-                  ))}
+                  {canDeleteAllHeldSales && visibleHeldSales.some((sale) => sale.status === 'Held') && (
+                    <button type="button" className="sci-pos-button sci-pos-button--secondary" onClick={() => void handleDeleteAllHeldSales()}>Clear All Held Sales</button>
+                  )}
+                  {filteredHeldSales.map((heldSale) => {
+                    const expiryStatus = getHeldSaleExpiryStatus(heldSale.expiryDateTime);
+                    const isExpired = expiryStatus === 'Expired';
+                    const isExpiringSoon = expiryStatus === 'Expiring Soon';
+                    const reopenDisabled = heldSale.status !== 'Held' || (isExpired && !canReopenExpiredHeldSale);
+                    return (
+                      <article key={heldSale.id} className={`sales-drawer-row${heldSale.status === 'Cancelled' ? ' sales-drawer-row--cancelled' : ''}`} onDoubleClick={() => { if (!reopenDisabled) { void handleResumeHeldSale(heldSale); setWorkspaceDrawer(null); } }}>
+                        <div><strong>{heldSale.heldSaleNumber}</strong><span>{heldSale.customerName} | {heldSale.items.length} item(s) | Held by {heldSale.heldBy}</span></div>
+                        <b>{money(heldSale.total)}</b>
+                        <small>{heldSale.heldAt} | Expiry: {heldSale.expiryDateTime ? new Date(heldSale.expiryDateTime).toLocaleString() : 'No expiry set'} | {heldSale.status}</small>
+                        <span className={`held-sale-status held-sale-status--${expiryStatus.toLowerCase().replace(' ', '-')}`}>{expiryStatus}</span>
+                        {isExpired && <small className="held-sale-expired-warning">Expired — manager approval required</small>}
+                        <div className="pos-recent-receipt__actions">
+                          <button type="button" className="sci-pos-link-button" disabled={reopenDisabled} onClick={() => { void handleResumeHeldSale(heldSale); setWorkspaceDrawer(null); }}><RotateCcw size={14} aria-hidden="true" /> Reopen Sale</button>
+                          <button type="button" className="sci-pos-link-button" onClick={() => setStatusMessage(`${heldSale.heldSaleNumber}: ${heldSale.note || 'No details note captured.'}`)}>View Details</button>
+                          <button type="button" className="sci-pos-link-button" disabled={heldSale.status !== 'Held'} onClick={() => { void handleCancelHeldSale(heldSale); }}>Cancel Held Sale</button>
+                          {canDeleteHeldSale(heldSale) && (
+                            <button type="button" className="sci-pos-link-button sci-pos-link-button--danger" onClick={() => void handleDeleteHeldSale(heldSale)}>Delete Held Sale</button>
+                          )}
+                        </div>
+                      </article>
+                    );
+                  })}
                   {filteredHeldSales.length === 0 && <div className="sci-pos-empty-cell">No held sales match the search.</div>}
                 </div>
               )}

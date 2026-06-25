@@ -27,6 +27,7 @@ import {
 } from '../mock/mockPosData';
 import { calculateRunningBalance, postTransferMovement } from './inventoryMovementService';
 import { createOperationalApproval } from './approvalService';
+import { publishCommerceEvent } from '../../commerce-integration/events/publishCommerceEvent';
 
 const TRANSFER_KEY = 'itred_pos_stock_transfers_v1';
 const LINE_KEY = 'itred_pos_stock_transfer_lines_v1';
@@ -365,6 +366,24 @@ export async function dispatchStockTransfer(transferId: string, staffId: string,
   const updatedLines = await getStockTransferLines(transferId);
   const updated = updateTransfer(transferId, { status: statusFromLines(updatedLines, 'In Transit'), dispatchedByStaffId: staffId, dispatchedByStaffName: staffId, dispatchDate: nowIso(), transportMethod: dispatchPayload.transportMethod || record.transportMethod, courierReference: dispatchPayload.courierReference || record.courierReference, driverName: dispatchPayload.driverName || record.driverName, driverPhone: dispatchPayload.driverPhone || record.driverPhone });
   if (updated) await recordActivity({ transferId, transferNumber: updated.transferNumber, eventType: updated.status === 'Partially Dispatched' ? 'STOCK_TRANSFER_PARTIALLY_DISPATCHED' : 'STOCK_TRANSFER_IN_TRANSIT', operator: staffId, severity: 'Medium', message: `${updated.transferNumber} dispatched. Source movement posted; destination stock not increased.` });
+
+  if (updated) {
+    void publishCommerceEvent({
+      eventType: 'StockTransferred',
+      vendorId: updated.vendorId,
+      branchId: updated.sourceBranchId,
+      staffId,
+      terminalId: 'N/A',
+      module: 'Inventory',
+      entityType: 'StockTransferDispatch',
+      entityId: updated.transferId,
+      payload: {
+        summary: `Transfer ${updated.transferNumber} dispatched from ${updated.sourceBranchName}.`,
+        items: movements,
+        metadata: { destinationBranchId: updated.destinationBranchId }
+      }
+    });
+  }
   return { transfer: updated, movements, message: `${record.transferNumber} dispatched. Source stock movement posted only.` };
 }
 
@@ -418,7 +437,23 @@ export async function postTransferReceipt(transferId: string, staffId: string): 
   const updatedLines = await getStockTransferLines(transferId);
   const status = statusFromLines(updatedLines, 'Fully Received');
   const updated = updateTransfer(transferId, { status, receivedByStaffId: staffId, receivedByStaffName: staffId, receivedDate: nowIso() });
-  if (updated) await recordActivity({ transferId, transferNumber: updated.transferNumber, eventType: 'STOCK_TRANSFER_RECEIPT_POSTED', operator: staffId, severity: status === 'Variance Review' ? 'High' : 'Low', message: `${updated.transferNumber} destination receipt posted. Accepted quantity only entered destination available stock.` });
+  if (updated) {
+    await recordActivity({ transferId, transferNumber: updated.transferNumber, eventType: 'STOCK_TRANSFER_RECEIPT_POSTED', operator: staffId, severity: status === 'Variance Review' ? 'High' : 'Low', message: `${updated.transferNumber} destination receipt posted. Accepted quantity only entered destination available stock.` });
+    void publishCommerceEvent({
+      eventType: 'StockReceived',
+      vendorId: updated.vendorId,
+      branchId: updated.destinationBranchId,
+      staffId,
+      terminalId: 'N/A',
+      module: 'Inventory',
+      entityType: 'StockTransferReceipt',
+      entityId: updated.transferId,
+      payload: {
+        summary: `Transfer ${updated.transferNumber} received at ${updated.destinationBranchName}.`,
+        items: movements
+      }
+    });
+  }
   return { transfer: updated, movements, message: `${record.transferNumber} destination receipt posted. Accepted quantity only entered destination stock.` };
 }
 

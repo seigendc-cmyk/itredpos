@@ -22,7 +22,7 @@ export const roleMenuDefinitions: RoleMenuDefinition[] = [
   { menuKey: 'creditorsManagement', menuLabel: 'Creditors Management', group: 'Control', pageId: 'CREDITORS' },
   { menuKey: 'taskDesk', menuLabel: 'Task Desk', group: 'Control', pageId: 'TASK_DESK' },
   { menuKey: 'approvals', menuLabel: 'Approvals', group: 'Control', pageId: 'APPROVALS' },
-  { menuKey: 'biDesk', menuLabel: 'BI Desk', group: 'Control', pageId: 'BI_DESK' },
+  { menuKey: 'biDesk', menuLabel: 'BI Layer', group: 'Control', pageId: 'BI_DESK' },
   { menuKey: 'syncDesk', menuLabel: 'Sync Desk', group: 'Control', pageId: 'SYNC_DESK' },
   { menuKey: 'helpDesk', menuLabel: 'Help Desk', group: 'Control', pageId: 'HELP_DESK' },
   { menuKey: 'reports', menuLabel: 'Reports', group: 'Control', pageId: 'REPORTS' },

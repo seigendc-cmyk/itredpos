@@ -220,7 +220,7 @@ interface SalesCartCardProps {
   onVatModeChange: (value: VATMode) => void;
   onVatRateChange: (value: string) => void;
   onCompleteSale: () => boolean | Promise<boolean>;
-  onHoldSale: () => void;
+  onHoldSale?: (payload?: { expiryDateTime?: string }) => void;
   onCancelSale: () => void;
   onSalesOperationStart?: (operation: string) => void;
 }
@@ -498,6 +498,11 @@ export default function SalesCartCard({
       onCartNotice?.('Cart is empty. Add products before holding the sale.');
       return;
     }
+    const d = new Date();
+    d.setHours(d.getHours() + 24);
+    const pad = (n: number) => String(n).padStart(2, '0');
+    const defaultExpiry = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+    setHoldExpiry(defaultExpiry);
     openToolPanel('hold');
   };
 
@@ -932,7 +937,7 @@ export default function SalesCartCard({
               {activeToolPanel === 'void' && <button type="button" className="sci-pos-button sci-pos-button--primary" onClick={submitVoidCart}>Void Cart</button>}
               {activeToolPanel === 'clear' && <button type="button" className="sci-pos-button sci-pos-button--primary" onClick={() => { onClearWorkspace(clearMode); setActiveToolPanel(null); }}>Clear Workspace</button>}
               {activeToolPanel === 'notes' && <button type="button" className="sci-pos-button sci-pos-button--primary" onClick={() => { onSaveCartNotes({ internalNote: draftInternalNote, receiptNote: draftReceiptNote, deliveryNote: draftDeliveryNote }); setActiveToolPanel(null); }}>Save Notes</button>}
-              {activeToolPanel === 'hold' && <button type="button" className="sci-pos-button sci-pos-button--primary" disabled={!canHoldSale || cart.length === 0} onClick={() => { const note = holdExpiry ? `${holdReason || 'Held sale'} | Expiry ${holdExpiry}` : holdReason || 'Held from Sales Terminal.'; onPaymentReferenceChange(note); onSaveCartNotes({ internalNote: note, receiptNote, deliveryNote: cartDeliveryNote }); onHoldSale(); setActiveToolPanel(null); }}>Confirm Hold</button>}
+              {activeToolPanel === 'hold' && <button type="button" className="sci-pos-button sci-pos-button--primary" disabled={!canHoldSale || cart.length === 0} onClick={() => { const note = holdExpiry ? `${holdReason || 'Held sale'} | Expiry ${holdExpiry}` : holdReason || 'Held from Sales Terminal.'; onPaymentReferenceChange(note); onSaveCartNotes({ internalNote: note, receiptNote, deliveryNote: cartDeliveryNote }); onHoldSale?.({ expiryDateTime: holdExpiry || undefined }); setHoldReason(''); setHoldExpiry(''); setActiveToolPanel(null); }}>Confirm Hold</button>}
               <button type="button" className="sci-pos-button sci-pos-button--secondary" onClick={() => setActiveToolPanel(null)}>Close</button>
             </div>
           </aside>
