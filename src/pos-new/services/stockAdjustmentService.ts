@@ -19,6 +19,7 @@ import {
 import { createOperationalApproval } from './approvalService';
 import { calculateRunningBalance, postStockAdjustmentMovement } from './inventoryMovementService';
 import { publishCommerceEvent } from '../../commerce-integration/events/publishCommerceEvent';
+import { writeAuditLog } from '../../commerce-integration/audit/writeAuditLog';
 
 const ADJUSTMENT_KEY = 'itred_pos_stock_adjustments_v1';
 const ADJUSTMENT_LINE_KEY = 'itred_pos_stock_adjustment_lines_v1';
@@ -35,6 +36,19 @@ export interface StockAdjustmentDraftPayload {
   requestedByStaffName: string;
   reason: StockAdjustmentReason;
   notes?: string;
+}
+
+/**
+ * Provides the necessary context for stock adjustment operations, including
+ * identifiers for tenancy, location, and the acting staff member.
+ */
+export interface StockAdjustmentContext {
+  vendorId: string;
+  branchId: string;
+  warehouseId?: string;
+  terminalId?: string;
+  staffId: string;
+  correlationId?: string;
 }
 
 export interface StockAdjustmentPostingResult {
@@ -429,7 +443,10 @@ export async function rejectStockAdjustment(adjustmentId: string, staffId: strin
   return updated;
 }
 
-export async function postStockAdjustment(adjustmentId: string, staffId: string): Promise<StockAdjustmentPostingResult | null> {
+export async function postStockAdjustment(
+  adjustmentId: string,
+  context?: StockAdjustmentContext
+): Promise<StockAdjustmentPostingResult | null> {
   const record = await getStockAdjustmentById(adjustmentId);
   if (!record || (record.status !== 'Draft' && record.status !== 'Approved')) return null;
   const validation = await validateStockAdjustmentBeforePost(adjustmentId);
@@ -437,6 +454,7 @@ export async function postStockAdjustment(adjustmentId: string, staffId: string)
     return { adjustmentId, adjustmentNumber: record.adjustmentNumber, status: record.status, stockPosted: false, postedLines: [], movements: [], message: validation.errors.join(' ') };
   }
   const lines = await getStockAdjustmentLines(adjustmentId);
+  const staffId = context?.staffId || record.requestedByStaffId;
   const movements: InventoryMovement[] = [];
   for (const line of lines) {
     const qtyImpact = line.newQty - line.currentQty;
@@ -477,29 +495,43 @@ export async function postStockAdjustment(adjustmentId: string, staffId: string)
   }
   const updated = updateAdjustment(adjustmentId, { status: 'Posted', postedByStaffId: staffId, postedByStaffName: staffId });
   if (updated) {
-    await recordActivity({ adjustmentId, adjustmentNumber: updated.adjustmentNumber, eventType: 'STOCK_ADJUSTMENT_POSTED', operator: staffId, message: `${updated.adjustmentNumber} posted. Inventory movements created; no cashbook, supplier payment or tax posting.` });
-
-    const eventTypeMap: Record<InventoryMovementType, 'StockIssued' | 'StockReceived' | 'StockAdjusted'> = {
-      'WRITE_OFF': 'StockAdjusted',
-      'STOCK_ADJUSTMENT_IN': 'StockReceived',
-      'STOCK_ADJUSTMENT_OUT': 'StockIssued',
-    };
-
-    void publishCommerceEvent({
-      eventType: 'StockAdjusted',
-      vendorId: updated.vendorId,
-      branchId: updated.branchId,
-      staffId,
-      terminalId: 'N/A',
-      module: 'Inventory',
-      entityType: 'StockAdjustment',
-      entityId: updated.adjustmentId,
-      payload: {
-        summary: `Stock Adjustment ${updated.adjustmentNumber} posted.`,
-        items: movements,
-        metadata: { reason: updated.reason }
-      }
+    await recordActivity({
+      adjustmentId,
+      adjustmentNumber: updated.adjustmentNumber,
+      eventType: 'STOCK_ADJUSTMENT_POSTED',
+      operator: staffId,
+      message: `${updated.adjustmentNumber} posted. Inventory movements created; no cashbook, supplier payment or tax posting.`
     });
+
+    // Eventing and Auditing will only occur if context is provided.
+    if (context) {
+      void publishCommerceEvent({
+        eventType: 'StockAdjusted',
+        vendorId: context.vendorId,
+        branchId: context.branchId,
+        warehouseId: context.warehouseId,
+        staffId: context.staffId,
+        terminalId: context.terminalId,
+        correlationId: context.correlationId,
+        module: 'Inventory',
+        entityType: 'StockAdjustment',
+        entityId: updated.adjustmentId,
+        payload: {
+          summary: `Stock Adjustment ${updated.adjustmentNumber} posted.`,
+          items: movements,
+          metadata: { reason: updated.reason }
+        }
+      });
+
+      void writeAuditLog({
+        ...context,
+        module: 'Inventory',
+        action: 'StockAdjustmentPosted',
+        entityType: 'StockAdjustment',
+        entityId: updated.adjustmentId,
+        after: { status: 'Posted', lines: movements.length }
+      });
+    }
   }
   return {
     adjustmentId,
