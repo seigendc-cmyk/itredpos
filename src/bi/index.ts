@@ -15,3 +15,4 @@ export * from "./alerts/alertsEngine";
 export * from "./recommendations/recommendationEngine";
 export * from "./predictions/predictiveModelsEngine";
 export * from "./dashboard/biDashboardSummary";
+export * from "./BIEngine";
