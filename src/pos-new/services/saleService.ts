@@ -1,6 +1,20 @@
 import { Sale, HeldTransaction, CartItem } from '../types/posTypes';
 import { mockHeldTransactions, mockRecentSales } from '../mock/mockPosData';
 import { publishCommerceEvent } from '../../commerce-integration/events/publishCommerceEvent';
+import { writeAuditLog } from '../../commerce-integration/audit/writeAuditLog';
+
+/**
+ * Provides the necessary context for sales operations, including
+ * identifiers for tenancy, location, staff, and customer.
+ */
+export interface SalesContext {
+  vendorId: string;
+  branchId: string;
+  terminalId: string;
+  staffId: string;
+  customerId?: string;
+  correlationId?: string;
+}
 
 export const saleService = {
   getHeldTransactions: async (): Promise<HeldTransaction[]> => {
@@ -30,7 +44,10 @@ export const saleService = {
     return nextHeld;
   },
 
-  completeSale: async (saleDraft: Omit<Sale, 'id' | 'date' | 'invoiceNo'>): Promise<Sale> => {
+  completeSale: async (
+    saleDraft: Omit<Sale, 'id' | 'date' | 'invoiceNo'>,
+    context?: SalesContext
+  ): Promise<Sale> => {
     const freshSale: Sale = {
       ...saleDraft,
       id: `TXN-${Math.floor(10000 + Math.random() * 90000)}`,
@@ -39,21 +56,48 @@ export const saleService = {
     };
     mockRecentSales.push(freshSale);
 
-    void publishCommerceEvent({
-      eventType: 'SaleCompleted',
-      vendorId: freshSale.vendorId,
-      branchId: freshSale.branchId,
-      staffId: freshSale.staffId,
-      terminalId: freshSale.terminalId,
-      module: 'Sales',
-      entityType: 'Sale',
-      entityId: freshSale.id,
-      payload: {
-        summary: `Sale ${freshSale.invoiceNo} completed.`,
-        amount: freshSale.total,
-        items: freshSale.items
-      }
-    });
+    // Eventing and Auditing will only occur if context is provided.
+    if (context) {
+      // Publish SaleCompleted event after the core transaction succeeds.
+      void publishCommerceEvent({
+        eventType: 'SaleCompleted',
+        vendorId: context.vendorId,
+        branchId: context.branchId,
+        terminalId: context.terminalId,
+        staffId: context.staffId,
+        customerId: context.customerId,
+        correlationId: context.correlationId,
+        module: 'Sales',
+        entityType: 'Sale',
+        entityId: freshSale.id,
+        payload: {
+          summary: `Sale ${freshSale.invoiceNo} completed for ${freshSale.customerName}.`,
+          amount: freshSale.total,
+          currency: 'USD',
+          paymentMethod: freshSale.paymentMethod,
+          items: freshSale.items,
+          metadata: { invoiceNo: freshSale.invoiceNo },
+        },
+      });
+
+      // Write an audit log for the sale completion.
+      void writeAuditLog({
+        vendorId: context.vendorId,
+        branchId: context.branchId,
+        terminalId: context.terminalId,
+        staffId: context.staffId,
+        correlationId: context.correlationId,
+        module: 'Sales',
+        action: 'SaleCompleted',
+        entityType: 'Sale',
+        entityId: freshSale.id,
+        after: {
+          status: 'COMPLETED',
+          total: freshSale.total,
+          paymentMethod: freshSale.paymentMethod,
+        },
+      });
+    }
     return freshSale;
   }
 };
