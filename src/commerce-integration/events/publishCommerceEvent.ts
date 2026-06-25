@@ -1,3 +1,5 @@
+import { addDoc, collection, serverTimestamp } from 'firebase/firestore';
+import { db, firebaseReady } from '../../pos-new/firebase/firebaseApp';
 import type { CommerceEvent, CommerceEventInput } from './commerceEvents';
 import { dispatchCommerceEvent } from './eventDispatcher';
 
@@ -18,7 +20,14 @@ export async function publishCommerceEvent(input: CommerceEventInput): Promise<C
     occurredAt: new Date().toISOString(),
   };
 
-  console.info('[CommerceEvent]', event);
+  if (firebaseReady && db) {
+    await addDoc(collection(db, 'commerceEvents'), {
+      ...event,
+      createdAt: serverTimestamp(),
+    });
+  } else {
+    console.info('[CommerceEvent:local]', event);
+  }
 
   await dispatchCommerceEvent(event);
 

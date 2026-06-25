@@ -1,3 +1,6 @@
+import { addDoc, collection, serverTimestamp } from 'firebase/firestore';
+import { db, firebaseReady } from '../../pos-new/firebase/firebaseApp';
+
 export interface AuditLogInput {
   vendorId: string;
   branchId?: string;
@@ -35,7 +38,14 @@ export async function writeAuditLog(input: AuditLogInput): Promise<AuditLog> {
     createdAt: new Date().toISOString(),
   };
 
-  console.info('[AuditLog]', auditLog);
+  if (firebaseReady && db) {
+    await addDoc(collection(db, 'auditLogs'), {
+      ...auditLog,
+      createdAt: serverTimestamp(),
+    });
+  } else {
+    console.info('[AuditLog:local]', auditLog);
+  }
 
   return auditLog;
 }
