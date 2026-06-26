@@ -34,7 +34,6 @@ export async function dispatchCommerceEvent(event: CommerceEvent): Promise<void>
     case 'TransformationCompleted':
     case 'TransformationCancelled':
       consumeProductTransformationBIEvent(event);
-      consumeInventoryBIEvent(event);
       break;
 
     case 'CatalogueViewed':
