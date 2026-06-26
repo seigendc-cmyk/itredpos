@@ -1,20 +1,6 @@
 import { Sale, HeldTransaction, CartItem } from '../types/posTypes';
 import { mockHeldTransactions, mockRecentSales } from '../mock/mockPosData';
-import { publishCommerceEvent } from '../../commerce-integration/events/publishCommerceEvent';
-import { writeAuditLog } from '../../commerce-integration/audit/writeAuditLog';
-
-/**
- * Provides the necessary context for sales operations, including
- * identifiers for tenancy, location, staff, and customer.
- */
-export interface SalesContext {
-  vendorId: string;
-  branchId: string;
-  terminalId: string;
-  staffId: string;
-  customerId?: string;
-  correlationId?: string;
-}
+import { publishCommerceEvent, writeAuditLog, CommerceOperationContext } from '../../commerce-integration';
 
 export const saleService = {
   getHeldTransactions: async (): Promise<HeldTransaction[]> => {
@@ -46,7 +32,7 @@ export const saleService = {
 
   completeSale: async (
     saleDraft: Omit<Sale, 'id' | 'date' | 'invoiceNo'>,
-    context?: SalesContext
+    context?: CommerceOperationContext
   ): Promise<Sale> => {
     const freshSale: Sale = {
       ...saleDraft,

@@ -18,8 +18,7 @@ import {
 } from '../mock/mockPosData';
 import { createOperationalApproval } from './approvalService';
 import { calculateRunningBalance, postStockAdjustmentMovement } from './inventoryMovementService';
-import { publishCommerceEvent } from '../../commerce-integration/events/publishCommerceEvent';
-import { writeAuditLog } from '../../commerce-integration/audit/writeAuditLog';
+import { publishCommerceEvent, writeAuditLog, CommerceOperationContext } from '../../commerce-integration';
 
 const ADJUSTMENT_KEY = 'itred_pos_stock_adjustments_v1';
 const ADJUSTMENT_LINE_KEY = 'itred_pos_stock_adjustment_lines_v1';
@@ -36,19 +35,6 @@ export interface StockAdjustmentDraftPayload {
   requestedByStaffName: string;
   reason: StockAdjustmentReason;
   notes?: string;
-}
-
-/**
- * Provides the necessary context for stock adjustment operations, including
- * identifiers for tenancy, location, and the acting staff member.
- */
-export interface StockAdjustmentContext {
-  vendorId: string;
-  branchId: string;
-  warehouseId?: string;
-  terminalId?: string;
-  staffId: string;
-  correlationId?: string;
 }
 
 export interface StockAdjustmentPostingResult {
@@ -445,7 +431,7 @@ export async function rejectStockAdjustment(adjustmentId: string, staffId: strin
 
 export async function postStockAdjustment(
   adjustmentId: string,
-  context?: StockAdjustmentContext
+  context?: CommerceOperationContext
 ): Promise<StockAdjustmentPostingResult | null> {
   const record = await getStockAdjustmentById(adjustmentId);
   if (!record || (record.status !== 'Draft' && record.status !== 'Approved')) return null;

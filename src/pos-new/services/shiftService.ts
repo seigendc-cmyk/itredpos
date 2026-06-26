@@ -1,19 +1,6 @@
 import { Shift } from '../types/posTypes';
 import { mockShift } from '../mock/mockPosData';
-import { publishCommerceEvent } from '../../commerce-integration/events/publishCommerceEvent';
-import { writeAuditLog } from '../../commerce-integration/audit/writeAuditLog';
-
-/**
- * Provides the necessary context for shift operations, including
- * identifiers for tenancy, location, and the acting staff member.
- */
-export interface ShiftContext {
-  vendorId: string;
-  branchId: string;
-  terminalId: string;
-  staffId: string;
-  correlationId?: string;
-}
+import { publishCommerceEvent, writeAuditLog, CommerceOperationContext } from '../../commerce-integration';
 
 export const shiftService = {
   getCurrentShift: async (branchId: string, terminalId: string): Promise<Shift | null> => {
@@ -22,7 +9,7 @@ export const shiftService = {
 
   openShift: async (
     payload: { operator: string; startingCash: number },
-    context?: ShiftContext
+    context?: CommerceOperationContext
   ): Promise<Shift> => {
     mockShift.operator = payload.operator;
     mockShift.startingCash = payload.startingCash;
@@ -73,7 +60,7 @@ export const shiftService = {
 
   closeShift: async (
     payload: { actualCash: number; difference: number },
-    context?: ShiftContext
+    context?: CommerceOperationContext
   ): Promise<Shift> => {
     mockShift.status = 'CLOSED';
     mockShift.actualCash = payload.actualCash;
