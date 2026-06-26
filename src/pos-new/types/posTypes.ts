@@ -2021,6 +2021,7 @@ export type InventoryReferenceType =
   | 'ADJUSTMENT'
   | 'TRANSFER'
   | 'STOCK_TRANSFER'
+  | 'ProductTransformation'
   | 'SUPPLIER_RETURN'
   | 'DAMAGE'
   | 'MANUAL';
@@ -2042,6 +2043,7 @@ export interface InventoryMovement {
   referenceType: InventoryReferenceType;
   referenceNumber: string;
   transferId?: string;
+  transformationId?: string;
   qtyIn: number;
   qtyOut: number;
   balanceBefore: number;
