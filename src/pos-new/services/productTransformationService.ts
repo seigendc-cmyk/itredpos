@@ -1,4 +1,4 @@
-import { CommerceOperationContext } from '../../commerce-integration';
+import { CommerceOperationContext, publishCommerceEvent, writeAuditLog } from '../../commerce-integration';
 
 /**
  * STATUS: DRAFT -> PENDING_APPROVAL -> APPROVED -> COMPLETED
@@ -108,6 +108,21 @@ function makeId(prefix: string): string {
   return `${prefix}-${Date.now()}-${Math.floor(1000 + Math.random() * 9000)}`;
 }
 
+function updateTransformation(transformationId: string, patch: Partial<ProductTransformation>): ProductTransformation | null {
+  let updated: ProductTransformation | null = null;
+  const nextRecords = readList<ProductTransformation>(TRANSFORMATION_KEY, mockTransformations).map(record => {
+    if (record.transformationId === transformationId) {
+      updated = { ...record, ...patch, updatedAt: nowIso() };
+      return updated;
+    }
+    return record;
+  });
+  if (updated) {
+    saveList(TRANSFORMATION_KEY, nextRecords);
+  }
+  return updated;
+}
+
 /**
  * Creates a new draft product transformation job.
  * This is the initial step before defining input and output lines.
@@ -128,12 +143,25 @@ export async function createTransformationDraft(
   };
   saveList(TRANSFORMATION_KEY, [record, ...records]);
 
-  // TODO: Publish TransformationCreated event after successful draft creation
-  // if (context) {
-  //   publishCommerceEvent({ eventType: 'TransformationCreated', ... });
-  //   writeAuditLog({ action: 'TransformationCreated', ... });
-  // }
-
+  if (context) {
+    void publishCommerceEvent({
+      eventType: 'TransformationCreated',
+      ...context,
+      module: 'ProductTransformation',
+      entityType: 'ProductTransformation',
+      entityId: record.transformationId,
+      payload: { summary: `Transformation ${record.transformationNumber} created in draft.` }
+    });
+    void writeAuditLog({
+      ...context,
+      module: 'ProductTransformation',
+      action: 'TransformationCreated',
+      entityType: 'ProductTransformation',
+      entityId: record.transformationId,
+      before: {},
+      after: { status: 'Draft', requestedBy: payload.requestedByStaffName }
+    });
+  }
   return record;
 }
 
@@ -157,10 +185,31 @@ export async function getTransformationById(transformationId: string): Promise<P
 /**
  * Approves a transformation, allowing it to be posted.
  */
-export async function approveTransformation(transformationId: string, staffId: string): Promise<ProductTransformation | null> {
-  // Placeholder: Find, update status to 'Approved', and save.
-  console.log(`[TODO] Approve transformation ${transformationId} by ${staffId}`);
-  return getTransformationById(transformationId);
+export async function approveTransformation(
+  transformationId: string,
+  staffId: string,
+  context?: CommerceOperationContext
+): Promise<ProductTransformation | null> {
+  const record = await getTransformationById(transformationId);
+  if (!record || record.status === 'Completed' || record.status === 'Cancelled') {
+    return null;
+  }
+
+  const updated = updateTransformation(transformationId, { status: 'Approved', approvedByStaffId: staffId });
+
+  if (updated && context) {
+    void writeAuditLog({
+      ...context,
+      module: 'ProductTransformation',
+      action: 'TransformationApproved',
+      entityType: 'ProductTransformation',
+      entityId: transformationId,
+      before: { status: record.status },
+      after: { status: 'Approved', approvedBy: staffId }
+    });
+  }
+
+  return updated;
 }
 
 /**
@@ -170,16 +219,33 @@ export async function cancelTransformation(
   transformationId: string,
   context?: CommerceOperationContext
 ): Promise<ProductTransformation | null> {
-  // Placeholder: Find, update status to 'Cancelled', and save.
-  console.log(`[TODO] Cancel transformation ${transformationId}`);
+  const record = await getTransformationById(transformationId);
+  if (!record || record.status === 'Completed') {
+    return null;
+  }
 
-  // TODO: Publish TransformationCancelled event
-  // if (context) {
-  //   publishCommerceEvent({ eventType: 'TransformationCancelled', ... });
-  //   writeAuditLog({ action: 'TransformationCancelled', ... });
-  // }
+  const updated = updateTransformation(transformationId, { status: 'Cancelled' });
 
-  return getTransformationById(transformationId);
+  if (updated && context) {
+    void publishCommerceEvent({
+      eventType: 'TransformationCancelled',
+      ...context,
+      module: 'ProductTransformation',
+      entityType: 'ProductTransformation',
+      entityId: transformationId,
+      payload: { summary: `Transformation ${updated.transformationNumber} was cancelled.` }
+    });
+    void writeAuditLog({
+      ...context,
+      module: 'ProductTransformation',
+      action: 'TransformationCancelled',
+      entityType: 'ProductTransformation',
+      entityId: transformationId,
+      before: { status: record.status },
+      after: { status: 'Cancelled' }
+    });
+  }
+  return updated;
 }
 
 /**
@@ -215,6 +281,35 @@ export async function postTransformation(
     stockPosted: true,
     message: 'Transformation posted successfully (placeholder).',
   };
+}
+
+/**
+ * Rejects a transformation, preventing it from being posted.
+ */
+export async function rejectTransformation(
+  transformationId: string,
+  staffId: string,
+  context?: CommerceOperationContext
+): Promise<ProductTransformation | null> {
+  const record = await getTransformationById(transformationId);
+  if (!record || record.status === 'Completed' || record.status === 'Cancelled') {
+    return null;
+  }
+
+  const updated = updateTransformation(transformationId, { status: 'Rejected' });
+
+  if (updated && context) {
+    void writeAuditLog({
+      ...context,
+      module: 'ProductTransformation',
+      action: 'TransformationRejected',
+      entityType: 'ProductTransformation',
+      entityId: transformationId,
+      before: { status: record.status },
+      after: { status: 'Rejected', rejectedBy: staffId }
+    });
+  }
+  return updated;
 }
 
 /**
