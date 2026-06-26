@@ -216,3 +216,178 @@ export async function postTransformation(
     message: 'Transformation posted successfully (placeholder).',
   };
 }
+
+/**
+ * Retrieves all input lines for a given transformation.
+ */
+export async function getInputLines(transformationId: string): Promise<ProductTransformationInputLine[]> {
+  return readList<ProductTransformationInputLine>(INPUT_LINE_KEY, mockInputLines)
+    .filter(line => line.transformationId === transformationId);
+}
+
+/**
+ * Retrieves all output lines for a given transformation.
+ */
+export async function getOutputLines(transformationId: string): Promise<ProductTransformationOutputLine[]> {
+  return readList<ProductTransformationOutputLine>(OUTPUT_LINE_KEY, mockOutputLines)
+    .filter(line => line.transformationId === transformationId);
+}
+
+/**
+ * Adds a new input (raw material) line to a draft transformation.
+ */
+export async function addInputLine(
+  transformationId: string,
+  payload: Omit<ProductTransformationInputLine, 'lineId' | 'transformationId' | 'totalCost'>
+): Promise<ProductTransformationInputLine | null> {
+  const transformation = await getTransformationById(transformationId);
+  if (!transformation || transformation.status === 'Completed' || transformation.status === 'Cancelled') {
+    return null; // Prevent changes to completed or cancelled transformations
+  }
+  if (payload.qtyConsumed <= 0 || payload.unitCost < 0) {
+    return null; // Basic validation
+  }
+
+  const records = readList<ProductTransformationInputLine>(INPUT_LINE_KEY, mockInputLines);
+  const record: ProductTransformationInputLine = {
+    ...payload,
+    lineId: makeId('TRN-IN'),
+    transformationId,
+    totalCost: payload.qtyConsumed * payload.unitCost,
+  };
+  saveList(INPUT_LINE_KEY, [record, ...records]);
+  return record;
+}
+
+/**
+ * Updates an existing input line on a draft transformation.
+ */
+export async function updateInputLine(
+  transformationId: string,
+  lineId: string,
+  patch: Partial<Omit<ProductTransformationInputLine, 'lineId' | 'transformationId'>>
+): Promise<ProductTransformationInputLine | null> {
+  const transformation = await getTransformationById(transformationId);
+  if (!transformation || transformation.status === 'Completed' || transformation.status === 'Cancelled') {
+    return null;
+  }
+  if ((patch.qtyConsumed !== undefined && patch.qtyConsumed <= 0) || (patch.unitCost !== undefined && patch.unitCost < 0)) {
+    return null;
+  }
+
+  const records = readList<ProductTransformationInputLine>(INPUT_LINE_KEY, mockInputLines);
+  let updatedRecord: ProductTransformationInputLine | null = null;
+  const nextRecords = records.map(line => {
+    if (line.transformationId === transformationId && line.lineId === lineId) {
+      const base = { ...line, ...patch };
+      updatedRecord = {
+        ...base,
+        totalCost: base.qtyConsumed * base.unitCost,
+      };
+      return updatedRecord;
+    }
+    return line;
+  });
+
+  if (updatedRecord) {
+    saveList(INPUT_LINE_KEY, nextRecords);
+  }
+  return updatedRecord;
+}
+
+/**
+ * Removes an input line from a draft transformation.
+ */
+export async function removeInputLine(transformationId: string, lineId: string): Promise<boolean> {
+  const transformation = await getTransformationById(transformationId);
+  if (!transformation || transformation.status === 'Completed' || transformation.status === 'Cancelled') {
+    return false;
+  }
+
+  const records = readList<ProductTransformationInputLine>(INPUT_LINE_KEY, mockInputLines);
+  const nextRecords = records.filter(line => !(line.transformationId === transformationId && line.lineId === lineId));
+
+  if (nextRecords.length < records.length) {
+    saveList(INPUT_LINE_KEY, nextRecords);
+    return true;
+  }
+  return false;
+}
+
+/**
+ * Adds a new output (finished good) line to a draft transformation.
+ */
+export async function addOutputLine(
+  transformationId: string,
+  payload: Omit<ProductTransformationOutputLine, 'lineId' | 'transformationId' | 'totalValue'>
+): Promise<ProductTransformationOutputLine | null> {
+  const transformation = await getTransformationById(transformationId);
+  if (!transformation || transformation.status === 'Completed' || transformation.status === 'Cancelled') {
+    return null;
+  }
+  if (payload.qtyProduced <= 0 || payload.unitCost < 0) {
+    return null;
+  }
+
+  const records = readList<ProductTransformationOutputLine>(OUTPUT_LINE_KEY, mockOutputLines);
+  const record: ProductTransformationOutputLine = {
+    ...payload,
+    lineId: makeId('TRN-OUT'),
+    transformationId,
+    totalValue: payload.qtyProduced * payload.unitCost,
+  };
+  saveList(OUTPUT_LINE_KEY, [record, ...records]);
+  return record;
+}
+
+/**
+ * Updates an existing output line on a draft transformation.
+ */
+export async function updateOutputLine(
+  transformationId: string,
+  lineId: string,
+  patch: Partial<Omit<ProductTransformationOutputLine, 'lineId' | 'transformationId'>>
+): Promise<ProductTransformationOutputLine | null> {
+  const transformation = await getTransformationById(transformationId);
+  if (!transformation || transformation.status === 'Completed' || transformation.status === 'Cancelled') {
+    return null;
+  }
+  if ((patch.qtyProduced !== undefined && patch.qtyProduced <= 0) || (patch.unitCost !== undefined && patch.unitCost < 0)) {
+    return null;
+  }
+
+  const records = readList<ProductTransformationOutputLine>(OUTPUT_LINE_KEY, mockOutputLines);
+  let updatedRecord: ProductTransformationOutputLine | null = null;
+  const nextRecords = records.map(line => {
+    if (line.transformationId === transformationId && line.lineId === lineId) {
+      const base = { ...line, ...patch };
+      updatedRecord = { ...base, totalValue: base.qtyProduced * base.unitCost };
+      return updatedRecord;
+    }
+    return line;
+  });
+
+  if (updatedRecord) {
+    saveList(OUTPUT_LINE_KEY, nextRecords);
+  }
+  return updatedRecord;
+}
+
+/**
+ * Removes an output line from a draft transformation.
+ */
+export async function removeOutputLine(transformationId: string, lineId: string): Promise<boolean> {
+  const transformation = await getTransformationById(transformationId);
+  if (!transformation || transformation.status === 'Completed' || transformation.status === 'Cancelled') {
+    return false;
+  }
+
+  const records = readList<ProductTransformationOutputLine>(OUTPUT_LINE_KEY, mockOutputLines);
+  const nextRecords = records.filter(line => !(line.transformationId === transformationId && line.lineId === lineId));
+
+  if (nextRecords.length < records.length) {
+    saveList(OUTPUT_LINE_KEY, nextRecords);
+    return true;
+  }
+  return false;
+}
