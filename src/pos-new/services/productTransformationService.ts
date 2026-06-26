@@ -1,4 +1,5 @@
 import { CommerceOperationContext, publishCommerceEvent, writeAuditLog } from '../../commerce-integration';
+import { calculateRunningBalance, postInventoryMovement } from './inventoryMovementService';
 
 /**
  * STATUS: DRAFT -> PENDING_APPROVAL -> APPROVED -> COMPLETED
@@ -255,34 +256,103 @@ export async function postTransformation(
   transformationId: string,
   context?: CommerceOperationContext
 ): Promise<ProductTransformationPostingResult> {
-  const transformation = await getTransformationById(transformationId);
-  if (!transformation || (transformation.status !== 'Approved' && transformation.status !== 'Draft')) {
-    return { transformationId, transformationNumber: '', status: 'Draft', stockPosted: false, message: 'Transformation not found or not in a postable state.' };
+  const record = await getTransformationById(transformationId);
+  if (!record) return { transformationId, transformationNumber: '', status: 'Draft', stockPosted: false, message: 'Transformation not found.' };
+  if (record.status !== 'Approved') return { transformationId, transformationNumber: record.transformationNumber, status: record.status, stockPosted: false, message: 'Transformation must be in Approved state to post.' };
+
+  const inputLines = await getInputLines(transformationId);
+  const outputLines = await getOutputLines(transformationId);
+
+  if (inputLines.length === 0 || outputLines.length === 0) return { transformationId, transformationNumber: record.transformationNumber, status: record.status, stockPosted: false, message: 'Transformation requires at least one input and one output line to post.' };
+  if (inputLines.some(l => l.qtyConsumed <= 0)) return { transformationId, transformationNumber: record.transformationNumber, status: record.status, stockPosted: false, message: 'All input lines must have a consumed quantity greater than 0.' };
+  if (outputLines.some(l => l.qtyProduced <= 0)) return { transformationId, transformationNumber: record.transformationNumber, status: record.status, stockPosted: false, message: 'All output lines must have a produced quantity greater than 0.' };
+
+  const totalInputCost = inputLines.reduce((sum, line) => sum + line.totalCost, 0);
+  const totalOutputQty = outputLines.reduce((sum, line) => sum + line.qtyProduced, 0);
+  const allocatedOutputUnitCost = totalOutputQty > 0 ? totalInputCost / totalOutputQty : 0;
+
+  const staffId = context?.staffId || record.requestedByStaffId;
+
+  // Post movements for input lines (consumption)
+  for (const line of inputLines) {
+    const balanceBefore = await calculateRunningBalance(line.productId, line.sourceWarehouseId);
+    await postInventoryMovement({
+      vendorId: record.vendorId,
+      branchId: record.branchId,
+      warehouseId: line.sourceWarehouseId,
+      productId: line.productId,
+      sku: line.sku,
+      productName: line.productName,
+      shelfLocation: line.sourceShelfLocation || '',
+      movementType: 'RAW_TO_FINISHED_OUT',
+      referenceType: 'ProductTransformation',
+      referenceNumber: record.transformationNumber,
+      qtyIn: 0,
+      qtyOut: line.qtyConsumed,
+      balanceBefore,
+      balanceAfter: balanceBefore - line.qtyConsumed,
+      unitCost: line.unitCost,
+      sellingPrice: 0,
+      staffId,
+      staffName: staffId,
+      movementDate: nowIso(),
+      notes: `Input for transformation ${record.transformationNumber}.`,
+      status: 'Posted',
+    });
   }
 
-  // TODO: Post inventory movements for input lines (RAW_TO_FINISHED_OUT or similar)
-  console.log('[TODO] Post inventory movements for consumed input items.');
+  // Post movements for output lines (production)
+  for (const line of outputLines) {
+    const balanceBefore = await calculateRunningBalance(line.productId, line.destinationWarehouseId);
+    await postInventoryMovement({
+      vendorId: record.vendorId,
+      branchId: record.branchId,
+      warehouseId: line.destinationWarehouseId,
+      productId: line.productId,
+      sku: line.sku,
+      productName: line.productName,
+      shelfLocation: line.destinationShelfLocation || '',
+      movementType: 'RAW_TO_FINISHED_IN',
+      referenceType: 'ProductTransformation',
+      referenceNumber: record.transformationNumber,
+      qtyIn: line.qtyProduced,
+      qtyOut: 0,
+      balanceBefore,
+      balanceAfter: balanceBefore + line.qtyProduced,
+      unitCost: allocatedOutputUnitCost,
+      sellingPrice: 0, // Selling price is not determined here
+      staffId,
+      staffName: staffId,
+      movementDate: nowIso(),
+      notes: `Output from transformation ${record.transformationNumber}.`,
+      status: 'Posted',
+    });
+  }
 
-  // TODO: Post inventory movements for output lines (RAW_TO_FINISHED_IN or similar)
-  console.log('[TODO] Post inventory movements for produced output items.');
+  const updated = updateTransformation(transformationId, { status: 'Completed', completedByStaffId: staffId });
 
-  // TODO: Update transformation status to 'Completed' and save.
+  if (updated && context) {
+    void publishCommerceEvent({
+      eventType: 'TransformationCompleted',
+      ...context,
+      module: 'ProductTransformation',
+      entityType: 'ProductTransformation',
+      entityId: transformationId,
+      payload: { summary: `Transformation ${updated.transformationNumber} completed.` }
+    });
+    void writeAuditLog({
+      ...context,
+      module: 'ProductTransformation',
+      action: 'TransformationCompleted',
+      entityType: 'ProductTransformation',
+      entityId: transformationId,
+      before: { status: record.status },
+      after: { status: 'Completed', completedBy: staffId }
+    });
+  }
 
-  // TODO: Publish TransformationCompleted event after all movements are successful.
-  // if (context) {
-  //   publishCommerceEvent({ eventType: 'TransformationCompleted', ... });
-  //   writeAuditLog({ action: 'TransformationCompleted', ... });
-  // }
-
-  return {
-    transformationId,
-    transformationNumber: transformation.transformationNumber,
-    status: 'Completed',
-    stockPosted: true,
-    message: 'Transformation posted successfully (placeholder).',
-  };
+  return { transformationId, transformationNumber: record.transformationNumber, status: 'Completed', stockPosted: true, message: 'Transformation posted successfully. Input stock consumed and output stock created.' };
 }
-
 /**
  * Rejects a transformation, preventing it from being posted.
  */
