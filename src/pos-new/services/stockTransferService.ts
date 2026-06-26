@@ -362,7 +362,33 @@ export async function dispatchStockTransfer(
       await recordActivity({ transferId, transferNumber: record.transferNumber, eventType: 'STOCK_TRANSFER_SOURCE_STOCK_BLOCKED', operator: context?.staffId || record.requestedByStaffId, severity: 'High', message: `${record.transferNumber} dispatch blocked for ${line.sku}. Source available ${balanceBefore}, dispatch ${qtyDispatched}.` });
       return { transfer: record, movements, message: 'Source stock is not enough for one or more transfer lines.' };
     }
-    const movement = await postTransferMovement({ vendorId: record.vendorId, branchId: record.sourceBranchId, warehouseId: record.sourceWarehouseId, productId: line.productId, sku: line.sku, productName: line.productName, shelfLocation: line.sourceShelfLocation, movementType: movementTypeFor(record, 'OUT'), referenceType: 'STOCK_TRANSFER', referenceNumber: record.transferNumber, transferId: record.transferId, qtyIn: 0, qtyOut: qtyDispatched, balanceBefore, balanceAfter: Math.max(balanceBefore - qtyDispatched, 0), unitCost: line.unitCost, sellingPrice: 0, staffId: context?.staffId || record.requestedByStaffId, staffName: context?.staffId || record.requestedByStaffId, movementDate: nowIso(), notes: `Transfer dispatch from ${record.sourceBranchName} / ${record.sourceWarehouseName} to ${record.destinationBranchName} / ${record.destinationWarehouseName}. Destination stock not increased until receipt posting. Pending accounting review placeholder only. ${dispatchPayload.notes || ''}`, riskFlag: 'Medium', approvalRequired: false, status: 'Posted' });
+    const movement = await postTransferMovement({
+      vendorId: record.vendorId,
+      branchId: record.sourceBranchId,
+      warehouseId: record.sourceWarehouseId,
+      productId: line.productId,
+      sku: line.sku,
+      productName: line.productName,
+      shelfLocation: line.sourceShelfLocation,
+      movementType: movementTypeFor(record, 'OUT'),
+      referenceType: 'STOCK_TRANSFER',
+      referenceNumber: record.transferNumber,
+      transferId: record.transferId,
+      qtyIn: 0,
+      qtyOut: qtyDispatched,
+      balanceBefore,
+      balanceAfter: Math.max(balanceBefore - qtyDispatched, 0),
+      unitCost: line.unitCost,
+      sellingPrice: 0,
+      staffId: context?.staffId || record.requestedByStaffId,
+      staffName: context?.staffId || record.requestedByStaffId,
+      movementDate: nowIso(),
+      notes: `Transfer dispatch from ${record.sourceBranchName} / ${record.sourceWarehouseName} to ${record.destinationBranchName} / ${record.destinationWarehouseName}. Destination stock not increased until receipt posting. Pending accounting review placeholder only. ${dispatchPayload.notes || ''}`,
+      riskFlag: 'Medium',
+      approvalRequired: false,
+      status: 'Posted',
+      context
+    });
     movements.push(movement);
     updateLine(transferId, line.lineId, { qtyDispatched, dispatchPosted: true, dispatchMovementId: movement.movementId, lineStatus: qtyDispatched < line.qtyApproved ? 'Partially Dispatched' : 'In Transit' });
   }
@@ -458,7 +484,33 @@ export async function postTransferReceipt(
   const movements: InventoryMovement[] = [];
   for (const line of transferLines) {
     const balanceBefore = await calculateRunningBalance(line.productId, record.destinationWarehouseId);
-    const movement = await postTransferMovement({ vendorId: record.vendorId, branchId: record.destinationBranchId, warehouseId: record.destinationWarehouseId, productId: line.productId, sku: line.sku, productName: line.productName, shelfLocation: line.destinationShelfLocation, movementType: movementTypeFor(record, 'IN'), referenceType: 'STOCK_TRANSFER', referenceNumber: record.transferNumber, transferId: record.transferId, qtyIn: line.qtyAccepted, qtyOut: 0, balanceBefore, balanceAfter: balanceBefore + line.qtyAccepted, unitCost: line.unitCost, sellingPrice: 0, staffId: context?.staffId || record.receivedByStaffId || record.requestedByStaffId, staffName: context?.staffId || record.receivedByStaffId || record.requestedByStaffId, movementDate: nowIso(), notes: `Transfer receipt posted to ${record.destinationBranchName} / ${record.destinationWarehouseName}. Rejected or damaged quantity excluded from available stock. Pending accounting review placeholder only.`, riskFlag: line.varianceType === 'None' ? 'Low' : 'High', approvalRequired: line.varianceType !== 'None', status: 'Posted' });
+    const movement = await postTransferMovement({
+      vendorId: record.vendorId,
+      branchId: record.destinationBranchId,
+      warehouseId: record.destinationWarehouseId,
+      productId: line.productId,
+      sku: line.sku,
+      productName: line.productName,
+      shelfLocation: line.destinationShelfLocation,
+      movementType: movementTypeFor(record, 'IN'),
+      referenceType: 'STOCK_TRANSFER',
+      referenceNumber: record.transferNumber,
+      transferId: record.transferId,
+      qtyIn: line.qtyAccepted,
+      qtyOut: 0,
+      balanceBefore,
+      balanceAfter: balanceBefore + line.qtyAccepted,
+      unitCost: line.unitCost,
+      sellingPrice: 0,
+      staffId: context?.staffId || record.receivedByStaffId || record.requestedByStaffId,
+      staffName: context?.staffId || record.receivedByStaffId || record.requestedByStaffId,
+      movementDate: nowIso(),
+      notes: `Transfer receipt posted to ${record.destinationBranchName} / ${record.destinationWarehouseName}. Rejected or damaged quantity excluded from available stock. Pending accounting review placeholder only.`,
+      riskFlag: line.varianceType === 'None' ? 'Low' : 'High',
+      approvalRequired: line.varianceType !== 'None',
+      status: 'Posted',
+      context
+    });
     movements.push(movement);
     updateLine(transferId, line.lineId, { receiptPosted: true, receiptMovementId: movement.movementId, lineStatus: line.qtyOutstanding > 0 ? 'Partially Received' : 'Fully Received' });
   }

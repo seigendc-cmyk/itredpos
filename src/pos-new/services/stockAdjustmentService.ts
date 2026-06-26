@@ -468,6 +468,7 @@ export async function postStockAdjustment(
       balanceBefore,
       balanceAfter: balanceBefore + qtyImpact,
       unitCost: line.unitCost,
+      context,
       sellingPrice: 0,
       staffId,
       staffName: staffId,
