@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Recycle, RotateCcw } from 'lucide-react';
+import { Plus, Recycle, RotateCcw, X } from 'lucide-react';
 import { ProductTransformation } from '../types';
-import { getTransformations } from '../services/productTransformationService';
+import { createTransformationDraft, getTransformations } from '../services/productTransformationService';
 
 function POMetric({ label, value }: { label: string; value: string | number }) {
   return (
@@ -23,6 +23,8 @@ function statusClass(status: ProductTransformation['status']) {
 export default function ProductTransformationPanel() {
   const [records, setRecords] = useState<ProductTransformation[]>([]);
   const [notice, setNotice] = useState<string | null>(null);
+  const [createOpen, setCreateOpen] = useState(false);
+  const [draftNotes, setDraftNotes] = useState('');
 
   const refresh = async () => {
     const rows = await getTransformations({});
@@ -43,6 +45,21 @@ export default function ProductTransformationPanel() {
     };
   }, [records]);
 
+  const handleCreateDraft = async () => {
+    const draft = await createTransformationDraft({
+      vendorId: 'LOCAL_VENDOR',
+      branchId: 'LOCAL_BRANCH',
+      requestedByStaffId: 'LOCAL_STAFF',
+      requestedByStaffName: 'Local Operator',
+      notes: draftNotes.trim() || 'Product transformation draft created from POS workspace.'
+    });
+
+    setDraftNotes('');
+    setCreateOpen(false);
+    setNotice(`${draft.transformationNumber} created as draft.`);
+    await refresh();
+  };
+
   return (
     <div className="industrial-section p-5 space-y-5">
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 border-b border-gray-150 pb-3">
@@ -52,23 +69,63 @@ export default function ProductTransformationPanel() {
             Product Transformation
           </span>
           <p className="text-[9.5px] text-slate-700 mt-0.5 uppercase font-semibold">
-            Convert input materials into finished goods. Build 2K-03 is read-only list mode.
+            Convert input materials into finished goods. Build 2K-04 creates draft records only.
           </p>
         </div>
 
-        <button
-          type="button"
-          onClick={() => void refresh()}
-          className="px-4 py-2 bg-white hover:bg-slate-50 border border-[#b1b5c2] text-[#1e222b] font-black uppercase text-[9.5px] rounded-none cursor-pointer flex items-center gap-2"
-        >
-          <RotateCcw className="w-4 h-4" />
-          Refresh
-        </button>
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={() => setCreateOpen(true)}
+            className="px-4 py-2 bg-[#1e222b] hover:bg-black text-white font-black uppercase text-[9.5px] rounded-none cursor-pointer flex items-center gap-2"
+          >
+            <Plus className="w-4 h-4" />
+            New Transformation
+          </button>
+
+          <button
+            type="button"
+            onClick={() => void refresh()}
+            className="px-4 py-2 bg-white hover:bg-slate-50 border border-[#b1b5c2] text-[#1e222b] font-black uppercase text-[9.5px] rounded-none cursor-pointer flex items-center gap-2"
+          >
+            <RotateCcw className="w-4 h-4" />
+            Refresh
+          </button>
+        </div>
       </div>
 
       <div className="border border-orange-300 bg-orange-50 p-4 text-[9.5px] uppercase font-black text-slate-800">
-        Read-only transformation workspace. No stock movement, audit event, or posting logic is triggered from this screen.
+        Draft creation only. No stock movement, audit event, or posting logic is triggered from this screen.
       </div>
+
+      {createOpen && (
+        <div className="border border-[#b1b5c2] bg-white p-4 space-y-3">
+          <div className="flex items-center justify-between border-b border-gray-150 pb-2">
+            <span className="text-[10px] uppercase font-black text-[#1e222b]">Create Transformation Draft</span>
+            <button type="button" onClick={() => setCreateOpen(false)} className="text-slate-500 hover:text-red-600">
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+
+          <label className="block">
+            <span className="block text-[8.5px] uppercase font-black text-slate-500 mb-1">Notes</span>
+            <textarea
+              value={draftNotes}
+              onChange={(event) => setDraftNotes(event.target.value)}
+              className="w-full min-h-[90px] border border-[#b1b5c2] bg-white p-3 text-[10px] uppercase font-bold outline-none focus:border-orange-500 rounded-none"
+              placeholder="Describe the transformation, batch, repack, kit, or production job."
+            />
+          </label>
+
+          <button
+            type="button"
+            onClick={() => void handleCreateDraft()}
+            className="px-4 py-2 bg-orange-500 hover:bg-orange-600 text-white font-black uppercase text-[9.5px] rounded-none cursor-pointer"
+          >
+            Save Draft
+          </button>
+        </div>
+      )}
 
       {notice && (
         <div className="border border-[#b1b5c2] bg-slate-50 p-3 text-[9.5px] uppercase font-black text-slate-800">
