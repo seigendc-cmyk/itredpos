@@ -24,6 +24,7 @@ import {
   BarChart3,
   History,
   Activity,
+  Recycle,
   Archive,
   Ban
 } from 'lucide-react';
@@ -282,8 +283,8 @@ interface StockPanelsProps {
   setStockApprovals: React.Dispatch<React.SetStateAction<ApprovalRequest[]>>;
   canApprove: (reqType: ApprovalRequestType, role: Role) => boolean;
   onUpdateStock: (productId: string, newStock: number) => void;
-  activeTab: 'Stock List' | 'Product Master' | 'Goods Receiving' | 'Purchase Orders' | 'Supplier Returns' | 'Stock Adjustments' | 'Stocktake' | 'Stock Transfers';
-  setActiveTab: (tab: 'Stock List' | 'Product Master' | 'Goods Receiving' | 'Purchase Orders' | 'Supplier Returns' | 'Stock Adjustments' | 'Stocktake' | 'Stock Transfers') => void;
+  activeTab: 'Stock List' | 'Product Master' | 'Goods Receiving' | 'Purchase Orders' | 'Supplier Returns' | 'Stock Adjustments' | 'Stocktake' | 'Stock Transfers' | 'Product Transformation';
+  setActiveTab: (tab: 'Stock List' | 'Product Master' | 'Goods Receiving' | 'Purchase Orders' | 'Supplier Returns' | 'Stock Adjustments' | 'Stocktake' | 'Stock Transfers' | 'Product Transformation') => void;
   stocktakePreselect?: { shelfLocation?: string; productIds?: string[] } | null;
   stocktakePreselectToken?: number;
 }
@@ -4564,6 +4565,33 @@ export default function StockPanels({
         </div>
       )}
 
+      {activeTab === 'Product Transformation' && (
+        <div className="industrial-section p-5 space-y-5">
+          <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 border-b border-gray-150 pb-3">
+            <div>
+              <span className="font-extrabold text-[#111827] text-[11px] uppercase flex items-center gap-2">
+                <Recycle className="w-4 h-4 text-orange-500" />
+                Product Transformation
+              </span>
+              <p className="text-[9.5px] text-slate-700 mt-0.5 uppercase font-semibold">
+                Convert input materials into finished goods. This Build 2K-01 screen is a safe UI stub only.
+              </p>
+            </div>
+          </div>
+
+          <div className="border border-orange-300 bg-orange-50 p-4 text-[9.5px] uppercase font-black text-slate-800">
+            Product Transformation workspace is being introduced in controlled build stages. No stock movement, audit event, or posting logic is triggered from this stub.
+          </div>
+
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+            <POMetric label="Draft Jobs" value="--" />
+            <POMetric label="Pending Approval" value="--" />
+            <POMetric label="Completed" value="--" />
+            <POMetric label="Yield" value="--" />
+          </div>
+        </div>
+      )}
+
       {activeTab === 'Stock Transfers' && (
         <div className="industrial-section p-5 space-y-5">
           <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 border-b border-gray-150 pb-3">
@@ -5408,3 +5436,4 @@ function StocktakeSelect({ label, value, onChange, options }: { label: string; v
     </label>
   );
 }
+
