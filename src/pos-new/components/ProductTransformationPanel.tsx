@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Eye, Plus, Recycle, RotateCcw, Trash2, X } from 'lucide-react';
+import { Eye, Plus, Recycle, RotateCcw, Search, Trash2, X } from 'lucide-react';
 import {
   ProductTransformation,
   ProductTransformationInputLine,
@@ -17,6 +17,10 @@ import {
   updateInputLine,
   updateOutputLine
 } from '../services/productTransformationService';
+import {
+  POProductSearchResult,
+  searchProductsAnyOrder
+} from '../services/purchaseOrderProductService';
 
 function POMetric({ label, value }: { label: string; value: string | number }) {
   return (
@@ -39,23 +43,7 @@ function statusClass(status: ProductTransformation['status']) {
   return 'bg-slate-50 text-slate-700 border-slate-200';
 }
 
-const emptyInput = {
-  productId: 'MANUAL_INPUT',
-  sku: '',
-  productName: '',
-  qtyConsumed: 1,
-  unitCost: 0,
-  sourceWarehouseId: 'MAIN'
-};
-
-const emptyOutput = {
-  productId: 'MANUAL_OUTPUT',
-  sku: '',
-  productName: '',
-  qtyProduced: 1,
-  unitCost: 0,
-  destinationWarehouseId: 'MAIN'
-};
+type PickerMode = 'Input' | 'Output';
 
 export default function ProductTransformationPanel() {
   const [records, setRecords] = useState<ProductTransformation[]>([]);
@@ -65,6 +53,9 @@ export default function ProductTransformationPanel() {
   const [notice, setNotice] = useState<string | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
   const [draftNotes, setDraftNotes] = useState('');
+  const [pickerMode, setPickerMode] = useState<PickerMode | null>(null);
+  const [productQuery, setProductQuery] = useState('');
+  const [productResults, setProductResults] = useState<POProductSearchResult[]>([]);
 
   const refresh = async () => {
     const rows = await getTransformations({});
@@ -132,23 +123,63 @@ export default function ProductTransformationPanel() {
     await loadTransformationDetail(selected);
   };
 
-  const handleAddInput = async () => {
+  const openPicker = (mode: PickerMode) => {
     if (!selected || !editable) return;
-    const line = await addInputLine(selected.transformationId, emptyInput);
-    if (!line) {
-      setNotice('Input line could not be added.');
-      return;
-    }
-    await reloadSelected();
+    setPickerMode(mode);
+    setProductQuery('');
+    setProductResults([]);
   };
 
-  const handleAddOutput = async () => {
-    if (!selected || !editable) return;
-    const line = await addOutputLine(selected.transformationId, emptyOutput);
-    if (!line) {
-      setNotice('Output line could not be added.');
-      return;
+  const handleProductSearch = async () => {
+    const rows = await searchProductsAnyOrder(productQuery);
+    setProductResults(rows);
+    setNotice(`${rows.length} product match(es) found.`);
+  };
+
+  const handleSelectProduct = async (result: POProductSearchResult) => {
+    if (!selected || !pickerMode || !editable) return;
+
+    const product = result.product;
+    const warehouse = result.shelfLocation || 'MAIN';
+    const unitCost = product.defaultCostPrice || 0;
+
+    if (pickerMode === 'Input') {
+      const line = await addInputLine(selected.transformationId, {
+        productId: product.productId,
+        sku: product.sku || product.productCode,
+        productName: product.productName,
+        qtyConsumed: 1,
+        unitCost,
+        sourceWarehouseId: warehouse,
+        sourceShelfLocation: result.shelfLocation
+      });
+
+      if (!line) {
+        setNotice('Input product could not be added.');
+        return;
+      }
     }
+
+    if (pickerMode === 'Output') {
+      const line = await addOutputLine(selected.transformationId, {
+        productId: product.productId,
+        sku: product.sku || product.productCode,
+        productName: product.productName,
+        qtyProduced: 1,
+        unitCost,
+        destinationWarehouseId: warehouse,
+        destinationShelfLocation: result.shelfLocation
+      });
+
+      if (!line) {
+        setNotice('Output product could not be added.');
+        return;
+      }
+    }
+
+    setPickerMode(null);
+    setProductQuery('');
+    setProductResults([]);
     await reloadSelected();
   };
 
@@ -187,7 +218,7 @@ export default function ProductTransformationPanel() {
             Product Transformation
           </span>
           <p className="text-[9.5px] text-slate-700 mt-0.5 uppercase font-semibold">
-            Editable draft workspace. Build 2K-06 edits input and output lines only.
+            Product picker enabled. Build 2K-07 selects products from Product Master.
           </p>
         </div>
 
@@ -204,7 +235,7 @@ export default function ProductTransformationPanel() {
       </div>
 
       <div className="border border-orange-300 bg-orange-50 p-4 text-[9.5px] uppercase font-black text-slate-800">
-        Draft line editing only. No approval, cancellation, posting, audit, or stock movement is triggered from this build.
+        Product picker only. No approval, cancellation, posting, audit, or stock movement is triggered from this build.
       </div>
 
       {createOpen && (
@@ -219,6 +250,69 @@ export default function ProductTransformationPanel() {
           <button type="button" onClick={() => void handleCreateDraft()} className="px-4 py-2 bg-orange-500 hover:bg-orange-600 text-white font-black uppercase text-[9.5px] rounded-none cursor-pointer">
             Save Draft
           </button>
+        </div>
+      )}
+
+      {pickerMode && (
+        <div className="border border-[#b1b5c2] bg-white p-4 space-y-3">
+          <div className="flex items-center justify-between border-b border-gray-150 pb-2">
+            <span className="text-[10px] uppercase font-black text-[#1e222b]">
+              Select Product For {pickerMode} Line
+            </span>
+            <button type="button" onClick={() => setPickerMode(null)} className="text-slate-500 hover:text-red-600">
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+
+          <div className="flex gap-2">
+            <input
+              value={productQuery}
+              onChange={(event) => setProductQuery(event.target.value)}
+              className={fieldClass()}
+              placeholder="Search SKU, product name, barcode, brand, part number..."
+            />
+            <button
+              type="button"
+              onClick={() => void handleProductSearch()}
+              className="px-4 py-2 bg-[#1e222b] text-white font-black uppercase text-[9px] flex items-center gap-2"
+            >
+              <Search className="w-4 h-4" />
+              Search
+            </button>
+          </div>
+
+          <div className="border border-gray-200 overflow-x-auto max-h-[260px] pos-custom-scroll">
+            <table className="w-full text-[9px] uppercase">
+              <thead className="bg-slate-100 text-slate-700 font-black sticky top-0">
+                <tr>
+                  <th className="p-2 text-left">SKU</th>
+                  <th className="p-2 text-left">Product</th>
+                  <th className="p-2 text-right">Available</th>
+                  <th className="p-2 text-right">Cost</th>
+                  <th className="p-2 text-left">Shelf</th>
+                  <th className="p-2 text-center">Select</th>
+                </tr>
+              </thead>
+              <tbody>
+                {productResults.length === 0 ? (
+                  <tr><td colSpan={6} className="p-3 text-center text-slate-500 font-bold">Search for a product.</td></tr>
+                ) : productResults.map((row) => (
+                  <tr key={row.product.productId} className="border-t border-gray-100">
+                    <td className="p-2 font-bold">{row.product.sku || row.product.productCode}</td>
+                    <td className="p-2 font-bold">{row.product.productName}</td>
+                    <td className="p-2 text-right font-mono">{row.currentStock}</td>
+                    <td className="p-2 text-right font-mono">{row.product.defaultCostPrice.toFixed(2)}</td>
+                    <td className="p-2 font-bold">{row.shelfLocation || '-'}</td>
+                    <td className="p-2 text-center">
+                      <button type="button" onClick={() => void handleSelectProduct(row)} className="px-2 py-1 bg-orange-500 text-white text-[8px] uppercase font-black">
+                        Select
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
       )}
 
@@ -281,7 +375,7 @@ export default function ProductTransformationPanel() {
               <div>
                 <div className="flex items-center justify-between mb-2">
                   <h4 className="text-[10px] uppercase font-black text-[#1e222b]">Input Materials</h4>
-                  <button type="button" disabled={!editable} onClick={() => void handleAddInput()} className="px-3 py-1 bg-[#1e222b] disabled:bg-slate-300 text-white text-[8px] uppercase font-black">+ Add Input</button>
+                  <button type="button" disabled={!editable} onClick={() => openPicker('Input')} className="px-3 py-1 bg-[#1e222b] disabled:bg-slate-300 text-white text-[8px] uppercase font-black">+ Add Input</button>
                 </div>
                 <div className="border border-gray-200 overflow-x-auto">
                   <table className="w-full text-[9px] uppercase">
@@ -301,8 +395,8 @@ export default function ProductTransformationPanel() {
                         <tr><td colSpan={7} className="p-3 text-center text-slate-500 font-bold">No input lines captured.</td></tr>
                       ) : inputLines.map((line) => (
                         <tr key={line.lineId} className="border-t border-gray-100">
-                          <td className="p-1"><input disabled={!editable} className={fieldClass()} value={line.sku} onChange={(event) => void handleUpdateInput(line.lineId, { sku: event.target.value })} /></td>
-                          <td className="p-1"><input disabled={!editable} className={fieldClass()} value={line.productName} onChange={(event) => void handleUpdateInput(line.lineId, { productName: event.target.value })} /></td>
+                          <td className="p-2 font-bold">{line.sku}</td>
+                          <td className="p-2 font-bold">{line.productName}</td>
                           <td className="p-1"><input disabled={!editable} className={fieldClass()} value={line.sourceWarehouseId} onChange={(event) => void handleUpdateInput(line.lineId, { sourceWarehouseId: event.target.value })} /></td>
                           <td className="p-1"><input disabled={!editable} type="number" className={fieldClass()} value={line.qtyConsumed} onChange={(event) => void handleUpdateInput(line.lineId, { qtyConsumed: Number(event.target.value) })} /></td>
                           <td className="p-1"><input disabled={!editable} type="number" className={fieldClass()} value={line.unitCost} onChange={(event) => void handleUpdateInput(line.lineId, { unitCost: Number(event.target.value) })} /></td>
@@ -318,7 +412,7 @@ export default function ProductTransformationPanel() {
               <div>
                 <div className="flex items-center justify-between mb-2">
                   <h4 className="text-[10px] uppercase font-black text-[#1e222b]">Output Products</h4>
-                  <button type="button" disabled={!editable} onClick={() => void handleAddOutput()} className="px-3 py-1 bg-[#1e222b] disabled:bg-slate-300 text-white text-[8px] uppercase font-black">+ Add Output</button>
+                  <button type="button" disabled={!editable} onClick={() => openPicker('Output')} className="px-3 py-1 bg-[#1e222b] disabled:bg-slate-300 text-white text-[8px] uppercase font-black">+ Add Output</button>
                 </div>
                 <div className="border border-gray-200 overflow-x-auto">
                   <table className="w-full text-[9px] uppercase">
@@ -338,8 +432,8 @@ export default function ProductTransformationPanel() {
                         <tr><td colSpan={7} className="p-3 text-center text-slate-500 font-bold">No output lines captured.</td></tr>
                       ) : outputLines.map((line) => (
                         <tr key={line.lineId} className="border-t border-gray-100">
-                          <td className="p-1"><input disabled={!editable} className={fieldClass()} value={line.sku} onChange={(event) => void handleUpdateOutput(line.lineId, { sku: event.target.value })} /></td>
-                          <td className="p-1"><input disabled={!editable} className={fieldClass()} value={line.productName} onChange={(event) => void handleUpdateOutput(line.lineId, { productName: event.target.value })} /></td>
+                          <td className="p-2 font-bold">{line.sku}</td>
+                          <td className="p-2 font-bold">{line.productName}</td>
                           <td className="p-1"><input disabled={!editable} className={fieldClass()} value={line.destinationWarehouseId} onChange={(event) => void handleUpdateOutput(line.lineId, { destinationWarehouseId: event.target.value })} /></td>
                           <td className="p-1"><input disabled={!editable} type="number" className={fieldClass()} value={line.qtyProduced} onChange={(event) => void handleUpdateOutput(line.lineId, { qtyProduced: Number(event.target.value) })} /></td>
                           <td className="p-1"><input disabled={!editable} type="number" className={fieldClass()} value={line.unitCost} onChange={(event) => void handleUpdateOutput(line.lineId, { unitCost: Number(event.target.value) })} /></td>
