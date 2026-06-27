@@ -1,15 +1,21 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Eye, Plus, Recycle, RotateCcw, X } from 'lucide-react';
+import { Eye, Plus, Recycle, RotateCcw, Trash2, X } from 'lucide-react';
 import {
   ProductTransformation,
   ProductTransformationInputLine,
   ProductTransformationOutputLine
 } from '../types';
 import {
+  addInputLine,
+  addOutputLine,
   createTransformationDraft,
   getInputLines,
   getOutputLines,
-  getTransformations
+  getTransformations,
+  removeInputLine,
+  removeOutputLine,
+  updateInputLine,
+  updateOutputLine
 } from '../services/productTransformationService';
 
 function POMetric({ label, value }: { label: string; value: string | number }) {
@@ -21,6 +27,10 @@ function POMetric({ label, value }: { label: string; value: string | number }) {
   );
 }
 
+function fieldClass() {
+  return 'w-full border border-[#b1b5c2] bg-white px-2 py-1 text-[9px] uppercase font-bold outline-none focus:border-orange-500 rounded-none';
+}
+
 function statusClass(status: ProductTransformation['status']) {
   if (status === 'Completed') return 'bg-emerald-50 text-emerald-700 border-emerald-200';
   if (status === 'Cancelled' || status === 'Rejected') return 'bg-red-50 text-red-700 border-red-200';
@@ -28,6 +38,24 @@ function statusClass(status: ProductTransformation['status']) {
   if (status === 'Pending Approval') return 'bg-orange-50 text-orange-800 border-orange-200';
   return 'bg-slate-50 text-slate-700 border-slate-200';
 }
+
+const emptyInput = {
+  productId: 'MANUAL_INPUT',
+  sku: '',
+  productName: '',
+  qtyConsumed: 1,
+  unitCost: 0,
+  sourceWarehouseId: 'MAIN'
+};
+
+const emptyOutput = {
+  productId: 'MANUAL_OUTPUT',
+  sku: '',
+  productName: '',
+  qtyProduced: 1,
+  unitCost: 0,
+  destinationWarehouseId: 'MAIN'
+};
 
 export default function ProductTransformationPanel() {
   const [records, setRecords] = useState<ProductTransformation[]>([]);
@@ -65,14 +93,14 @@ export default function ProductTransformationPanel() {
     void refresh();
   }, []);
 
-  const summary = useMemo(() => {
-    return {
-      draft: records.filter((item) => item.status === 'Draft').length,
-      pending: records.filter((item) => item.status === 'Pending Approval').length,
-      approved: records.filter((item) => item.status === 'Approved').length,
-      completed: records.filter((item) => item.status === 'Completed').length
-    };
-  }, [records]);
+  const editable = selected?.status === 'Draft';
+
+  const summary = useMemo(() => ({
+    draft: records.filter((item) => item.status === 'Draft').length,
+    pending: records.filter((item) => item.status === 'Pending Approval').length,
+    approved: records.filter((item) => item.status === 'Approved').length,
+    completed: records.filter((item) => item.status === 'Completed').length
+  }), [records]);
 
   const detailSummary = useMemo(() => {
     const inputQty = inputLines.reduce((sum, line) => sum + line.qtyConsumed, 0);
@@ -95,9 +123,59 @@ export default function ProductTransformationPanel() {
 
     setDraftNotes('');
     setCreateOpen(false);
-    setNotice(`${draft.transformationNumber} created as draft.`);
     await refresh();
     await loadTransformationDetail(draft);
+  };
+
+  const reloadSelected = async () => {
+    if (!selected) return;
+    await loadTransformationDetail(selected);
+  };
+
+  const handleAddInput = async () => {
+    if (!selected || !editable) return;
+    const line = await addInputLine(selected.transformationId, emptyInput);
+    if (!line) {
+      setNotice('Input line could not be added.');
+      return;
+    }
+    await reloadSelected();
+  };
+
+  const handleAddOutput = async () => {
+    if (!selected || !editable) return;
+    const line = await addOutputLine(selected.transformationId, emptyOutput);
+    if (!line) {
+      setNotice('Output line could not be added.');
+      return;
+    }
+    await reloadSelected();
+  };
+
+  const handleUpdateInput = async (lineId: string, patch: Partial<ProductTransformationInputLine>) => {
+    if (!selected || !editable) return;
+    const updated = await updateInputLine(selected.transformationId, lineId, patch);
+    if (!updated) return;
+    setInputLines((prev) => prev.map((line) => line.lineId === lineId ? updated : line));
+  };
+
+  const handleUpdateOutput = async (lineId: string, patch: Partial<ProductTransformationOutputLine>) => {
+    if (!selected || !editable) return;
+    const updated = await updateOutputLine(selected.transformationId, lineId, patch);
+    if (!updated) return;
+    setOutputLines((prev) => prev.map((line) => line.lineId === lineId ? updated : line));
+  };
+
+  const handleRemoveInput = async (lineId: string) => {
+    if (!selected || !editable) return;
+    const removed = await removeInputLine(selected.transformationId, lineId);
+    if (removed) setInputLines((prev) => prev.filter((line) => line.lineId !== lineId));
+  };
+
+  const handleRemoveOutput = async (lineId: string) => {
+    if (!selected || !editable) return;
+    const removed = await removeOutputLine(selected.transformationId, lineId);
+    if (removed) setOutputLines((prev) => prev.filter((line) => line.lineId !== lineId));
   };
 
   return (
@@ -109,25 +187,16 @@ export default function ProductTransformationPanel() {
             Product Transformation
           </span>
           <p className="text-[9.5px] text-slate-700 mt-0.5 uppercase font-semibold">
-            Select a transformation and review input/output lines. Build 2K-05 is read-only detail mode.
+            Editable draft workspace. Build 2K-06 edits input and output lines only.
           </p>
         </div>
 
         <div className="flex flex-wrap gap-2">
-          <button
-            type="button"
-            onClick={() => setCreateOpen(true)}
-            className="px-4 py-2 bg-[#1e222b] hover:bg-black text-white font-black uppercase text-[9.5px] rounded-none cursor-pointer flex items-center gap-2"
-          >
+          <button type="button" onClick={() => setCreateOpen(true)} className="px-4 py-2 bg-[#1e222b] hover:bg-black text-white font-black uppercase text-[9.5px] rounded-none cursor-pointer flex items-center gap-2">
             <Plus className="w-4 h-4" />
             New Transformation
           </button>
-
-          <button
-            type="button"
-            onClick={() => void refresh()}
-            className="px-4 py-2 bg-white hover:bg-slate-50 border border-[#b1b5c2] text-[#1e222b] font-black uppercase text-[9.5px] rounded-none cursor-pointer flex items-center gap-2"
-          >
+          <button type="button" onClick={() => void refresh()} className="px-4 py-2 bg-white hover:bg-slate-50 border border-[#b1b5c2] text-[#1e222b] font-black uppercase text-[9.5px] rounded-none cursor-pointer flex items-center gap-2">
             <RotateCcw className="w-4 h-4" />
             Refresh
           </button>
@@ -135,7 +204,7 @@ export default function ProductTransformationPanel() {
       </div>
 
       <div className="border border-orange-300 bg-orange-50 p-4 text-[9.5px] uppercase font-black text-slate-800">
-        Read-only detail view. No stock movement, approval, cancellation, or posting logic is triggered from this build.
+        Draft line editing only. No approval, cancellation, posting, audit, or stock movement is triggered from this build.
       </div>
 
       {createOpen && (
@@ -146,32 +215,14 @@ export default function ProductTransformationPanel() {
               <X className="w-4 h-4" />
             </button>
           </div>
-
-          <label className="block">
-            <span className="block text-[8.5px] uppercase font-black text-slate-500 mb-1">Notes</span>
-            <textarea
-              value={draftNotes}
-              onChange={(event) => setDraftNotes(event.target.value)}
-              className="w-full min-h-[90px] border border-[#b1b5c2] bg-white p-3 text-[10px] uppercase font-bold outline-none focus:border-orange-500 rounded-none"
-              placeholder="Describe the transformation, batch, repack, kit, or production job."
-            />
-          </label>
-
-          <button
-            type="button"
-            onClick={() => void handleCreateDraft()}
-            className="px-4 py-2 bg-orange-500 hover:bg-orange-600 text-white font-black uppercase text-[9.5px] rounded-none cursor-pointer"
-          >
+          <textarea value={draftNotes} onChange={(event) => setDraftNotes(event.target.value)} className="w-full min-h-[90px] border border-[#b1b5c2] bg-white p-3 text-[10px] uppercase font-bold outline-none focus:border-orange-500 rounded-none" placeholder="Describe the transformation, batch, repack, kit, or production job." />
+          <button type="button" onClick={() => void handleCreateDraft()} className="px-4 py-2 bg-orange-500 hover:bg-orange-600 text-white font-black uppercase text-[9.5px] rounded-none cursor-pointer">
             Save Draft
           </button>
         </div>
       )}
 
-      {notice && (
-        <div className="border border-[#b1b5c2] bg-slate-50 p-3 text-[9.5px] uppercase font-black text-slate-800">
-          {notice}
-        </div>
-      )}
+      {notice && <div className="border border-[#b1b5c2] bg-slate-50 p-3 text-[9.5px] uppercase font-black text-slate-800">{notice}</div>}
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         <POMetric label="Draft Jobs" value={summary.draft} />
@@ -181,7 +232,7 @@ export default function ProductTransformationPanel() {
       </div>
 
       <div className="grid grid-cols-1 xl:grid-cols-12 gap-4 items-start">
-        <div className="xl:col-span-5 procurement-table-scroll pos-custom-scroll">
+        <div className="xl:col-span-4 procurement-table-scroll pos-custom-scroll">
           <table className="procurement-table">
             <thead>
               <tr className="bg-[#1e222b] text-white font-black uppercase text-[8px] h-9 select-none">
@@ -192,29 +243,18 @@ export default function ProductTransformationPanel() {
             </thead>
             <tbody className="divide-y divide-gray-200">
               {records.length === 0 ? (
-                <tr>
-                  <td colSpan={3} className="py-8 text-center uppercase font-bold text-slate-500">
-                    No product transformations found.
-                  </td>
-                </tr>
+                <tr><td colSpan={3} className="py-8 text-center uppercase font-bold text-slate-500">No product transformations found.</td></tr>
               ) : records.map((record) => (
                 <tr key={record.transformationId} className="hover:bg-slate-50 transition-colors h-11">
                   <td className="py-2 px-3">
                     <div className="font-black text-orange-700">{record.transformationNumber}</div>
                     <div className="text-[8px] uppercase font-bold text-slate-500">{record.transformationDate} | {record.branchId}</div>
-                    <div className="text-[8px] uppercase font-bold text-slate-500">{record.requestedByStaffName || record.requestedByStaffId}</div>
                   </td>
                   <td className="py-2 px-3 whitespace-nowrap">
-                    <span className={`inline-block px-2 py-0.5 border text-[8px] uppercase tracking-wide rounded-none ${statusClass(record.status)}`}>
-                      {record.status}
-                    </span>
+                    <span className={`inline-block px-2 py-0.5 border text-[8px] uppercase tracking-wide rounded-none ${statusClass(record.status)}`}>{record.status}</span>
                   </td>
                   <td className="py-2 px-3 text-center">
-                    <button
-                      type="button"
-                      onClick={() => void loadTransformationDetail(record)}
-                      className="inline-flex items-center gap-1 px-2 py-1 border border-[#b1b5c2] bg-white hover:bg-slate-50 text-[8px] uppercase font-black"
-                    >
+                    <button type="button" onClick={() => void loadTransformationDetail(record)} className="inline-flex items-center gap-1 px-2 py-1 border border-[#b1b5c2] bg-white hover:bg-slate-50 text-[8px] uppercase font-black">
                       <Eye className="w-3 h-3" />
                       View
                     </button>
@@ -225,7 +265,7 @@ export default function ProductTransformationPanel() {
           </table>
         </div>
 
-        <div className="xl:col-span-7 border border-[#b1b5c2] bg-white p-4 space-y-4">
+        <div className="xl:col-span-8 border border-[#b1b5c2] bg-white p-4 space-y-4">
           {selected ? (
             <>
               <div className="border-b border-gray-150 pb-3">
@@ -234,42 +274,40 @@ export default function ProductTransformationPanel() {
                     <h3 className="text-[13px] uppercase font-black text-[#1e222b]">{selected.transformationNumber}</h3>
                     <p className="text-[9px] uppercase font-bold text-slate-500">{selected.notes || 'No notes captured.'}</p>
                   </div>
-                  <span className={`inline-block px-2 py-0.5 border text-[8px] uppercase tracking-wide rounded-none ${statusClass(selected.status)}`}>
-                    {selected.status}
-                  </span>
-                </div>
-
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-2 mt-3 text-[9px] uppercase font-bold text-slate-700">
-                  <div><span className="block text-slate-400">Date</span>{selected.transformationDate}</div>
-                  <div><span className="block text-slate-400">Branch</span>{selected.branchId}</div>
-                  <div><span className="block text-slate-400">Requested</span>{selected.requestedByStaffName || selected.requestedByStaffId}</div>
-                  <div><span className="block text-slate-400">Completed</span>{selected.completedByStaffId || 'N/A'}</div>
+                  <span className={`inline-block px-2 py-0.5 border text-[8px] uppercase tracking-wide rounded-none ${statusClass(selected.status)}`}>{selected.status}</span>
                 </div>
               </div>
 
               <div>
-                <h4 className="text-[10px] uppercase font-black text-[#1e222b] mb-2">Input Materials</h4>
+                <div className="flex items-center justify-between mb-2">
+                  <h4 className="text-[10px] uppercase font-black text-[#1e222b]">Input Materials</h4>
+                  <button type="button" disabled={!editable} onClick={() => void handleAddInput()} className="px-3 py-1 bg-[#1e222b] disabled:bg-slate-300 text-white text-[8px] uppercase font-black">+ Add Input</button>
+                </div>
                 <div className="border border-gray-200 overflow-x-auto">
                   <table className="w-full text-[9px] uppercase">
                     <thead className="bg-slate-100 text-slate-700 font-black">
                       <tr>
                         <th className="p-2 text-left">SKU</th>
                         <th className="p-2 text-left">Product</th>
+                        <th className="p-2 text-left">Warehouse</th>
                         <th className="p-2 text-right">Qty</th>
                         <th className="p-2 text-right">Unit Cost</th>
                         <th className="p-2 text-right">Total</th>
+                        <th className="p-2 text-center">Delete</th>
                       </tr>
                     </thead>
                     <tbody>
                       {inputLines.length === 0 ? (
-                        <tr><td colSpan={5} className="p-3 text-center text-slate-500 font-bold">No input lines captured.</td></tr>
+                        <tr><td colSpan={7} className="p-3 text-center text-slate-500 font-bold">No input lines captured.</td></tr>
                       ) : inputLines.map((line) => (
                         <tr key={line.lineId} className="border-t border-gray-100">
-                          <td className="p-2 font-bold">{line.sku}</td>
-                          <td className="p-2 font-bold">{line.productName}</td>
-                          <td className="p-2 text-right font-mono">{line.qtyConsumed}</td>
-                          <td className="p-2 text-right font-mono">{line.unitCost.toFixed(2)}</td>
+                          <td className="p-1"><input disabled={!editable} className={fieldClass()} value={line.sku} onChange={(event) => void handleUpdateInput(line.lineId, { sku: event.target.value })} /></td>
+                          <td className="p-1"><input disabled={!editable} className={fieldClass()} value={line.productName} onChange={(event) => void handleUpdateInput(line.lineId, { productName: event.target.value })} /></td>
+                          <td className="p-1"><input disabled={!editable} className={fieldClass()} value={line.sourceWarehouseId} onChange={(event) => void handleUpdateInput(line.lineId, { sourceWarehouseId: event.target.value })} /></td>
+                          <td className="p-1"><input disabled={!editable} type="number" className={fieldClass()} value={line.qtyConsumed} onChange={(event) => void handleUpdateInput(line.lineId, { qtyConsumed: Number(event.target.value) })} /></td>
+                          <td className="p-1"><input disabled={!editable} type="number" className={fieldClass()} value={line.unitCost} onChange={(event) => void handleUpdateInput(line.lineId, { unitCost: Number(event.target.value) })} /></td>
                           <td className="p-2 text-right font-mono">{line.totalCost.toFixed(2)}</td>
+                          <td className="p-2 text-center"><button disabled={!editable} type="button" onClick={() => void handleRemoveInput(line.lineId)} className="text-red-600 disabled:text-slate-300"><Trash2 className="w-3 h-3" /></button></td>
                         </tr>
                       ))}
                     </tbody>
@@ -278,28 +316,35 @@ export default function ProductTransformationPanel() {
               </div>
 
               <div>
-                <h4 className="text-[10px] uppercase font-black text-[#1e222b] mb-2">Output Products</h4>
+                <div className="flex items-center justify-between mb-2">
+                  <h4 className="text-[10px] uppercase font-black text-[#1e222b]">Output Products</h4>
+                  <button type="button" disabled={!editable} onClick={() => void handleAddOutput()} className="px-3 py-1 bg-[#1e222b] disabled:bg-slate-300 text-white text-[8px] uppercase font-black">+ Add Output</button>
+                </div>
                 <div className="border border-gray-200 overflow-x-auto">
                   <table className="w-full text-[9px] uppercase">
                     <thead className="bg-slate-100 text-slate-700 font-black">
                       <tr>
                         <th className="p-2 text-left">SKU</th>
                         <th className="p-2 text-left">Product</th>
+                        <th className="p-2 text-left">Warehouse</th>
                         <th className="p-2 text-right">Qty</th>
                         <th className="p-2 text-right">Unit Cost</th>
                         <th className="p-2 text-right">Value</th>
+                        <th className="p-2 text-center">Delete</th>
                       </tr>
                     </thead>
                     <tbody>
                       {outputLines.length === 0 ? (
-                        <tr><td colSpan={5} className="p-3 text-center text-slate-500 font-bold">No output lines captured.</td></tr>
+                        <tr><td colSpan={7} className="p-3 text-center text-slate-500 font-bold">No output lines captured.</td></tr>
                       ) : outputLines.map((line) => (
                         <tr key={line.lineId} className="border-t border-gray-100">
-                          <td className="p-2 font-bold">{line.sku}</td>
-                          <td className="p-2 font-bold">{line.productName}</td>
-                          <td className="p-2 text-right font-mono">{line.qtyProduced}</td>
-                          <td className="p-2 text-right font-mono">{line.unitCost.toFixed(2)}</td>
+                          <td className="p-1"><input disabled={!editable} className={fieldClass()} value={line.sku} onChange={(event) => void handleUpdateOutput(line.lineId, { sku: event.target.value })} /></td>
+                          <td className="p-1"><input disabled={!editable} className={fieldClass()} value={line.productName} onChange={(event) => void handleUpdateOutput(line.lineId, { productName: event.target.value })} /></td>
+                          <td className="p-1"><input disabled={!editable} className={fieldClass()} value={line.destinationWarehouseId} onChange={(event) => void handleUpdateOutput(line.lineId, { destinationWarehouseId: event.target.value })} /></td>
+                          <td className="p-1"><input disabled={!editable} type="number" className={fieldClass()} value={line.qtyProduced} onChange={(event) => void handleUpdateOutput(line.lineId, { qtyProduced: Number(event.target.value) })} /></td>
+                          <td className="p-1"><input disabled={!editable} type="number" className={fieldClass()} value={line.unitCost} onChange={(event) => void handleUpdateOutput(line.lineId, { unitCost: Number(event.target.value) })} /></td>
                           <td className="p-2 text-right font-mono">{line.totalValue.toFixed(2)}</td>
+                          <td className="p-2 text-center"><button disabled={!editable} type="button" onClick={() => void handleRemoveOutput(line.lineId)} className="text-red-600 disabled:text-slate-300"><Trash2 className="w-3 h-3" /></button></td>
                         </tr>
                       ))}
                     </tbody>
@@ -316,9 +361,7 @@ export default function ProductTransformationPanel() {
               </div>
             </>
           ) : (
-            <div className="py-16 text-center uppercase font-black text-slate-500 text-[10px]">
-              Select a transformation to view input and output lines.
-            </div>
+            <div className="py-16 text-center uppercase font-black text-slate-500 text-[10px]">Select a transformation to view input and output lines.</div>
           )}
         </div>
       </div>
