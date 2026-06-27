@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Eye, Plus, Recycle, RotateCcw, Search, Trash2, X } from 'lucide-react';
+import { Ban, CheckCircle, Eye, Plus, Recycle, RotateCcw, Search, Trash2, X } from 'lucide-react';
 import {
   ProductTransformation,
   ProductTransformationInputLine,
@@ -8,6 +8,8 @@ import {
 import {
   addInputLine,
   addOutputLine,
+  approveTransformation,
+  cancelTransformation,
   createTransformationDraft,
   getInputLines,
   getOutputLines,
@@ -23,6 +25,7 @@ import {
 } from '../services/purchaseOrderProductService';
 
 function POMetric({ label, value }: { label: string; value: string | number }) {
+
   return (
     <div className="border border-[#b1b5c2] bg-white p-3">
       <span className="block text-[8.5px] uppercase font-black text-slate-500">{label}</span>
@@ -207,6 +210,30 @@ export default function ProductTransformationPanel() {
     if (!selected || !editable) return;
     const removed = await removeOutputLine(selected.transformationId, lineId);
     if (removed) setOutputLines((prev) => prev.filter((line) => line.lineId !== lineId));
+  };
+
+  const handleApprove = async () => {
+    if (!selected || selected.status !== 'Draft') return;
+    const updated = await approveTransformation(selected.transformationId, 'LOCAL_STAFF');
+    if (!updated) {
+      setNotice('Transformation could not be approved.');
+      return;
+    }
+    await refresh();
+    await loadTransformationDetail(updated);
+    setNotice(`${updated.transformationNumber} approved.`);
+  };
+
+  const handleCancel = async () => {
+    if (!selected || selected.status === 'Completed' || selected.status === 'Cancelled') return;
+    const updated = await cancelTransformation(selected.transformationId);
+    if (!updated) {
+      setNotice('Transformation could not be cancelled.');
+      return;
+    }
+    await refresh();
+    await loadTransformationDetail(updated);
+    setNotice(`${updated.transformationNumber} cancelled.`);
   };
 
   return (
@@ -446,6 +473,28 @@ export default function ProductTransformationPanel() {
                 </div>
               </div>
 
+              <div className="flex flex-wrap gap-2 border border-[#b1b5c2] bg-slate-50 p-3">
+                <button
+                  type="button"
+                  disabled={!selected || selected.status !== 'Draft'}
+                  onClick={() => void handleApprove()}
+                  className="px-4 py-2 bg-emerald-600 disabled:bg-slate-300 text-white font-black uppercase text-[9px] rounded-none cursor-pointer flex items-center gap-2"
+                >
+                  <CheckCircle className="w-4 h-4" />
+                  Approve
+                </button>
+
+                <button
+                  type="button"
+                  disabled={!selected || selected.status === 'Completed' || selected.status === 'Cancelled'}
+                  onClick={() => void handleCancel()}
+                  className="px-4 py-2 bg-red-600 disabled:bg-slate-300 text-white font-black uppercase text-[9px] rounded-none cursor-pointer flex items-center gap-2"
+                >
+                  <Ban className="w-4 h-4" />
+                  Cancel
+                </button>
+              </div>
+
               <div className="grid grid-cols-2 md:grid-cols-5 gap-2">
                 <POMetric label="Input Qty" value={detailSummary.inputQty} />
                 <POMetric label="Output Qty" value={detailSummary.outputQty} />
@@ -462,3 +511,5 @@ export default function ProductTransformationPanel() {
     </div>
   );
 }
+
+
