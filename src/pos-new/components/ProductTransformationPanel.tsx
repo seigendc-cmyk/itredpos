@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Ban, CheckCircle, Eye, Plus, Recycle, RotateCcw, Search, Trash2, X } from 'lucide-react';
+import { Ban, CheckCircle, Eye, Plus, Recycle, RotateCcw, Search, Send, Trash2, X } from 'lucide-react';
 import {
   ProductTransformation,
   ProductTransformationInputLine,
@@ -14,6 +14,7 @@ import {
   getInputLines,
   getOutputLines,
   getTransformations,
+  postTransformation,
   removeInputLine,
   removeOutputLine,
   updateInputLine,
@@ -234,6 +235,20 @@ export default function ProductTransformationPanel() {
     await refresh();
     await loadTransformationDetail(updated);
     setNotice(`${updated.transformationNumber} cancelled.`);
+  };
+
+  const handlePost = async () => {
+    if (!selected || selected.status !== 'Approved') return;
+
+    const result = await postTransformation(selected.transformationId);
+    setNotice(result.message);
+
+    await refresh();
+
+    const refreshed = (await getTransformations({})).find((item) => item.transformationId === selected.transformationId);
+    if (refreshed) {
+      await loadTransformationDetail(refreshed);
+    }
   };
 
   return (
@@ -493,6 +508,16 @@ export default function ProductTransformationPanel() {
                   <Ban className="w-4 h-4" />
                   Cancel
                 </button>
+
+                <button
+                  type="button"
+                  disabled={!selected || selected.status !== 'Approved'}
+                  onClick={() => void handlePost()}
+                  className="px-4 py-2 bg-orange-500 disabled:bg-slate-300 text-white font-black uppercase text-[9px] rounded-none cursor-pointer flex items-center gap-2"
+                >
+                  <Send className="w-4 h-4" />
+                  Post
+                </button>
               </div>
 
               <div className="grid grid-cols-2 md:grid-cols-5 gap-2">
@@ -511,5 +536,7 @@ export default function ProductTransformationPanel() {
     </div>
   );
 }
+
+
 
 
