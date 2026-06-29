@@ -148,6 +148,8 @@ export async function createTransformationDraft(
     ...payload,
   };
   saveList(TRANSFORMATION_KEY, [record, ...records]);
+  void writeFirestoreTransformation(record);
+
 
   if (context) {
     void publishCommerceEvent({
@@ -443,6 +445,8 @@ export async function addInputLine(
     totalCost: payload.qtyConsumed * payload.unitCost,
   };
   saveList(INPUT_LINE_KEY, [record, ...records]);
+  void writeFirestoreInputLine(record);
+
   return record;
 }
 
@@ -524,6 +528,8 @@ export async function addOutputLine(
     totalValue: payload.qtyProduced * payload.unitCost,
   };
   saveList(OUTPUT_LINE_KEY, [record, ...records]);
+  void writeFirestoreOutputLine(record);
+
   return record;
 }
 
@@ -578,3 +584,4 @@ export async function removeOutputLine(transformationId: string, lineId: string)
   }
   return false;
 }
+
