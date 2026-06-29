@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Ban, CheckCircle, Eye, Plus, Recycle, RotateCcw, Search, Send, Trash2, X } from 'lucide-react';
+import { BadgeCheck, Ban, Boxes, CheckCircle, CheckCircle2, Eye, FilePlus, Package, Plus, Recycle, RotateCcw, Search, Send, ShieldAlert, Trash2, X } from 'lucide-react';
 import {
   ProductTransformation,
   ProductTransformationInputLine,
@@ -48,6 +48,15 @@ function statusClass(status: ProductTransformation['status']) {
 }
 
 type PickerMode = 'Input' | 'Output';
+
+type TimelineItem = {
+  key: string;
+  label: string;
+  detail: string;
+  tone: string;
+  icon: React.ReactNode;
+};
+
 
 export default function ProductTransformationPanel() {
   const [records, setRecords] = useState<ProductTransformation[]>([]);
@@ -134,6 +143,82 @@ export default function ProductTransformationPanel() {
       valueVariance
     };
   }, [inputLines, outputLines]);
+
+  const timelineItems = useMemo<TimelineItem[]>(() => {
+    if (!selected) return [];
+
+    const items: TimelineItem[] = [
+      {
+        key: 'draft-created',
+        label: 'Draft Created',
+        detail: `${selected.transformationDate} | ${selected.requestedByStaffName || selected.requestedByStaffId}`,
+        tone: 'border-slate-300 bg-slate-50 text-slate-700',
+        icon: <FilePlus className="w-4 h-4" />
+      }
+    ];
+
+    inputLines.forEach((line) => {
+      items.push({
+        key: `input-${line.lineId}`,
+        label: 'Input Added',
+        detail: `${line.productName} | Qty ${line.qtyConsumed} | Cost ${line.totalCost.toFixed(2)}`,
+        tone: 'border-orange-200 bg-orange-50 text-orange-800',
+        icon: <Package className="w-4 h-4" />
+      });
+    });
+
+    outputLines.forEach((line) => {
+      items.push({
+        key: `output-${line.lineId}`,
+        label: 'Output Added',
+        detail: `${line.productName} | Qty ${line.qtyProduced} | Value ${line.totalValue.toFixed(2)}`,
+        tone: 'border-blue-200 bg-blue-50 text-blue-800',
+        icon: <Boxes className="w-4 h-4" />
+      });
+    });
+
+    if (selected.status === 'Approved' || selected.status === 'Completed') {
+      items.push({
+        key: 'approved',
+        label: 'Approved',
+        detail: selected.approvedByStaffId || 'Approval captured',
+        tone: 'border-emerald-200 bg-emerald-50 text-emerald-800',
+        icon: <BadgeCheck className="w-4 h-4" />
+      });
+    }
+
+    if (selected.status === 'Cancelled') {
+      items.push({
+        key: 'cancelled',
+        label: 'Cancelled',
+        detail: 'Transformation cancelled before posting',
+        tone: 'border-red-200 bg-red-50 text-red-800',
+        icon: <Ban className="w-4 h-4" />
+      });
+    }
+
+    if (selected.status === 'Rejected') {
+      items.push({
+        key: 'rejected',
+        label: 'Rejected',
+        detail: 'Transformation rejected',
+        tone: 'border-red-200 bg-red-50 text-red-800',
+        icon: <ShieldAlert className="w-4 h-4" />
+      });
+    }
+
+    if (selected.status === 'Completed') {
+      items.push({
+        key: 'posted',
+        label: 'Posted',
+        detail: 'Inventory movements generated and transformation completed',
+        tone: 'border-blue-200 bg-blue-50 text-blue-800',
+        icon: <CheckCircle2 className="w-4 h-4" />
+      });
+    }
+
+    return items;
+  }, [selected, inputLines, outputLines]);
 
   const handleCreateDraft = async () => {
     const draft = await createTransformationDraft({
@@ -563,6 +648,27 @@ export default function ProductTransformationPanel() {
                 <POMetric label="Value Variance" value={detailSummary.valueVariance.toFixed(2)} />
                 <POMetric label="Yield %" value={detailSummary.yieldPercent.toFixed(2)} />
               </div>
+
+              <div className="border border-[#b1b5c2] bg-white p-4 space-y-3">
+                <div className="flex items-center justify-between border-b border-gray-150 pb-2">
+                  <span className="text-[10px] uppercase font-black text-[#1e222b]">Transformation Activity Timeline</span>
+                  <span className="text-[8px] uppercase font-black text-slate-400">{timelineItems.length} Event(s)</span>
+                </div>
+
+                <div className="space-y-2">
+                  {timelineItems.length === 0 ? (
+                    <div className="py-6 text-center uppercase font-black text-slate-500 text-[9px]">No activity captured.</div>
+                  ) : timelineItems.map((item) => (
+                    <div key={item.key} className={`flex items-start gap-3 border p-3 ${item.tone}`}>
+                      <div className="mt-0.5">{item.icon}</div>
+                      <div>
+                        <div className="text-[9.5px] uppercase font-black">{item.label}</div>
+                        <div className="text-[8.5px] uppercase font-bold opacity-80">{item.detail}</div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
             </>
           ) : (
             <div className="py-16 text-center uppercase font-black text-slate-500 text-[10px]">Select a transformation to view input and output lines.</div>
@@ -572,6 +678,7 @@ export default function ProductTransformationPanel() {
     </div>
   );
 }
+
 
 
 
