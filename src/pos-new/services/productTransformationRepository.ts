@@ -1,5 +1,6 @@
 import {
   collection,
+  deleteDoc,
   doc,
   getDocs,
   query,
@@ -69,3 +70,15 @@ export async function writeFirestoreOutputLine(record: ProductTransformationOutp
 
   await setDoc(doc(db, OUTPUT_LINE_COLLECTION, record.lineId), record, { merge: true });
 }
+export async function deleteFirestoreInputLine(lineId: string): Promise<void> {
+  if (!canUseProductTransformationFirestore() || !db || !lineId) return;
+
+  await deleteDoc(doc(db, INPUT_LINE_COLLECTION, lineId));
+}
+
+export async function deleteFirestoreOutputLine(lineId: string): Promise<void> {
+  if (!canUseProductTransformationFirestore() || !db || !lineId) return;
+
+  await deleteDoc(doc(db, OUTPUT_LINE_COLLECTION, lineId));
+}
+

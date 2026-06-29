@@ -505,6 +505,7 @@ export async function removeInputLine(transformationId: string, lineId: string):
 
   if (nextRecords.length < records.length) {
     saveList(INPUT_LINE_KEY, nextRecords);
+    void deleteFirestoreInputLine(lineId);
     return true;
   }
   return false;
@@ -586,6 +587,7 @@ export async function removeOutputLine(transformationId: string, lineId: string)
 
   if (nextRecords.length < records.length) {
     saveList(OUTPUT_LINE_KEY, nextRecords);
+    void deleteFirestoreOutputLine(lineId);
     return true;
   }
   return false;
