@@ -93,12 +93,27 @@ export default function ProductTransformationPanel() {
 
   const editable = selected?.status === 'Draft';
 
-  const summary = useMemo(() => ({
-    draft: records.filter((item) => item.status === 'Draft').length,
-    pending: records.filter((item) => item.status === 'Pending Approval').length,
-    approved: records.filter((item) => item.status === 'Approved').length,
-    completed: records.filter((item) => item.status === 'Completed').length
-  }), [records]);
+  const summary = useMemo(() => {
+    const total = records.length;
+    const draft = records.filter((item) => item.status === 'Draft').length;
+    const pending = records.filter((item) => item.status === 'Pending Approval').length;
+    const approved = records.filter((item) => item.status === 'Approved').length;
+    const completed = records.filter((item) => item.status === 'Completed').length;
+    const cancelled = records.filter((item) => item.status === 'Cancelled').length;
+    const active = draft + pending + approved;
+    const completionRate = total > 0 ? (completed / total) * 100 : 0;
+
+    return {
+      total,
+      draft,
+      pending,
+      approved,
+      completed,
+      cancelled,
+      active,
+      completionRate
+    };
+  }, [records]);
 
   const detailSummary = useMemo(() => {
     const inputQty = inputLines.reduce((sum, line) => sum + line.qtyConsumed, 0);
@@ -106,8 +121,18 @@ export default function ProductTransformationPanel() {
     const inputCost = inputLines.reduce((sum, line) => sum + line.totalCost, 0);
     const outputValue = outputLines.reduce((sum, line) => sum + line.totalValue, 0);
     const yieldPercent = inputQty > 0 ? (outputQty / inputQty) * 100 : 0;
+    const quantityVariance = outputQty - inputQty;
+    const valueVariance = outputValue - inputCost;
 
-    return { inputQty, outputQty, inputCost, outputValue, yieldPercent };
+    return {
+      inputQty,
+      outputQty,
+      inputCost,
+      outputValue,
+      yieldPercent,
+      quantityVariance,
+      valueVariance
+    };
   }, [inputLines, outputLines]);
 
   const handleCreateDraft = async () => {
@@ -363,11 +388,15 @@ export default function ProductTransformationPanel() {
 
       {notice && <div className="border border-[#b1b5c2] bg-slate-50 p-3 text-[9.5px] uppercase font-black text-slate-800">{notice}</div>}
 
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+      <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-8 gap-3">
+        <POMetric label="Total Jobs" value={summary.total} />
+        <POMetric label="Active Jobs" value={summary.active} />
         <POMetric label="Draft Jobs" value={summary.draft} />
         <POMetric label="Pending Approval" value={summary.pending} />
         <POMetric label="Approved" value={summary.approved} />
         <POMetric label="Completed" value={summary.completed} />
+        <POMetric label="Cancelled" value={summary.cancelled} />
+        <POMetric label="Completion %" value={summary.completionRate.toFixed(2)} />
       </div>
 
       <div className="grid grid-cols-1 xl:grid-cols-12 gap-4 items-start">
@@ -525,11 +554,13 @@ export default function ProductTransformationPanel() {
                 </button>
               </div>
 
-              <div className="grid grid-cols-2 md:grid-cols-5 gap-2">
+              <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-7 gap-2">
                 <POMetric label="Input Qty" value={detailSummary.inputQty} />
                 <POMetric label="Output Qty" value={detailSummary.outputQty} />
+                <POMetric label="Qty Variance" value={detailSummary.quantityVariance} />
                 <POMetric label="Input Cost" value={detailSummary.inputCost.toFixed(2)} />
                 <POMetric label="Output Value" value={detailSummary.outputValue.toFixed(2)} />
+                <POMetric label="Value Variance" value={detailSummary.valueVariance.toFixed(2)} />
                 <POMetric label="Yield %" value={detailSummary.yieldPercent.toFixed(2)} />
               </div>
             </>
@@ -541,5 +572,6 @@ export default function ProductTransformationPanel() {
     </div>
   );
 }
+
 
 
