@@ -213,6 +213,7 @@ export async function approveTransformation(
   }
 
   const updated = updateTransformation(transformationId, { status: 'Approved', approvedByStaffId: staffId });
+  if (updated) void writeFirestoreTransformation(updated);
 
   if (updated && context) {
     void writeAuditLog({
@@ -242,6 +243,7 @@ export async function cancelTransformation(
   }
 
   const updated = updateTransformation(transformationId, { status: 'Cancelled' });
+  if (updated) void writeFirestoreTransformation(updated);
 
   if (updated && context) {
     void publishCommerceEvent({
@@ -348,6 +350,7 @@ export async function postTransformation(
   }
 
   const updated = updateTransformation(transformationId, { status: 'Completed', completedByStaffId: staffId });
+  if (updated) void writeFirestoreTransformation(updated);
 
   if (updated && context) {
     void publishCommerceEvent({
@@ -385,6 +388,7 @@ export async function rejectTransformation(
   }
 
   const updated = updateTransformation(transformationId, { status: 'Rejected' });
+  if (updated) void writeFirestoreTransformation(updated);
 
   if (updated && context) {
     void writeAuditLog({
@@ -482,6 +486,7 @@ export async function updateInputLine(
 
   if (updatedRecord) {
     saveList(INPUT_LINE_KEY, nextRecords);
+    void writeFirestoreInputLine(updatedRecord);
   }
   return updatedRecord;
 }
@@ -562,6 +567,7 @@ export async function updateOutputLine(
 
   if (updatedRecord) {
     saveList(OUTPUT_LINE_KEY, nextRecords);
+    void writeFirestoreOutputLine(updatedRecord);
   }
   return updatedRecord;
 }
