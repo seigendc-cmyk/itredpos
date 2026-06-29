@@ -24,6 +24,7 @@ import {
   POProductSearchResult,
   searchProductsAnyOrder
 } from '../services/purchaseOrderProductService';
+import { canUseProductTransformationFirestore } from '../services/productTransformationRepository';
 
 function POMetric({ label, value }: { label: string; value: string | number }) {
 
@@ -61,6 +62,7 @@ type TimelineItem = {
 export default function ProductTransformationPanel() {
   const [records, setRecords] = useState<ProductTransformation[]>([]);
   const [loading, setLoading] = useState(false);
+  const [lastRefresh, setLastRefresh] = useState<string>('');
   const [selected, setSelected] = useState<ProductTransformation | null>(null);
   const [inputLines, setInputLines] = useState<ProductTransformationInputLine[]>([]);
   const [outputLines, setOutputLines] = useState<ProductTransformationOutputLine[]>([]);
@@ -81,6 +83,7 @@ export default function ProductTransformationPanel() {
       const refreshed = rows.find((item) => item.transformationId === selected.transformationId) || null;
       setSelected(refreshed);
     }
+    setLastRefresh(new Date().toLocaleTimeString());
     setLoading(false);
   };
 
@@ -144,6 +147,13 @@ export default function ProductTransformationPanel() {
     };
   }, [inputLines, outputLines]);
 
+  const firestoreStatus = useMemo(() => ({
+    connected: canUseProductTransformationFirestore(),
+    transformations: records.length,
+    inputLines: inputLines.length,
+    outputLines: outputLines.length,
+    lastRefresh
+  }), [records, inputLines, outputLines, lastRefresh]);
   const timelineItems = useMemo<TimelineItem[]>(() => {
     if (!selected) return [];
 
@@ -484,6 +494,20 @@ export default function ProductTransformationPanel() {
         <POMetric label="Completion %" value={summary.completionRate.toFixed(2)} />
       </div>
 
+      <div className="border border-slate-300 bg-white p-3 mb-4">
+        <div className="text-[10px] font-black uppercase mb-2">
+          Firestore Verification
+        </div>
+
+        <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+          <POMetric label="Bridge" value={firestoreStatus.connected ? 'READY' : 'OFFLINE'} />
+          <POMetric label="Jobs" value={firestoreStatus.transformations} />
+          <POMetric label="Inputs" value={firestoreStatus.inputLines} />
+          <POMetric label="Outputs" value={firestoreStatus.outputLines} />
+          <POMetric label="Refresh" value={firestoreStatus.lastRefresh || '--'} />
+        </div>
+      </div>
+
       <div className="grid grid-cols-1 xl:grid-cols-12 gap-4 items-start">
         <div className="xl:col-span-4 procurement-table-scroll pos-custom-scroll">
           <table className="procurement-table">
@@ -678,7 +702,4 @@ export default function ProductTransformationPanel() {
     </div>
   );
 }
-
-
-
 
