@@ -3,6 +3,7 @@ import {
   deleteDoc,
   doc,
   getDocs,
+  onSnapshot,
   query,
   setDoc,
   where
@@ -80,5 +81,23 @@ export async function deleteFirestoreOutputLine(lineId: string): Promise<void> {
   if (!canUseProductTransformationFirestore() || !db || !lineId) return;
 
   await deleteDoc(doc(db, OUTPUT_LINE_COLLECTION, lineId));
+}
+export function subscribeToTransformations(
+  callback: (rows: ProductTransformation[]) => void
+): (() => void) | null {
+  if (!canUseProductTransformationFirestore() || !db) {
+    return null;
+  }
+
+  return onSnapshot(
+    collection(db, TRANSFORMATION_COLLECTION),
+    snapshot => {
+      const rows = snapshot.docs.map(d => d.data() as ProductTransformation);
+      callback(rows);
+    },
+    error => {
+      console.error('[Firestore Transformation Listener]', error);
+    }
+  );
 }
 
