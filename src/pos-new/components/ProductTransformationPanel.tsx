@@ -51,6 +51,7 @@ type PickerMode = 'Input' | 'Output';
 
 export default function ProductTransformationPanel() {
   const [records, setRecords] = useState<ProductTransformation[]>([]);
+  const [loading, setLoading] = useState(false);
   const [selected, setSelected] = useState<ProductTransformation | null>(null);
   const [inputLines, setInputLines] = useState<ProductTransformationInputLine[]>([]);
   const [outputLines, setOutputLines] = useState<ProductTransformationOutputLine[]>([]);
@@ -62,6 +63,7 @@ export default function ProductTransformationPanel() {
   const [productResults, setProductResults] = useState<POProductSearchResult[]>([]);
 
   const refresh = async () => {
+    setLoading(true);
     const rows = await getTransformations({});
     setRecords(rows);
     setNotice(`Loaded ${rows.length} transformation record(s).`);
@@ -70,6 +72,7 @@ export default function ProductTransformationPanel() {
       const refreshed = rows.find((item) => item.transformationId === selected.transformationId) || null;
       setSelected(refreshed);
     }
+    setLoading(false);
   };
 
   const loadTransformationDetail = async (record: ProductTransformation) => {
@@ -217,7 +220,7 @@ export default function ProductTransformationPanel() {
     if (!selected || selected.status !== 'Draft') return;
     const updated = await approveTransformation(selected.transformationId, 'LOCAL_STAFF');
     if (!updated) {
-      setNotice('Transformation could not be approved.');
+      setNotice('Unable to approve transformation.');
       return;
     }
     await refresh();
@@ -229,7 +232,7 @@ export default function ProductTransformationPanel() {
     if (!selected || selected.status === 'Completed' || selected.status === 'Cancelled') return;
     const updated = await cancelTransformation(selected.transformationId);
     if (!updated) {
-      setNotice('Transformation could not be cancelled.');
+      setNotice('Unable to cancel transformation.');
       return;
     }
     await refresh();
@@ -241,7 +244,7 @@ export default function ProductTransformationPanel() {
     if (!selected || selected.status !== 'Approved') return;
 
     const result = await postTransformation(selected.transformationId);
-    setNotice(result.message);
+    setNotice(result.stockPosted ? 'Transformation posted successfully.' : result.message);
 
     await refresh();
 
@@ -378,8 +381,10 @@ export default function ProductTransformationPanel() {
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-200">
-              {records.length === 0 ? (
-                <tr><td colSpan={3} className="py-8 text-center uppercase font-bold text-slate-500">No product transformations found.</td></tr>
+              {loading ? (
+                <tr><td colSpan={3} className="py-8 text-center uppercase font-bold text-slate-500">Loading Product Transformations...</td></tr>
+              ) : records.length === 0 ? (
+                <tr><td colSpan={3} className="py-8 text-center uppercase font-bold text-slate-500">No Product Transformations Found<br /><span className="text-[8px] text-slate-400">Create your first transformation draft to begin converting raw materials into finished products.</span></td></tr>
               ) : records.map((record) => (
                 <tr key={record.transformationId} className="hover:bg-slate-50 transition-colors h-11">
                   <td className="py-2 px-3">
@@ -536,8 +541,5 @@ export default function ProductTransformationPanel() {
     </div>
   );
 }
-
-
-
 
 
