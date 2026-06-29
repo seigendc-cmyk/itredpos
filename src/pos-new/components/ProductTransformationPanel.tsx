@@ -24,7 +24,10 @@ import {
   POProductSearchResult,
   searchProductsAnyOrder
 } from '../services/purchaseOrderProductService';
-import { canUseProductTransformationFirestore } from '../services/productTransformationRepository';
+import {
+  canUseProductTransformationFirestore,
+  subscribeToTransformations
+} from '../services/productTransformationRepository';
 
 function POMetric({ label, value }: { label: string; value: string | number }) {
 
@@ -100,7 +103,32 @@ export default function ProductTransformationPanel() {
   };
 
   useEffect(() => {
+
     void refresh();
+
+    const unsubscribe =
+      subscribeToTransformations((rows) => {
+
+        setRecords(rows);
+        setLastRefresh(new Date().toLocaleTimeString());
+
+        if (selected) {
+          const refreshed =
+            rows.find(
+              item =>
+                item.transformationId ===
+                selected.transformationId
+            ) || null;
+
+          setSelected(refreshed);
+        }
+
+      });
+
+    return () => {
+      unsubscribe?.();
+    };
+
   }, []);
 
   const editable = selected?.status === 'Draft';
