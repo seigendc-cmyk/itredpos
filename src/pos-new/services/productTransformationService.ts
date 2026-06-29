@@ -1,5 +1,10 @@
 import { CommerceOperationContext, publishCommerceEvent, writeAuditLog } from '../../commerce-integration';
 import { calculateRunningBalance, postInventoryMovement } from './inventoryMovementService';
+import {
+  readFirestoreInputLines,
+  readFirestoreOutputLines,
+  readFirestoreTransformations
+} from './productTransformationRepository';
 
 /**
  * STATUS: DRAFT -> PENDING_APPROVAL -> APPROVED -> COMPLETED
@@ -170,7 +175,11 @@ export async function createTransformationDraft(
  * Retrieves a list of product transformations, optionally filtered.
  */
 export async function getTransformations(filters: { status?: ProductTransformationStatus } = {}): Promise<ProductTransformation[]> {
-  const records = readList<ProductTransformation>(TRANSFORMATION_KEY, mockTransformations);
+  const firestoreRecords = await readFirestoreTransformations();
+  const records = firestoreRecords.length > 0
+    ? firestoreRecords
+    : readList<ProductTransformation>(TRANSFORMATION_KEY, mockTransformations);
+
   return records
     .filter(record => !filters.status || record.status === filters.status)
     .sort((a, b) => b.transformationNumber.localeCompare(a.transformationNumber));
@@ -180,7 +189,12 @@ export async function getTransformations(filters: { status?: ProductTransformati
  * Retrieves a single product transformation by its ID.
  */
 export async function getTransformationById(transformationId: string): Promise<ProductTransformation | null> {
-  return readList<ProductTransformation>(TRANSFORMATION_KEY, mockTransformations).find(t => t.transformationId === transformationId) || null;
+  const firestoreRecords = await readFirestoreTransformations();
+  const records = firestoreRecords.length > 0
+    ? firestoreRecords
+    : readList<ProductTransformation>(TRANSFORMATION_KEY, mockTransformations);
+
+  return records.find(t => t.transformationId === transformationId) || null;
 }
 
 /**
@@ -388,6 +402,9 @@ export async function rejectTransformation(
  * Retrieves all input lines for a given transformation.
  */
 export async function getInputLines(transformationId: string): Promise<ProductTransformationInputLine[]> {
+  const firestoreLines = await readFirestoreInputLines(transformationId);
+  if (firestoreLines.length > 0) return firestoreLines;
+
   return readList<ProductTransformationInputLine>(INPUT_LINE_KEY, mockInputLines)
     .filter(line => line.transformationId === transformationId);
 }
@@ -396,6 +413,9 @@ export async function getInputLines(transformationId: string): Promise<ProductTr
  * Retrieves all output lines for a given transformation.
  */
 export async function getOutputLines(transformationId: string): Promise<ProductTransformationOutputLine[]> {
+  const firestoreLines = await readFirestoreOutputLines(transformationId);
+  if (firestoreLines.length > 0) return firestoreLines;
+
   return readList<ProductTransformationOutputLine>(OUTPUT_LINE_KEY, mockOutputLines)
     .filter(line => line.transformationId === transformationId);
 }
