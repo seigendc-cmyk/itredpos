@@ -100,4 +100,41 @@ export function subscribeToTransformations(
     }
   );
 }
+export function subscribeToInputLines(
+  transformationId: string,
+  callback: (rows: ProductTransformationInputLine[]) => void
+): (() => void) | null {
+
+  if (!canUseProductTransformationFirestore() || !db) {
+    return null;
+  }
+
+  const q = query(
+    collection(db, INPUT_LINE_COLLECTION),
+    where('transformationId','==',transformationId)
+  );
+
+  return onSnapshot(q, snapshot => {
+    callback(snapshot.docs.map(d => d.data() as ProductTransformationInputLine));
+  });
+}
+
+export function subscribeToOutputLines(
+  transformationId: string,
+  callback: (rows: ProductTransformationOutputLine[]) => void
+): (() => void) | null {
+
+  if (!canUseProductTransformationFirestore() || !db) {
+    return null;
+  }
+
+  const q = query(
+    collection(db, OUTPUT_LINE_COLLECTION),
+    where('transformationId','==',transformationId)
+  );
+
+  return onSnapshot(q, snapshot => {
+    callback(snapshot.docs.map(d => d.data() as ProductTransformationOutputLine));
+  });
+}
 
