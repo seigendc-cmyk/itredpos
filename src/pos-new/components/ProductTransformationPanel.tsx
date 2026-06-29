@@ -26,7 +26,9 @@ import {
 } from '../services/purchaseOrderProductService';
 import {
   canUseProductTransformationFirestore,
-  subscribeToTransformations
+  subscribeToTransformations,
+  subscribeToInputLines,
+  subscribeToOutputLines
 } from '../services/productTransformationRepository';
 
 function POMetric({ label, value }: { label: string; value: string | number }) {
@@ -66,6 +68,8 @@ export default function ProductTransformationPanel() {
   const [records, setRecords] = useState<ProductTransformation[]>([]);
   const [loading, setLoading] = useState(false);
   const [lastRefresh, setLastRefresh] = useState<string>('');
+  const inputSubscription = React.useRef<(() => void) | null>(null);
+  const outputSubscription = React.useRef<(() => void) | null>(null);
   const [selected, setSelected] = useState<ProductTransformation | null>(null);
   const [inputLines, setInputLines] = useState<ProductTransformationInputLine[]>([]);
   const [outputLines, setOutputLines] = useState<ProductTransformationOutputLine[]>([]);
@@ -91,14 +95,34 @@ export default function ProductTransformationPanel() {
   };
 
   const loadTransformationDetail = async (record: ProductTransformation) => {
-    const [inputs, outputs] = await Promise.all([
-      getInputLines(record.transformationId),
-      getOutputLines(record.transformationId)
-    ]);
+    inputSubscription.current?.();
+    outputSubscription.current?.();
 
     setSelected(record);
-    setInputLines(inputs);
-    setOutputLines(outputs);
+
+    const inputUnsubscribe = subscribeToInputLines(
+      record.transformationId,
+      rows => setInputLines(rows)
+    );
+
+    const outputUnsubscribe = subscribeToOutputLines(
+      record.transformationId,
+      rows => setOutputLines(rows)
+    );
+
+    inputSubscription.current = inputUnsubscribe;
+    outputSubscription.current = outputUnsubscribe;
+
+    if (!inputUnsubscribe || !outputUnsubscribe) {
+      const [inputs, outputs] = await Promise.all([
+        getInputLines(record.transformationId),
+        getOutputLines(record.transformationId)
+      ]);
+
+      setInputLines(inputs);
+      setOutputLines(outputs);
+    }
+
     setNotice(`${record.transformationNumber} loaded.`);
   };
 
@@ -127,6 +151,8 @@ export default function ProductTransformationPanel() {
 
     return () => {
       unsubscribe?.();
+      inputSubscription.current?.();
+      outputSubscription.current?.();
     };
 
   }, []);
