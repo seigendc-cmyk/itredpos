@@ -2936,8 +2936,32 @@ export default function StockPanels({
           </select>
         </label>
       </div>
-
-
+      <div className="bg-white border border-[#b1b5c2] p-3 flex flex-wrap gap-2">
+        {([
+          'Stock List',
+          'Product Master',
+          'Goods Receiving',
+          'Purchase Orders',
+          'Supplier Returns',
+          'Stock Adjustments',
+          'Product Transformation',
+          'Stock Transfers',
+          'Stocktake'
+        ] as const).map((tab) => (
+          <button
+            key={tab}
+            type="button"
+            onClick={() => setActiveTab(tab)}
+            className={`px-3 py-1.5 border font-black uppercase text-[9px] rounded-none ${
+              activeTab === tab
+                ? 'bg-orange-600 text-white border-orange-700'
+                : 'bg-white text-[#1e222b] border-[#b1b5c2] hover:bg-slate-50'
+            }`}
+          >
+            {tab}
+          </button>
+        ))}
+      </div>
       {/* TAB SUB-PAGES SWAP ROUTERS */}
       {activeTab === 'Product Master' && (
         <div className="bg-white border border-[#b1b5c2] p-5 space-y-5">
@@ -5410,5 +5434,6 @@ function StocktakeSelect({ label, value, onChange, options }: { label: string; v
     </label>
   );
 }
+
 
 
