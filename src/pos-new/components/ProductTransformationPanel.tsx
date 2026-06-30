@@ -90,6 +90,7 @@ export default function ProductTransformationPanel() {
   const [bomFilterReadiness, setBomFilterReadiness] = useState('All');
   const [bomSearchQuery, setBomSearchQuery] = useState('');
   const [confirmingTemplate, setConfirmingTemplate] = useState<any | null>(null);
+  const [recipeApprovalNote, setRecipeApprovalNote] = useState('');
   const CUSTOM_TEMPLATES_KEY = 'sci_product_transformation_custom_bom_templates';
   const [customBomTemplates, setCustomBomTemplates] = useState<any[]>(() => {
     try {
@@ -109,6 +110,7 @@ export default function ProductTransformationPanel() {
     outputValue: number;
     variance: number;
     loadedAt: string;
+    approvalNote?: string;
   } | null>(null);
 
   interface RecipeUsageRecord {
@@ -732,6 +734,7 @@ export default function ProductTransformationPanel() {
     setOutputSearchQuery('');
     setOutputSearchResults([]);
     setConfirmingTemplate(null);
+    setRecipeApprovalNote('');
     await reloadSelected();
     setNotice(`${template.templateName} recipe loaded into draft.`);
 
@@ -757,7 +760,8 @@ export default function ProductTransformationPanel() {
       inputCost: getBomTemplateInputCost(template),
       outputValue: getBomTemplateOutputValue(template),
       variance: getBomTemplateVariance(template),
-      loadedAt: new Date().toLocaleString()
+      loadedAt: new Date().toLocaleString(),
+      approvalNote: recipeApprovalNote.trim()
     };
 
     setRecipeUsageHistory((prev) => {
@@ -1242,7 +1246,21 @@ export default function ProductTransformationPanel() {
             </button>
           </div>
 
-          <div className="flex gap-2">
+          {getTemplateApprovalReadiness(confirmingTemplate) === 'Needs Review' && (
+                      <div className="space-y-1">
+                        <label className="block text-[8.5px] uppercase font-black text-amber-800">Review / Approval Note</label>
+                        <textarea
+                          value={recipeApprovalNote}
+                          onChange={(event) => setRecipeApprovalNote(event.target.value)}
+                          placeholder="Capture reason for loading this recipe under review..."
+                          className="w-full min-h-[70px] border border-amber-300 bg-white px-2 py-1 text-[9px] uppercase font-bold text-[#1e222b] outline-none focus:border-orange-500 rounded-none"
+                        />
+                        {recipeApprovalNote.trim().length > 0 && recipeApprovalNote.trim().length < 10 && (
+                          <div className="text-[8px] uppercase font-bold text-red-700">Minimum 10 characters required.</div>
+                        )}
+                      </div>
+                    )}
+                    <div className="flex gap-2">
             <input
               value={productQuery}
               onChange={(event) => setProductQuery(event.target.value)}
@@ -1498,10 +1516,24 @@ export default function ProductTransformationPanel() {
                       <div>Output Value: <span className="font-extrabold text-[#1e222b]">USD {getBomTemplateOutputValue(confirmingTemplate).toFixed(2)}</span></div>
                       <div>Variance: <span className={`font-extrabold ${getBomTemplateVariance(confirmingTemplate) < 0 ? 'text-red-700' : 'text-emerald-700'}`}>USD {getBomTemplateVariance(confirmingTemplate).toFixed(2)}</span></div>
                     </div>
+                    {getTemplateApprovalReadiness(confirmingTemplate) === 'Needs Review' && (
+                      <div className="space-y-1">
+                        <label className="block text-[8.5px] uppercase font-black text-amber-800">Review / Approval Note</label>
+                        <textarea
+                          value={recipeApprovalNote}
+                          onChange={(event) => setRecipeApprovalNote(event.target.value)}
+                          placeholder="Capture reason for loading this recipe under review..."
+                          className="w-full min-h-[70px] border border-amber-300 bg-white px-2 py-1 text-[9px] uppercase font-bold text-[#1e222b] outline-none focus:border-orange-500 rounded-none"
+                        />
+                        {recipeApprovalNote.trim().length > 0 && recipeApprovalNote.trim().length < 10 && (
+                          <div className="text-[8px] uppercase font-bold text-red-700">Minimum 10 characters required.</div>
+                        )}
+                      </div>
+                    )}
                     <div className="flex gap-2">
                       <button
                         type="button"
-                        disabled={validateBomTemplate(confirmingTemplate).hasCritical || getTemplateApprovalReadiness(confirmingTemplate) === 'Blocked'}
+                        disabled={validateBomTemplate(confirmingTemplate).hasCritical || getTemplateApprovalReadiness(confirmingTemplate) === 'Blocked' || (getTemplateApprovalReadiness(confirmingTemplate) === 'Needs Review' && recipeApprovalNote.trim().length < 10)}
                         onClick={() => void handleApplyBomTemplate(confirmingTemplate)}
                         className="px-3 py-1.5 bg-orange-600 hover:bg-orange-700 border border-orange-700 text-white font-black uppercase text-[8.5px] rounded-none cursor-pointer disabled:bg-slate-300 disabled:border-slate-300 disabled:cursor-not-allowed"
                       >
@@ -1509,7 +1541,7 @@ export default function ProductTransformationPanel() {
                       </button>
                       <button
                         type="button"
-                        onClick={() => setConfirmingTemplate(null)}
+                        onClick={() => { setConfirmingTemplate(null); setRecipeApprovalNote(''); }}
                         className="px-3 py-1.5 bg-slate-200 hover:bg-slate-300 border border-slate-400 text-[#1e222b] font-black uppercase text-[8.5px] rounded-none cursor-pointer"
                       >
                         Cancel
@@ -1800,6 +1832,9 @@ export default function ProductTransformationPanel() {
                           <div className="font-extrabold text-[#1e222b]">{record.templateName}</div>
                           <div className="text-[7.5px] text-slate-500 mt-0.5">
                             Loaded into <strong className="text-orange-700">{record.transformationNumber}</strong> | {record.loadedAt}
+                            {record.approvalNote && (
+                              <div className="text-[7.5px] text-amber-700 mt-1">Note: {record.approvalNote}</div>
+                            )}
                           </div>
                         </div>
                         <div className="flex gap-3 text-right">
@@ -1891,6 +1926,9 @@ export default function ProductTransformationPanel() {
                     <div>Output Value: <span className="font-extrabold text-[#1e222b]">USD {lastLoadedTemplateSummary.outputValue.toFixed(2)}</span></div>
                     <div>Variance: <span className={`font-extrabold ${lastLoadedTemplateSummary.variance < 0 ? 'text-red-700' : 'text-emerald-700'}`}>USD {lastLoadedTemplateSummary.variance.toFixed(2)}</span></div>
                     <div>Loaded Time: <span className="font-extrabold text-[#1e222b]">{lastLoadedTemplateSummary.loadedAt}</span></div>
+                    {lastLoadedTemplateSummary.approvalNote && (
+                      <div>Approval Note: <span className="font-extrabold text-[#1e222b]">{lastLoadedTemplateSummary.approvalNote}</span></div>
+                    )}
                   </div>
                 </div>
               )}
