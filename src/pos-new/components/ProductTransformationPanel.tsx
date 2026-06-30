@@ -84,6 +84,8 @@ export default function ProductTransformationPanel() {
   const [outputSearchQuery, setOutputSearchQuery] = useState('');
   const [outputSearchResults, setOutputSearchResults] = useState<POProductSearchResult[]>([]);
   const [expandedTemplateId, setExpandedTemplateId] = useState<string | null>(null);
+  const [bomFilterType, setBomFilterType] = useState('All');
+  const [bomSearchQuery, setBomSearchQuery] = useState('');
 
   const refresh = async () => {
     setLoading(true);
@@ -193,6 +195,32 @@ export default function ProductTransformationPanel() {
     }
   ];
 
+  const filteredBomTemplates = useMemo(() => {
+    return bomTemplates.filter(template => {
+      const typeMatch = bomFilterType === 'All' || template.templateType === bomFilterType;
+
+      const searchMatch = (() => {
+        if (!bomSearchQuery.trim()) return true;
+        const query = bomSearchQuery.toLowerCase();
+        const inName = template.templateName.toLowerCase().includes(query);
+        const inType = template.templateType.toLowerCase().includes(query);
+        const inDescription = template.description.toLowerCase().includes(query);
+        const inInput = template.inputs.some(
+          line =>
+            line.sku.toLowerCase().includes(query) ||
+            line.productName.toLowerCase().includes(query)
+        );
+        const inOutput = template.outputs.some(
+          line =>
+            line.sku.toLowerCase().includes(query) ||
+            line.productName.toLowerCase().includes(query)
+        );
+        return inName || inType || inDescription || inInput || inOutput;
+      })();
+
+      return typeMatch && searchMatch;
+    });
+  }, [bomTemplates, bomFilterType, bomSearchQuery]);
 
   const getBomTemplateInputCost = (template: typeof bomTemplates[number]) =>
     template.inputs.reduce((sum, line) => sum + line.qtyConsumed * line.unitCost, 0);
@@ -843,8 +871,30 @@ export default function ProductTransformationPanel() {
                   <h4 className="text-[10px] uppercase font-black text-[#1e222b]">Recipe / BOM Templates</h4>
                   <p className="text-[8.5px] uppercase font-bold text-slate-600">Load a controlled recipe into this draft transformation.</p>
                 </div>
+
+                <div className="bg-white border border-[#b1b5c2] p-3 flex flex-col md:flex-row gap-2">
+                  <select
+                    value={bomFilterType}
+                    onChange={(e) => setBomFilterType(e.target.value)}
+                    className="w-full md:w-48 border border-[#b1b5c2] bg-white px-2 py-1 text-[9px] uppercase font-bold outline-none focus:border-orange-500 rounded-none"
+                  >
+                    <option value="All">All Recipe Types</option>
+                    <option value="Assembly">Assembly</option>
+                    <option value="Kit">Kit</option>
+                    <option value="Repack">Repack</option>
+                    <option value="Manufacturing">Manufacturing</option>
+                    <option value="Repair">Repair</option>
+                  </select>
+                  <input
+                    value={bomSearchQuery}
+                    onChange={(e) => setBomSearchQuery(e.target.value)}
+                    className="flex-1 w-full border border-[#b1b5c2] bg-white px-2 py-1 text-[9px] uppercase font-bold outline-none focus:border-orange-500 rounded-none"
+                    placeholder="Search recipe by name, type, SKU, product..."
+                  />
+                </div>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
                   {bomTemplates.map((template) => (
+                  {filteredBomTemplates.map((template) => (
                     <div key={template.templateId} className="bg-white border border-[#b1b5c2] p-3">
                       <div className="flex items-center justify-between gap-2">
                         <div className="text-[10px] uppercase font-black text-[#1e222b]">{template.templateName}</div>
