@@ -470,6 +470,17 @@ export default function ProductTransformationPanel() {
     return 'Blocked';
   };
 
+
+  const getApprovalNoteStatus = () => {
+    const length = recipeApprovalNote.trim().length;
+    if (!confirmingTemplate || getTemplateApprovalReadiness(confirmingTemplate) !== 'Needs Review') {
+      return { label: 'Not Required', className: 'border-slate-300 bg-slate-50 text-slate-600' };
+    }
+    if (length >= 10) {
+      return { label: 'Note Accepted', className: 'border-emerald-300 bg-emerald-50 text-emerald-800' };
+    }
+    return { label: `Note Required ${length}/10`, className: 'border-red-300 bg-red-50 text-red-800' };
+  };
   const combinedTemplates = useMemo(() => {
     return [...bomTemplates, ...customBomTemplates];
   }, [customBomTemplates]);
