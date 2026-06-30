@@ -1269,6 +1269,9 @@ export default function ProductTransformationPanel() {
                         {recipeApprovalNote.trim().length > 0 && recipeApprovalNote.trim().length < 10 && (
                           <div className="text-[8px] uppercase font-bold text-red-700">Minimum 10 characters required.</div>
                         )}
+                        <div className="text-[8px] uppercase font-bold text-slate-500">
+                          Characters: {recipeApprovalNote.trim().length} | Captured: {recipeApprovalNote.trim().length > 0 ? new Date().toLocaleTimeString() : '--'}
+                        </div>
                       </div>
                     )}
                     <div className="flex gap-2">
@@ -1539,6 +1542,9 @@ export default function ProductTransformationPanel() {
                         {recipeApprovalNote.trim().length > 0 && recipeApprovalNote.trim().length < 10 && (
                           <div className="text-[8px] uppercase font-bold text-red-700">Minimum 10 characters required.</div>
                         )}
+                        <div className="text-[8px] uppercase font-bold text-slate-500">
+                          Characters: {recipeApprovalNote.trim().length} | Captured: {recipeApprovalNote.trim().length > 0 ? new Date().toLocaleTimeString() : '--'}
+                        </div>
                       </div>
                     )}
                     <div className="flex gap-2">
@@ -1938,7 +1944,7 @@ export default function ProductTransformationPanel() {
                     <div>Variance: <span className={`font-extrabold ${lastLoadedTemplateSummary.variance < 0 ? 'text-red-700' : 'text-emerald-700'}`}>USD {lastLoadedTemplateSummary.variance.toFixed(2)}</span></div>
                     <div>Loaded Time: <span className="font-extrabold text-[#1e222b]">{lastLoadedTemplateSummary.loadedAt}</span></div>
                     {lastLoadedTemplateSummary.approvalNote && (
-                      <div>Approval Note: <span className="font-extrabold text-[#1e222b]">{lastLoadedTemplateSummary.approvalNote}</span></div>
+                      <div>Review / Approval Note: <span className="font-extrabold text-[#1e222b]">{lastLoadedTemplateSummary.approvalNote}</span></div>
                     )}
                   </div>
                 </div>
