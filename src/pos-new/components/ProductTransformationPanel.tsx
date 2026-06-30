@@ -86,6 +86,7 @@ export default function ProductTransformationPanel() {
   const [expandedTemplateId, setExpandedTemplateId] = useState<string | null>(null);
   const [bomFilterType, setBomFilterType] = useState('All');
   const [bomFilterStatus, setBomFilterStatus] = useState('All');
+  const [bomFilterRisk, setBomFilterRisk] = useState('All');
   const [bomSearchQuery, setBomSearchQuery] = useState('');
   const [confirmingTemplate, setConfirmingTemplate] = useState<any | null>(null);
   const CUSTOM_TEMPLATES_KEY = 'sci_product_transformation_custom_bom_templates';
@@ -262,6 +263,10 @@ export default function ProductTransformationPanel() {
       version: '1.2',
       effectiveDate: '2026-06-15',
       status: 'Active',
+      approvalRequired: false,
+      approvedBy: 'John Doe',
+      approvedAt: '2026-06-15',
+      riskLevel: 'Low',
       inputs: [
         { productId: 'mat-radiator-core', sku: 'RAD-CORE', productName: 'Radiator Core', qtyConsumed: 1, unitCost: 25, sourceWarehouseId: 'MAIN' },
         { productId: 'mat-side-tank', sku: 'SIDE-TANK', productName: 'Side Tank', qtyConsumed: 2, unitCost: 8, sourceWarehouseId: 'MAIN' }
@@ -278,6 +283,10 @@ export default function ProductTransformationPanel() {
       version: '1.0',
       effectiveDate: '2026-05-10',
       status: 'Active',
+      approvalRequired: true,
+      approvedBy: 'Alice Smith',
+      approvedAt: '2026-05-10',
+      riskLevel: 'Medium',
       inputs: [
         { productId: 'mat-part-a', sku: 'PART-A', productName: 'Component A', qtyConsumed: 1, unitCost: 5, sourceWarehouseId: 'MAIN' },
         { productId: 'mat-part-b', sku: 'PART-B', productName: 'Component B', qtyConsumed: 1, unitCost: 7, sourceWarehouseId: 'MAIN' }
@@ -294,6 +303,10 @@ export default function ProductTransformationPanel() {
       version: '1.0',
       effectiveDate: '2026-06-20',
       status: 'Draft',
+      approvalRequired: true,
+      approvedBy: '',
+      approvedAt: '',
+      riskLevel: 'High',
       inputs: [
         { productId: 'mat-no-sku', sku: '', productName: 'Core with No SKU', qtyConsumed: 1, unitCost: 10, sourceWarehouseId: 'MAIN' }
       ],
@@ -309,6 +322,10 @@ export default function ProductTransformationPanel() {
       version: '0.9',
       effectiveDate: '2026-04-01',
       status: 'Deprecated',
+      approvalRequired: false,
+      approvedBy: 'Bob Jones',
+      approvedAt: '2026-04-01',
+      riskLevel: 'Low',
       inputs: [
         { productId: 'mat-neg-cost', sku: 'NEG-COST', productName: 'Negative Cost Material', qtyConsumed: 1, unitCost: -5, sourceWarehouseId: 'MAIN' },
         { productId: 'mat-zero-qty', sku: 'ZERO-QTY', productName: 'Zero Qty Material', qtyConsumed: 0, unitCost: 8, sourceWarehouseId: 'MAIN' }
@@ -325,6 +342,10 @@ export default function ProductTransformationPanel() {
       version: '2.0',
       effectiveDate: '2026-06-28',
       status: 'Active',
+      approvalRequired: false,
+      approvedBy: 'System Auto',
+      approvedAt: '2026-06-28',
+      riskLevel: 'Critical',
       inputs: [
         { productId: 'mat-expensive', sku: 'EXP-MAT', productName: 'Expensive Core', qtyConsumed: 1, unitCost: 100, sourceWarehouseId: 'MAIN' }
       ],
@@ -342,6 +363,7 @@ export default function ProductTransformationPanel() {
     return combinedTemplates.filter(template => {
       const typeMatch = bomFilterType === 'All' || template.templateType === bomFilterType;
       const statusMatch = bomFilterStatus === 'All' || (template.status || 'Active') === bomFilterStatus;
+      const riskMatch = bomFilterRisk === 'All' || (template.riskLevel || 'Low') === bomFilterRisk;
 
       const searchMatch = (() => {
         if (!bomSearchQuery.trim()) return true;
@@ -362,9 +384,9 @@ export default function ProductTransformationPanel() {
         return inName || inType || inDescription || inInput || inOutput;
       })();
 
-      return typeMatch && statusMatch && searchMatch;
+      return typeMatch && statusMatch && riskMatch && searchMatch;
     });
-  }, [combinedTemplates, bomFilterType, bomFilterStatus, bomSearchQuery]);
+  }, [combinedTemplates, bomFilterType, bomFilterStatus, bomFilterRisk, bomSearchQuery]);
 
   const getBomTemplateInputCost = (template: typeof bomTemplates[number]) =>
     template.inputs.reduce((sum, line) => sum + line.qtyConsumed * line.unitCost, 0);
@@ -449,6 +471,18 @@ export default function ProductTransformationPanel() {
       }
       if (t.status !== undefined && typeof t.status !== 'string') {
         throw new Error(`Template '${t.templateName}' status must be a string if defined.`);
+      }
+      if (t.approvalRequired !== undefined && typeof t.approvalRequired !== 'boolean') {
+        throw new Error(`Template '${t.templateName}' approvalRequired must be a boolean if defined.`);
+      }
+      if (t.approvedBy !== undefined && typeof t.approvedBy !== 'string') {
+        throw new Error(`Template '${t.templateName}' approvedBy must be a string if defined.`);
+      }
+      if (t.approvedAt !== undefined && typeof t.approvedAt !== 'string') {
+        throw new Error(`Template '${t.templateName}' approvedAt must be a string if defined.`);
+      }
+      if (t.riskLevel !== undefined && !['Low', 'Medium', 'High', 'Critical'].includes(t.riskLevel)) {
+        throw new Error(`Template '${t.templateName}' riskLevel must be Low, Medium, High, or Critical if defined.`);
       }
       if (!Array.isArray(t.inputs)) {
         throw new Error(`Template at index ${i} (${t.templateName}) is missing a valid 'inputs' array.`);
@@ -546,7 +580,11 @@ export default function ProductTransformationPanel() {
           ...item,
           version: item.version || "1.0",
           effectiveDate: item.effectiveDate || new Date().toISOString().split('T')[0],
-          status: item.status || "Active"
+          status: item.status || "Active",
+          approvalRequired: item.approvalRequired !== undefined ? !!item.approvalRequired : false,
+          approvedBy: item.approvedBy || "",
+          approvedAt: item.approvedAt || "",
+          riskLevel: item.riskLevel || "Low"
         }));
 
         setCustomBomTemplates((prev) => {
@@ -1301,6 +1339,18 @@ export default function ProductTransformationPanel() {
                     <option value="Draft">Draft</option>
                     <option value="Deprecated">Deprecated</option>
                   </select>
+
+                  <select
+                    value={bomFilterRisk}
+                    onChange={(e) => setBomFilterRisk(e.target.value)}
+                    className="w-full md:w-36 border border-[#b1b5c2] bg-white px-2 py-1 text-[9px] uppercase font-bold outline-none focus:border-orange-500 rounded-none"
+                  >
+                    <option value="All">All Risks</option>
+                    <option value="Low">Low Risk</option>
+                    <option value="Medium">Medium Risk</option>
+                    <option value="High">High Risk</option>
+                    <option value="Critical">Critical Risk</option>
+                  </select>
                   <input
                     value={bomSearchQuery}
                     onChange={(e) => setBomSearchQuery(e.target.value)}
@@ -1312,6 +1362,7 @@ export default function ProductTransformationPanel() {
                     onClick={() => {
                       setBomFilterType('All');
                       setBomFilterStatus('All');
+                      setBomFilterRisk('All');
                       setBomSearchQuery('');
                     }}
                     className="w-full md:w-auto px-3 py-1 bg-slate-200 hover:bg-slate-300 border border-slate-400 text-[#1e222b] font-black uppercase text-[9px] rounded-none"
@@ -1379,6 +1430,22 @@ export default function ProductTransformationPanel() {
                             {template.status || "Active"}
                           </span>
                         </div>
+                        <div className="flex flex-wrap gap-2 text-[7.5px] uppercase font-black text-slate-500 mt-1 mb-1">
+                          <span>Risk: <span className={
+                            (template.riskLevel || 'Low') === 'Critical' ? 'text-red-750 font-black' :
+                            (template.riskLevel || 'Low') === 'High' ? 'text-orange-700' :
+                            (template.riskLevel || 'Low') === 'Medium' ? 'text-amber-700' :
+                            'text-slate-600'
+                          }>{template.riskLevel || 'Low'}</span></span>
+                          <span>|</span>
+                          <span>{template.approvalRequired ? 'Approval Required' : 'Approval Not Required'}</span>
+                          {template.approvedBy && (
+                            <>
+                              <span>|</span>
+                              <span>Approved By: {template.approvedBy}</span>
+                            </>
+                          )}
+                        </div>
                         <div className="text-[8px] uppercase font-black text-slate-600 mt-2">
                           Inputs: {template.inputs.length} | Outputs: {template.outputs.length}
                         </div>
@@ -1418,6 +1485,19 @@ export default function ProductTransformationPanel() {
                           );
                         })()}
 
+                        {template.approvalRequired && !template.approvedBy && (
+                          <div className="mt-2 text-[7.5px] uppercase font-black text-amber-750 bg-amber-50 border border-amber-300 px-1.5 py-1 rounded-none flex items-center gap-1">
+                            <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse"></span>
+                            Governance Block: Pending Manager Approval
+                          </div>
+                        )}
+                        {(template.riskLevel || 'Low') === 'Critical' && (
+                          <div className="mt-2 text-[7.5px] uppercase font-black text-red-700 bg-red-50 border border-red-200 px-1.5 py-1 rounded-none flex items-center gap-1">
+                            <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse"></span>
+                            Governance Block: Critical Risk Level Exceeded
+                          </div>
+                        )}
+
                         <button
                           type="button"
                           onClick={() => setExpandedTemplateId(expandedTemplateId === template.templateId ? null : template.templateId)}
@@ -1425,25 +1505,34 @@ export default function ProductTransformationPanel() {
                         >
                           {expandedTemplateId === template.templateId ? 'Hide Detail' : 'View Detail'}
                         </button>
-                        <button
-                          type="button"
-                          disabled={!editable || (template.status || 'Active') !== 'Active'}
-                          onClick={() => {
-                            const existingInputSkus = inputLines.map((line) => line.sku);
-                            const existingOutputSkus = outputLines.map((line) => line.sku);
-                            const duplicateInput = template.inputs.find((line) => existingInputSkus.includes(line.sku));
-                            const duplicateOutput = template.outputs.find((line) => existingOutputSkus.includes(line.sku));
+                        {(() => {
+                          const isBlockedApproval = template.approvalRequired && !template.approvedBy;
+                          const isBlockedRisk = (template.riskLevel || 'Low') === 'Critical';
+                          const isBlockedStatus = (template.status || 'Active') !== 'Active';
+                          const isLoadDisabled = !editable || isBlockedApproval || isBlockedRisk || isBlockedStatus;
 
-                            if (duplicateInput || duplicateOutput) {
-                              setNotice('Recipe blocked: one or more template products already exist in this draft.');
-                              return;
-                            }
-                            setConfirmingTemplate(template);
-                          }}
-                          className="mt-3 px-3 py-1.5 bg-orange-600 hover:bg-orange-700 border border-orange-700 text-white font-black uppercase text-[8.5px] rounded-none disabled:bg-slate-300 disabled:border-slate-300 cursor-pointer disabled:cursor-not-allowed"
-                        >
-                          Load Recipe
-                        </button>
+                          return (
+                            <button
+                              type="button"
+                              disabled={isLoadDisabled}
+                              onClick={() => {
+                                const existingInputSkus = inputLines.map((line) => line.sku);
+                                const existingOutputSkus = outputLines.map((line) => line.sku);
+                                const duplicateInput = template.inputs.find((line) => existingInputSkus.includes(line.sku));
+                                const duplicateOutput = template.outputs.find((line) => existingOutputSkus.includes(line.sku));
+
+                                if (duplicateInput || duplicateOutput) {
+                                  setNotice('Recipe blocked: one or more template products already exist in this draft.');
+                                  return;
+                                }
+                                setConfirmingTemplate(template);
+                              }}
+                              className="mt-3 px-3 py-1.5 bg-orange-600 hover:bg-orange-700 border border-orange-700 text-white font-black uppercase text-[8.5px] rounded-none disabled:bg-slate-300 disabled:border-slate-300 cursor-pointer disabled:cursor-not-allowed"
+                            >
+                              Load Recipe
+                            </button>
+                          );
+                        })()}
 
                         {expandedTemplateId === template.templateId && (
                           <div className="mt-3 border border-[#b1b5c2] bg-slate-50 p-2 space-y-2">
