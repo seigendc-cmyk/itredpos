@@ -140,6 +140,24 @@ export default function ProductTransformationPanel() {
     }
   });
 
+
+  const handleExportRecipeUsageHistory = () => {
+    const payload = {
+      exportedAt: new Date().toISOString(),
+      records: recipeUsageHistory
+    };
+
+    const blob = new Blob([JSON.stringify(payload, null, 2)], {
+      type: 'application/json'
+    });
+
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `recipe-usage-history-${Date.now()}.json`;
+    link.click();
+    URL.revokeObjectURL(url);
+  };
   const handleClearHistory = () => {
     setRecipeUsageHistory([]);
     localStorage.removeItem(LOCAL_STORAGE_KEY);
@@ -1830,6 +1848,13 @@ export default function ProductTransformationPanel() {
                     Recipe Usage History
                   </span>
                   {recipeUsageHistory.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={handleExportRecipeUsageHistory}
+                      className="px-2 py-0.5 bg-orange-600 hover:bg-orange-700 border border-orange-700 text-white font-black uppercase text-[8px] rounded-none cursor-pointer mr-2"
+                    >
+                      Export History
+                    </button>
                     <button
                       type="button"
                       onClick={handleClearHistory}
