@@ -87,6 +87,7 @@ export default function ProductTransformationPanel() {
   const [bomFilterType, setBomFilterType] = useState('All');
   const [bomFilterStatus, setBomFilterStatus] = useState('All');
   const [bomFilterRisk, setBomFilterRisk] = useState('All');
+  const [bomFilterReadiness, setBomFilterReadiness] = useState('All');
   const [bomSearchQuery, setBomSearchQuery] = useState('');
   const [confirmingTemplate, setConfirmingTemplate] = useState<any | null>(null);
   const CUSTOM_TEMPLATES_KEY = 'sci_product_transformation_custom_bom_templates';
@@ -447,6 +448,26 @@ export default function ProductTransformationPanel() {
     return { score, level };
   };
 
+  const getTemplateApprovalReadiness = (template: typeof bomTemplates[number]) => {
+    const status = template.status || 'Active';
+    const risk = calculateBomTemplateRisk(template);
+    const validation = validateBomTemplate(template);
+    
+    if (status === 'Draft' || status === 'Deprecated' || risk.level === 'Critical' || validation.hasCritical) {
+      return 'Blocked';
+    }
+    
+    if (status === 'Active' && risk.level === 'High') {
+      return 'Needs Review';
+    }
+    
+    if (status === 'Active' && (risk.level === 'Low' || risk.level === 'Medium')) {
+      return 'Ready';
+    }
+
+    return 'Blocked';
+  };
+
   const combinedTemplates = useMemo(() => {
     return [...bomTemplates, ...customBomTemplates];
   }, [customBomTemplates]);
@@ -458,6 +479,9 @@ export default function ProductTransformationPanel() {
       
       const calculatedRisk = calculateBomTemplateRisk(template);
       const riskMatch = bomFilterRisk === 'All' || calculatedRisk.level === bomFilterRisk;
+
+      const readiness = getTemplateApprovalReadiness(template);
+      const readinessMatch = bomFilterReadiness === 'All' || readiness === bomFilterReadiness;
 
       const searchMatch = (() => {
         if (!bomSearchQuery.trim()) return true;
@@ -478,9 +502,9 @@ export default function ProductTransformationPanel() {
         return inName || inType || inDescription || inInput || inOutput;
       })();
 
-      return typeMatch && statusMatch && riskMatch && searchMatch;
+      return typeMatch && statusMatch && riskMatch && readinessMatch && searchMatch;
     });
-  }, [combinedTemplates, bomFilterType, bomFilterStatus, bomFilterRisk, bomSearchQuery]);
+  }, [combinedTemplates, bomFilterType, bomFilterStatus, bomFilterRisk, bomFilterReadiness, bomSearchQuery]);
 
   const guardReport = useMemo(() => {
     let active = 0;
@@ -1427,6 +1451,17 @@ export default function ProductTransformationPanel() {
                     <option value="High">High Risk</option>
                     <option value="Critical">Critical Risk</option>
                   </select>
+
+                  <select
+                    value={bomFilterReadiness}
+                    onChange={(e) => setBomFilterReadiness(e.target.value)}
+                    className="w-full md:w-36 border border-[#b1b5c2] bg-white px-2 py-1 text-[9px] uppercase font-bold outline-none focus:border-orange-500 rounded-none"
+                  >
+                    <option value="All">All Readiness</option>
+                    <option value="Ready">Ready</option>
+                    <option value="Needs Review">Needs Review</option>
+                    <option value="Blocked">Blocked</option>
+                  </select>
                   <input
                     value={bomSearchQuery}
                     onChange={(e) => setBomSearchQuery(e.target.value)}
@@ -1439,6 +1474,7 @@ export default function ProductTransformationPanel() {
                       setBomFilterType('All');
                       setBomFilterStatus('All');
                       setBomFilterRisk('All');
+                      setBomFilterReadiness('All');
                       setBomSearchQuery('');
                     }}
                     className="w-full md:w-auto px-3 py-1 bg-slate-200 hover:bg-slate-300 border border-slate-400 text-[#1e222b] font-black uppercase text-[9px] rounded-none"
@@ -1465,7 +1501,7 @@ export default function ProductTransformationPanel() {
                     <div className="flex gap-2">
                       <button
                         type="button"
-                        disabled={validateBomTemplate(confirmingTemplate).hasCritical}
+                        disabled={validateBomTemplate(confirmingTemplate).hasCritical || getTemplateApprovalReadiness(confirmingTemplate) === 'Blocked'}
                         onClick={() => void handleApplyBomTemplate(confirmingTemplate)}
                         className="px-3 py-1.5 bg-orange-600 hover:bg-orange-700 border border-orange-700 text-white font-black uppercase text-[8.5px] rounded-none cursor-pointer disabled:bg-slate-300 disabled:border-slate-300 disabled:cursor-not-allowed"
                       >
@@ -1479,6 +1515,11 @@ export default function ProductTransformationPanel() {
                         Cancel
                       </button>
                     </div>
+                    {getTemplateApprovalReadiness(confirmingTemplate) === 'Needs Review' && (
+                      <div className="text-[8.5px] uppercase font-bold text-amber-700 bg-amber-50 border border-amber-200 px-2 py-1.5 rounded-none mt-2">
+                        Warning: This recipe should be reviewed before loading.
+                      </div>
+                    )}
                   </div>
                 )}
 
@@ -1548,9 +1589,23 @@ export default function ProductTransformationPanel() {
                       <div key={template.templateId} className="bg-white border border-[#b1b5c2] p-3">
                         <div className="flex items-center justify-between gap-2">
                           <div className="text-[10px] uppercase font-black text-[#1e222b]">{template.templateName}</div>
-                          <span className="px-2 py-0.5 border border-orange-300 bg-orange-50 text-orange-700 text-[7.5px] uppercase font-black rounded-none">
-                            {template.templateType}
-                          </span>
+                          <div className="flex items-center gap-1.5">
+                            <span className="px-2 py-0.5 border border-orange-300 bg-orange-50 text-orange-700 text-[7.5px] uppercase font-black rounded-none">
+                              {template.templateType}
+                            </span>
+                            {(() => {
+                              const readiness = getTemplateApprovalReadiness(template);
+                              const colorClass = 
+                                readiness === 'Ready' ? 'border-emerald-300 bg-emerald-50 text-emerald-800' :
+                                readiness === 'Needs Review' ? 'border-amber-300 bg-amber-50 text-amber-800' :
+                                'border-red-300 bg-red-50 text-red-800';
+                              return (
+                                <span className={`px-2 py-0.5 border text-[7.5px] uppercase font-black rounded-none ${colorClass}`}>
+                                  {readiness}
+                                </span>
+                              );
+                            })()}
+                          </div>
                         </div>
                         <div className="text-[8.5px] uppercase font-bold text-slate-500 mt-1">{template.description}</div>
                         <div className="flex flex-wrap gap-2 text-[7.5px] uppercase font-black text-slate-500 mt-1.5 mb-1">
@@ -1643,6 +1698,13 @@ export default function ProductTransformationPanel() {
                           );
                         })()}
 
+                        {getTemplateApprovalReadiness(template) === 'Needs Review' && (
+                          <div className="mt-2 text-[7.5px] uppercase font-black text-amber-700 bg-amber-50 border border-amber-200 px-1.5 py-1 rounded-none flex items-center gap-1">
+                            <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse"></span>
+                            Warning: This recipe should be reviewed before loading.
+                          </div>
+                        )}
+
                         <button
                           type="button"
                           onClick={() => setExpandedTemplateId(expandedTemplateId === template.templateId ? null : template.templateId)}
@@ -1651,11 +1713,10 @@ export default function ProductTransformationPanel() {
                           {expandedTemplateId === template.templateId ? 'Hide Detail' : 'View Detail'}
                         </button>
                         {(() => {
-                          const calculatedRisk = calculateBomTemplateRisk(template);
+                          const readiness = getTemplateApprovalReadiness(template);
                           const isBlockedApproval = template.approvalRequired && !template.approvedBy;
-                          const isBlockedRisk = calculatedRisk.level === 'Critical';
                           const isBlockedStatus = (template.status || 'Active') !== 'Active';
-                          const isLoadDisabled = !editable || isBlockedApproval || isBlockedRisk || isBlockedStatus;
+                          const isLoadDisabled = !editable || isBlockedApproval || isBlockedStatus || readiness === 'Blocked';
 
                           return (
                             <button
