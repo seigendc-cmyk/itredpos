@@ -205,6 +205,17 @@ export default function ProductTransformationPanel() {
       return;
     }
 
+    const existingInputSkus = inputLines.map((line) => line.sku);
+    const existingOutputSkus = outputLines.map((line) => line.sku);
+
+    const duplicateInput = template.inputs.find((line) => existingInputSkus.includes(line.sku));
+    const duplicateOutput = template.outputs.find((line) => existingOutputSkus.includes(line.sku));
+
+    if (duplicateInput || duplicateOutput) {
+      setNotice('Recipe blocked: one or more template products already exist in this draft.');
+      return;
+    }
+
     for (const input of template.inputs) {
       await addInputLine(selected.transformationId, input);
     }
