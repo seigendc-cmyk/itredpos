@@ -87,6 +87,7 @@ export default function ProductTransformationPanel() {
   const [bomFilterType, setBomFilterType] = useState('All');
   const [bomSearchQuery, setBomSearchQuery] = useState('');
   const [confirmingTemplate, setConfirmingTemplate] = useState<any | null>(null);
+  const [customBomTemplates, setCustomBomTemplates] = useState<any[]>([]);
   const [lastLoadedTemplateSummary, setLastLoadedTemplateSummary] = useState<{
     templateName: string;
     templateType: string;
@@ -308,8 +309,12 @@ export default function ProductTransformationPanel() {
     }
   ];
 
+  const combinedTemplates = useMemo(() => {
+    return [...bomTemplates, ...customBomTemplates];
+  }, [customBomTemplates]);
+
   const filteredBomTemplates = useMemo(() => {
-    return bomTemplates.filter(template => {
+    return combinedTemplates.filter(template => {
       const typeMatch = bomFilterType === 'All' || template.templateType === bomFilterType;
 
       const searchMatch = (() => {
@@ -333,7 +338,7 @@ export default function ProductTransformationPanel() {
 
       return typeMatch && searchMatch;
     });
-  }, [bomTemplates, bomFilterType, bomSearchQuery]);
+  }, [combinedTemplates, bomFilterType, bomSearchQuery]);
 
   const getBomTemplateInputCost = (template: typeof bomTemplates[number]) =>
     template.inputs.reduce((sum, line) => sum + line.qtyConsumed * line.unitCost, 0);
@@ -386,6 +391,129 @@ export default function ProductTransformationPanel() {
       errors,
       warnings
     };
+  };
+
+  const validateImportedJson = (data: any): data is any[] => {
+    if (!Array.isArray(data)) {
+      throw new Error("Import data must be a JSON array of templates.");
+    }
+
+    for (let i = 0; i < data.length; i++) {
+      const t = data[i];
+      if (!t || typeof t !== 'object') {
+        throw new Error(`Template at index ${i} is not a valid object.`);
+      }
+      if (typeof t.templateId !== 'string' || !t.templateId.trim()) {
+        throw new Error(`Template at index ${i} is missing a valid 'templateId'.`);
+      }
+      if (typeof t.templateName !== 'string' || !t.templateName.trim()) {
+        throw new Error(`Template at index ${i} (${t.templateId}) is missing a valid 'templateName'.`);
+      }
+      if (typeof t.templateType !== 'string' || !t.templateType.trim()) {
+        throw new Error(`Template at index ${i} (${t.templateName}) is missing a valid 'templateType'.`);
+      }
+      if (typeof t.description !== 'string') {
+        throw new Error(`Template at index ${i} (${t.templateName}) must have a 'description' string.`);
+      }
+      if (!Array.isArray(t.inputs)) {
+        throw new Error(`Template at index ${i} (${t.templateName}) is missing a valid 'inputs' array.`);
+      }
+      for (let j = 0; j < t.inputs.length; j++) {
+        const input = t.inputs[j];
+        if (!input || typeof input !== 'object') {
+          throw new Error(`Template '${t.templateName}' input at index ${j} is invalid.`);
+        }
+        if (typeof input.productId !== 'string') {
+          throw new Error(`Template '${t.templateName}' input at index ${j} is missing 'productId'.`);
+        }
+        if (typeof input.productName !== 'string') {
+          throw new Error(`Template '${t.templateName}' input at index ${j} is missing 'productName'.`);
+        }
+        if (typeof input.qtyConsumed !== 'number') {
+          throw new Error(`Template '${t.templateName}' input at index ${j} is missing 'qtyConsumed' number.`);
+        }
+        if (typeof input.unitCost !== 'number') {
+          throw new Error(`Template '${t.templateName}' input at index ${j} is missing 'unitCost' number.`);
+        }
+      }
+      if (!Array.isArray(t.outputs)) {
+        throw new Error(`Template '${t.templateName}' is missing a valid 'outputs' array.`);
+      }
+      for (let j = 0; j < t.outputs.length; j++) {
+        const output = t.outputs[j];
+        if (!output || typeof output !== 'object') {
+          throw new Error(`Template '${t.templateName}' output at index ${j} is invalid.`);
+        }
+        if (typeof output.productId !== 'string') {
+          throw new Error(`Template '${t.templateName}' output at index ${j} is missing 'productId'.`);
+        }
+        if (typeof output.productName !== 'string') {
+          throw new Error(`Template '${t.templateName}' output at index ${j} is missing 'productName'.`);
+        }
+        if (typeof output.qtyProduced !== 'number') {
+          throw new Error(`Template '${t.templateName}' output at index ${j} is missing 'qtyProduced' number.`);
+        }
+        if (typeof output.unitCost !== 'number') {
+          throw new Error(`Template '${t.templateName}' output at index ${j} is missing 'unitCost' number.`);
+        }
+      }
+    }
+    return true;
+  };
+
+  const handleExportTemplates = () => {
+    try {
+      const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(combinedTemplates, null, 2));
+      const downloadAnchor = document.createElement('a');
+      downloadAnchor.setAttribute("href", dataStr);
+      downloadAnchor.setAttribute("download", "recipe_templates.json");
+      document.body.appendChild(downloadAnchor);
+      downloadAnchor.click();
+      downloadAnchor.remove();
+      setNotice("Templates exported successfully.");
+    } catch (err: any) {
+      setNotice(`Export failed: ${err.message || err}`);
+    }
+  };
+
+  const handleImportTemplates = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const jsonText = e.target?.result as string;
+        const parsed = JSON.parse(jsonText);
+
+        validateImportedJson(parsed);
+
+        setCustomBomTemplates((prev) => {
+          const combined = [...prev];
+          let addedCount = 0;
+          for (const item of parsed) {
+            const existsInBuiltIn = bomTemplates.some(t => t.templateId === item.templateId);
+            if (existsInBuiltIn) continue;
+
+            const existsInCustom = combined.some(t => t.templateId === item.templateId);
+            if (existsInCustom) {
+              const idx = combined.findIndex(t => t.templateId === item.templateId);
+              combined[idx] = item;
+            } else {
+              combined.push(item);
+              addedCount++;
+            }
+          }
+          setNotice(`Import successful: ${addedCount} new template(s) added.`);
+          return combined;
+        });
+
+      } catch (err: any) {
+        setNotice(`Import validation failed: ${err.message || err}`);
+      }
+      event.target.value = '';
+    };
+    reader.readAsText(file);
   };
 
   const handleApplyBomTemplate = async (template: typeof bomTemplates[number]) => {
@@ -1060,6 +1188,44 @@ export default function ProductTransformationPanel() {
                 <div>
                   <h4 className="text-[10px] uppercase font-black text-[#1e222b]">Recipe / BOM Templates</h4>
                   <p className="text-[8.5px] uppercase font-bold text-slate-600">Load a controlled recipe into this draft transformation.</p>
+                </div>
+
+                <div className="bg-white border border-[#b1b5c2] p-3 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
+                  <div className="flex flex-wrap gap-2 items-center">
+                    <button
+                      type="button"
+                      onClick={handleExportTemplates}
+                      className="px-3 py-1.5 bg-[#1e222b] hover:bg-[#2c313d] border border-[#1e222b] text-white font-black uppercase text-[8.5px] rounded-none cursor-pointer"
+                    >
+                      Export Templates
+                    </button>
+                    
+                    <label className="px-3 py-1.5 bg-orange-600 hover:bg-orange-700 border border-orange-700 text-white font-black uppercase text-[8.5px] rounded-none cursor-pointer inline-block">
+                      Import Templates
+                      <input
+                        type="file"
+                        accept=".json"
+                        onChange={handleImportTemplates}
+                        className="hidden"
+                      />
+                    </label>
+
+                    {customBomTemplates.length > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setCustomBomTemplates([]);
+                          setNotice("Custom templates cleared.");
+                        }}
+                        className="px-3 py-1.5 bg-red-650 hover:bg-red-700 border border-red-750 text-white font-black uppercase text-[8.5px] rounded-none cursor-pointer"
+                      >
+                        Clear Imported Templates
+                      </button>
+                    )}
+                  </div>
+                  <div className="text-[8px] text-slate-500 uppercase font-black">
+                    {customBomTemplates.length} Custom Template(s) Loaded
+                  </div>
                 </div>
 
                 <div className="bg-white border border-[#b1b5c2] p-3 flex flex-col md:flex-row gap-2 items-center">
