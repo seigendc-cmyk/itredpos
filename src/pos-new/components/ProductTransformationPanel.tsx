@@ -158,6 +158,50 @@ export default function ProductTransformationPanel() {
     link.click();
     URL.revokeObjectURL(url);
   };
+
+  const handleImportRecipeUsageHistory = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+
+    reader.onload = () => {
+      try {
+        const parsed = JSON.parse(String(reader.result || '{}'));
+        const records = Array.isArray(parsed) ? parsed : parsed.records;
+
+        if (!Array.isArray(records)) {
+          throw new Error('Invalid recipe usage history file.');
+        }
+
+        const safeRecords = records.filter((record: any) =>
+          record &&
+          typeof record.templateId === 'string' &&
+          typeof record.templateName === 'string' &&
+          typeof record.transformationId === 'string' &&
+          typeof record.transformationNumber === 'string'
+        );
+
+        if (safeRecords.length === 0) {
+          throw new Error('No valid usage history records found.');
+        }
+
+        setRecipeUsageHistory((prev) => {
+          const merged = [...safeRecords, ...prev];
+          localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(merged));
+          return merged;
+        });
+
+        setNotice(`Imported ${safeRecords.length} recipe usage history record(s).`);
+      } catch (error: any) {
+        setNotice(`Import failed: ${error.message || error}`);
+      }
+
+      event.target.value = '';
+    };
+
+    reader.readAsText(file);
+  };
   const handleClearHistory = () => {
     setRecipeUsageHistory([]);
     localStorage.removeItem(LOCAL_STORAGE_KEY);
@@ -1849,6 +1893,10 @@ export default function ProductTransformationPanel() {
                   </span>
                   {recipeUsageHistory.length > 0 && (
                     <>
+                      <label className="px-2 py-0.5 bg-white hover:bg-slate-50 border border-[#b1b5c2] text-[#1e222b] font-black uppercase text-[8px] rounded-none cursor-pointer">
+                        Import History
+                        <input type="file" accept=".json,application/json" className="hidden" onChange={handleImportRecipeUsageHistory} />
+                      </label>
                       <button
                         type="button"
                         onClick={handleExportRecipeUsageHistory}
@@ -1856,9 +1904,13 @@ export default function ProductTransformationPanel() {
                       >
                         Export History
                       </button>
+                      <label className="px-2 py-0.5 bg-white hover:bg-slate-50 border border-[#b1b5c2] text-[#1e222b] font-black uppercase text-[8px] rounded-none cursor-pointer">
+                        Import History
+                        <input type="file" accept=".json,application/json" className="hidden" onChange={handleImportRecipeUsageHistory} />
+                      </label>
                       <button
-                      type="button"
-                      onClick={handleExportRecipeUsageHistory}
+                        type="button"
+                        onClick={handleExportRecipeUsageHistory}
                       className="px-2 py-0.5 bg-orange-600 hover:bg-orange-700 border border-orange-700 text-white font-black uppercase text-[8px] rounded-none cursor-pointer mr-2"
                     >
                       Export History
