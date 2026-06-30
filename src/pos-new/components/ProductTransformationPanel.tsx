@@ -85,6 +85,7 @@ export default function ProductTransformationPanel() {
   const [outputSearchResults, setOutputSearchResults] = useState<POProductSearchResult[]>([]);
   const [expandedTemplateId, setExpandedTemplateId] = useState<string | null>(null);
   const [bomFilterType, setBomFilterType] = useState('All');
+  const [bomFilterStatus, setBomFilterStatus] = useState('All');
   const [bomSearchQuery, setBomSearchQuery] = useState('');
   const [confirmingTemplate, setConfirmingTemplate] = useState<any | null>(null);
   const CUSTOM_TEMPLATES_KEY = 'sci_product_transformation_custom_bom_templates';
@@ -258,6 +259,9 @@ export default function ProductTransformationPanel() {
       templateType: 'Assembly',
       templateName: 'Radiator Assembly Basic',
       description: 'Sample conversion recipe for radiator assembly build.',
+      version: '1.2',
+      effectiveDate: '2026-06-15',
+      status: 'Active',
       inputs: [
         { productId: 'mat-radiator-core', sku: 'RAD-CORE', productName: 'Radiator Core', qtyConsumed: 1, unitCost: 25, sourceWarehouseId: 'MAIN' },
         { productId: 'mat-side-tank', sku: 'SIDE-TANK', productName: 'Side Tank', qtyConsumed: 2, unitCost: 8, sourceWarehouseId: 'MAIN' }
@@ -271,6 +275,9 @@ export default function ProductTransformationPanel() {
       templateType: 'Kit',
       templateName: 'Basic Kit Pack',
       description: 'Sample kit recipe for bundling multiple parts into one sellable pack.',
+      version: '1.0',
+      effectiveDate: '2026-05-10',
+      status: 'Active',
       inputs: [
         { productId: 'mat-part-a', sku: 'PART-A', productName: 'Component A', qtyConsumed: 1, unitCost: 5, sourceWarehouseId: 'MAIN' },
         { productId: 'mat-part-b', sku: 'PART-B', productName: 'Component B', qtyConsumed: 1, unitCost: 7, sourceWarehouseId: 'MAIN' }
@@ -284,6 +291,9 @@ export default function ProductTransformationPanel() {
       templateType: 'Assembly',
       templateName: 'Invalid SKU Assembly',
       description: 'Template that triggers a critical error for missing input SKU.',
+      version: '1.0',
+      effectiveDate: '2026-06-20',
+      status: 'Draft',
       inputs: [
         { productId: 'mat-no-sku', sku: '', productName: 'Core with No SKU', qtyConsumed: 1, unitCost: 10, sourceWarehouseId: 'MAIN' }
       ],
@@ -296,6 +306,9 @@ export default function ProductTransformationPanel() {
       templateType: 'Repack',
       templateName: 'Negative Cost & Zero Qty Repack',
       description: 'Template that triggers critical errors for negative cost and zero quantity.',
+      version: '0.9',
+      effectiveDate: '2026-04-01',
+      status: 'Deprecated',
       inputs: [
         { productId: 'mat-neg-cost', sku: 'NEG-COST', productName: 'Negative Cost Material', qtyConsumed: 1, unitCost: -5, sourceWarehouseId: 'MAIN' },
         { productId: 'mat-zero-qty', sku: 'ZERO-QTY', productName: 'Zero Qty Material', qtyConsumed: 0, unitCost: 8, sourceWarehouseId: 'MAIN' }
@@ -309,6 +322,9 @@ export default function ProductTransformationPanel() {
       templateType: 'Manufacturing',
       templateName: 'Loss-Making Build',
       description: 'Template that triggers a warning because output value is lower than input cost.',
+      version: '2.0',
+      effectiveDate: '2026-06-28',
+      status: 'Active',
       inputs: [
         { productId: 'mat-expensive', sku: 'EXP-MAT', productName: 'Expensive Core', qtyConsumed: 1, unitCost: 100, sourceWarehouseId: 'MAIN' }
       ],
@@ -325,6 +341,7 @@ export default function ProductTransformationPanel() {
   const filteredBomTemplates = useMemo(() => {
     return combinedTemplates.filter(template => {
       const typeMatch = bomFilterType === 'All' || template.templateType === bomFilterType;
+      const statusMatch = bomFilterStatus === 'All' || (template.status || 'Active') === bomFilterStatus;
 
       const searchMatch = (() => {
         if (!bomSearchQuery.trim()) return true;
@@ -345,9 +362,9 @@ export default function ProductTransformationPanel() {
         return inName || inType || inDescription || inInput || inOutput;
       })();
 
-      return typeMatch && searchMatch;
+      return typeMatch && statusMatch && searchMatch;
     });
-  }, [combinedTemplates, bomFilterType, bomSearchQuery]);
+  }, [combinedTemplates, bomFilterType, bomFilterStatus, bomSearchQuery]);
 
   const getBomTemplateInputCost = (template: typeof bomTemplates[number]) =>
     template.inputs.reduce((sum, line) => sum + line.qtyConsumed * line.unitCost, 0);
@@ -423,6 +440,15 @@ export default function ProductTransformationPanel() {
       }
       if (typeof t.description !== 'string') {
         throw new Error(`Template at index ${i} (${t.templateName}) must have a 'description' string.`);
+      }
+      if (t.version !== undefined && typeof t.version !== 'string') {
+        throw new Error(`Template '${t.templateName}' version must be a string if defined.`);
+      }
+      if (t.effectiveDate !== undefined && typeof t.effectiveDate !== 'string') {
+        throw new Error(`Template '${t.templateName}' effectiveDate must be a string if defined.`);
+      }
+      if (t.status !== undefined && typeof t.status !== 'string') {
+        throw new Error(`Template '${t.templateName}' status must be a string if defined.`);
       }
       if (!Array.isArray(t.inputs)) {
         throw new Error(`Template at index ${i} (${t.templateName}) is missing a valid 'inputs' array.`);
@@ -516,10 +542,17 @@ export default function ProductTransformationPanel() {
           throw new Error(`Template ID '${duplicateWithCustom}' already exists in custom imported recipes.`);
         }
 
+        const normalized = parsed.map((item: any) => ({
+          ...item,
+          version: item.version || "1.0",
+          effectiveDate: item.effectiveDate || new Date().toISOString().split('T')[0],
+          status: item.status || "Active"
+        }));
+
         setCustomBomTemplates((prev) => {
-          const updated = [...prev, ...parsed];
+          const updated = [...prev, ...normalized];
           localStorage.setItem(CUSTOM_TEMPLATES_KEY, JSON.stringify(updated));
-          setNotice(`Import successful: ${parsed.length} new template(s) added.`);
+          setNotice(`Import successful: ${normalized.length} new template(s) added.`);
           return updated;
         });
 
@@ -1248,7 +1281,7 @@ export default function ProductTransformationPanel() {
                   <select
                     value={bomFilterType}
                     onChange={(e) => setBomFilterType(e.target.value)}
-                    className="w-full md:w-48 border border-[#b1b5c2] bg-white px-2 py-1 text-[9px] uppercase font-bold outline-none focus:border-orange-500 rounded-none"
+                    className="w-full md:w-36 border border-[#b1b5c2] bg-white px-2 py-1 text-[9px] uppercase font-bold outline-none focus:border-orange-500 rounded-none"
                   >
                     <option value="All">All Recipe Types</option>
                     <option value="Assembly">Assembly</option>
@@ -1256,6 +1289,17 @@ export default function ProductTransformationPanel() {
                     <option value="Repack">Repack</option>
                     <option value="Manufacturing">Manufacturing</option>
                     <option value="Repair">Repair</option>
+                  </select>
+
+                  <select
+                    value={bomFilterStatus}
+                    onChange={(e) => setBomFilterStatus(e.target.value)}
+                    className="w-full md:w-36 border border-[#b1b5c2] bg-white px-2 py-1 text-[9px] uppercase font-bold outline-none focus:border-orange-500 rounded-none"
+                  >
+                    <option value="All">All Statuses</option>
+                    <option value="Active">Active</option>
+                    <option value="Draft">Draft</option>
+                    <option value="Deprecated">Deprecated</option>
                   </select>
                   <input
                     value={bomSearchQuery}
@@ -1267,6 +1311,7 @@ export default function ProductTransformationPanel() {
                     type="button"
                     onClick={() => {
                       setBomFilterType('All');
+                      setBomFilterStatus('All');
                       setBomSearchQuery('');
                     }}
                     className="w-full md:w-auto px-3 py-1 bg-slate-200 hover:bg-slate-300 border border-slate-400 text-[#1e222b] font-black uppercase text-[9px] rounded-none"
@@ -1321,6 +1366,19 @@ export default function ProductTransformationPanel() {
                           </span>
                         </div>
                         <div className="text-[8.5px] uppercase font-bold text-slate-500 mt-1">{template.description}</div>
+                        <div className="flex flex-wrap gap-2 text-[7.5px] uppercase font-black text-slate-500 mt-1.5 mb-1">
+                          <span>Ver: {template.version || "1.0"}</span>
+                          <span>|</span>
+                          <span>Effective: {template.effectiveDate || "2026-06-30"}</span>
+                          <span>|</span>
+                          <span className={`px-1 py-0.2 border ${
+                            (template.status || "Active") === 'Active' ? 'border-emerald-300 bg-emerald-50 text-emerald-800' :
+                            (template.status || "Active") === 'Draft' ? 'border-amber-300 bg-amber-50 text-amber-800' :
+                            'border-red-300 bg-red-50 text-red-800'
+                          }`}>
+                            {template.status || "Active"}
+                          </span>
+                        </div>
                         <div className="text-[8px] uppercase font-black text-slate-600 mt-2">
                           Inputs: {template.inputs.length} | Outputs: {template.outputs.length}
                         </div>
@@ -1369,7 +1427,7 @@ export default function ProductTransformationPanel() {
                         </button>
                         <button
                           type="button"
-                          disabled={!editable}
+                          disabled={!editable || (template.status || 'Active') !== 'Active'}
                           onClick={() => {
                             const existingInputSkus = inputLines.map((line) => line.sku);
                             const existingOutputSkus = outputLines.map((line) => line.sku);
@@ -1382,7 +1440,7 @@ export default function ProductTransformationPanel() {
                             }
                             setConfirmingTemplate(template);
                           }}
-                          className="mt-3 px-3 py-1.5 bg-orange-600 hover:bg-orange-700 border border-orange-700 text-white font-black uppercase text-[8.5px] rounded-none disabled:bg-slate-300 disabled:border-slate-300 cursor-pointer"
+                          className="mt-3 px-3 py-1.5 bg-orange-600 hover:bg-orange-700 border border-orange-700 text-white font-black uppercase text-[8.5px] rounded-none disabled:bg-slate-300 disabled:border-slate-300 cursor-pointer disabled:cursor-not-allowed"
                         >
                           Load Recipe
                         </button>
