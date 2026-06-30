@@ -87,6 +87,16 @@ export default function ProductTransformationPanel() {
   const [bomFilterType, setBomFilterType] = useState('All');
   const [bomSearchQuery, setBomSearchQuery] = useState('');
   const [confirmingTemplate, setConfirmingTemplate] = useState<any | null>(null);
+  const [lastLoadedTemplateSummary, setLastLoadedTemplateSummary] = useState<{
+    templateName: string;
+    templateType: string;
+    inputCount: number;
+    outputCount: number;
+    inputCost: number;
+    outputValue: number;
+    variance: number;
+    loadedAt: string;
+  } | null>(null);
 
   const refresh = async () => {
     setLoading(true);
@@ -105,6 +115,7 @@ export default function ProductTransformationPanel() {
   const loadTransformationDetail = async (record: ProductTransformation) => {
     inputSubscription.current?.();
     outputSubscription.current?.();
+    setLastLoadedTemplateSummary(null);
 
     setSelected(record);
 
@@ -263,6 +274,17 @@ export default function ProductTransformationPanel() {
     setConfirmingTemplate(null);
     await reloadSelected();
     setNotice(`${template.templateName} recipe loaded into draft.`);
+
+    setLastLoadedTemplateSummary({
+      templateName: template.templateName,
+      templateType: template.templateType,
+      inputCount: template.inputs.length,
+      outputCount: template.outputs.length,
+      inputCost: getBomTemplateInputCost(template),
+      outputValue: getBomTemplateOutputValue(template),
+      variance: getBomTemplateVariance(template),
+      loadedAt: new Date().toLocaleTimeString()
+    });
   };
 
   const summary = useMemo(() => {
@@ -1027,6 +1049,34 @@ export default function ProductTransformationPanel() {
                   )}
                 </div>
               </div>
+
+              {lastLoadedTemplateSummary && (
+                <div className="bg-orange-50 border border-orange-300 p-4 space-y-3">
+                  <div className="flex items-center justify-between border-b border-orange-200 pb-2">
+                    <span className="text-[10.5px] font-black uppercase text-orange-800">
+                      Last Recipe Loaded
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setLastLoadedTemplateSummary(null)}
+                      className="px-2 py-0.5 bg-slate-200 hover:bg-slate-300 border border-slate-400 text-[#1e222b] font-black uppercase text-[8px] rounded-none cursor-pointer"
+                    >
+                      Clear Summary
+                    </button>
+                  </div>
+                  <div className="text-[9px] uppercase font-bold text-slate-700 space-y-1">
+                    <div>Template Name: <span className="font-extrabold text-[#1e222b]">{lastLoadedTemplateSummary.templateName}</span></div>
+                    <div>Template Type: <span className="font-extrabold text-[#1e222b]">{lastLoadedTemplateSummary.templateType}</span></div>
+                    <div>Inputs: <span className="font-extrabold text-[#1e222b]">{lastLoadedTemplateSummary.inputCount}</span></div>
+                    <div>Outputs: <span className="font-extrabold text-[#1e222b]">{lastLoadedTemplateSummary.outputCount}</span></div>
+                    <div>Input Cost: <span className="font-extrabold text-[#1e222b]">USD {lastLoadedTemplateSummary.inputCost.toFixed(2)}</span></div>
+                    <div>Output Value: <span className="font-extrabold text-[#1e222b]">USD {lastLoadedTemplateSummary.outputValue.toFixed(2)}</span></div>
+                    <div>Variance: <span className={`font-extrabold ${lastLoadedTemplateSummary.variance < 0 ? 'text-red-700' : 'text-emerald-700'}`}>USD {lastLoadedTemplateSummary.variance.toFixed(2)}</span></div>
+                    <div>Loaded Time: <span className="font-extrabold text-[#1e222b]">{lastLoadedTemplateSummary.loadedAt}</span></div>
+                  </div>
+                </div>
+              )}
+
               <div>
                 <div className="flex items-center justify-between mb-2">
                   <h4 className="text-[10px] uppercase font-black text-[#1e222b]">Input Materials</h4>
