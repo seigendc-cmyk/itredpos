@@ -1848,20 +1848,22 @@ export default function ProductTransformationPanel() {
                     Recipe Usage History
                   </span>
                   {recipeUsageHistory.length > 0 && (
-                    <button
-                      type="button"
-                      onClick={handleExportRecipeUsageHistory}
-                      className="px-2 py-0.5 bg-orange-600 hover:bg-orange-700 border border-orange-700 text-white font-black uppercase text-[8px] rounded-none cursor-pointer mr-2"
-                    >
-                      Export History
-                    </button>
-                    <button
-                      type="button"
-                      onClick={handleClearHistory}
-                      className="px-2 py-0.5 bg-slate-200 hover:bg-slate-300 border border-slate-400 text-[#1e222b] font-black uppercase text-[8px] rounded-none cursor-pointer"
-                    >
-                      Clear History
-                    </button>
+                    <>
+                      <button
+                        type="button"
+                        onClick={handleExportRecipeUsageHistory}
+                        className="px-2 py-0.5 bg-orange-600 hover:bg-orange-700 border border-orange-700 text-white font-black uppercase text-[8px] rounded-none cursor-pointer mr-2"
+                      >
+                        Export History
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleClearHistory}
+                        className="px-2 py-0.5 bg-slate-200 hover:bg-slate-300 border border-slate-400 text-[#1e222b] font-black uppercase text-[8px] rounded-none cursor-pointer"
+                      >
+                        Clear History
+                      </button>
+                    </>
                   )}
                 </div>
                 {recipeUsageHistory.length === 0 ? (
@@ -1877,10 +1879,12 @@ export default function ProductTransformationPanel() {
                           <div className="text-[7.5px] text-slate-500 mt-0.5">
                             Loaded into <strong className="text-orange-700">{record.transformationNumber}</strong> | {record.loadedAt}
                             {record.approvalNote && (
-                              <div className="text-[7.5px] text-amber-700 mt-1">Note: {record.approvalNote}</div>
-                              {record.approvalNoteCapturedAt && (
-                                <div className="text-[7.5px] text-slate-500 mt-0.5">Note Captured: {record.approvalNoteCapturedAt}</div>
-                              )}
+                              <>
+                                <div className="text-[7.5px] text-amber-700 mt-1">Note: {record.approvalNote}</div>
+                                {record.approvalNoteCapturedAt && (
+                                  <div className="text-[7.5px] text-slate-500 mt-0.5">Note Captured: {record.approvalNoteCapturedAt}</div>
+                                )}
+                              </>
                             )}
                           </div>
                         </div>
