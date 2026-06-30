@@ -83,6 +83,7 @@ export default function ProductTransformationPanel() {
   const [inputSearchResults, setInputSearchResults] = useState<POProductSearchResult[]>([]);
   const [outputSearchQuery, setOutputSearchQuery] = useState('');
   const [outputSearchResults, setOutputSearchResults] = useState<POProductSearchResult[]>([]);
+  const [expandedTemplateId, setExpandedTemplateId] = useState<string | null>(null);
 
   const refresh = async () => {
     setLoading(true);
@@ -866,12 +867,42 @@ export default function ProductTransformationPanel() {
                       </div>
                       <button
                         type="button"
+                        onClick={() => setExpandedTemplateId(expandedTemplateId === template.templateId ? null : template.templateId)}
+                        className="mt-3 mr-2 px-3 py-1.5 bg-white hover:bg-slate-50 border border-[#b1b5c2] text-[#1e222b] font-black uppercase text-[8.5px] rounded-none"
+                      >
+                        {expandedTemplateId === template.templateId ? 'Hide Detail' : 'View Detail'}
+                      </button>
+                      <button
+                        type="button"
                         disabled={!editable}
                         onClick={() => void handleApplyBomTemplate(template)}
                         className="mt-3 px-3 py-1.5 bg-orange-600 hover:bg-orange-700 border border-orange-700 text-white font-black uppercase text-[8.5px] rounded-none disabled:bg-slate-300 disabled:border-slate-300"
                       >
                         Load Recipe
                       </button>
+
+                      {expandedTemplateId === template.templateId && (
+                        <div className="mt-3 border border-[#b1b5c2] bg-slate-50 p-2 space-y-2">
+                          <div>
+                            <div className="text-[8px] uppercase font-black text-slate-600 mb-1">Input Materials</div>
+                            {template.inputs.map((line) => (
+                              <div key={`${template.templateId}-input-${line.sku}`} className="flex justify-between gap-2 border-b border-slate-200 py-1 text-[8px] uppercase font-bold">
+                                <span>{line.sku} - {line.productName}</span>
+                                <span>{line.qtyConsumed} x USD {line.unitCost.toFixed(2)}</span>
+                              </div>
+                            ))}
+                          </div>
+                          <div>
+                            <div className="text-[8px] uppercase font-black text-slate-600 mb-1">Output Products</div>
+                            {template.outputs.map((line) => (
+                              <div key={`${template.templateId}-output-${line.sku}`} className="flex justify-between gap-2 border-b border-slate-200 py-1 text-[8px] uppercase font-bold">
+                                <span>{line.sku} - {line.productName}</span>
+                                <span>{line.qtyProduced} x USD {line.unitCost.toFixed(2)}</span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
                     </div>
                   ))}
                 </div>
