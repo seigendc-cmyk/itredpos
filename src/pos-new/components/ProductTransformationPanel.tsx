@@ -98,6 +98,37 @@ export default function ProductTransformationPanel() {
     loadedAt: string;
   } | null>(null);
 
+  interface RecipeUsageRecord {
+    templateId: string;
+    templateName: string;
+    templateType: string;
+    transformationId: string;
+    transformationNumber: string;
+    inputCount: number;
+    outputCount: number;
+    inputCost: number;
+    outputValue: number;
+    variance: number;
+    loadedAt: string;
+  }
+
+  const LOCAL_STORAGE_KEY = 'sci_product_transformation_recipe_usage_history';
+
+  const [recipeUsageHistory, setRecipeUsageHistory] = useState<RecipeUsageRecord[]>(() => {
+    try {
+      const data = localStorage.getItem(LOCAL_STORAGE_KEY);
+      return data ? JSON.parse(data) : [];
+    } catch (e) {
+      console.error('Failed to parse recipe usage history:', e);
+      return [];
+    }
+  });
+
+  const handleClearHistory = () => {
+    setRecipeUsageHistory([]);
+    localStorage.removeItem(LOCAL_STORAGE_KEY);
+  };
+
   const refresh = async () => {
     setLoading(true);
     const rows = await getTransformations({});
@@ -366,6 +397,26 @@ export default function ProductTransformationPanel() {
       outputValue: getBomTemplateOutputValue(template),
       variance: getBomTemplateVariance(template),
       loadedAt: new Date().toLocaleTimeString()
+    });
+
+    const newRecord: RecipeUsageRecord = {
+      templateId: template.templateId,
+      templateName: template.templateName,
+      templateType: template.templateType,
+      transformationId: selected.transformationId,
+      transformationNumber: selected.transformationNumber,
+      inputCount: template.inputs.length,
+      outputCount: template.outputs.length,
+      inputCost: getBomTemplateInputCost(template),
+      outputValue: getBomTemplateOutputValue(template),
+      variance: getBomTemplateVariance(template),
+      loadedAt: new Date().toLocaleString()
+    };
+
+    setRecipeUsageHistory((prev) => {
+      const updated = [newRecord, ...prev];
+      localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(updated));
+      return updated;
     });
   };
 
@@ -1151,6 +1202,57 @@ export default function ProductTransformationPanel() {
                     </div>
                   )}
                 </div>
+              </div>
+
+              <div className="border border-[#b1b5c2] bg-white p-3 space-y-3">
+                <div className="flex items-center justify-between border-b border-gray-150 pb-2">
+                  <span className="text-[10px] font-black uppercase text-[#1e222b]">
+                    Recipe Usage History
+                  </span>
+                  {recipeUsageHistory.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={handleClearHistory}
+                      className="px-2 py-0.5 bg-slate-200 hover:bg-slate-300 border border-slate-400 text-[#1e222b] font-black uppercase text-[8px] rounded-none cursor-pointer"
+                    >
+                      Clear History
+                    </button>
+                  )}
+                </div>
+                {recipeUsageHistory.length === 0 ? (
+                  <div className="text-[9px] uppercase font-bold text-slate-500 py-2 text-center">
+                    No template load history available.
+                  </div>
+                ) : (
+                  <div className="space-y-2 max-h-[220px] overflow-y-auto pos-custom-scroll">
+                    {recipeUsageHistory.slice(0, 5).map((record, index) => (
+                      <div key={index} className="border border-slate-200 bg-slate-50 p-2 text-[8.5px] uppercase font-bold text-slate-700 flex flex-col md:flex-row justify-between items-start md:items-center gap-2">
+                        <div>
+                          <div className="font-extrabold text-[#1e222b]">{record.templateName}</div>
+                          <div className="text-[7.5px] text-slate-500 mt-0.5">
+                            Loaded into <strong className="text-orange-700">{record.transformationNumber}</strong> | {record.loadedAt}
+                          </div>
+                        </div>
+                        <div className="flex gap-3 text-right">
+                          <div>
+                            <span className="block text-[7px] text-slate-500">Input Cost</span>
+                            <strong className="text-[#1e222b]">USD {record.inputCost.toFixed(2)}</strong>
+                          </div>
+                          <div>
+                            <span className="block text-[7px] text-slate-500">Output Value</span>
+                            <strong className="text-[#1e222b]">USD {record.outputValue.toFixed(2)}</strong>
+                          </div>
+                          <div>
+                            <span className="block text-[7px] text-slate-500">Variance</span>
+                            <strong className={record.variance < 0 ? 'text-red-700' : 'text-emerald-700'}>
+                              USD {record.variance.toFixed(2)}
+                            </strong>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
 
               {lastLoadedTemplateSummary && (
