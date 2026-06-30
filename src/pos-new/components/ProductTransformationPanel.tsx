@@ -86,6 +86,7 @@ export default function ProductTransformationPanel() {
   const [expandedTemplateId, setExpandedTemplateId] = useState<string | null>(null);
   const [bomFilterType, setBomFilterType] = useState('All');
   const [bomSearchQuery, setBomSearchQuery] = useState('');
+  const [confirmingTemplate, setConfirmingTemplate] = useState<any | null>(null);
 
   const refresh = async () => {
     setLoading(true);
@@ -259,6 +260,7 @@ export default function ProductTransformationPanel() {
     setInputSearchResults([]);
     setOutputSearchQuery('');
     setOutputSearchResults([]);
+    setConfirmingTemplate(null);
     await reloadSelected();
     setNotice(`${template.templateName} recipe loaded into draft.`);
   };
@@ -902,6 +904,41 @@ export default function ProductTransformationPanel() {
                     Clear Filters
                   </button>
                 </div>
+
+                {confirmingTemplate && (
+                  <div className="bg-orange-50 border border-orange-300 p-4 space-y-3">
+                    <div className="text-[10px] font-black uppercase text-orange-800 flex items-center gap-1.5">
+                      <Recycle className="w-3.5 h-3.5" />
+                      Confirm Load Recipe
+                    </div>
+                    <div className="text-[9px] uppercase font-bold text-slate-700 space-y-1.5">
+                      <div>Template Name: <span className="font-extrabold text-[#1e222b]">{confirmingTemplate.templateName}</span></div>
+                      <div>Template Type: <span className="font-extrabold text-[#1e222b]">{confirmingTemplate.templateType}</span></div>
+                      <div>Input Count: <span className="font-extrabold text-[#1e222b]">{confirmingTemplate.inputs.length}</span></div>
+                      <div>Output Count: <span className="font-extrabold text-[#1e222b]">{confirmingTemplate.outputs.length}</span></div>
+                      <div>Input Cost: <span className="font-extrabold text-[#1e222b]">USD {getBomTemplateInputCost(confirmingTemplate).toFixed(2)}</span></div>
+                      <div>Output Value: <span className="font-extrabold text-[#1e222b]">USD {getBomTemplateOutputValue(confirmingTemplate).toFixed(2)}</span></div>
+                      <div>Variance: <span className={`font-extrabold ${getBomTemplateVariance(confirmingTemplate) < 0 ? 'text-red-700' : 'text-emerald-700'}`}>USD {getBomTemplateVariance(confirmingTemplate).toFixed(2)}</span></div>
+                    </div>
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        onClick={() => void handleApplyBomTemplate(confirmingTemplate)}
+                        className="px-3 py-1.5 bg-orange-600 hover:bg-orange-700 border border-orange-700 text-white font-black uppercase text-[8.5px] rounded-none cursor-pointer"
+                      >
+                        Confirm Load
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setConfirmingTemplate(null)}
+                        className="px-3 py-1.5 bg-slate-200 hover:bg-slate-300 border border-slate-400 text-[#1e222b] font-black uppercase text-[8.5px] rounded-none cursor-pointer"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                )}
+
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
                   {filteredBomTemplates.length > 0 ? (
                     filteredBomTemplates.map((template) => (
@@ -942,8 +979,19 @@ export default function ProductTransformationPanel() {
                         <button
                           type="button"
                           disabled={!editable}
-                          onClick={() => void handleApplyBomTemplate(template)}
-                          className="mt-3 px-3 py-1.5 bg-orange-600 hover:bg-orange-700 border border-orange-700 text-white font-black uppercase text-[8.5px] rounded-none disabled:bg-slate-300 disabled:border-slate-300"
+                          onClick={() => {
+                            const existingInputSkus = inputLines.map((line) => line.sku);
+                            const existingOutputSkus = outputLines.map((line) => line.sku);
+                            const duplicateInput = template.inputs.find((line) => existingInputSkus.includes(line.sku));
+                            const duplicateOutput = template.outputs.find((line) => existingOutputSkus.includes(line.sku));
+
+                            if (duplicateInput || duplicateOutput) {
+                              setNotice('Recipe blocked: one or more template products already exist in this draft.');
+                              return;
+                            }
+                            setConfirmingTemplate(template);
+                          }}
+                          className="mt-3 px-3 py-1.5 bg-orange-600 hover:bg-orange-700 border border-orange-700 text-white font-black uppercase text-[8.5px] rounded-none disabled:bg-slate-300 disabled:border-slate-300 cursor-pointer"
                         >
                           Load Recipe
                         </button>
