@@ -187,12 +187,28 @@ export default function ProductTransformationPanel() {
         }
 
         setRecipeUsageHistory((prev) => {
-          const merged = [...safeRecords, ...prev];
+          const existingKeys = new Set(
+            prev.map((record) =>
+              `${record.templateId}|${record.transformationId}|${record.loadedAt}`
+            )
+          );
+
+          const uniqueImported = safeRecords.filter((record: any) => {
+            const key = `${record.templateId}|${record.transformationId}|${record.loadedAt}`;
+            if (existingKeys.has(key)) return false;
+            existingKeys.add(key);
+            return true;
+          });
+
+          const merged = [...uniqueImported, ...prev];
           localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(merged));
+
+          setNotice(
+            `Imported ${uniqueImported.length} new recipe usage history record(s). ${safeRecords.length - uniqueImported.length} duplicate(s) skipped.`
+          );
+
           return merged;
         });
-
-        setNotice(`Imported ${safeRecords.length} recipe usage history record(s).`);
       } catch (error: any) {
         setNotice(`Import failed: ${error.message || error}`);
       }
