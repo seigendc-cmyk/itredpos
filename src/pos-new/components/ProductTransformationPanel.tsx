@@ -129,6 +129,39 @@ export default function ProductTransformationPanel() {
     localStorage.removeItem(LOCAL_STORAGE_KEY);
   };
 
+  const analytics = useMemo(() => {
+    if (recipeUsageHistory.length === 0) return null;
+
+    const totalLoads = recipeUsageHistory.length;
+    const uniqueTemplates = new Set(recipeUsageHistory.map(r => r.templateId)).size;
+
+    const counts: { [key: string]: number } = {};
+    let mostUsedName = '';
+    let maxCount = 0;
+    for (const record of recipeUsageHistory) {
+      counts[record.templateName] = (counts[record.templateName] || 0) + 1;
+      if (counts[record.templateName] > maxCount) {
+        maxCount = counts[record.templateName];
+        mostUsedName = record.templateName;
+      }
+    }
+
+    const totalInputCost = recipeUsageHistory.reduce((sum, r) => sum + r.inputCost, 0);
+    const totalOutputValue = recipeUsageHistory.reduce((sum, r) => sum + r.outputValue, 0);
+    const totalVariance = recipeUsageHistory.reduce((sum, r) => sum + r.variance, 0);
+    const averageVariance = totalVariance / totalLoads;
+
+    return {
+      totalLoads,
+      uniqueTemplates,
+      mostUsedTemplate: mostUsedName ? `${mostUsedName} (${maxCount}x)` : 'None',
+      totalInputCost,
+      totalOutputValue,
+      totalVariance,
+      averageVariance
+    };
+  }, [recipeUsageHistory]);
+
   const refresh = async () => {
     setLoading(true);
     const rows = await getTransformations({});
@@ -1251,6 +1284,50 @@ export default function ProductTransformationPanel() {
                         </div>
                       </div>
                     ))}
+                  </div>
+                )}
+              </div>
+
+              <div className="border border-[#b1b5c2] bg-white p-3 space-y-3">
+                <div className="border-b border-gray-150 pb-2">
+                  <span className="text-[10px] font-black uppercase text-[#1e222b]">
+                    Recipe Usage Analytics
+                  </span>
+                </div>
+                {analytics === null ? (
+                  <div className="text-[9px] uppercase font-bold text-slate-500 py-2 text-center">
+                    No recipe usage analytics available yet.
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-[9px] uppercase font-bold text-slate-700">
+                    <div className="border border-slate-200 bg-slate-50 p-2">
+                      <span className="block text-[7px] text-slate-500 font-bold">Total Recipe Loads</span>
+                      <strong className="block mt-0.5 text-[11px] font-black text-[#1e222b]">{analytics.totalLoads}</strong>
+                    </div>
+                    <div className="border border-slate-200 bg-slate-50 p-2">
+                      <span className="block text-[7px] text-slate-500 font-bold">Unique Recipes Used</span>
+                      <strong className="block mt-0.5 text-[11px] font-black text-[#1e222b]">{analytics.uniqueTemplates}</strong>
+                    </div>
+                    <div className="border border-slate-200 bg-slate-50 p-2 col-span-2">
+                      <span className="block text-[7px] text-slate-500 font-bold">Most Used Recipe</span>
+                      <strong className="block mt-0.5 text-[10px] font-black text-[#1e222b] truncate" title={analytics.mostUsedTemplate}>{analytics.mostUsedTemplate}</strong>
+                    </div>
+                    <div className="border border-slate-200 bg-slate-50 p-2">
+                      <span className="block text-[7px] text-slate-500 font-bold">Total Input Cost</span>
+                      <strong className="block mt-0.5 text-[11px] font-black text-[#1e222b]">USD {analytics.totalInputCost.toFixed(2)}</strong>
+                    </div>
+                    <div className="border border-slate-200 bg-slate-50 p-2">
+                      <span className="block text-[7px] text-slate-500 font-bold">Total Output Value</span>
+                      <strong className="block mt-0.5 text-[11px] font-black text-[#1e222b]">USD {analytics.totalOutputValue.toFixed(2)}</strong>
+                    </div>
+                    <div className="border border-slate-200 bg-slate-50 p-2">
+                      <span className="block text-[7px] text-slate-500 font-bold">Total Variance</span>
+                      <strong className={`block mt-0.5 text-[11px] font-black ${analytics.totalVariance < 0 ? 'text-red-700' : 'text-emerald-700'}`}>USD {analytics.totalVariance.toFixed(2)}</strong>
+                    </div>
+                    <div className="border border-slate-200 bg-slate-50 p-2">
+                      <span className="block text-[7px] text-slate-500 font-bold">Avg Variance / Load</span>
+                      <strong className={`block mt-0.5 text-[11px] font-black ${analytics.averageVariance < 0 ? 'text-red-700' : 'text-emerald-700'}`}>USD {analytics.averageVariance.toFixed(2)}</strong>
+                    </div>
                   </div>
                 )}
               </div>
