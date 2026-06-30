@@ -367,6 +367,27 @@ export default function ProductTransformationPanel() {
 
   const editable = selected?.status === 'Draft';
 
+  const transformationYieldSummary = useMemo(() => {
+    const totalInputQty = inputLines.reduce((sum, line) => sum + Number(line.qtyConsumed || 0), 0);
+    const totalOutputQty = outputLines.reduce((sum, line) => sum + Number(line.qtyProduced || 0), 0);
+    const totalInputCost = inputLines.reduce((sum, line) => sum + Number(line.totalCost || 0), 0);
+    const totalOutputValue = outputLines.reduce((sum, line) => sum + Number(line.totalValue || 0), 0);
+    const yieldPercent = totalInputQty > 0 ? (totalOutputQty / totalInputQty) * 100 : 0;
+    const variance = totalOutputValue - totalInputCost;
+    const costPerOutputUnit = totalOutputQty > 0 ? totalInputCost / totalOutputQty : 0;
+
+    return {
+      totalInputQty,
+      totalOutputQty,
+      totalInputCost,
+      totalOutputValue,
+      yieldPercent,
+      variance,
+      costPerOutputUnit
+    };
+  }, [inputLines, outputLines]);
+
+
   const bomTemplates = [
     {
       templateId: 'bom-radiator-basic',
@@ -2111,6 +2132,40 @@ export default function ProductTransformationPanel() {
                 </div>
               )}
 
+              <div className="border border-[#b1b5c2] bg-white p-3">
+                <div className="flex items-center justify-between mb-2">
+                  <h4 className="text-[10px] uppercase font-black text-[#1e222b]">Manufacturing Yield</h4>
+                  <span className={`px-2 py-0.5 border text-[8px] uppercase font-black rounded-none ${
+                    transformationYieldSummary.yieldPercent >= 90
+                      ? 'border-emerald-300 bg-emerald-50 text-emerald-800'
+                      : transformationYieldSummary.yieldPercent >= 70
+                        ? 'border-amber-300 bg-amber-50 text-amber-800'
+                        : 'border-red-300 bg-red-50 text-red-800'
+                  }`}>
+                    Yield {transformationYieldSummary.yieldPercent.toFixed(2)}%
+                  </span>
+                </div>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-[8.5px] uppercase font-black">
+                  <div className="border border-slate-200 bg-slate-50 p-2">
+                    <span className="block text-slate-500">Input Qty</span>
+                    <strong className="text-[#1e222b]">{transformationYieldSummary.totalInputQty.toFixed(2)}</strong>
+                  </div>
+                  <div className="border border-slate-200 bg-slate-50 p-2">
+                    <span className="block text-slate-500">Output Qty</span>
+                    <strong className="text-[#1e222b]">{transformationYieldSummary.totalOutputQty.toFixed(2)}</strong>
+                  </div>
+                  <div className="border border-slate-200 bg-slate-50 p-2">
+                    <span className="block text-slate-500">Cost / Output Unit</span>
+                    <strong className="text-[#1e222b]">USD {transformationYieldSummary.costPerOutputUnit.toFixed(2)}</strong>
+                  </div>
+                  <div className="border border-slate-200 bg-slate-50 p-2">
+                    <span className="block text-slate-500">Variance</span>
+                    <strong className={transformationYieldSummary.variance < 0 ? 'text-red-700' : 'text-emerald-700'}>
+                      USD {transformationYieldSummary.variance.toFixed(2)}
+                    </strong>
+                  </div>
+                </div>
+              </div>
               <div>
                 <div className="flex items-center justify-between mb-2">
                   <h4 className="text-[10px] uppercase font-black text-[#1e222b]">Input Materials</h4>
