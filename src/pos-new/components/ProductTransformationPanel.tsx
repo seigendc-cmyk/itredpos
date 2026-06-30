@@ -23,7 +23,7 @@ import {
 import {
   POProductSearchResult,
   searchProductsAnyOrder
-} from '../services/purchaseOrderProductService';
+} from '../services/purchaseOrderProductService';import { getProductTotalAvailableStock } from '../services/stockBalanceService';
 import {
   canUseProductTransformationFirestore,
   subscribeToTransformations,
@@ -79,6 +79,10 @@ export default function ProductTransformationPanel() {
   const [pickerMode, setPickerMode] = useState<PickerMode | null>(null);
   const [productQuery, setProductQuery] = useState('');
   const [productResults, setProductResults] = useState<POProductSearchResult[]>([]);
+  const [inputSearchQuery, setInputSearchQuery] = useState('');
+  const [inputSearchResults, setInputSearchResults] = useState<POProductSearchResult[]>([]);
+  const [outputSearchQuery, setOutputSearchQuery] = useState('');
+  const [outputSearchResults, setOutputSearchResults] = useState<POProductSearchResult[]>([]);
 
   const refresh = async () => {
     setLoading(true);
@@ -158,6 +162,55 @@ export default function ProductTransformationPanel() {
   }, []);
 
   const editable = selected?.status === 'Draft';
+
+  const bomTemplates = [
+    {
+      templateId: 'bom-radiator-basic',
+      templateName: 'Radiator Assembly Basic',
+      description: 'Sample conversion recipe for radiator assembly build.',
+      inputs: [
+        { productId: 'mat-radiator-core', sku: 'RAD-CORE', productName: 'Radiator Core', qtyConsumed: 1, unitCost: 25, sourceWarehouseId: 'MAIN' },
+        { productId: 'mat-side-tank', sku: 'SIDE-TANK', productName: 'Side Tank', qtyConsumed: 2, unitCost: 8, sourceWarehouseId: 'MAIN' }
+      ],
+      outputs: [
+        { productId: 'fg-radiator-assembly', sku: 'RAD-ASSY', productName: 'Radiator Assembly', qtyProduced: 1, unitCost: 41, destinationWarehouseId: 'MAIN' }
+      ]
+    },
+    {
+      templateId: 'bom-kit-basic',
+      templateName: 'Basic Kit Pack',
+      description: 'Sample kit recipe for bundling multiple parts into one sellable pack.',
+      inputs: [
+        { productId: 'mat-part-a', sku: 'PART-A', productName: 'Component A', qtyConsumed: 1, unitCost: 5, sourceWarehouseId: 'MAIN' },
+        { productId: 'mat-part-b', sku: 'PART-B', productName: 'Component B', qtyConsumed: 1, unitCost: 7, sourceWarehouseId: 'MAIN' }
+      ],
+      outputs: [
+        { productId: 'fg-basic-kit', sku: 'KIT-BASIC', productName: 'Basic Kit Pack', qtyProduced: 1, unitCost: 12, destinationWarehouseId: 'MAIN' }
+      ]
+    }
+  ];
+
+  const handleApplyBomTemplate = async (template: typeof bomTemplates[number]) => {
+    if (!selected || !editable) {
+      setNotice('Select a draft transformation before loading a recipe template.');
+      return;
+    }
+
+    for (const input of template.inputs) {
+      await addInputLine(selected.transformationId, input);
+    }
+
+    for (const output of template.outputs) {
+      await addOutputLine(selected.transformationId, output);
+    }
+
+    setInputSearchQuery('');
+    setInputSearchResults([]);
+    setOutputSearchQuery('');
+    setOutputSearchResults([]);
+    await reloadSelected();
+    setNotice(`${template.templateName} recipe loaded into draft.`);
+  };
 
   const summary = useMemo(() => {
     const total = records.length;
@@ -293,10 +346,12 @@ export default function ProductTransformationPanel() {
       notes: draftNotes.trim() || 'Product transformation draft created from POS workspace.'
     });
 
-    setDraftNotes('');
     setCreateOpen(false);
-    await refresh();
+    setDraftNotes('');
     await loadTransformationDetail(draft);
+    await refresh();
+    setSelected(draft);
+    setNotice(`${draft.transformationNumber} draft created and loaded.`);
   };
 
   const reloadSelected = async () => {
@@ -322,9 +377,16 @@ export default function ProductTransformationPanel() {
 
     const product = result.product;
     const warehouse = result.shelfLocation || 'MAIN';
-    const unitCost = product.defaultCostPrice || 0;
+    const unitCost =
+      (product as any).costPrice ||
+      (product as any).cost ||
+      (product as any).averageCost ||
+      0;
 
-    if (pickerMode === 'Input') {
+    const mode = pickerMode.toLowerCase();
+    let successMessage = '';
+
+    if (mode === 'input') {
       const line = await addInputLine(selected.transformationId, {
         productId: product.productId,
         sku: product.sku || product.productCode,
@@ -339,9 +401,15 @@ export default function ProductTransformationPanel() {
         setNotice('Input product could not be added.');
         return;
       }
+      const available = await getProductTotalAvailableStock(product.productId);
+      if (available < 1) {
+        successMessage = `Warning: Available stock for ${product.productName} is ${available}, which is less than the consumed quantity of 1.`;
+      } else {
+        successMessage = 'Input material added.';
+      }
     }
 
-    if (pickerMode === 'Output') {
+    if (mode === 'output') {
       const line = await addOutputLine(selected.transformationId, {
         productId: product.productId,
         sku: product.sku || product.productCode,
@@ -356,23 +424,159 @@ export default function ProductTransformationPanel() {
         setNotice('Output product could not be added.');
         return;
       }
+      successMessage = 'Output product added.';
     }
 
     setPickerMode(null);
     setProductQuery('');
     setProductResults([]);
     await reloadSelected();
+    if (successMessage) {
+      setNotice(successMessage);
+    }
+    setTimeout(() => {
+      if (mode === 'input') {
+        document.getElementById('input-materials-table')?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      } else if (mode === 'output') {
+        document.getElementById('output-products-table')?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      }
+    }, 100);
+  };
+
+  const handleInputSearch = async (query: string) => {
+    setInputSearchQuery(query);
+    if (!query.trim()) {
+      setInputSearchResults([]);
+      return;
+    }
+    const rows = await searchProductsAnyOrder(query);
+    setInputSearchResults(rows);
+  };
+
+  const handleOutputSearch = async (query: string) => {
+    setOutputSearchQuery(query);
+    if (!query.trim()) {
+      setOutputSearchResults([]);
+      return;
+    }
+    const rows = await searchProductsAnyOrder(query);
+    setOutputSearchResults(rows);
+  };
+
+  const handleAddInputProduct = async (result: POProductSearchResult) => {
+    if (!selected || !editable) return;
+    const product = result.product;
+    const warehouse = result.shelfLocation || 'MAIN';
+    const unitCost =
+      (product as any).costPrice ||
+      (product as any).cost ||
+      (product as any).averageCost ||
+      0;
+
+    const line = await addInputLine(selected.transformationId, {
+      productId: product.productId,
+      sku: product.sku || product.productCode,
+      productName: product.productName,
+      qtyConsumed: 1,
+      unitCost,
+      sourceWarehouseId: warehouse,
+      sourceShelfLocation: result.shelfLocation
+    });
+
+    if (!line) {
+      setNotice('Input product could not be added.');
+      return;
+    }
+
+    setInputSearchQuery('');
+    setInputSearchResults([]);
+    await reloadSelected();
+
+    const available = await getProductTotalAvailableStock(product.productId);
+    if (available < 1) {
+      setNotice(`Warning: Available stock for ${product.productName} is ${available}, which is less than the consumed quantity of 1.`);
+    } else {
+      setNotice('Input material added.');
+    }
+
+    setTimeout(() => {
+      document.getElementById('input-materials-table')?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }, 100);
+  };
+
+  const handleAddOutputProduct = async (result: POProductSearchResult) => {
+    if (!selected || !editable) return;
+    const product = result.product;
+    const warehouse = result.shelfLocation || 'MAIN';
+    const unitCost =
+      (product as any).costPrice ||
+      (product as any).cost ||
+      (product as any).averageCost ||
+      0;
+
+    const line = await addOutputLine(selected.transformationId, {
+      productId: product.productId,
+      sku: product.sku || product.productCode,
+      productName: product.productName,
+      qtyProduced: 1,
+      unitCost,
+      destinationWarehouseId: warehouse,
+      destinationShelfLocation: result.shelfLocation
+    });
+
+    if (!line) {
+      setNotice('Output product could not be added.');
+      return;
+    }
+
+    setOutputSearchQuery('');
+    setOutputSearchResults([]);
+    await reloadSelected();
+    setNotice('Output product added.');
+
+    setTimeout(() => {
+      document.getElementById('output-products-table')?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }, 100);
   };
 
   const handleUpdateInput = async (lineId: string, patch: Partial<ProductTransformationInputLine>) => {
     if (!selected || !editable) return;
+
+    if (patch.qtyConsumed !== undefined && patch.qtyConsumed < 0) {
+      setNotice('Quantity cannot be negative.');
+      return;
+    }
+    if (patch.unitCost !== undefined && patch.unitCost < 0) {
+      setNotice('Unit cost cannot be negative.');
+      return;
+    }
+
     const updated = await updateInputLine(selected.transformationId, lineId, patch);
     if (!updated) return;
     setInputLines((prev) => prev.map((line) => line.lineId === lineId ? updated : line));
+
+    if (patch.qtyConsumed !== undefined) {
+      const available = await getProductTotalAvailableStock(updated.productId);
+      if (available < patch.qtyConsumed) {
+        setNotice(`Warning: Available stock for ${updated.productName} is ${available}, which is less than the consumed quantity of ${patch.qtyConsumed}.`);
+      } else {
+        setNotice(null);
+      }
+    }
   };
 
   const handleUpdateOutput = async (lineId: string, patch: Partial<ProductTransformationOutputLine>) => {
     if (!selected || !editable) return;
+
+    if (patch.qtyProduced !== undefined && patch.qtyProduced < 0) {
+      setNotice('Quantity cannot be negative.');
+      return;
+    }
+    if (patch.unitCost !== undefined && patch.unitCost < 0) {
+      setNotice('Unit cost cannot be negative.');
+      return;
+    }
+
     const updated = await updateOutputLine(selected.transformationId, lineId, patch);
     if (!updated) return;
     setOutputLines((prev) => prev.map((line) => line.lineId === lineId ? updated : line));
@@ -442,7 +646,7 @@ export default function ProductTransformationPanel() {
         </div>
 
         <div className="flex flex-wrap gap-2">
-          <button type="button" onClick={() => setCreateOpen(true)} className="px-4 py-2 bg-[#1e222b] hover:bg-black text-white font-black uppercase text-[9.5px] rounded-none cursor-pointer flex items-center gap-2">
+          <button type="button" onClick={() => setCreateOpen(true)} className="px-4 py-2 bg-orange-500 hover:bg-orange-600 border border-orange-500 hover:border-orange-600 text-white font-black uppercase text-[9.5px] rounded-none cursor-pointer flex items-center gap-2">
             <Plus className="w-4 h-4" />
             New Transformation
           </button>
@@ -611,12 +815,83 @@ export default function ProductTransformationPanel() {
                 </div>
               </div>
 
+              <div className="border border-orange-300 bg-orange-50 p-3 space-y-3">
+                <div>
+                  <h4 className="text-[10px] uppercase font-black text-[#1e222b]">Recipe / BOM Templates</h4>
+                  <p className="text-[8.5px] uppercase font-bold text-slate-600">Load a controlled recipe into this draft transformation.</p>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                  {bomTemplates.map((template) => (
+                    <div key={template.templateId} className="bg-white border border-[#b1b5c2] p-3">
+                      <div className="text-[10px] uppercase font-black text-[#1e222b]">{template.templateName}</div>
+                      <div className="text-[8.5px] uppercase font-bold text-slate-500 mt-1">{template.description}</div>
+                      <div className="text-[8px] uppercase font-black text-slate-600 mt-2">
+                        Inputs: {template.inputs.length} | Outputs: {template.outputs.length}
+                      </div>
+                      <button
+                        type="button"
+                        disabled={!editable}
+                        onClick={() => void handleApplyBomTemplate(template)}
+                        className="mt-3 px-3 py-1.5 bg-orange-600 hover:bg-orange-700 border border-orange-700 text-white font-black uppercase text-[8.5px] rounded-none disabled:bg-slate-300 disabled:border-slate-300"
+                      >
+                        Load Recipe
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
               <div>
                 <div className="flex items-center justify-between mb-2">
                   <h4 className="text-[10px] uppercase font-black text-[#1e222b]">Input Materials</h4>
-                  <button type="button" disabled={!editable} onClick={() => openPicker('Input')} className="px-3 py-1 bg-[#1e222b] disabled:bg-slate-300 text-white text-[8px] uppercase font-black">+ Add Input</button>
+                  <button type="button" disabled={!editable} onClick={() => openPicker('Input')} className="px-3 py-1.5 bg-orange-600 hover:bg-orange-700 border border-orange-700 text-white font-black uppercase text-[9px] rounded-none disabled:bg-slate-300 disabled:border-slate-300 cursor-pointer">+ Add Input</button>
                 </div>
-                <div className="border border-gray-200 overflow-x-auto">
+
+                <div className="mb-3 space-y-2">
+                  <input
+                    disabled={!selected || !editable}
+                    value={inputSearchQuery}
+                    onChange={(event) => void handleInputSearch(event.target.value)}
+                    className="w-full border border-[#b1b5c2] bg-white px-2 py-1 text-[9px] uppercase font-bold outline-none focus:border-orange-500 rounded-none disabled:bg-slate-100 text-[#1e222b]"
+                    placeholder="Search input material by SKU, product name, brand, barcode, part number..."
+                  />
+                  {inputSearchResults.length > 0 && (
+                    <div className="border border-[#b1b5c2] bg-slate-50 max-h-[150px] overflow-y-auto pos-custom-scroll p-1">
+                      <table className="w-full text-[8.5px] uppercase">
+                        <thead>
+                          <tr className="border-b border-gray-250 text-slate-600 font-bold">
+                            <th className="p-1 text-left">SKU</th>
+                            <th className="p-1 text-left">Product Name</th>
+                            <th className="p-1 text-right">Available Qty</th>
+                            <th className="p-1 text-right">Cost</th>
+                            <th className="p-1 text-left">Shelf</th>
+                            <th className="p-1 text-center">Action</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {inputSearchResults.map((row) => (
+                            <tr key={row.product.productId} className="border-b border-gray-100 last:border-0 text-[#1e222b]">
+                              <td className="p-1 font-bold">{row.product.sku || row.product.productCode}</td>
+                              <td className="p-1 font-bold">{row.product.productName}</td>
+                              <td className="p-1 text-right font-mono">{row.currentStock}</td>
+                              <td className="p-1 text-right font-mono">{row.product.defaultCostPrice.toFixed(2)}</td>
+                              <td className="p-1 font-bold">{row.shelfLocation || '-'}</td>
+                              <td className="p-1 text-center">
+                                <button
+                                  type="button"
+                                  onClick={() => void handleAddInputProduct(row)}
+                                  className="px-2 py-0.5 bg-orange-500 hover:bg-orange-600 border border-orange-500 hover:border-orange-600 text-white font-black uppercase text-[8px] rounded-none cursor-pointer"
+                                >
+                                  Add
+                                </button>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+                <div id="input-materials-table" className="border border-gray-200 overflow-x-auto">
                   <table className="w-full text-[9px] uppercase">
                     <thead className="bg-slate-100 text-slate-700 font-black">
                       <tr>
@@ -651,18 +926,64 @@ export default function ProductTransformationPanel() {
               <div>
                 <div className="flex items-center justify-between mb-2">
                   <h4 className="text-[10px] uppercase font-black text-[#1e222b]">Output Products</h4>
-                  <button type="button" disabled={!editable} onClick={() => openPicker('Output')} className="px-3 py-1 bg-[#1e222b] disabled:bg-slate-300 text-white text-[8px] uppercase font-black">+ Add Output</button>
+                  <button type="button" disabled={!editable} onClick={() => openPicker('Output')} className="px-3 py-1.5 bg-orange-600 hover:bg-orange-700 border border-orange-700 text-white font-black uppercase text-[9px] rounded-none disabled:bg-slate-300 disabled:border-slate-300 cursor-pointer">+ Add Output</button>
                 </div>
-                <div className="border border-gray-200 overflow-x-auto">
+
+                <div className="mb-3 space-y-2">
+                  <input
+                    disabled={!selected || !editable}
+                    value={outputSearchQuery}
+                    onChange={(event) => void handleOutputSearch(event.target.value)}
+                    className="w-full border border-[#b1b5c2] bg-white px-2 py-1 text-[9px] uppercase font-bold outline-none focus:border-orange-500 rounded-none disabled:bg-slate-100 text-[#1e222b]"
+                    placeholder="Search output product by SKU, product name, brand, barcode, part number..."
+                  />
+                  {outputSearchResults.length > 0 && (
+                    <div className="border border-[#b1b5c2] bg-slate-50 max-h-[150px] overflow-y-auto pos-custom-scroll p-1">
+                      <table className="w-full text-[8.5px] uppercase">
+                        <thead>
+                          <tr className="border-b border-gray-250 text-slate-600 font-bold">
+                            <th className="p-1 text-left">SKU</th>
+                            <th className="p-1 text-left">Product Name</th>
+                            <th className="p-1 text-right">Available Qty</th>
+                            <th className="p-1 text-right">Cost</th>
+                            <th className="p-1 text-left">Shelf</th>
+                            <th className="p-1 text-center">Action</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {outputSearchResults.map((row) => (
+                            <tr key={row.product.productId} className="border-b border-gray-100 last:border-0 text-[#1e222b]">
+                              <td className="p-1 font-bold">{row.product.sku || row.product.productCode}</td>
+                              <td className="p-1 font-bold">{row.product.productName}</td>
+                              <td className="p-1 text-right font-mono">{row.currentStock}</td>
+                              <td className="p-1 text-right font-mono">{row.product.defaultCostPrice.toFixed(2)}</td>
+                              <td className="p-1 font-bold">{row.shelfLocation || '-'}</td>
+                              <td className="p-1 text-center">
+                                <button
+                                  type="button"
+                                  onClick={() => void handleAddOutputProduct(row)}
+                                  className="px-2 py-0.5 bg-orange-500 hover:bg-orange-600 border border-orange-500 hover:border-orange-600 text-white font-black uppercase text-[8px] rounded-none cursor-pointer"
+                                >
+                                  Add
+                                </button>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+                <div id="output-products-table" className="border border-gray-200 overflow-x-auto">
                   <table className="w-full text-[9px] uppercase">
                     <thead className="bg-slate-100 text-slate-700 font-black">
                       <tr>
                         <th className="p-2 text-left">SKU</th>
                         <th className="p-2 text-left">Product</th>
                         <th className="p-2 text-left">Warehouse</th>
-                        <th className="p-2 text-right">Qty</th>
+                        <th className="p-2 text-right">Qty Produced</th>
                         <th className="p-2 text-right">Unit Cost</th>
-                        <th className="p-2 text-right">Value</th>
+                        <th className="p-2 text-right">Output Value</th>
                         <th className="p-2 text-center">Delete</th>
                       </tr>
                     </thead>
