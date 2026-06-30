@@ -441,6 +441,41 @@ export default function ProductTransformationPanel() {
     };
   };
 
+  const guardReport = useMemo(() => {
+    let active = 0;
+    let draft = 0;
+    let deprecated = 0;
+    let imported = 0;
+    let builtin = 0;
+    let hasValidationWarnings = false;
+
+    for (const template of filteredBomTemplates) {
+      const status = template.status || 'Active';
+      if (status === 'Active') active++;
+      else if (status === 'Draft') draft++;
+      else if (status === 'Deprecated') deprecated++;
+
+      const isBuiltIn = bomTemplates.some(bt => bt.templateId === template.templateId);
+      if (isBuiltIn) builtin++;
+      else imported++;
+
+      const validation = validateBomTemplate(template);
+      if (validation.warnings.length > 0) {
+        hasValidationWarnings = true;
+      }
+    }
+
+    return {
+      total: filteredBomTemplates.length,
+      active,
+      draft,
+      deprecated,
+      imported,
+      builtin,
+      hasValidationWarnings
+    };
+  }, [filteredBomTemplates]);
+
   const validateImportedJson = (data: any): data is any[] => {
     if (!Array.isArray(data)) {
       throw new Error("Import data must be a JSON array of templates.");
@@ -1405,6 +1440,66 @@ export default function ProductTransformationPanel() {
                     </div>
                   </div>
                 )}
+
+                <div className="bg-white border border-[#b1b5c2] p-3 space-y-3">
+                  <div className="border-b border-gray-150 pb-1.5 flex items-center justify-between">
+                    <span className="text-[10px] font-black uppercase text-[#1e222b]">
+                      Recipe Governance
+                    </span>
+                    <span className="text-[7.5px] uppercase font-bold text-slate-500">Status Guard Report</span>
+                  </div>
+
+                  <div className="grid grid-cols-3 sm:grid-cols-6 gap-2 text-[8px] uppercase font-black text-slate-700">
+                    <div className="border border-slate-200 bg-slate-50 p-1.5 text-center">
+                      <span className="block text-slate-500 text-[6.5px]">Total</span>
+                      <strong className="block text-[#1e222b] text-[11px] mt-0.5">{guardReport.total}</strong>
+                    </div>
+                    <div className="border border-slate-200 bg-slate-50 p-1.5 text-center">
+                      <span className="block text-slate-500 text-[6.5px]">Active</span>
+                      <strong className="block text-emerald-700 text-[11px] mt-0.5">{guardReport.active}</strong>
+                    </div>
+                    <div className="border border-slate-200 bg-slate-50 p-1.5 text-center">
+                      <span className="block text-slate-500 text-[6.5px]">Draft</span>
+                      <strong className="block text-amber-700 text-[11px] mt-0.5">{guardReport.draft}</strong>
+                    </div>
+                    <div className="border border-slate-200 bg-slate-50 p-1.5 text-center">
+                      <span className="block text-slate-500 text-[6.5px]">Deprecated</span>
+                      <strong className="block text-red-700 text-[11px] mt-0.5">{guardReport.deprecated}</strong>
+                    </div>
+                    <div className="border border-slate-200 bg-slate-50 p-1.5 text-center">
+                      <span className="block text-slate-500 text-[6.5px]">Built-in</span>
+                      <strong className="block text-[#1e222b] text-[11px] mt-0.5">{guardReport.builtin}</strong>
+                    </div>
+                    <div className="border border-slate-200 bg-slate-50 p-1.5 text-center">
+                      <span className="block text-slate-500 text-[6.5px]">Imported</span>
+                      <strong className="block text-[#1e222b] text-[11px] mt-0.5">{guardReport.imported}</strong>
+                    </div>
+                  </div>
+
+                  {(guardReport.draft > 0 || guardReport.deprecated > 0 || guardReport.hasValidationWarnings) && (
+                    <div className="space-y-1.5 bg-orange-50/50 border border-orange-200 p-2 text-[7.5px] uppercase font-black">
+                      <span className="text-orange-800 block mb-1">Governance Warnings:</span>
+                      {guardReport.draft > 0 && (
+                        <div className="text-amber-700 flex items-center gap-1.5">
+                          <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse"></span>
+                          Contains {guardReport.draft} draft template(s) that cannot be loaded.
+                        </div>
+                      )}
+                      {guardReport.deprecated > 0 && (
+                        <div className="text-red-650 flex items-center gap-1.5">
+                          <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse"></span>
+                          Contains {guardReport.deprecated} deprecated template(s) disabled from production.
+                        </div>
+                      )}
+                      {guardReport.hasValidationWarnings && (
+                        <div className="text-amber-700 flex items-center gap-1.5">
+                          <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse"></span>
+                          Contains template(s) with active financial/cost variance validation warnings.
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
                   {filteredBomTemplates.length > 0 ? (
