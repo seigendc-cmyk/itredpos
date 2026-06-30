@@ -204,6 +204,43 @@ export default function ProductTransformationPanel() {
       outputs: [
         { productId: 'fg-basic-kit', sku: 'KIT-BASIC', productName: 'Basic Kit Pack', qtyProduced: 1, unitCost: 12, destinationWarehouseId: 'MAIN' }
       ]
+    },
+    {
+      templateId: 'bom-invalid-sku',
+      templateType: 'Assembly',
+      templateName: 'Invalid SKU Assembly',
+      description: 'Template that triggers a critical error for missing input SKU.',
+      inputs: [
+        { productId: 'mat-no-sku', sku: '', productName: 'Core with No SKU', qtyConsumed: 1, unitCost: 10, sourceWarehouseId: 'MAIN' }
+      ],
+      outputs: [
+        { productId: 'fg-no-sku', sku: 'OUT-NO-SKU', productName: 'Finished product', qtyProduced: 1, unitCost: 15, destinationWarehouseId: 'MAIN' }
+      ]
+    },
+    {
+      templateId: 'bom-invalid-cost-qty',
+      templateType: 'Repack',
+      templateName: 'Negative Cost & Zero Qty Repack',
+      description: 'Template that triggers critical errors for negative cost and zero quantity.',
+      inputs: [
+        { productId: 'mat-neg-cost', sku: 'NEG-COST', productName: 'Negative Cost Material', qtyConsumed: 1, unitCost: -5, sourceWarehouseId: 'MAIN' },
+        { productId: 'mat-zero-qty', sku: 'ZERO-QTY', productName: 'Zero Qty Material', qtyConsumed: 0, unitCost: 8, sourceWarehouseId: 'MAIN' }
+      ],
+      outputs: [
+        { productId: 'fg-repack-item', sku: 'REPACK-ITEM', productName: 'Repacked Item', qtyProduced: 1, unitCost: 10, destinationWarehouseId: 'MAIN' }
+      ]
+    },
+    {
+      templateId: 'bom-loss-making',
+      templateType: 'Manufacturing',
+      templateName: 'Loss-Making Build',
+      description: 'Template that triggers a warning because output value is lower than input cost.',
+      inputs: [
+        { productId: 'mat-expensive', sku: 'EXP-MAT', productName: 'Expensive Core', qtyConsumed: 1, unitCost: 100, sourceWarehouseId: 'MAIN' }
+      ],
+      outputs: [
+        { productId: 'fg-cheap', sku: 'CHEAP-OUT', productName: 'Cheap Output', qtyProduced: 1, unitCost: 80, destinationWarehouseId: 'MAIN' }
+      ]
     }
   ];
 
@@ -242,6 +279,51 @@ export default function ProductTransformationPanel() {
 
   const getBomTemplateVariance = (template: typeof bomTemplates[number]) =>
     getBomTemplateOutputValue(template) - getBomTemplateInputCost(template);
+
+  const validateBomTemplate = (template: typeof bomTemplates[number]) => {
+    const errors: string[] = [];
+    const warnings: string[] = [];
+
+    // Inputs validation
+    for (const input of template.inputs) {
+      if (!input.sku || !input.sku.trim()) {
+        errors.push(`Input ${input.productName || 'product'} has missing SKU`);
+      }
+      if (input.qtyConsumed <= 0) {
+        errors.push(`Input ${input.sku || 'product'} quantity must be greater than 0`);
+      }
+      if (input.unitCost < 0) {
+        errors.push(`Input ${input.sku || 'product'} cost cannot be negative`);
+      }
+    }
+
+    // Outputs validation
+    for (const output of template.outputs) {
+      if (!output.sku || !output.sku.trim()) {
+        errors.push(`Output ${output.productName || 'product'} has missing SKU`);
+      }
+      if (output.qtyProduced <= 0) {
+        errors.push(`Output ${output.sku || 'product'} quantity must be greater than 0`);
+      }
+      if (output.unitCost < 0) {
+        errors.push(`Output ${output.sku || 'product'} cost cannot be negative`);
+      }
+    }
+
+    // Output value lower than input cost
+    const inputCost = getBomTemplateInputCost(template);
+    const outputValue = getBomTemplateOutputValue(template);
+    if (outputValue < inputCost) {
+      warnings.push(`Output value (USD ${outputValue.toFixed(2)}) is lower than input cost (USD ${inputCost.toFixed(2)})`);
+    }
+
+    return {
+      hasCritical: errors.length > 0,
+      errors,
+      warnings
+    };
+  };
+
   const handleApplyBomTemplate = async (template: typeof bomTemplates[number]) => {
     if (!selected || !editable) {
       setNotice('Select a draft transformation before loading a recipe template.');
@@ -945,8 +1027,9 @@ export default function ProductTransformationPanel() {
                     <div className="flex gap-2">
                       <button
                         type="button"
+                        disabled={validateBomTemplate(confirmingTemplate).hasCritical}
                         onClick={() => void handleApplyBomTemplate(confirmingTemplate)}
-                        className="px-3 py-1.5 bg-orange-600 hover:bg-orange-700 border border-orange-700 text-white font-black uppercase text-[8.5px] rounded-none cursor-pointer"
+                        className="px-3 py-1.5 bg-orange-600 hover:bg-orange-700 border border-orange-700 text-white font-black uppercase text-[8.5px] rounded-none cursor-pointer disabled:bg-slate-300 disabled:border-slate-300 disabled:cursor-not-allowed"
                       >
                         Confirm Load
                       </button>
@@ -991,6 +1074,26 @@ export default function ProductTransformationPanel() {
                             </strong>
                           </div>
                         </div>
+
+                        {(() => {
+                          const validation = validateBomTemplate(template);
+                          if (validation.errors.length === 0 && validation.warnings.length === 0) return null;
+                          return (
+                            <div className="mt-2 space-y-1">
+                              {validation.errors.map((err, idx) => (
+                                <div key={idx} className="text-[7.5px] uppercase font-black text-red-700 bg-red-50 border border-red-200 px-1.5 py-0.5 rounded-none">
+                                  Error: {err}
+                                </div>
+                              ))}
+                              {validation.warnings.map((warn, idx) => (
+                                <div key={idx} className="text-[7.5px] uppercase font-black text-amber-700 bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded-none">
+                                  Warning: {warn}
+                                </div>
+                              ))}
+                            </div>
+                          );
+                        })()}
+
                         <button
                           type="button"
                           onClick={() => setExpandedTemplateId(expandedTemplateId === template.templateId ? null : template.templateId)}
