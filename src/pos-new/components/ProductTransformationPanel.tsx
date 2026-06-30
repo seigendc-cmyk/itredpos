@@ -1857,8 +1857,15 @@ export default function ProductTransformationPanel() {
                         Export History
                       </button>
                       <button
-                        type="button"
-                        onClick={handleClearHistory}
+                      type="button"
+                      onClick={handleExportRecipeUsageHistory}
+                      className="px-2 py-0.5 bg-orange-600 hover:bg-orange-700 border border-orange-700 text-white font-black uppercase text-[8px] rounded-none cursor-pointer mr-2"
+                    >
+                      Export History
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleClearHistory}
                         className="px-2 py-0.5 bg-slate-200 hover:bg-slate-300 border border-slate-400 text-[#1e222b] font-black uppercase text-[8px] rounded-none cursor-pointer"
                       >
                         Clear History
