@@ -87,7 +87,16 @@ export default function ProductTransformationPanel() {
   const [bomFilterType, setBomFilterType] = useState('All');
   const [bomSearchQuery, setBomSearchQuery] = useState('');
   const [confirmingTemplate, setConfirmingTemplate] = useState<any | null>(null);
-  const [customBomTemplates, setCustomBomTemplates] = useState<any[]>([]);
+  const CUSTOM_TEMPLATES_KEY = 'sci_product_transformation_custom_bom_templates';
+  const [customBomTemplates, setCustomBomTemplates] = useState<any[]>(() => {
+    try {
+      const data = localStorage.getItem(CUSTOM_TEMPLATES_KEY);
+      return data ? JSON.parse(data) : [];
+    } catch (e) {
+      console.error('Failed to parse custom BOM templates:', e);
+      return [];
+    }
+  });
   const [lastLoadedTemplateSummary, setLastLoadedTemplateSummary] = useState<{
     templateName: string;
     templateType: string;
@@ -488,28 +497,34 @@ export default function ProductTransformationPanel() {
 
         validateImportedJson(parsed);
 
-        setCustomBomTemplates((prev) => {
-          const combined = [...prev];
-          let addedCount = 0;
-          for (const item of parsed) {
-            const existsInBuiltIn = bomTemplates.some(t => t.templateId === item.templateId);
-            if (existsInBuiltIn) continue;
+        const importedIds = parsed.map((t: any) => t.templateId);
 
-            const existsInCustom = combined.some(t => t.templateId === item.templateId);
-            if (existsInCustom) {
-              const idx = combined.findIndex(t => t.templateId === item.templateId);
-              combined[idx] = item;
-            } else {
-              combined.push(item);
-              addedCount++;
-            }
-          }
-          setNotice(`Import successful: ${addedCount} new template(s) added.`);
-          return combined;
+        const hasSelfDuplicate = importedIds.some((id: string, idx: number) => importedIds.indexOf(id) !== idx);
+        if (hasSelfDuplicate) {
+          throw new Error("Duplicate templateId detected within the imported JSON file.");
+        }
+
+        const builtInIds = bomTemplates.map(t => t.templateId);
+        const duplicateWithBuiltIn = importedIds.find(id => builtInIds.includes(id));
+        if (duplicateWithBuiltIn) {
+          throw new Error(`Template ID '${duplicateWithBuiltIn}' already exists in built-in recipes.`);
+        }
+
+        const customIds = customBomTemplates.map(t => t.templateId);
+        const duplicateWithCustom = importedIds.find(id => customIds.includes(id));
+        if (duplicateWithCustom) {
+          throw new Error(`Template ID '${duplicateWithCustom}' already exists in custom imported recipes.`);
+        }
+
+        setCustomBomTemplates((prev) => {
+          const updated = [...prev, ...parsed];
+          localStorage.setItem(CUSTOM_TEMPLATES_KEY, JSON.stringify(updated));
+          setNotice(`Import successful: ${parsed.length} new template(s) added.`);
+          return updated;
         });
 
       } catch (err: any) {
-        setNotice(`Import validation failed: ${err.message || err}`);
+        setNotice(`Import blocked: ${err.message || err}`);
       }
       event.target.value = '';
     };
@@ -1215,6 +1230,7 @@ export default function ProductTransformationPanel() {
                         type="button"
                         onClick={() => {
                           setCustomBomTemplates([]);
+                          localStorage.removeItem(CUSTOM_TEMPLATES_KEY);
                           setNotice("Custom templates cleared.");
                         }}
                         className="px-3 py-1.5 bg-red-650 hover:bg-red-700 border border-red-750 text-white font-black uppercase text-[8.5px] rounded-none cursor-pointer"
