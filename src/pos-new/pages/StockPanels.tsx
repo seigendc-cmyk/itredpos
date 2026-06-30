@@ -4356,7 +4356,7 @@ export default function StockPanels({
             <POFilterInput label="Requested By" value={stockAdjustmentFilters.requestedBy || ''} onChange={(value) => setStockAdjustmentFilters((prev) => ({ ...prev, requestedBy: value }))} />
             <POFilterInput label="Date From" type="date" value={stockAdjustmentFilters.dateFrom || ''} onChange={(value) => setStockAdjustmentFilters((prev) => ({ ...prev, dateFrom: value }))} />
             <POFilterInput label="Date To" type="date" value={stockAdjustmentFilters.dateTo || ''} onChange={(value) => setStockAdjustmentFilters((prev) => ({ ...prev, dateTo: value }))} />
-            <button type="button" onClick={() => refreshStockAdjustments(stockAdjustmentFilters)} className="px-3 py-2 bg-[#1e222b] text-white border border-[#1e222b] font-black uppercase text-[9px] rounded-none self-end">Apply Filters</button>
+            <button type="button" onClick={() => refreshStockAdjustments(stockAdjustmentFilters)} className="px-3 py-2 bg-orange-500 hover:bg-orange-600 border border-orange-500 hover:border-orange-600 text-white font-black uppercase text-[9px] rounded-none self-end">Apply Filters</button>
             <button type="button" onClick={() => { const reset = { status: 'ALL' as const, reason: 'ALL' as const, riskLevel: 'ALL' as const }; setStockAdjustmentFilters(reset); refreshStockAdjustments(reset); }} className="px-3 py-2 bg-white text-[#1e222b] border border-[#b1b5c2] font-black uppercase text-[9px] rounded-none self-end">Clear Filters</button>
           </div>
 
@@ -4651,7 +4651,7 @@ export default function StockPanels({
             <POFilterInput label="Date From" type="date" value={stockTransferFilters.dateFrom || ''} onChange={(value) => setStockTransferFilters((prev) => ({ ...prev, dateFrom: value }))} />
             <POFilterInput label="Date To" type="date" value={stockTransferFilters.dateTo || ''} onChange={(value) => setStockTransferFilters((prev) => ({ ...prev, dateTo: value }))} />
             <POFilterSelect label="Variance Type" value={stockTransferFilters.varianceType || 'ALL'} options={['ALL', 'None', 'Short Received', 'Over Received', 'Damaged In Transit', 'Wrong Product', 'Missing Line', 'Unapproved Product', 'Source Stock Short', 'Destination Rejected']} onChange={(value) => setStockTransferFilters((prev) => ({ ...prev, varianceType: value as StockTransferVarianceType | 'ALL' }))} />
-            <button type="button" onClick={() => refreshStockTransfers(stockTransferFilters)} className="px-3 py-2 bg-[#1e222b] text-white border border-[#1e222b] font-black uppercase text-[9px] rounded-none self-end">Apply Filters</button>
+            <button type="button" onClick={() => refreshStockTransfers(stockTransferFilters)} className="px-3 py-2 bg-orange-500 hover:bg-orange-600 border border-orange-500 hover:border-orange-600 text-white font-black uppercase text-[9px] rounded-none self-end">Apply Filters</button>
             <button type="button" onClick={() => { const reset = { transferType: 'ALL' as const, status: 'ALL' as const, varianceType: 'ALL' as const }; setStockTransferFilters(reset); refreshStockTransfers(reset); }} className="px-3 py-2 bg-white text-[#1e222b] border border-[#b1b5c2] font-black uppercase text-[9px] rounded-none self-end">Clear Filters</button>
           </div>
 
@@ -5379,7 +5379,7 @@ function POFilterInput({ label, value, onChange, type = 'text' }: { label: strin
         type={type}
         value={value}
         onChange={(event) => onChange(event.target.value)}
-        className="w-full bg-white border border-[#b1b5c2] px-2 py-1.5 text-[10px] font-black uppercase outline-none focus:border-orange-500 rounded-none"
+        className="w-full bg-white text-[#1e222b] border border-[#b1b5c2] px-2 py-1.5 text-[10px] font-black uppercase outline-none focus:border-orange-500 rounded-none"
       />
     </label>
   );
@@ -5392,7 +5392,7 @@ function POFilterSelect({ label, value, options, onChange }: { label: string; va
       <select
         value={value}
         onChange={(event) => onChange(event.target.value)}
-        className="w-full bg-white border border-[#b1b5c2] px-2 py-1.5 text-[10px] font-black uppercase outline-none focus:border-orange-500 rounded-none"
+        className="w-full bg-white text-[#1e222b] border border-[#b1b5c2] px-2 py-1.5 text-[10px] font-black uppercase outline-none focus:border-orange-500 rounded-none"
       >
         {options.map((option) => (
           <option key={option} value={option}>{option.toUpperCase()}</option>
@@ -5425,7 +5425,7 @@ function StocktakeSelect({ label, value, onChange, options }: { label: string; v
       <select
         value={value}
         onChange={(event) => onChange(event.target.value)}
-        className="w-full bg-white border border-[#b1b5c2] px-2 py-1.5 text-[10px] font-black uppercase outline-none focus:border-orange-500 rounded-none"
+        className="w-full bg-white text-[#1e222b] border border-[#b1b5c2] px-2 py-1.5 text-[10px] font-black uppercase outline-none focus:border-orange-500 rounded-none"
       >
         {options.map((option) => (
           <option key={option} value={option}>{option.toUpperCase()}</option>

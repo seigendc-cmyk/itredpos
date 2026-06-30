@@ -203,14 +203,14 @@ function textMeta(item: StockProduct, key: string): string {
   return '';
 }
 
-type StockTab = 'Stock List' | 'Product List' | 'Product Master' | 'Product Import Desk' | 'Product Import' | 'Product Ledger' | 'Inventory Movements' | 'Stock Health' | 'Inventory Reports' | 'Goods Receiving' | 'Purchase Orders' | 'Supplier Returns' | 'Stock Adjustments' | 'Stocktake' | 'Stock Transfers';
+type StockTab = 'Stock List' | 'Product List' | 'Product Master' | 'Product Import Desk' | 'Product Import' | 'Product Ledger' | 'Inventory Movements' | 'Stock Health' | 'Inventory Reports' | 'Goods Receiving' | 'Purchase Orders' | 'Supplier Returns' | 'Stock Adjustments' | 'Stocktake' | 'Stock Transfers' | 'Product Transformation';
 type InventoryGroup = 'Stock List' | 'Product Master' | 'Procurement' | 'Stock Control' | 'Intelligence';
 
 const INVENTORY_GROUPS: Array<{ group: InventoryGroup; tabs: StockTab[] }> = [
   { group: 'Stock List', tabs: ['Stock List', 'Product List', 'Product Ledger', 'Inventory Movements'] },
   { group: 'Product Master', tabs: ['Product Master', 'Product Import'] },
   { group: 'Procurement', tabs: ['Purchase Orders', 'Goods Receiving', 'Supplier Returns'] },
-  { group: 'Stock Control', tabs: ['Stock Adjustments', 'Stock Transfers', 'Stocktake'] },
+  { group: 'Stock Control', tabs: ['Stock Adjustments', 'Stock Transfers', 'Stocktake', 'Product Transformation'] },
   { group: 'Intelligence', tabs: ['Stock Health', 'Inventory Reports'] }
 ];
 
@@ -293,6 +293,14 @@ export default function PosStock({
   // Tabbed Routing inside Stock Control
   const [activeTab, setActiveTab] = useState<StockTab>('Stock List');
   const [activeInventoryGroup, setActiveInventoryGroup] = useState<InventoryGroup>('Stock List');
+
+  useEffect(() => {
+    const group = INVENTORY_GROUPS.find((g) => g.tabs.includes(activeTab))?.group;
+    if (group) {
+      setActiveInventoryGroup(group);
+    }
+  }, [activeTab]);
+
   const [showInventorySummary, setShowInventorySummary] = useState(false);
   const [showActivityFeed, setShowActivityFeed] = useState(false);
   const [selectedProductForDetail, setSelectedProductForDetail] = useState<StockProduct | null>(null);
@@ -2713,7 +2721,7 @@ export default function PosStock({
           setStockApprovals={setStockApprovals}
           canApprove={canApprove}
           onUpdateStock={onUpdateStock}
-          activeTab={activeTab as 'Product Master' | 'Goods Receiving' | 'Purchase Orders' | 'Supplier Returns' | 'Stock Adjustments' | 'Stocktake' | 'Stock Transfers'}
+          activeTab={activeTab as 'Product Master' | 'Goods Receiving' | 'Purchase Orders' | 'Supplier Returns' | 'Stock Adjustments' | 'Stocktake' | 'Stock Transfers' | 'Product Transformation'}
           setActiveTab={(tab) => setActiveTab(tab)}
           stocktakePreselect={stocktakePreselect}
           stocktakePreselectToken={stocktakePreselectToken}
