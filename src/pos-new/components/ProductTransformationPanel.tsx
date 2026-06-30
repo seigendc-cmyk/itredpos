@@ -111,6 +111,7 @@ export default function ProductTransformationPanel() {
     variance: number;
     loadedAt: string;
     approvalNote?: string;
+    approvalNoteCapturedAt?: string;
   } | null>(null);
 
   interface RecipeUsageRecord {
@@ -772,7 +773,8 @@ export default function ProductTransformationPanel() {
       outputValue: getBomTemplateOutputValue(template),
       variance: getBomTemplateVariance(template),
       loadedAt: new Date().toLocaleString(),
-      approvalNote: recipeApprovalNote.trim()
+      approvalNote: recipeApprovalNote.trim(),
+      approvalNoteCapturedAt: recipeApprovalNote.trim() ? new Date().toLocaleString() : ''
     };
 
     setRecipeUsageHistory((prev) => {
@@ -1851,6 +1853,9 @@ export default function ProductTransformationPanel() {
                             Loaded into <strong className="text-orange-700">{record.transformationNumber}</strong> | {record.loadedAt}
                             {record.approvalNote && (
                               <div className="text-[7.5px] text-amber-700 mt-1">Note: {record.approvalNote}</div>
+                              {record.approvalNoteCapturedAt && (
+                                <div className="text-[7.5px] text-slate-500 mt-0.5">Note Captured: {record.approvalNoteCapturedAt}</div>
+                              )}
                             )}
                           </div>
                         </div>
@@ -1944,7 +1949,10 @@ export default function ProductTransformationPanel() {
                     <div>Variance: <span className={`font-extrabold ${lastLoadedTemplateSummary.variance < 0 ? 'text-red-700' : 'text-emerald-700'}`}>USD {lastLoadedTemplateSummary.variance.toFixed(2)}</span></div>
                     <div>Loaded Time: <span className="font-extrabold text-[#1e222b]">{lastLoadedTemplateSummary.loadedAt}</span></div>
                     {lastLoadedTemplateSummary.approvalNote && (
-                      <div>Review / Approval Note: <span className="font-extrabold text-[#1e222b]">{lastLoadedTemplateSummary.approvalNote}</span></div>
+                      <>
+                        <div>Review / Approval Note: <span className="font-extrabold text-[#1e222b]">{lastLoadedTemplateSummary.approvalNote}</span></div>
+                        <div>Note Captured At: <span className="font-extrabold text-[#1e222b]">{lastLoadedTemplateSummary.approvalNoteCapturedAt}</span></div>
+                      </>
                     )}
                   </div>
                 </div>
