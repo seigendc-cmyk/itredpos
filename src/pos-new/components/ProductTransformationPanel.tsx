@@ -190,6 +190,15 @@ export default function ProductTransformationPanel() {
     }
   ];
 
+
+  const getBomTemplateInputCost = (template: typeof bomTemplates[number]) =>
+    template.inputs.reduce((sum, line) => sum + line.qtyConsumed * line.unitCost, 0);
+
+  const getBomTemplateOutputValue = (template: typeof bomTemplates[number]) =>
+    template.outputs.reduce((sum, line) => sum + line.qtyProduced * line.unitCost, 0);
+
+  const getBomTemplateVariance = (template: typeof bomTemplates[number]) =>
+    getBomTemplateOutputValue(template) - getBomTemplateInputCost(template);
   const handleApplyBomTemplate = async (template: typeof bomTemplates[number]) => {
     if (!selected || !editable) {
       setNotice('Select a draft transformation before loading a recipe template.');
@@ -827,6 +836,22 @@ export default function ProductTransformationPanel() {
                       <div className="text-[8.5px] uppercase font-bold text-slate-500 mt-1">{template.description}</div>
                       <div className="text-[8px] uppercase font-black text-slate-600 mt-2">
                         Inputs: {template.inputs.length} | Outputs: {template.outputs.length}
+                      </div>
+                      <div className="grid grid-cols-3 gap-1 mt-2 text-[8px] uppercase font-black">
+                        <div className="border border-slate-200 bg-slate-50 p-1">
+                          <span className="block text-slate-500">Input Cost</span>
+                          <strong className="text-[#1e222b]">USD {getBomTemplateInputCost(template).toFixed(2)}</strong>
+                        </div>
+                        <div className="border border-slate-200 bg-slate-50 p-1">
+                          <span className="block text-slate-500">Output Value</span>
+                          <strong className="text-[#1e222b]">USD {getBomTemplateOutputValue(template).toFixed(2)}</strong>
+                        </div>
+                        <div className="border border-slate-200 bg-slate-50 p-1">
+                          <span className="block text-slate-500">Variance</span>
+                          <strong className={getBomTemplateVariance(template) < 0 ? 'text-red-700' : 'text-emerald-700'}>
+                            USD {getBomTemplateVariance(template).toFixed(2)}
+                          </strong>
+                        </div>
                       </div>
                       <button
                         type="button"
