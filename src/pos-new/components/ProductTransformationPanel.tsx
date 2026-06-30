@@ -131,6 +131,7 @@ export default function ProductTransformationPanel() {
   const LOCAL_STORAGE_KEY = 'sci_product_transformation_recipe_usage_history';
 
   const [recipeHistorySearchQuery, setRecipeHistorySearchQuery] = useState('');
+  const [recipeHistoryDateFilter, setRecipeHistoryDateFilter] = useState('All');
   const [recipeUsageHistory, setRecipeUsageHistory] = useState<RecipeUsageRecord[]>(() => {
     try {
       const data = localStorage.getItem(LOCAL_STORAGE_KEY);
@@ -227,9 +228,22 @@ export default function ProductTransformationPanel() {
 
   const filteredRecipeUsageHistory = useMemo(() => {
     const query = recipeHistorySearchQuery.trim().toLowerCase();
-    if (!query) return recipeUsageHistory;
+    const now = new Date();
 
-    return recipeUsageHistory.filter((record) =>
+    const dateFiltered = recipeUsageHistory.filter((record) => {
+      if (recipeHistoryDateFilter === 'All') return true;
+      const loaded = new Date(record.loadedAt);
+      if (Number.isNaN(loaded.getTime())) return true;
+      const diffDays = Math.floor((now.getTime() - loaded.getTime()) / 86400000);
+      if (recipeHistoryDateFilter === 'Today') return loaded.toDateString() === now.toDateString();
+      if (recipeHistoryDateFilter === '7 Days') return diffDays <= 7;
+      if (recipeHistoryDateFilter === '30 Days') return diffDays <= 30;
+      return true;
+    });
+
+    if (!query) return dateFiltered;
+
+    return dateFiltered.filter((record) =>
       record.templateName.toLowerCase().includes(query) ||
       record.transformationNumber.toLowerCase().includes(query) ||
       record.templateType.toLowerCase().includes(query) ||
@@ -239,7 +253,7 @@ export default function ProductTransformationPanel() {
       String(record.variance).includes(query) ||
       (record.approvalNote || '').toLowerCase().includes(query)
     );
-  }, [recipeUsageHistory, recipeHistorySearchQuery]);
+  }, [recipeUsageHistory, recipeHistorySearchQuery, recipeHistoryDateFilter]);
   const analytics = useMemo(() => {
     if (recipeUsageHistory.length === 0) return null;
 
@@ -1958,7 +1972,17 @@ export default function ProductTransformationPanel() {
                     </>
                   )}
                 </div>
-                <div className="mb-2">
+                <div className="mb-2 flex flex-col md:flex-row gap-2">
+                  <select
+                    value={recipeHistoryDateFilter}
+                    onChange={(event) => setRecipeHistoryDateFilter(event.target.value)}
+                    className="w-full md:w-36 border border-[#b1b5c2] bg-white px-2 py-1 text-[9px] uppercase font-bold text-[#1e222b] outline-none focus:border-orange-500 rounded-none"
+                  >
+                    <option value="All">All Dates</option>
+                    <option value="Today">Today</option>
+                    <option value="7 Days">Last 7 Days</option>
+                    <option value="30 Days">Last 30 Days</option>
+                  </select>
                   <input
                     value={recipeHistorySearchQuery}
                     onChange={(event) => setRecipeHistorySearchQuery(event.target.value)}
