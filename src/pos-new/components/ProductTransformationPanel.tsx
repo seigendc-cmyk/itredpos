@@ -130,6 +130,7 @@ export default function ProductTransformationPanel() {
 
   const LOCAL_STORAGE_KEY = 'sci_product_transformation_recipe_usage_history';
 
+  const [recipeHistorySearchQuery, setRecipeHistorySearchQuery] = useState('');
   const [recipeUsageHistory, setRecipeUsageHistory] = useState<RecipeUsageRecord[]>(() => {
     try {
       const data = localStorage.getItem(LOCAL_STORAGE_KEY);
@@ -223,6 +224,22 @@ export default function ProductTransformationPanel() {
     localStorage.removeItem(LOCAL_STORAGE_KEY);
   };
 
+
+  const filteredRecipeUsageHistory = useMemo(() => {
+    const query = recipeHistorySearchQuery.trim().toLowerCase();
+    if (!query) return recipeUsageHistory;
+
+    return recipeUsageHistory.filter((record) =>
+      record.templateName.toLowerCase().includes(query) ||
+      record.transformationNumber.toLowerCase().includes(query) ||
+      record.templateType.toLowerCase().includes(query) ||
+      record.loadedAt.toLowerCase().includes(query) ||
+      String(record.inputCost).includes(query) ||
+      String(record.outputValue).includes(query) ||
+      String(record.variance).includes(query) ||
+      (record.approvalNote || '').toLowerCase().includes(query)
+    );
+  }, [recipeUsageHistory, recipeHistorySearchQuery]);
   const analytics = useMemo(() => {
     if (recipeUsageHistory.length === 0) return null;
 
@@ -1941,13 +1958,21 @@ export default function ProductTransformationPanel() {
                     </>
                   )}
                 </div>
-                {recipeUsageHistory.length === 0 ? (
+                <div className="mb-2">
+                  <input
+                    value={recipeHistorySearchQuery}
+                    onChange={(event) => setRecipeHistorySearchQuery(event.target.value)}
+                    placeholder="Search recipe usage history by template, transformation, note..."
+                    className="w-full border border-[#b1b5c2] bg-white px-2 py-1 text-[9px] uppercase font-bold text-[#1e222b] outline-none focus:border-orange-500 rounded-none"
+                  />
+                </div>
+                {filteredRecipeUsageHistory.length === 0 ? (
                   <div className="text-[9px] uppercase font-bold text-slate-500 py-2 text-center">
                     No template load history available.
                   </div>
                 ) : (
                   <div className="space-y-2 max-h-[220px] overflow-y-auto pos-custom-scroll">
-                    {recipeUsageHistory.slice(0, 5).map((record, index) => (
+                    {filteredRecipeUsageHistory.slice(0, 5).map((record, index) => (
                       <div key={index} className="border border-slate-200 bg-slate-50 p-2 text-[8.5px] uppercase font-bold text-slate-700 flex flex-col md:flex-row justify-between items-start md:items-center gap-2">
                         <div>
                           <div className="font-extrabold text-[#1e222b]">{record.templateName}</div>
