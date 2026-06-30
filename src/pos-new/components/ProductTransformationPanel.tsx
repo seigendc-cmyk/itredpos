@@ -355,39 +355,6 @@ export default function ProductTransformationPanel() {
     }
   ];
 
-  const combinedTemplates = useMemo(() => {
-    return [...bomTemplates, ...customBomTemplates];
-  }, [customBomTemplates]);
-
-  const filteredBomTemplates = useMemo(() => {
-    return combinedTemplates.filter(template => {
-      const typeMatch = bomFilterType === 'All' || template.templateType === bomFilterType;
-      const statusMatch = bomFilterStatus === 'All' || (template.status || 'Active') === bomFilterStatus;
-      const riskMatch = bomFilterRisk === 'All' || (template.riskLevel || 'Low') === bomFilterRisk;
-
-      const searchMatch = (() => {
-        if (!bomSearchQuery.trim()) return true;
-        const query = bomSearchQuery.toLowerCase();
-        const inName = template.templateName.toLowerCase().includes(query);
-        const inType = template.templateType.toLowerCase().includes(query);
-        const inDescription = template.description.toLowerCase().includes(query);
-        const inInput = template.inputs.some(
-          line =>
-            line.sku.toLowerCase().includes(query) ||
-            line.productName.toLowerCase().includes(query)
-        );
-        const inOutput = template.outputs.some(
-          line =>
-            line.sku.toLowerCase().includes(query) ||
-            line.productName.toLowerCase().includes(query)
-        );
-        return inName || inType || inDescription || inInput || inOutput;
-      })();
-
-      return typeMatch && statusMatch && riskMatch && searchMatch;
-    });
-  }, [combinedTemplates, bomFilterType, bomFilterStatus, bomFilterRisk, bomSearchQuery]);
-
   const getBomTemplateInputCost = (template: typeof bomTemplates[number]) =>
     template.inputs.reduce((sum, line) => sum + line.qtyConsumed * line.unitCost, 0);
 
@@ -440,6 +407,80 @@ export default function ProductTransformationPanel() {
       warnings
     };
   };
+
+  const calculateBomTemplateRisk = (template: typeof bomTemplates[number]) => {
+    let score = 10;
+    
+    const status = template.status || 'Active';
+    if (status === 'Draft') score += 30;
+    else if (status === 'Deprecated') score += 50;
+
+    const isBuiltIn = bomTemplates.some(bt => bt.templateId === template.templateId);
+    if (!isBuiltIn) {
+      score += 15;
+    }
+
+    const inputCost = getBomTemplateInputCost(template);
+    const outputValue = getBomTemplateOutputValue(template);
+    if (outputValue < inputCost) {
+      score += 25;
+    }
+
+    const hasZeroCost = template.inputs.some(i => i.unitCost <= 0) || template.outputs.some(o => o.unitCost <= 0);
+    if (hasZeroCost) {
+      score += 30;
+    }
+
+    const validation = validateBomTemplate(template);
+    if (validation.warnings.length > 0) {
+      score += 15;
+    }
+
+    score = Math.min(Math.max(score, 0), 100);
+
+    let level: 'Low' | 'Medium' | 'High' | 'Critical' = 'Low';
+    if (score <= 20) level = 'Low';
+    else if (score <= 50) level = 'Medium';
+    else if (score <= 80) level = 'High';
+    else level = 'Critical';
+
+    return { score, level };
+  };
+
+  const combinedTemplates = useMemo(() => {
+    return [...bomTemplates, ...customBomTemplates];
+  }, [customBomTemplates]);
+
+  const filteredBomTemplates = useMemo(() => {
+    return combinedTemplates.filter(template => {
+      const typeMatch = bomFilterType === 'All' || template.templateType === bomFilterType;
+      const statusMatch = bomFilterStatus === 'All' || (template.status || 'Active') === bomFilterStatus;
+      
+      const calculatedRisk = calculateBomTemplateRisk(template);
+      const riskMatch = bomFilterRisk === 'All' || calculatedRisk.level === bomFilterRisk;
+
+      const searchMatch = (() => {
+        if (!bomSearchQuery.trim()) return true;
+        const query = bomSearchQuery.toLowerCase();
+        const inName = template.templateName.toLowerCase().includes(query);
+        const inType = template.templateType.toLowerCase().includes(query);
+        const inDescription = template.description.toLowerCase().includes(query);
+        const inInput = template.inputs.some(
+          line =>
+            line.sku.toLowerCase().includes(query) ||
+            line.productName.toLowerCase().includes(query)
+        );
+        const inOutput = template.outputs.some(
+          line =>
+            line.sku.toLowerCase().includes(query) ||
+            line.productName.toLowerCase().includes(query)
+        );
+        return inName || inType || inDescription || inInput || inOutput;
+      })();
+
+      return typeMatch && statusMatch && riskMatch && searchMatch;
+    });
+  }, [combinedTemplates, bomFilterType, bomFilterStatus, bomFilterRisk, bomSearchQuery]);
 
   const guardReport = useMemo(() => {
     let active = 0;
@@ -1526,12 +1567,17 @@ export default function ProductTransformationPanel() {
                           </span>
                         </div>
                         <div className="flex flex-wrap gap-2 text-[7.5px] uppercase font-black text-slate-500 mt-1 mb-1">
-                          <span>Risk: <span className={
-                            (template.riskLevel || 'Low') === 'Critical' ? 'text-red-750 font-black' :
-                            (template.riskLevel || 'Low') === 'High' ? 'text-orange-700' :
-                            (template.riskLevel || 'Low') === 'Medium' ? 'text-amber-700' :
-                            'text-slate-600'
-                          }>{template.riskLevel || 'Low'}</span></span>
+                          {(() => {
+                            const calculatedRisk = calculateBomTemplateRisk(template);
+                            return (
+                              <span>Risk: <span className={
+                                calculatedRisk.level === 'Critical' ? 'text-red-750 font-black' :
+                                calculatedRisk.level === 'High' ? 'text-orange-700' :
+                                calculatedRisk.level === 'Medium' ? 'text-amber-700' :
+                                'text-slate-600'
+                              }>{calculatedRisk.level} ({calculatedRisk.score}/100)</span></span>
+                            );
+                          })()}
                           <span>|</span>
                           <span>{template.approvalRequired ? 'Approval Required' : 'Approval Not Required'}</span>
                           {template.approvedBy && (
@@ -1586,12 +1632,16 @@ export default function ProductTransformationPanel() {
                             Governance Block: Pending Manager Approval
                           </div>
                         )}
-                        {(template.riskLevel || 'Low') === 'Critical' && (
-                          <div className="mt-2 text-[7.5px] uppercase font-black text-red-700 bg-red-50 border border-red-200 px-1.5 py-1 rounded-none flex items-center gap-1">
-                            <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse"></span>
-                            Governance Block: Critical Risk Level Exceeded
-                          </div>
-                        )}
+                        {(() => {
+                          const calculatedRisk = calculateBomTemplateRisk(template);
+                          if (calculatedRisk.level !== 'Critical') return null;
+                          return (
+                            <div className="mt-2 text-[7.5px] uppercase font-black text-red-700 bg-red-50 border border-red-200 px-1.5 py-1 rounded-none flex items-center gap-1">
+                              <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse"></span>
+                              Governance Block: Critical Risk Level Exceeded
+                            </div>
+                          );
+                        })()}
 
                         <button
                           type="button"
@@ -1601,8 +1651,9 @@ export default function ProductTransformationPanel() {
                           {expandedTemplateId === template.templateId ? 'Hide Detail' : 'View Detail'}
                         </button>
                         {(() => {
+                          const calculatedRisk = calculateBomTemplateRisk(template);
                           const isBlockedApproval = template.approvalRequired && !template.approvedBy;
-                          const isBlockedRisk = (template.riskLevel || 'Low') === 'Critical';
+                          const isBlockedRisk = calculatedRisk.level === 'Critical';
                           const isBlockedStatus = (template.status || 'Active') !== 'Active';
                           const isLoadDisabled = !editable || isBlockedApproval || isBlockedRisk || isBlockedStatus;
 
