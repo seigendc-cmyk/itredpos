@@ -86,6 +86,7 @@ export default function ProductTransformationPanel() {
   const [yieldExcellentThreshold, setYieldExcellentThreshold] = useState(95);
   const [yieldGoodThreshold, setYieldGoodThreshold] = useState(85);
   const [yieldReviewThreshold, setYieldReviewThreshold] = useState(70);
+  const [yieldSupervisorOverrideNote, setYieldSupervisorOverrideNote] = useState('');
   const [expandedTemplateId, setExpandedTemplateId] = useState<string | null>(null);
   const [bomFilterType, setBomFilterType] = useState('All');
   const [bomFilterStatus, setBomFilterStatus] = useState('All');
@@ -2345,6 +2346,21 @@ export default function ProductTransformationPanel() {
                       </div>
                     );
                   })()}
+                </div>
+
+                <div className="mb-2 border border-red-200 bg-red-50 p-2">
+                  <div className="text-[8px] font-black uppercase text-red-700">
+                    Yield Supervisor Override Notes
+                  </div>
+                  <textarea
+                    value={yieldSupervisorOverrideNote}
+                    onChange={(event) => setYieldSupervisorOverrideNote(event.target.value)}
+                    placeholder="Enter supervisor reason for approving low yield, wastage, damaged input, operator issue, or management decision..."
+                    className="mt-1 min-h-[48px] w-full border border-red-200 bg-white p-2 text-[8px] font-bold text-[#1e222b]"
+                  />
+                  <div className="mt-1 text-[7px] font-bold uppercase text-red-500">
+                    Required when yield approval is blocked or manually overridden.
+                  </div>
                 </div>
 
                 <div className="mb-2 border border-slate-300 bg-slate-50 p-2">
