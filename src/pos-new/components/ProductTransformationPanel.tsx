@@ -538,6 +538,27 @@ export default function ProductTransformationPanel() {
     };
   };
 
+  const buildYieldApprovalAuditTrail = () => {
+    const payload = buildYieldFinalApprovalPayload();
+
+    return {
+      auditType: "YIELD_APPROVAL_AUDIT_TRAIL",
+      buildCode: "Build 2K-12K",
+      source: "USING MANUAL DEV",
+      module: "ProductTransformationPanel",
+      eventType: payload.approvalStatus,
+      canApprove: payload.canApprove,
+      approvalDisabled: payload.approvalDisabled,
+      approvalDisableReason: payload.approvalDisableReason,
+      supervisorOverrideNote: payload.supervisorOverrideNote,
+      biEventType: payload.biEvent.eventType,
+      severity: payload.biEvent.severity,
+      yieldPercent: payload.biEvent.yieldPercent,
+      thresholds: payload.biEvent.thresholds,
+      capturedAt: new Date().toISOString(),
+    };
+  };
+
   const getYieldQualityStatus = () => {
     const yieldPercent = transformationYieldSummary.yieldPercent;
 
@@ -2439,6 +2460,26 @@ export default function ProductTransformationPanel() {
                   <div className="text-[8px] font-bold">
                     {getYieldManagementAlert().action}
                   </div>
+                </div>
+
+                <div className="mb-2 border border-slate-300 bg-white p-2">
+                  <div className="text-[8px] font-black uppercase text-slate-700">
+                    Yield Approval Audit Trail
+                  </div>
+                  {(() => {
+                    const audit = buildYieldApprovalAuditTrail();
+                    return (
+                      <div className="mt-1 text-[8px] font-bold text-[#1e222b]">
+                        <div>Audit: {audit.auditType}</div>
+                        <div>Event: {audit.eventType}</div>
+                        <div>BI: {audit.biEventType}</div>
+                        <div>Severity: {audit.severity}</div>
+                        <div className="mt-1 text-[7px] uppercase text-slate-400">
+                          Source: {audit.source}
+                        </div>
+                      </div>
+                    );
+                  })()}
                 </div>
 
                 <div className="mb-2 border border-slate-300 bg-slate-50 p-2">
