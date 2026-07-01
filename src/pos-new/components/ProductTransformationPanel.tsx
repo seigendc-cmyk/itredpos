@@ -635,6 +635,16 @@ export default function ProductTransformationPanel() {
     };
   };
 
+  const getTransformationOutputUnitCost = () => {
+    const outputQty = Number(transformationOutputQty || 0);
+
+    if (!outputQty || outputQty <= 0) {
+      return 0;
+    }
+
+    return Number(transformationInputCost || 0) / outputQty;
+  };
+
   const getYieldQualityStatus = () => {
     const yieldPercent = transformationYieldSummary.yieldPercent;
 
