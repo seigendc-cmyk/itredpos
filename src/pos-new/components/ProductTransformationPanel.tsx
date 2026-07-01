@@ -681,6 +681,30 @@ export default function ProductTransformationPanel() {
     };
   };
 
+  const buildTransformationCostingBiEvent = () => {
+    const costing = buildTransformationCostingIntelligence();
+
+    return {
+      eventType: "TRANSFORMATION_COSTING_REVIEWED",
+      buildCode: "Build 2K-13G",
+      source: "USING MANUAL DEV",
+      module: "ProductTransformationPanel",
+      domain: "BI_FOR_BUSINESS_OPERATIONS",
+      category: "TRANSFORMATION_COSTING",
+      severity: costing.marginImpact.marginPercent < 10 ? "warning" : "normal",
+      inputQty: costing.inputQty,
+      outputQty: costing.outputQty,
+      inputCost: costing.inputCost,
+      outputUnitCost: costing.outputUnitCost,
+      yieldLossCost: costing.yieldLossCost,
+      totalTransformationCost: costing.totalTransformationCost,
+      revenue: costing.marginImpact.revenue,
+      grossProfit: costing.marginImpact.grossProfit,
+      marginPercent: costing.marginImpact.marginPercent,
+      createdAt: new Date().toISOString(),
+    };
+  };
+
   const getYieldQualityStatus = () => {
     const yieldPercent = transformationYieldSummary.yieldPercent;
 
