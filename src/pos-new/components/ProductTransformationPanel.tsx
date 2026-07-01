@@ -388,6 +388,48 @@ export default function ProductTransformationPanel() {
   }, [inputLines, outputLines]);
 
 
+
+  const getYieldQualityStatus = () => {
+    const yieldPercent = transformationYieldSummary.yieldPercent;
+
+    if (transformationYieldSummary.totalInputQty <= 0 || transformationYieldSummary.totalOutputQty <= 0) {
+      return {
+        label: 'Incomplete',
+        detail: 'Add input and output quantities to calculate production yield.',
+        className: 'border-slate-300 bg-slate-50 text-slate-700'
+      };
+    }
+
+    if (yieldPercent >= 95) {
+      return {
+        label: 'Excellent',
+        detail: 'Yield is within excellent production range.',
+        className: 'border-emerald-300 bg-emerald-50 text-emerald-800'
+      };
+    }
+
+    if (yieldPercent >= 85) {
+      return {
+        label: 'Good',
+        detail: 'Yield is acceptable but should be monitored.',
+        className: 'border-lime-300 bg-lime-50 text-lime-800'
+      };
+    }
+
+    if (yieldPercent >= 70) {
+      return {
+        label: 'Review',
+        detail: 'Yield is below preferred range. Supervisor review recommended.',
+        className: 'border-amber-300 bg-amber-50 text-amber-800'
+      };
+    }
+
+    return {
+      label: 'Critical',
+      detail: 'Yield is too low. Investigate waste, scrap, or input/output quantities.',
+      className: 'border-red-300 bg-red-50 text-red-800'
+    };
+  };
   const bomTemplates = [
     {
       templateId: 'bom-radiator-basic',
@@ -2145,6 +2187,14 @@ export default function ProductTransformationPanel() {
                     Yield {transformationYieldSummary.yieldPercent.toFixed(2)}%
                   </span>
                 </div>
+                {(() => {
+                  const quality = getYieldQualityStatus();
+                  return (
+                    <div className={`mb-2 border px-2 py-1.5 text-[8.5px] uppercase font-bold rounded-none ${quality.className}`}>
+                      <strong>{quality.label}</strong> — {quality.detail}
+                    </div>
+                  );
+                })()}
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-[8.5px] uppercase font-black">
                   <div className="border border-slate-200 bg-slate-50 p-2">
                     <span className="block text-slate-500">Input Qty</span>
