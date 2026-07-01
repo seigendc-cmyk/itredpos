@@ -3,7 +3,6 @@ import { CopyPlus, FileText, Printer, X } from 'lucide-react';
 import type { Sale } from '../types';
 // Assuming a hook that provides permission checks.
 // You would need to create this hook based on your auth context.
-import { usePermissions } from '../hooks/usePermissions';
 
 interface SalesReceiptReviewModalProps {
   sale: Sale | null;
@@ -11,6 +10,9 @@ interface SalesReceiptReviewModalProps {
   onReprint: (sale: Sale) => void | Promise<void>;
   onCatForm: (sale: Sale) => void; // CAT: Customer Action Trail
   onDuplicate: (sale: Sale) => void;
+  canReprint?: boolean;
+  canOpenCatForm?: boolean;
+  canDuplicate?: boolean;
 }
 
 const tabs = ['Receipt', 'Items', 'Customer', 'Payment', 'Tax', 'Delivery', 'Audit'] as const;
@@ -20,9 +22,8 @@ function money(value: number): string {
   return `USD ${value.toFixed(2)}`;
 }
 
-export default function SalesReceiptReviewModal({ sale, onClose, onReprint, onCatForm, onDuplicate }: SalesReceiptReviewModalProps) {
+export default function SalesReceiptReviewModal({ sale, onClose, onReprint, onCatForm, onDuplicate, canReprint = false, canOpenCatForm = false, canDuplicate = false }: SalesReceiptReviewModalProps) {
   const [activeTab, setActiveTab] = useState<ReceiptReviewTab>('Receipt');
-  const { can } = usePermissions(); // Example usage of a permissions hook
   const itemCount = useMemo(() => sale?.items.reduce((sum, item) => sum + item.quantity, 0) || 0, [sale]);
 
   if (!sale) return null;
@@ -73,13 +74,13 @@ export default function SalesReceiptReviewModal({ sale, onClose, onReprint, onCa
           {activeTab === 'Audit' && <div className="sales-review-grid"><div><span>Review Mode</span><strong>Read-only</strong></div><div><span>Stock</span><strong>No stock changes</strong></div><div><span>Payment</span><strong>No payment changes</strong></div><div><span>Receipt</span><strong>No receipt mutation</strong></div></div>}
         </div>
         <div className="sales-drawer-actions">
-          {can('sales.reprintReceipt') && (
+          {canReprint && (
             <button type="button" className="sci-pos-button sci-pos-button--secondary" onClick={() => void onReprint(sale)}><Printer size={16} aria-hidden="true" /> Reprint</button>
           )}
-          {can('customers.purchaseHistory.view') && (
+          {canOpenCatForm && (
             <button type="button" className="sci-pos-button sci-pos-button--secondary" onClick={() => onCatForm(sale)}><FileText size={16} aria-hidden="true" /> Open CAT Form</button>
           )}
-          {can('sales.duplicateReceipt') && (
+          {canDuplicate && (
             <button type="button" className="sci-pos-button sci-pos-button--secondary" onClick={() => onDuplicate(sale)}><CopyPlus size={16} aria-hidden="true" /> Duplicate as New Sale</button>
           )}
           <button type="button" className="sci-pos-button sci-pos-button--primary" onClick={onClose}>Close</button>
@@ -88,3 +89,4 @@ export default function SalesReceiptReviewModal({ sale, onClose, onReprint, onCa
     </div>
   );
 }
+

@@ -2132,6 +2132,9 @@ export default function PosSales({
         onReprint={handleReprintSale}
         onCatForm={(sale) => { setStatusMessage(`CAT form opened locally for ${sale.invoiceNo}.`); logEvent('CAT_FORM_OPENED_LOCAL', `${sale.invoiceNo} CAT form opened locally.`); }}
         onDuplicate={handleDuplicateSaleToCart}
+        canReprint={canPerformAction(roleName, 'sales.reprintReceipt')}
+        canOpenCatForm={canPerformAction(roleName, 'customers.purchaseHistory.view')}
+        canDuplicate={canPerformAction(roleName, 'sales.open')}
       />
       <ReceiptOutputModal
         preview={receiptOutputPreview}
@@ -2193,3 +2196,4 @@ export default function PosSales({
     </div>
   );
 }
+
