@@ -578,6 +578,31 @@ export default function ProductTransformationPanel() {
     };
   };
 
+  const buildYieldCloseoutMarker = () => {
+    return {
+      buildCode: "Build 2K-12M",
+      source: "USING MANUAL DEV",
+      module: "ProductTransformationPanel",
+      domain: "BI_FOR_BUSINESS_OPERATIONS",
+      feature: "MANUFACTURING_YIELD_APPROVAL",
+      status: "CLOSEOUT_READY",
+      completedBuilds: [
+        "2K-12C",
+        "2K-12D",
+        "2K-12E",
+        "2K-12F",
+        "2K-12G",
+        "2K-12H",
+        "2K-12I",
+        "2K-12J",
+        "2K-12K",
+        "2K-12L",
+        "2K-12M",
+      ],
+      closedAt: new Date().toISOString(),
+    };
+  };
+
   const getYieldQualityStatus = () => {
     const yieldPercent = transformationYieldSummary.yieldPercent;
 
@@ -2479,6 +2504,25 @@ export default function ProductTransformationPanel() {
                   <div className="text-[8px] font-bold">
                     {getYieldManagementAlert().action}
                   </div>
+                </div>
+
+                <div className="mb-2 border border-emerald-300 bg-emerald-50 p-2">
+                  <div className="text-[8px] font-black uppercase text-emerald-700">
+                    Yield Build Closeout
+                  </div>
+                  {(() => {
+                    const closeout = buildYieldCloseoutMarker();
+                    return (
+                      <div className="mt-1 text-[8px] font-bold text-[#1e222b]">
+                        <div>Status: {closeout.status}</div>
+                        <div>Feature: {closeout.feature}</div>
+                        <div>Build: {closeout.buildCode}</div>
+                        <div className="mt-1 text-[7px] uppercase text-slate-400">
+                          Source: {closeout.source}
+                        </div>
+                      </div>
+                    );
+                  })()}
                 </div>
 
                 <div className="mb-2 border border-[#f97316] bg-[#fff7ed] p-2">
