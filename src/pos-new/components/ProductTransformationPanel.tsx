@@ -764,6 +764,24 @@ export default function ProductTransformationPanel() {
     };
   };
 
+  const isTransformationCostingApprovalDisabled = () => {
+    const guardrail = getTransformationCostingApprovalGuardrail();
+
+    if (guardrail.canApprove) {
+      return false;
+    }
+
+    return transformationCostingSupervisorNote.trim().length < 10;
+  };
+
+  const getTransformationCostingApprovalDisableReason = () => {
+    if (!isTransformationCostingApprovalDisabled()) {
+      return "Costing approval is available.";
+    }
+
+    return "Supervisor costing review note must be at least 10 characters before loss-making transformation approval can continue.";
+  };
+
   const getYieldQualityStatus = () => {
     const yieldPercent = transformationYieldSummary.yieldPercent;
 
