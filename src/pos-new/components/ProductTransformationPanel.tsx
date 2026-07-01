@@ -88,6 +88,7 @@ export default function ProductTransformationPanel() {
   const [yieldReviewThreshold, setYieldReviewThreshold] = useState(70);
   const [yieldSupervisorOverrideNote, setYieldSupervisorOverrideNote] = useState('');
   const [transformationInputCost, setTransformationInputCost] = useState(0);
+  const [transformationOutputSellingPrice, setTransformationOutputSellingPrice] = useState(0);
   const [expandedTemplateId, setExpandedTemplateId] = useState<string | null>(null);
   const [bomFilterType, setBomFilterType] = useState('All');
   const [bomFilterStatus, setBomFilterStatus] = useState('All');
@@ -662,6 +663,22 @@ export default function ProductTransformationPanel() {
 
   const getTotalTransformationCost = () => {
     return Number(transformationInputCost || 0);
+  };
+
+  const getTransformationMarginImpact = () => {
+    const outputQty = Number(transformationOutputQty || 0);
+    const sellingPrice = Number(transformationOutputSellingPrice || 0);
+    const revenue = outputQty * sellingPrice;
+    const totalCost = getTotalTransformationCost();
+    const grossProfit = revenue - totalCost;
+    const marginPercent = revenue > 0 ? (grossProfit / revenue) * 100 : 0;
+
+    return {
+      revenue,
+      totalCost,
+      grossProfit,
+      marginPercent,
+    };
   };
 
   const getYieldQualityStatus = () => {
