@@ -705,6 +705,35 @@ export default function ProductTransformationPanel() {
     };
   };
 
+  const getTransformationCostingAlert = () => {
+    const event = buildTransformationCostingBiEvent();
+
+    if (event.marginPercent < 0) {
+      return {
+        status: "loss",
+        title: "Transformation Loss Alert",
+        message: "This transformation is producing a negative margin. Management review is required.",
+        className: "border-red-300 bg-red-50 text-red-700",
+      };
+    }
+
+    if (event.marginPercent < 10) {
+      return {
+        status: "low_margin",
+        title: "Low Margin Alert",
+        message: "This transformation margin is below the recommended review threshold.",
+        className: "border-orange-300 bg-orange-50 text-orange-700",
+      };
+    }
+
+    return {
+      status: "healthy",
+      title: "Costing Healthy",
+      message: "Transformation costing is within acceptable operating range.",
+      className: "border-emerald-300 bg-emerald-50 text-emerald-700",
+    };
+  };
+
   const getYieldQualityStatus = () => {
     const yieldPercent = transformationYieldSummary.yieldPercent;
 
