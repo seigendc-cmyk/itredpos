@@ -734,6 +734,35 @@ export default function ProductTransformationPanel() {
     };
   };
 
+  const getTransformationCostingApprovalGuardrail = () => {
+    const alert = getTransformationCostingAlert();
+
+    if (alert.status === "loss") {
+      return {
+        canApprove: false,
+        label: "Costing Approval Blocked",
+        message: "Negative margin transformation requires management review before approval.",
+        approvalEvent: "TRANSFORMATION_COSTING_APPROVAL_BLOCKED",
+      };
+    }
+
+    if (alert.status === "low_margin") {
+      return {
+        canApprove: true,
+        label: "Costing Approval Warning",
+        message: "Low margin transformation may continue with review.",
+        approvalEvent: "TRANSFORMATION_COSTING_APPROVAL_WARNING",
+      };
+    }
+
+    return {
+      canApprove: true,
+      label: "Costing Approval Allowed",
+      message: "Transformation costing is within approval range.",
+      approvalEvent: "TRANSFORMATION_COSTING_APPROVAL_ALLOWED",
+    };
+  };
+
   const getYieldQualityStatus = () => {
     const yieldPercent = transformationYieldSummary.yieldPercent;
 
