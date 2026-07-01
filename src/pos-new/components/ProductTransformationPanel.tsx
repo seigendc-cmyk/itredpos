@@ -614,6 +614,26 @@ export default function ProductTransformationPanel() {
     };
   };
 
+  const buildTransformationCostingIntelligence = () => {
+    const inputQty = Number(transformationInputQty || 0);
+    const outputQty = Number(transformationOutputQty || 0);
+    const yieldPercent = getManufacturingYieldPercent();
+
+    return {
+      buildCode: "Build 2K-13A",
+      source: "USING MANUAL DEV",
+      module: "ProductTransformationPanel",
+      domain: "BI_FOR_BUSINESS_OPERATIONS",
+      feature: "TRANSFORMATION_COSTING_INTELLIGENCE",
+      inputQty,
+      outputQty,
+      yieldPercent,
+      status: "COSTING_BASE_READY",
+      message: "Transformation costing intelligence base is active.",
+      createdAt: new Date().toISOString(),
+    };
+  };
+
   const getYieldQualityStatus = () => {
     const yieldPercent = transformationYieldSummary.yieldPercent;
 
