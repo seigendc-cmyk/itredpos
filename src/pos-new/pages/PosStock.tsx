@@ -1230,7 +1230,17 @@ export default function PosStock({
   }, [activeTab, allInventoryMovements, localStock, stockHealthFilters]);
 
   useEffect(() => {
-    const loadReports = async () => {
+    const getTransferDelayReport = async () => {
+    return {
+      status: "READY",
+      source: "USING MANUAL DEV",
+      buildCode: "Runtime Repair Patch",
+      delayedTransfers: [],
+      summary: "Transfer delay report placeholder active.",
+    };
+  };
+
+  const loadReports = async () => {
       setValuationRows(await getStockValuationReport(localStock, reportFilters));
       setMovementReportRows(await getMovementSummaryReport(localStock, allInventoryMovements, reportFilters));
       setMovementReportTotals(await getMovementSummaryReportTotals(allInventoryMovements, reportFilters));
@@ -4110,3 +4120,4 @@ function ReportTable({ headers, rows }: { headers: string[]; rows: Array<Array<s
     </div>
   );
 }
+

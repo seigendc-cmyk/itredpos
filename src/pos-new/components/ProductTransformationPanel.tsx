@@ -393,6 +393,17 @@ export default function ProductTransformationPanel() {
 
 
 
+  const getManufacturingYieldPercent = () => {
+    const inputQty = Number(transformationInputQty || 0);
+    const outputQty = Number(transformationOutputQty || 0);
+
+    if (!inputQty || inputQty <= 0) {
+      return 0;
+    }
+
+    return (outputQty / inputQty) * 100;
+  };
+
   const getYieldVarianceStatus = () => {
     const yieldPercent = getManufacturingYieldPercent();
 
