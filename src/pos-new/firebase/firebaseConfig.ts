@@ -6,8 +6,7 @@ const firebaseEnvKeys = [
   'VITE_FIREBASE_PROJECT_ID',
   'VITE_FIREBASE_STORAGE_BUCKET',
   'VITE_FIREBASE_MESSAGING_SENDER_ID',
-  'VITE_FIREBASE_APP_ID',
-  'VITE_FIREBASE_MEASUREMENT_ID'
+  'VITE_FIREBASE_APP_ID'
 ] as const;
 
 export type FirebaseEnvKey = typeof firebaseEnvKeys[number];
@@ -40,7 +39,9 @@ export const firebaseConfig: FirebaseOptions = {
   storageBucket: envValue('VITE_FIREBASE_STORAGE_BUCKET'),
   messagingSenderId: envValue('VITE_FIREBASE_MESSAGING_SENDER_ID'),
   appId: envValue('VITE_FIREBASE_APP_ID'),
-  measurementId: envValue('VITE_FIREBASE_MEASUREMENT_ID')
+  measurementId: typeof import.meta.env.VITE_FIREBASE_MEASUREMENT_ID === 'string'
+    ? (import.meta.env.VITE_FIREBASE_MEASUREMENT_ID as string).trim()
+    : undefined
 };
 
 export const firebaseEnvStatus: FirebaseConfigStatus = {

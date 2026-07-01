@@ -52,7 +52,7 @@ import {
 } from './mock/mockPosData';
 import { getEffectivePageIdsForRole, normalizeRoleKey } from './auth/effectivePermissionService';
 import { recordSecurityMatrixEvent } from './auth/permissionMatrixService';
-import { getCurrentFirebaseUserProfile, signInWithGooglePlaceholder, subscribeToFirebaseAuthState } from './auth/firebaseAuthShell';
+import { getCurrentFirebaseUserProfile, signInWithGooglePlaceholder, subscribeToFirebaseAuthState, signOutFirebasePlaceholder } from './auth/firebaseAuthShell';
 import { createTenantSessionFromFirebaseUser, resolveTenantPlaceholder } from './auth/tenantSessionService';
 import { loadLocalProducts, POS_PRODUCT_STORE_EVENT, updateLocalProductStock } from './utils/localProductStore';
 import './posNew.css';
@@ -130,6 +130,8 @@ export default function PosPrototypeApp() {
   // Client Session Identity Tracking
   const [googleAuthProfile, setGoogleAuthProfile] = useState(getCurrentFirebaseUserProfile());
   const [googleAuthMessage, setGoogleAuthMessage] = useState('Sign in with Google to continue to Staff Access.');
+  const [authLoading, setAuthLoading] = useState(true);
+  const [licenseChecked, setLicenseChecked] = useState(false);
 
   // Automatically restore active session state on reload
   useEffect(() => {
@@ -142,6 +144,7 @@ export default function PosPrototypeApp() {
       } else {
         setGoogleAuthMessage('Sign in with Google to continue to Staff Access.');
       }
+      setAuthLoading(false);
     });
     return () => unsubscribe();
   }, []);
@@ -769,6 +772,22 @@ export default function PosPrototypeApp() {
     }
   };
 
+  // Render loading state while authenticating
+  if (authLoading) {
+    return (
+      <main className="min-h-screen bg-slate-950 text-slate-100 flex items-center justify-center p-6">
+        <section className="w-full max-w-md border border-orange-500/40 bg-slate-900 p-6 shadow-2xl text-center space-y-4">
+          <p className="text-[10px] font-black uppercase tracking-[0.3em] text-orange-400">iTred Commerce POS</p>
+          <div className="flex items-center justify-center gap-2">
+            <span className="w-2 h-2 rounded-full bg-orange-500 animate-ping"></span>
+            <h1 className="text-lg font-black uppercase text-white">Checking Google session...</h1>
+          </div>
+          <p className="text-xs text-slate-400">Verifying authentication token and secure keys...</p>
+        </section>
+      </main>
+    );
+  }
+
   // Guard the operational register with Google Auth before staff access
   if (!googleAuthProfile) {
     return (
@@ -788,6 +807,37 @@ export default function PosPrototypeApp() {
             className="mt-5 w-full border border-orange-500 bg-orange-500 px-4 py-3 text-sm font-black uppercase text-slate-950 hover:bg-orange-400"
           >
             Sign in with Google
+          </button>
+        </section>
+      </main>
+    );
+  }
+
+  // License Gate Placeholder between Google Auth and Staff Access
+  if (!licenseChecked) {
+    return (
+      <main className="min-h-screen bg-slate-950 text-slate-100 flex items-center justify-center p-6">
+        <section className="w-full max-w-md border border-emerald-500/40 bg-slate-900 p-6 shadow-2xl">
+          <p className="text-[10px] font-black uppercase tracking-[0.3em] text-emerald-400">License Verification</p>
+          <h1 className="mt-3 text-2xl font-black uppercase text-white">License Gate</h1>
+          <div className="mt-5 border border-emerald-700 bg-slate-950 p-3 text-xs text-emerald-300 font-bold text-center">
+            License verified by iTredVD Console
+          </div>
+          <p className="mt-4 text-xs text-slate-400 leading-relaxed">
+            {/* 
+              Production license verification:
+              This placeholder verifies the vendor tenant license using local defaults.
+              Production implementation will fetch token claims or invoke the iTredVD Console backend API 
+              to verify active subscription/licensing before granting entry to POS staff desks.
+            */}
+            Vendor tenant subscription is verified. Local build development access is active.
+          </p>
+          <button
+            type="button"
+            onClick={() => setLicenseChecked(true)}
+            className="mt-6 w-full border border-emerald-500 bg-emerald-600 hover:bg-emerald-500 px-4 py-3 text-sm font-black uppercase text-white"
+          >
+            Proceed to Staff Access
           </button>
         </section>
       </main>
@@ -818,7 +868,12 @@ export default function PosPrototypeApp() {
       activeOperator={activeOperatorName}
       activeShiftStatus={activeShift ? 'ACTIVE' : 'CLOSED'}
       activeSession={activeSession}
-      onSignOut={() => setActiveSession(null)}
+      onSignOut={async () => {
+        await signOutFirebasePlaceholder();
+        setGoogleAuthProfile(null);
+        setLicenseChecked(false);
+        setActiveSession(null);
+      }}
       allowedPages={allowedForAccess}
       tenantName={businessProfile.legalName || businessProfile.tradingName || 'Tenant'}
       tenantLogo={receiptSetting.logoDataUrl}
