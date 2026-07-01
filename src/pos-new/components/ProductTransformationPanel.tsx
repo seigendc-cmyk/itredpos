@@ -392,6 +392,35 @@ export default function ProductTransformationPanel() {
 
 
 
+  const getYieldVarianceStatus = () => {
+    const yieldPercent = getManufacturingYieldPercent();
+
+    if (yieldPercent < yieldReviewThreshold) {
+      return {
+        status: "critical",
+        label: "Critical Yield Loss",
+        message: "Actual yield is below review threshold. Management action required.",
+        biEvent: "YIELD_VARIANCE_CRITICAL",
+      };
+    }
+
+    if (yieldPercent < yieldGoodThreshold) {
+      return {
+        status: "warning",
+        label: "Yield Under Review",
+        message: "Actual yield is below good threshold. Review production loss.",
+        biEvent: "YIELD_VARIANCE_WARNING",
+      };
+    }
+
+    return {
+      status: "normal",
+      label: "Yield Within Range",
+      message: "Actual yield is within configured operating thresholds.",
+      biEvent: "YIELD_VARIANCE_NORMAL",
+    };
+  };
+
   const getYieldQualityStatus = () => {
     const yieldPercent = transformationYieldSummary.yieldPercent;
 
@@ -2218,6 +2247,24 @@ export default function ProductTransformationPanel() {
                       className="w-full border border-[#b1b5c2] bg-white px-1 py-0.5 text-[8px] font-black text-[#1e222b]"
                     />
                   </label>
+                </div>
+
+                <div className="mb-2 border border-orange-200 bg-orange-50 p-2">
+                  <div className="text-[8px] font-black uppercase text-orange-700">
+                    Yield Variance Detection
+                  </div>
+                  {(() => {
+                    const variance = getYieldVarianceStatus();
+                    return (
+                      <div className="mt-1 text-[8px] font-bold text-[#1e222b]">
+                        <div>{variance.label}</div>
+                        <div className="text-slate-500">{variance.message}</div>
+                        <div className="mt-1 text-[7px] uppercase text-slate-400">
+                          BI Event: {variance.biEvent}
+                        </div>
+                      </div>
+                    );
+                  })()}
                 </div>
 
                 {(() => {
