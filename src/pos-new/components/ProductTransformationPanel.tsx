@@ -800,6 +800,28 @@ export default function ProductTransformationPanel() {
     };
   };
 
+  const buildTransformationCostingAuditTrail = () => {
+    const payload = buildTransformationCostingFinalApprovalPayload();
+
+    return {
+      auditType: "TRANSFORMATION_COSTING_AUDIT_TRAIL",
+      buildCode: "Build 2K-13M",
+      source: "USING MANUAL DEV",
+      module: "ProductTransformationPanel",
+      eventType: payload.approvalStatus,
+      canApprove: payload.canApprove,
+      approvalDisabled: payload.approvalDisabled,
+      approvalDisableReason: payload.approvalDisableReason,
+      supervisorReviewNote: payload.supervisorReviewNote,
+      costingEventType: payload.costingEvent.eventType,
+      severity: payload.costingEvent.severity,
+      marginPercent: payload.costingEvent.marginPercent,
+      grossProfit: payload.costingEvent.grossProfit,
+      totalTransformationCost: payload.costingEvent.totalTransformationCost,
+      capturedAt: new Date().toISOString(),
+    };
+  };
+
   const getYieldQualityStatus = () => {
     const yieldPercent = transformationYieldSummary.yieldPercent;
 
