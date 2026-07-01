@@ -14,6 +14,7 @@ export default function PosStaffAccess({
 }: PosStaffAccessProps) {
   
   // Build-development tenant data source.
+  // This is resolved after Google Authentication completes in the parent gate.
   const tenantSession = getCurrentTenantSession();
   const vendorName = tenantSession.vendorName || tenantSession.vendorEmail || 'Current Vendor';
   const vendors = [{ id: tenantSession.vendorId || 'current-vendor', name: vendorName }];

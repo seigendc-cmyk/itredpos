@@ -52,7 +52,7 @@ import {
 } from './mock/mockPosData';
 import { getEffectivePageIdsForRole, normalizeRoleKey } from './auth/effectivePermissionService';
 import { recordSecurityMatrixEvent } from './auth/permissionMatrixService';
-import { getCurrentFirebaseUserProfile, signInWithGooglePlaceholder } from './auth/firebaseAuthShell';
+import { getCurrentFirebaseUserProfile, signInWithGooglePlaceholder, subscribeToFirebaseAuthState } from './auth/firebaseAuthShell';
 import { createTenantSessionFromFirebaseUser, resolveTenantPlaceholder } from './auth/tenantSessionService';
 import { loadLocalProducts, POS_PRODUCT_STORE_EVENT, updateLocalProductStock } from './utils/localProductStore';
 import './posNew.css';
@@ -130,6 +130,21 @@ export default function PosPrototypeApp() {
   // Client Session Identity Tracking
   const [googleAuthProfile, setGoogleAuthProfile] = useState(getCurrentFirebaseUserProfile());
   const [googleAuthMessage, setGoogleAuthMessage] = useState('Sign in with Google to continue to Staff Access.');
+
+  // Automatically restore active session state on reload
+  useEffect(() => {
+    const unsubscribe = subscribeToFirebaseAuthState((profile) => {
+      setGoogleAuthProfile(profile);
+      if (profile) {
+        createTenantSessionFromFirebaseUser(profile);
+        resolveTenantPlaceholder(profile);
+        setGoogleAuthMessage(`Google session restored: ${profile.email}`);
+      } else {
+        setGoogleAuthMessage('Sign in with Google to continue to Staff Access.');
+      }
+    });
+    return () => unsubscribe();
+  }, []);
 
   const [activeSession, setActiveSession] = useState<PosSession | null>(() => {
     return readStoredValue<PosSession | null>('itred_pos_active_session', null);
