@@ -520,6 +520,24 @@ export default function ProductTransformationPanel() {
     return "Supervisor override note must be at least 10 characters before low-yield approval can continue.";
   };
 
+  const buildYieldFinalApprovalPayload = () => {
+    const guardrail = getYieldApprovalGuardrail();
+    const biEvent = buildYieldBiEvent();
+
+    return {
+      buildCode: "Build 2K-12J",
+      source: "USING MANUAL DEV",
+      module: "ProductTransformationPanel",
+      approvalStatus: guardrail.approvalEvent,
+      canApprove: guardrail.canApprove,
+      approvalDisabled: isYieldApprovalDisabled(),
+      approvalDisableReason: getYieldApprovalDisableReason(),
+      biEvent,
+      supervisorOverrideNote: yieldSupervisorOverrideNote.trim(),
+      approvedAt: new Date().toISOString(),
+    };
+  };
+
   const getYieldQualityStatus = () => {
     const yieldPercent = transformationYieldSummary.yieldPercent;
 
@@ -2421,6 +2439,25 @@ export default function ProductTransformationPanel() {
                   <div className="text-[8px] font-bold">
                     {getYieldManagementAlert().action}
                   </div>
+                </div>
+
+                <div className="mb-2 border border-slate-300 bg-slate-50 p-2">
+                  <div className="text-[8px] font-black uppercase text-slate-700">
+                    Yield Final Approval Payload
+                  </div>
+                  {(() => {
+                    const payload = buildYieldFinalApprovalPayload();
+                    return (
+                      <div className="mt-1 text-[8px] font-bold text-[#1e222b]">
+                        <div>Status: {payload.approvalStatus}</div>
+                        <div>Can Approve: {payload.canApprove ? "Yes" : "No"}</div>
+                        <div>Button Disabled: {payload.approvalDisabled ? "Yes" : "No"}</div>
+                        <div className="mt-1 text-[7px] uppercase text-slate-400">
+                          Source: {payload.source}
+                        </div>
+                      </div>
+                    );
+                  })()}
                 </div>
 
                 <div className="mb-2 border border-slate-300 bg-white p-2">
