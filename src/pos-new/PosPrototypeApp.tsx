@@ -128,6 +128,9 @@ export default function PosPrototypeApp() {
   const [activePage, setActivePage] = useState<PosPageId>('DASHBOARD');
 
   // Client Session Identity Tracking
+  const [googleAuthProfile, setGoogleAuthProfile] = useState(getCurrentFirebaseUserProfile());
+  const [googleAuthMessage, setGoogleAuthMessage] = useState('Sign in with Google to continue to Staff Access.');
+
   const [activeSession, setActiveSession] = useState<PosSession | null>(() => {
     return readStoredValue<PosSession | null>('itred_pos_active_session', null);
   });
