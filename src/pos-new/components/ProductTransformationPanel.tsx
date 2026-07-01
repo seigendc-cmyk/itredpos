@@ -782,6 +782,24 @@ export default function ProductTransformationPanel() {
     return "Supervisor costing review note must be at least 10 characters before loss-making transformation approval can continue.";
   };
 
+  const buildTransformationCostingFinalApprovalPayload = () => {
+    const guardrail = getTransformationCostingApprovalGuardrail();
+    const event = buildTransformationCostingBiEvent();
+
+    return {
+      buildCode: "Build 2K-13L",
+      source: "USING MANUAL DEV",
+      module: "ProductTransformationPanel",
+      approvalStatus: guardrail.approvalEvent,
+      canApprove: guardrail.canApprove,
+      approvalDisabled: isTransformationCostingApprovalDisabled(),
+      approvalDisableReason: getTransformationCostingApprovalDisableReason(),
+      costingEvent: event,
+      supervisorReviewNote: transformationCostingSupervisorNote.trim(),
+      approvedAt: new Date().toISOString(),
+    };
+  };
+
   const getYieldQualityStatus = () => {
     const yieldPercent = transformationYieldSummary.yieldPercent;
 
