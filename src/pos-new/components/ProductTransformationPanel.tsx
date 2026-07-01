@@ -446,6 +446,32 @@ export default function ProductTransformationPanel() {
     };
   };
 
+  const getYieldManagementAlert = () => {
+    const biEvent = buildYieldBiEvent();
+
+    if (biEvent.severity === "critical") {
+      return {
+        title: "Critical Yield Alert",
+        action: "Stop and review this transformation before approval.",
+        className: "border-red-300 bg-red-50 text-red-700",
+      };
+    }
+
+    if (biEvent.severity === "warning") {
+      return {
+        title: "Yield Review Alert",
+        action: "Review input, output, wastage, and operator notes.",
+        className: "border-orange-300 bg-orange-50 text-orange-700",
+      };
+    }
+
+    return {
+      title: "Yield Stable",
+      action: "Yield is within configured business operating range.",
+      className: "border-emerald-300 bg-emerald-50 text-emerald-700",
+    };
+  };
+
   const getYieldQualityStatus = () => {
     const yieldPercent = transformationYieldSummary.yieldPercent;
 
@@ -2290,6 +2316,18 @@ export default function ProductTransformationPanel() {
                       </div>
                     );
                   })()}
+                </div>
+
+                <div className={`mb-2 border p-2 ${getYieldManagementAlert().className}`}>
+                  <div className="text-[8px] font-black uppercase">
+                    Yield Management Alert
+                  </div>
+                  <div className="mt-1 text-[8px] font-black">
+                    {getYieldManagementAlert().title}
+                  </div>
+                  <div className="text-[8px] font-bold">
+                    {getYieldManagementAlert().action}
+                  </div>
                 </div>
 
                 <div className="mb-2 border border-slate-300 bg-white p-2">
