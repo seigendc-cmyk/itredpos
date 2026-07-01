@@ -37,6 +37,75 @@ const SESSION_KEY = 'itred_pos_tenant_session';
 const ACTIVITY_KEY = 'itred_pos_auth_activity';
 const CLAIMS_KEY = 'itred_pos_tenant_session_claims';
 
+interface LicensedVendor {
+  vendorId: string;
+  vendorName: string;
+  role: string;
+}
+
+const emailToVendorMap: Record<string, LicensedVendor> = {
+  'owner@build.local': { vendorId: 'demo-vendor-001', vendorName: 'Build Development Vendor', role: 'VendorOwner' },
+  'admin@build.local': { vendorId: 'demo-vendor-001', vendorName: 'Build Development Vendor', role: 'VendorAdmin' },
+  'cashier@build.local': { vendorId: 'demo-vendor-001', vendorName: 'Build Development Vendor', role: 'Cashier' },
+  'disabled@build.local': { vendorId: 'demo-vendor-001', vendorName: 'Build Development Vendor', role: 'Viewer' },
+  'vendor-a@gmail.com': { vendorId: 'vendor-a', vendorName: 'Vendor A Tenant', role: 'VendorOwner' },
+  'account-a@gmail.com': { vendorId: 'vendor-a', vendorName: 'Vendor A Tenant', role: 'VendorOwner' },
+  'vendor-b@gmail.com': { vendorId: 'vendor-b', vendorName: 'Vendor B Tenant', role: 'VendorOwner' },
+  'account-b@gmail.com': { vendorId: 'vendor-b', vendorName: 'Vendor B Tenant', role: 'VendorOwner' },
+};
+
+export function getVendorForEmail(email: string): LicensedVendor | null {
+  const normalized = email.toLowerCase().trim();
+  if (emailToVendorMap[normalized]) {
+    return emailToVendorMap[normalized];
+  }
+  if (normalized.includes('account-a') || normalized.includes('vendor-a') || normalized.startsWith('a@') || normalized === 'a') {
+    return { vendorId: 'vendor-a', vendorName: 'Vendor A Tenant', role: 'VendorOwner' };
+  }
+  if (normalized.includes('account-b') || normalized.includes('vendor-b') || normalized.startsWith('b@') || normalized === 'b') {
+    return { vendorId: 'vendor-b', vendorName: 'Vendor B Tenant', role: 'VendorOwner' };
+  }
+  return null;
+}
+
+function getDynamicStaffProfiles(vendorId: string, membershipId?: string): TenantStaffProfileContract[] {
+  let rows = getMockStaffProfilesForTenant(vendorId, membershipId);
+  if (rows.length === 0 && (vendorId === 'vendor-a' || vendorId === 'vendor-b')) {
+    const prefix = vendorId === 'vendor-a' ? 'A' : 'B';
+    rows = [
+      { staffId: `ST-OWNER-${prefix}`, vendorId, membershipId, staffName: `Vendor ${prefix} Owner`, staffCode: 'OWNER', role: 'VendorOwner', status: 'Active', pinRequired: false },
+      { staffId: `ST-ADMIN-${prefix}`, vendorId, membershipId, staffName: `Vendor ${prefix} Admin`, staffCode: 'ADMIN', role: 'VendorAdmin', status: 'Active', pinRequired: false },
+      { staffId: `ST-MARY-${prefix}`, vendorId, membershipId, staffName: `Mary Cashier ${prefix}`, staffCode: 'MARY', role: 'Cashier', status: 'Active', pinRequired: false }
+    ];
+  }
+  return rows;
+}
+
+function getDynamicBranchAccess(vendorId: string, staffId?: string): TenantBranchAccessContract[] {
+  let rows = getMockBranchAccessForStaff(vendorId, staffId);
+  if (rows.length === 0 && (vendorId === 'vendor-a' || vendorId === 'vendor-b')) {
+    const prefix = vendorId === 'vendor-a' ? 'A' : 'B';
+    rows = [
+      { branchAccessId: `BA-OWNER-HARARE-${prefix}`, vendorId, branchId: `BR-HARARE-${prefix}`, branchName: `Harare Main ${prefix}`, staffId: staffId || `ST-OWNER-${prefix}`, accessStatus: 'Active' },
+      { branchAccessId: `BA-OWNER-BYO-${prefix}`, vendorId, branchId: `BR-BYO-${prefix}`, branchName: `Bulawayo Branch ${prefix}`, staffId: staffId || `ST-OWNER-${prefix}`, accessStatus: 'Active' }
+    ];
+  }
+  return rows;
+}
+
+function getDynamicTerminalAccess(vendorId: string, branchId?: string, staffId?: string): TenantTerminalAccessContract[] {
+  let rows = getMockTerminalAccessForStaff(vendorId, branchId, staffId);
+  if (rows.length === 0 && (vendorId === 'vendor-a' || vendorId === 'vendor-b')) {
+    const prefix = vendorId === 'vendor-a' ? 'A' : 'B';
+    const resolvedBranchId = branchId || `BR-HARARE-${prefix}`;
+    const resolvedStaffId = staffId || `ST-OWNER-${prefix}`;
+    rows = [
+      { terminalAccessId: `TA-OWNER-POS01-${prefix}`, vendorId, branchId: resolvedBranchId, terminalId: `POS-01-${prefix}`, terminalName: `POS-01 Counter ${prefix}`, staffId: resolvedStaffId, accessStatus: 'Active' }
+    ];
+  }
+  return rows;
+}
+
 const nowIso = () => new Date().toISOString();
 const makeId = (prefix: string) => `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 
@@ -142,12 +211,14 @@ export function getCurrentTenantSession(): TenantSession {
 
 export function createTenantSessionFromFirebaseUser(profile: FirebaseAuthUserProfile): TenantSession {
   const timestamp = nowIso();
+  const vendorInfo = getVendorForEmail(profile.email || '');
+
   const session: TenantSession = {
     sessionId: makeId('SESSION'),
     authProvider: 'Google',
-    status: 'Vendor Authenticated',
-    vendorId: 'demo-vendor-001',
-    vendorName: 'Build Development Vendor',
+    status: vendorInfo ? 'Vendor Authenticated' : 'Error',
+    vendorId: vendorInfo?.vendorId || 'unlicensed',
+    vendorName: vendorInfo?.vendorName || 'Unlicensed Vendor',
     vendorEmail: profile.email,
     firebaseUid: profile.uid,
     googleEmail: profile.email,
@@ -158,7 +229,9 @@ export function createTenantSessionFromFirebaseUser(profile: FirebaseAuthUserPro
     staffAuthenticated: false,
     createdAt: timestamp,
     updatedAt: timestamp,
-    notes: 'Google profile captured by Auth shell. Tenant resolution remains placeholder.'
+    notes: vendorInfo 
+      ? 'Google profile captured by Auth shell.' 
+      : 'Unlicensed Google email. No tenant resolved.'
   };
   saveSession(session);
   return session;
@@ -166,33 +239,84 @@ export function createTenantSessionFromFirebaseUser(profile: FirebaseAuthUserPro
 
 export function resolveTenantPlaceholder(profile?: FirebaseAuthUserProfile | null): VendorTenantIdentity {
   recordAuthActivity({ eventType: 'TENANT_RESOLUTION_STARTED', label: 'Tenant Resolution Started', message: 'Mock tenant resolution started.', vendorId: getCurrentTenantSession().vendorId });
-  const result = resolveTenantFromMockDirectory(profile);
-  const membership = result.selectedMembership || result.memberships[0];
-  const identity: VendorTenantIdentity = {
-    vendorId: membership?.vendorId || 'demo-vendor-001',
-    vendorName: membership?.vendorName || 'Build Development Vendor',
-    vendorEmail: result.signedInEmail || profile?.email,
-    firebaseUid: profile?.uid,
-    googleEmail: result.signedInEmail || profile?.email,
-    status: membership ? 'Resolved' : 'Not Resolved'
-  };
-  const eventType = result.status === 'No Tenant Found'
-    ? 'TENANT_RESOLUTION_NO_TENANT_FOUND'
-    : result.status === 'Multiple Tenants Found'
-      ? 'TENANT_RESOLUTION_MULTIPLE_TENANTS_FOUND'
-      : result.status === 'Access Disabled'
-        ? 'TENANT_ACCESS_DISABLED'
-        : 'TENANT_RESOLUTION_RESOLVED';
-  recordAuthActivity({ eventType, label: result.status, message: result.message, vendorId: identity.vendorId });
-  recordAuthActivity({ eventType: 'TENANT_RESOLUTION_PLACEHOLDER', label: 'Tenant Resolution Placeholder', message: 'Tenant resolution used the mock tenant directory. Production Firestore lookup is disabled.', vendorId: identity.vendorId });
-  if (membership) {
-    selectTenantMembershipForSession(membership.membershipId);
+  
+  const email = profile?.email || '';
+  const vendorInfo = getVendorForEmail(email);
+
+  if (!vendorInfo) {
+    const identity: VendorTenantIdentity = {
+      vendorId: 'unlicensed',
+      vendorName: 'Unlicensed Vendor',
+      vendorEmail: email,
+      firebaseUid: profile?.uid,
+      googleEmail: email,
+      status: 'Not Resolved'
+    };
+    recordAuthActivity({ 
+      eventType: 'TENANT_RESOLUTION_NO_TENANT_FOUND', 
+      label: 'Tenant Resolution Failed', 
+      message: 'No POS license found for this Google account. Contact iTredVD administrator.', 
+      vendorId: 'unlicensed' 
+    });
+    
+    // Write an unlicensed session
+    const current = getCurrentTenantSession();
+    const session = {
+      ...current,
+      status: 'Error' as const,
+      vendorId: 'unlicensed',
+      vendorName: 'Unlicensed Vendor',
+      googleEmail: email,
+      vendorEmail: email,
+      tenantResolved: false,
+      notes: 'No POS license found for this Google account.'
+    };
+    saveSession(session);
+    refreshTenantSessionClaims(session);
+    return identity;
   }
+
+  const identity: VendorTenantIdentity = {
+    vendorId: vendorInfo.vendorId,
+    vendorName: vendorInfo.vendorName,
+    vendorEmail: email,
+    firebaseUid: profile?.uid,
+    googleEmail: email,
+    status: 'Resolved'
+  };
+
+  const current = getCurrentTenantSession();
+  const session: TenantSession = {
+    ...current,
+    status: 'Tenant Resolved',
+    vendorId: vendorInfo.vendorId,
+    vendorName: vendorInfo.vendorName,
+    vendorEmail: email,
+    googleEmail: email,
+    membershipRole: vendorInfo.role as any,
+    permissions: getTenantPermissionsForRole(vendorInfo.role as any),
+    tenantResolved: true,
+    updatedAt: nowIso(),
+    notes: 'Tenant membership resolved dynamically from Google email.'
+  };
+  saveSession(session);
+  refreshTenantSessionClaims(session);
   return identity;
 }
 
 export function getTenantMembershipsForCurrentProfile(profile?: FirebaseAuthUserProfile | null): TenantMembershipContract[] {
-  return resolveTenantFromMockDirectory(profile).memberships;
+  const email = profile?.email || '';
+  const vendorInfo = getVendorForEmail(email);
+  if (!vendorInfo) return [];
+  return [{
+    membershipId: `MEM-${vendorInfo.vendorId.toUpperCase()}-OWNER`,
+    vendorId: vendorInfo.vendorId,
+    vendorName: vendorInfo.vendorName,
+    signedInEmail: email,
+    role: vendorInfo.role as any,
+    accessStatus: 'Active',
+    isPrimaryVendor: true
+  }];
 }
 
 export function getAvailableStaffForTenantPlaceholder(_vendorId: string): TenantStaffIdentity[] {
@@ -236,7 +360,7 @@ export function selectStaffBranchTerminal(payload: StaffAccessAttempt): TenantSe
 
 export function verifyStaffPinForMappedStaff(staffId: string, pin?: string): boolean {
   const current = getCurrentTenantSession();
-  const staff = getMockStaffProfilesForTenant(current.vendorId, current.membershipId)
+  const staff = getDynamicStaffProfiles(current.vendorId, current.membershipId)
     .find((row) => row.staffId === staffId);
 
   if (!staff) {
@@ -316,30 +440,30 @@ export function selectTenantMembershipForSession(membershipId: string): TenantSe
 
 export function loadStaffProfilesForCurrentTenant(): TenantStaffProfileContract[] {
   const session = getCurrentTenantSession();
-  const rows = getMockStaffProfilesForTenant(session.vendorId, session.membershipId);
+  const rows = getDynamicStaffProfiles(session.vendorId, session.membershipId);
   recordAuthActivity({ eventType: 'STAFF_PROFILE_MAPPING_LOADED', label: 'Staff Profile Mapping Loaded', message: `${rows.length} mock staff profile mapping row(s) loaded.`, vendorId: session.vendorId, staffId: session.staffId });
   return rows;
 }
 
 export function loadBranchesForCurrentTenant(staffId?: string): TenantBranchAccessContract[] {
   const session = getCurrentTenantSession();
-  const rows = getMockBranchAccessForStaff(session.vendorId, staffId || session.staffId);
+  const rows = getDynamicBranchAccess(session.vendorId, staffId || session.staffId);
   recordAuthActivity({ eventType: 'BRANCH_ACCESS_LOADED', label: 'Branch Access Loaded', message: `${rows.length} mock branch access row(s) loaded.`, vendorId: session.vendorId, staffId: staffId || session.staffId });
   return rows;
 }
 
 export function loadTerminalsForCurrentBranch(branchId: string, staffId?: string): TenantTerminalAccessContract[] {
   const session = getCurrentTenantSession();
-  const rows = getMockTerminalAccessForStaff(session.vendorId, branchId, staffId || session.staffId);
+  const rows = getDynamicTerminalAccess(session.vendorId, branchId, staffId || session.staffId);
   recordAuthActivity({ eventType: 'TERMINAL_ACCESS_LOADED', label: 'Terminal Access Loaded', message: `${rows.length} mock terminal access row(s) loaded for ${branchId}.`, vendorId: session.vendorId, staffId: staffId || session.staffId });
   return rows;
 }
 
 export function activateStaffMappedSession(staffId: string, branchId: string, terminalId: string, pin?: string): TenantSession {
   const current = getCurrentTenantSession();
-  const staff = getMockStaffProfilesForTenant(current.vendorId, current.membershipId).find((row) => row.staffId === staffId) || getMockStaffProfilesForTenant(current.vendorId)[0];
-  const branch = getMockBranchAccessForStaff(current.vendorId, staff?.staffId).find((row) => row.branchId === branchId) || getMockBranchAccessForStaff(current.vendorId, staff?.staffId)[0];
-  const terminal = getMockTerminalAccessForStaff(current.vendorId, branch?.branchId, staff?.staffId).find((row) => row.terminalId === terminalId) || getMockTerminalAccessForStaff(current.vendorId, branch?.branchId, staff?.staffId)[0];
+  const staff = getDynamicStaffProfiles(current.vendorId, current.membershipId).find((row) => row.staffId === staffId) || getDynamicStaffProfiles(current.vendorId)[0];
+  const branch = getDynamicBranchAccess(current.vendorId, staff?.staffId).find((row) => row.branchId === branchId) || getDynamicBranchAccess(current.vendorId, staff?.staffId)[0];
+  const terminal = getDynamicTerminalAccess(current.vendorId, branch?.branchId, staff?.staffId).find((row) => row.terminalId === terminalId) || getDynamicTerminalAccess(current.vendorId, branch?.branchId, staff?.staffId)[0];
   const pinAccepted = verifyStaffPinForMappedStaff(staff?.staffId || staffId, pin);
   const session: TenantSession = {
     ...current,

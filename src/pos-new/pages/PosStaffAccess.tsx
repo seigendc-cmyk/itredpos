@@ -19,6 +19,7 @@ export default function PosStaffAccess({
   const vendorName = tenantSession.vendorName || tenantSession.vendorEmail || 'Current Vendor';
   const vendors = [{ id: tenantSession.vendorId || 'current-vendor', name: vendorName }];
 
+  // Load staff profiles and branch access list dynamically from the current resolved tenant session.
   const staffProfiles = loadStaffProfilesForCurrentTenant();
   const branchAccessRows = loadBranchesForCurrentTenant();
   const branches = branchAccessRows.map((branch) => ({ id: branch.branchId, name: branch.branchName, location: branch.branchName }));
@@ -34,6 +35,17 @@ export default function PosStaffAccess({
 
   const [selectedTerminalId, setSelectedTerminalId] = useState<string>(terminals[0]?.id || '');
   const [password, setPassword] = useState<string>('');
+
+  // Synchronize selection states with the current resolved tenant session
+  useEffect(() => {
+    setSelectedVendor(vendors[0]?.name || 'Current Vendor');
+    setSelectedBranchId(branches[0]?.id || '');
+    setSelectedStaffId(staffList[0]?.id || '');
+  }, [tenantSession.vendorId]);
+
+  useEffect(() => {
+    setSelectedTerminalId(terminals[0]?.id || '');
+  }, [selectedBranchId, selectedStaffId, terminals.length]);
   
   const [errorMsg, setErrorMsg] = useState<string>('');
   const [isAuthenticating, setIsAuthenticating] = useState<boolean>(false);

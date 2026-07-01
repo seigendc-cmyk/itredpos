@@ -149,6 +149,16 @@ export default function PosPrototypeApp() {
     return () => unsubscribe();
   }, []);
 
+  // Clear active staff session when the Google profile email changes (tenant isolation enforcement)
+  useEffect(() => {
+    if (googleAuthProfile) {
+      const session = getCurrentTenantSession();
+      if (activeSession && session.googleEmail !== googleAuthProfile.email) {
+        setActiveSession(null);
+      }
+    }
+  }, [googleAuthProfile?.email]);
+
   const [activeSession, setActiveSession] = useState<PosSession | null>(() => {
     return readStoredValue<PosSession | null>('itred_pos_active_session', null);
   });
@@ -807,6 +817,38 @@ export default function PosPrototypeApp() {
             className="mt-5 w-full border border-orange-500 bg-orange-500 px-4 py-3 text-sm font-black uppercase text-slate-950 hover:bg-orange-400"
           >
             Sign in with Google
+          </button>
+        </section>
+      </main>
+    );
+  }
+
+  // Blocked license screen if the tenant is unlicensed
+  const isUnlicensed = getCurrentTenantSession().vendorId === 'unlicensed' || getCurrentTenantSession().status === 'Error';
+
+  if (googleAuthProfile && isUnlicensed) {
+    return (
+      <main className="min-h-screen bg-slate-950 text-slate-100 flex items-center justify-center p-6">
+        <section className="w-full max-w-md border border-rose-500/40 bg-slate-900 p-6 shadow-2xl text-center space-y-4">
+          <p className="text-[10px] font-black uppercase tracking-[0.3em] text-rose-400">POS License Blocked</p>
+          <h1 className="text-xl font-black uppercase text-white">Access Denied</h1>
+          <div className="border border-rose-700 bg-slate-950 p-3 text-xs text-rose-300 font-bold">
+            No POS license found for this Google account. Contact iTredVD administrator.
+          </div>
+          <p className="text-xs text-slate-400">
+            Authenticated as: <strong className="text-slate-200">{googleAuthProfile.email}</strong>
+          </p>
+          <button
+            type="button"
+            onClick={async () => {
+              await signOutFirebasePlaceholder();
+              setGoogleAuthProfile(null);
+              setLicenseChecked(false);
+              setActiveSession(null);
+            }}
+            className="w-full border border-rose-500 bg-rose-600 hover:bg-rose-500 px-4 py-3 text-sm font-black uppercase text-white"
+          >
+            Sign Out & Try Another Account
           </button>
         </section>
       </main>
