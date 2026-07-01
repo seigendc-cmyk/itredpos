@@ -83,6 +83,9 @@ export default function ProductTransformationPanel() {
   const [inputSearchResults, setInputSearchResults] = useState<POProductSearchResult[]>([]);
   const [outputSearchQuery, setOutputSearchQuery] = useState('');
   const [outputSearchResults, setOutputSearchResults] = useState<POProductSearchResult[]>([]);
+  const [yieldExcellentThreshold, setYieldExcellentThreshold] = useState(95);
+  const [yieldGoodThreshold, setYieldGoodThreshold] = useState(85);
+  const [yieldReviewThreshold, setYieldReviewThreshold] = useState(70);
   const [expandedTemplateId, setExpandedTemplateId] = useState<string | null>(null);
   const [bomFilterType, setBomFilterType] = useState('All');
   const [bomFilterStatus, setBomFilterStatus] = useState('All');
@@ -400,7 +403,7 @@ export default function ProductTransformationPanel() {
       };
     }
 
-    if (yieldPercent >= 95) {
+    if (yieldPercent >= yieldExcellentThreshold) {
       return {
         label: 'Excellent',
         detail: 'Yield is within excellent production range.',
@@ -408,7 +411,7 @@ export default function ProductTransformationPanel() {
       };
     }
 
-    if (yieldPercent >= 85) {
+    if (yieldPercent >= yieldGoodThreshold) {
       return {
         label: 'Good',
         detail: 'Yield is acceptable but should be monitored.',
@@ -416,7 +419,7 @@ export default function ProductTransformationPanel() {
       };
     }
 
-    if (yieldPercent >= 70) {
+    if (yieldPercent >= yieldReviewThreshold) {
       return {
         label: 'Review',
         detail: 'Yield is below preferred range. Supervisor review recommended.',
@@ -2187,6 +2190,36 @@ export default function ProductTransformationPanel() {
                     Yield {transformationYieldSummary.yieldPercent.toFixed(2)}%
                   </span>
                 </div>
+                <div className="grid grid-cols-3 gap-2 mb-2 text-[8px] uppercase font-black">
+                  <label className="border border-slate-200 bg-slate-50 p-1">
+                    <span className="block text-slate-500">Excellent %</span>
+                    <input
+                      type="number"
+                      value={yieldExcellentThreshold}
+                      onChange={(event) => setYieldExcellentThreshold(Number(event.target.value))}
+                      className="w-full border border-[#b1b5c2] bg-white px-1 py-0.5 text-[8px] font-black text-[#1e222b]"
+                    />
+                  </label>
+                  <label className="border border-slate-200 bg-slate-50 p-1">
+                    <span className="block text-slate-500">Good %</span>
+                    <input
+                      type="number"
+                      value={yieldGoodThreshold}
+                      onChange={(event) => setYieldGoodThreshold(Number(event.target.value))}
+                      className="w-full border border-[#b1b5c2] bg-white px-1 py-0.5 text-[8px] font-black text-[#1e222b]"
+                    />
+                  </label>
+                  <label className="border border-slate-200 bg-slate-50 p-1">
+                    <span className="block text-slate-500">Review %</span>
+                    <input
+                      type="number"
+                      value={yieldReviewThreshold}
+                      onChange={(event) => setYieldReviewThreshold(Number(event.target.value))}
+                      className="w-full border border-[#b1b5c2] bg-white px-1 py-0.5 text-[8px] font-black text-[#1e222b]"
+                    />
+                  </label>
+                </div>
+
                 {(() => {
                   const quality = getYieldQualityStatus();
                   return (
