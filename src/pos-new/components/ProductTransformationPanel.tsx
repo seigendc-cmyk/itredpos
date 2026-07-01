@@ -421,6 +421,31 @@ export default function ProductTransformationPanel() {
     };
   };
 
+  const buildYieldBiEvent = () => {
+    const variance = getYieldVarianceStatus();
+    const yieldPercent = getManufacturingYieldPercent();
+
+    return {
+      eventType: variance.biEvent,
+      eventSource: "USING_MANUAL_DEV",
+      buildSource: "USING MANUAL DEV",
+      buildCode: "Build 2K-12E",
+      module: "ProductTransformationPanel",
+      domain: "BI_FOR_BUSINESS_OPERATIONS",
+      category: "MANUFACTURING_YIELD",
+      severity: variance.status,
+      label: variance.label,
+      message: variance.message,
+      yieldPercent,
+      thresholds: {
+        excellent: yieldExcellentThreshold,
+        good: yieldGoodThreshold,
+        review: yieldReviewThreshold,
+      },
+      createdAt: new Date().toISOString(),
+    };
+  };
+
   const getYieldQualityStatus = () => {
     const yieldPercent = transformationYieldSummary.yieldPercent;
 
@@ -2261,6 +2286,25 @@ export default function ProductTransformationPanel() {
                         <div className="text-slate-500">{variance.message}</div>
                         <div className="mt-1 text-[7px] uppercase text-slate-400">
                           BI Event: {variance.biEvent}
+                        </div>
+                      </div>
+                    );
+                  })()}
+                </div>
+
+                <div className="mb-2 border border-slate-300 bg-white p-2">
+                  <div className="text-[8px] font-black uppercase text-slate-700">
+                    Yield BI Event Preview
+                  </div>
+                  {(() => {
+                    const biEvent = buildYieldBiEvent();
+                    return (
+                      <div className="mt-1 text-[8px] font-bold text-[#1e222b]">
+                        <div>Event: {biEvent.eventType}</div>
+                        <div>Severity: {biEvent.severity}</div>
+                        <div>Source: {biEvent.buildSource}</div>
+                        <div className="mt-1 text-[7px] uppercase text-slate-400">
+                          Build: {biEvent.buildCode}
                         </div>
                       </div>
                     );
