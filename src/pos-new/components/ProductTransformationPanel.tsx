@@ -559,6 +559,25 @@ export default function ProductTransformationPanel() {
     };
   };
 
+  const buildYieldApprovalSummary = () => {
+    const audit = buildYieldApprovalAuditTrail();
+
+    return {
+      buildCode: "Build 2K-12L",
+      source: "USING MANUAL DEV",
+      title: audit.approvalDisabled ? "Yield Approval Requires Action" : "Yield Approval Ready",
+      status: audit.approvalDisabled ? "ACTION_REQUIRED" : "READY_FOR_APPROVAL",
+      yieldPercent: audit.yieldPercent,
+      severity: audit.severity,
+      eventType: audit.eventType,
+      biEventType: audit.biEventType,
+      supervisorNoteCaptured: audit.supervisorOverrideNote.length > 0,
+      summaryText: audit.approvalDisabled
+        ? "Approval is blocked until a valid supervisor override note is captured."
+        : "Yield approval can continue under the configured business rules.",
+    };
+  };
+
   const getYieldQualityStatus = () => {
     const yieldPercent = transformationYieldSummary.yieldPercent;
 
@@ -2460,6 +2479,24 @@ export default function ProductTransformationPanel() {
                   <div className="text-[8px] font-bold">
                     {getYieldManagementAlert().action}
                   </div>
+                </div>
+
+                <div className="mb-2 border border-[#f97316] bg-[#fff7ed] p-2">
+                  <div className="text-[8px] font-black uppercase text-[#9a3412]">
+                    Yield Approval Summary
+                  </div>
+                  {(() => {
+                    const summary = buildYieldApprovalSummary();
+                    return (
+                      <div className="mt-1 text-[8px] font-bold text-[#1e222b]">
+                        <div>{summary.title}</div>
+                        <div>Status: {summary.status}</div>
+                        <div>Yield: {summary.yieldPercent.toFixed(2)}%</div>
+                        <div>Severity: {summary.severity}</div>
+                        <div className="text-slate-500">{summary.summaryText}</div>
+                      </div>
+                    );
+                  })()}
                 </div>
 
                 <div className="mb-2 border border-slate-300 bg-white p-2">
