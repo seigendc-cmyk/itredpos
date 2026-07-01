@@ -53,7 +53,7 @@ import {
 import { getEffectivePageIdsForRole, normalizeRoleKey } from './auth/effectivePermissionService';
 import { recordSecurityMatrixEvent } from './auth/permissionMatrixService';
 import { getCurrentFirebaseUserProfile, signInWithGooglePlaceholder, subscribeToFirebaseAuthState, signOutFirebasePlaceholder } from './auth/firebaseAuthShell';
-import { createTenantSessionFromFirebaseUser, resolveTenantPlaceholder } from './auth/tenantSessionService';
+import { createTenantSessionFromFirebaseUser, getCurrentTenantSession, resolveTenantPlaceholder } from './auth/tenantSessionService';
 import { loadLocalProducts, POS_PRODUCT_STORE_EVENT, updateLocalProductStock } from './utils/localProductStore';
 import './posNew.css';
 
