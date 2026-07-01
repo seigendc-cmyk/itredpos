@@ -89,6 +89,7 @@ export default function ProductTransformationPanel() {
   const [yieldSupervisorOverrideNote, setYieldSupervisorOverrideNote] = useState('');
   const [transformationInputCost, setTransformationInputCost] = useState(0);
   const [transformationOutputSellingPrice, setTransformationOutputSellingPrice] = useState(0);
+  const [transformationCostingSupervisorNote, setTransformationCostingSupervisorNote] = useState('');
   const [expandedTemplateId, setExpandedTemplateId] = useState<string | null>(null);
   const [bomFilterType, setBomFilterType] = useState('All');
   const [bomFilterStatus, setBomFilterStatus] = useState('All');
