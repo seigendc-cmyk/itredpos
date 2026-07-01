@@ -472,6 +472,35 @@ export default function ProductTransformationPanel() {
     };
   };
 
+  const getYieldApprovalGuardrail = () => {
+    const biEvent = buildYieldBiEvent();
+
+    if (biEvent.severity === "critical") {
+      return {
+        canApprove: false,
+        label: "Approval Blocked",
+        message: "Yield is critically below review threshold. Supervisor review is required before approval.",
+        approvalEvent: "YIELD_APPROVAL_BLOCKED",
+      };
+    }
+
+    if (biEvent.severity === "warning") {
+      return {
+        canApprove: true,
+        label: "Approval Warning",
+        message: "Yield is below good threshold. Approval may continue, but review notes are recommended.",
+        approvalEvent: "YIELD_APPROVAL_WARNING",
+      };
+    }
+
+    return {
+      canApprove: true,
+      label: "Approval Allowed",
+      message: "Yield is within configured approval range.",
+      approvalEvent: "YIELD_APPROVAL_ALLOWED",
+    };
+  };
+
   const getYieldQualityStatus = () => {
     const yieldPercent = transformationYieldSummary.yieldPercent;
 
@@ -2312,6 +2341,24 @@ export default function ProductTransformationPanel() {
                         <div className="text-slate-500">{variance.message}</div>
                         <div className="mt-1 text-[7px] uppercase text-slate-400">
                           BI Event: {variance.biEvent}
+                        </div>
+                      </div>
+                    );
+                  })()}
+                </div>
+
+                <div className="mb-2 border border-slate-300 bg-slate-50 p-2">
+                  <div className="text-[8px] font-black uppercase text-slate-700">
+                    Yield Approval Guardrail
+                  </div>
+                  {(() => {
+                    const guardrail = getYieldApprovalGuardrail();
+                    return (
+                      <div className="mt-1 text-[8px] font-bold text-[#1e222b]">
+                        <div>{guardrail.label}</div>
+                        <div className="text-slate-500">{guardrail.message}</div>
+                        <div className="mt-1 text-[7px] uppercase text-slate-400">
+                          Event: {guardrail.approvalEvent}
                         </div>
                       </div>
                     );
