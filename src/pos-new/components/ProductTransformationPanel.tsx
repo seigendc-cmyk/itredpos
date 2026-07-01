@@ -502,6 +502,24 @@ export default function ProductTransformationPanel() {
     };
   };
 
+  const isYieldApprovalDisabled = () => {
+    const guardrail = getYieldApprovalGuardrail();
+
+    if (guardrail.canApprove) {
+      return false;
+    }
+
+    return yieldSupervisorOverrideNote.trim().length < 10;
+  };
+
+  const getYieldApprovalDisableReason = () => {
+    if (!isYieldApprovalDisabled()) {
+      return "Approval is available.";
+    }
+
+    return "Supervisor override note must be at least 10 characters before low-yield approval can continue.";
+  };
+
   const getYieldQualityStatus = () => {
     const yieldPercent = transformationYieldSummary.yieldPercent;
 
@@ -2379,6 +2397,18 @@ export default function ProductTransformationPanel() {
                       </div>
                     );
                   })()}
+                </div>
+
+                <div className="mb-2 border border-slate-300 bg-white p-2">
+                  <div className="text-[8px] font-black uppercase text-slate-700">
+                    Yield Approval Button Logic
+                  </div>
+                  <div className="mt-1 text-[8px] font-bold text-[#1e222b]">
+                    Button State: {isYieldApprovalDisabled() ? "Disabled" : "Enabled"}
+                  </div>
+                  <div className="text-[8px] font-bold text-slate-500">
+                    {getYieldApprovalDisableReason()}
+                  </div>
                 </div>
 
                 <div className={`mb-2 border p-2 ${getYieldManagementAlert().className}`}>
