@@ -234,6 +234,41 @@ export function selectStaffBranchTerminal(payload: StaffAccessAttempt): TenantSe
   return session;
 }
 
+export function verifyStaffPinForMappedStaff(staffId: string, pin?: string): boolean {
+  const current = getCurrentTenantSession();
+  const staff = getMockStaffProfilesForTenant(current.vendorId, current.membershipId)
+    .find((row) => row.staffId === staffId);
+
+  if (!staff) {
+    recordAuthActivity({
+      eventType: 'STAFF_PIN_VERIFIED_PLACEHOLDER',
+      label: 'Staff PIN Failed',
+      message: 'Staff profile was not found for PIN verification.',
+      vendorId: current.vendorId,
+      staffId,
+    });
+    return false;
+  }
+
+  if (!staff.pinRequired || !isStaffPinRequired()) {
+    return true;
+  }
+
+  const enteredPin = String(pin || '').trim();
+  const expectedPin = String(staff.pin || staff.defaultPin || '').trim();
+  const verified = expectedPin.length > 0 && enteredPin === expectedPin;
+
+  recordAuthActivity({
+    eventType: 'STAFF_PIN_VERIFIED_PLACEHOLDER',
+    label: verified ? 'Staff PIN Verified' : 'Staff PIN Failed',
+    message: verified ? 'Staff PIN matched mapped profile.' : 'Invalid staff PIN entered.',
+    vendorId: current.vendorId,
+    staffId,
+  });
+
+  return verified;
+}
+
 export function verifyStaffPinPlaceholder(payload: StaffAccessAttempt): boolean {
   const verified = !isStaffPinRequired() || Boolean(payload.pinOrPassword);
   recordAuthActivity({ eventType: 'STAFF_PIN_VERIFIED_PLACEHOLDER', label: 'Staff PIN Verified Placeholder', message: verified ? 'Staff PIN placeholder accepted.' : 'Staff PIN placeholder missing.', vendorId: payload.vendorId, staffId: payload.staffId });
@@ -305,7 +340,7 @@ export function activateStaffMappedSession(staffId: string, branchId: string, te
   const staff = getMockStaffProfilesForTenant(current.vendorId, current.membershipId).find((row) => row.staffId === staffId) || getMockStaffProfilesForTenant(current.vendorId)[0];
   const branch = getMockBranchAccessForStaff(current.vendorId, staff?.staffId).find((row) => row.branchId === branchId) || getMockBranchAccessForStaff(current.vendorId, staff?.staffId)[0];
   const terminal = getMockTerminalAccessForStaff(current.vendorId, branch?.branchId, staff?.staffId).find((row) => row.terminalId === terminalId) || getMockTerminalAccessForStaff(current.vendorId, branch?.branchId, staff?.staffId)[0];
-  const pinAccepted = !staff?.pinRequired || Boolean(pin) || !isStaffPinRequired();
+  const pinAccepted = verifyStaffPinForMappedStaff(staff?.staffId || staffId, pin);
   const session: TenantSession = {
     ...current,
     status: pinAccepted ? 'Session Active' : 'Staff Selection Required',
@@ -402,3 +437,4 @@ export function getTenantSessionReadiness(): TenantSessionReadiness[] {
 export function getAuthActivityEvents(): AuthActivityEvent[] {
   return readJson<AuthActivityEvent[]>(ACTIVITY_KEY, []);
 }
+
