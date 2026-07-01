@@ -52,6 +52,8 @@ import {
 } from './mock/mockPosData';
 import { getEffectivePageIdsForRole, normalizeRoleKey } from './auth/effectivePermissionService';
 import { recordSecurityMatrixEvent } from './auth/permissionMatrixService';
+import { getCurrentFirebaseUserProfile, signInWithGooglePlaceholder } from './auth/firebaseAuthShell';
+import { createTenantSessionFromFirebaseUser, resolveTenantPlaceholder } from './auth/tenantSessionService';
 import { loadLocalProducts, POS_PRODUCT_STORE_EVENT, updateLocalProductStock } from './utils/localProductStore';
 import './posNew.css';
 
@@ -728,6 +730,52 @@ export default function PosPrototypeApp() {
     setActivePage('DASHBOARD');
   };
 
+  const handleGoogleAuthBeforeStaffAccess = async () => {
+    setGoogleAuthMessage('Opening Google sign-in...');
+    const result = await signInWithGooglePlaceholder();
+
+    if (!result.ok) {
+      setGoogleAuthMessage(result.message || 'Google sign-in failed. Check Firebase Auth configuration.');
+      return;
+    }
+
+    const profile = getCurrentFirebaseUserProfile();
+    setGoogleAuthProfile(profile);
+
+    if (profile) {
+      createTenantSessionFromFirebaseUser(profile);
+      resolveTenantPlaceholder(profile);
+      setGoogleAuthMessage(`Google signed in as ${profile.email}. Continue with Staff Access.`);
+    } else {
+      setGoogleAuthMessage('Google sign-in completed, but profile was not loaded.');
+    }
+  };
+
+  // Guard the operational register with Google Auth before staff access
+  if (!googleAuthProfile) {
+    return (
+      <main className="min-h-screen bg-slate-950 text-slate-100 flex items-center justify-center p-6">
+        <section className="w-full max-w-md border border-orange-500/40 bg-slate-900 p-6 shadow-2xl">
+          <p className="text-[10px] font-black uppercase tracking-[0.3em] text-orange-400">iTred Commerce POS</p>
+          <h1 className="mt-3 text-2xl font-black uppercase text-white">Vendor Sign In</h1>
+          <p className="mt-3 text-sm text-slate-300">
+            Sign in with Google first. After vendor verification, the normal Staff Access form will open.
+          </p>
+          <div className="mt-5 border border-slate-700 bg-slate-950 p-3 text-xs text-slate-300">
+            {googleAuthMessage}
+          </div>
+          <button
+            type="button"
+            onClick={() => void handleGoogleAuthBeforeStaffAccess()}
+            className="mt-5 w-full border border-orange-500 bg-orange-500 px-4 py-3 text-sm font-black uppercase text-slate-950 hover:bg-orange-400"
+          >
+            Sign in with Google
+          </button>
+        </section>
+      </main>
+    );
+  }
+
   // Guard the operational register with our heavy security staff access screen
   if (!activeSession) {
     return (
@@ -955,3 +1003,4 @@ export default function PosPrototypeApp() {
     </PosShell>
   );
 }
+
