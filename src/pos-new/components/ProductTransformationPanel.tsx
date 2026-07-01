@@ -645,6 +645,21 @@ export default function ProductTransformationPanel() {
     return Number(transformationInputCost || 0) / outputQty;
   };
 
+  const getTransformationYieldLossCost = () => {
+    const inputQty = Number(transformationInputQty || 0);
+    const outputQty = Number(transformationOutputQty || 0);
+    const inputCost = Number(transformationInputCost || 0);
+
+    if (!inputQty || inputQty <= 0 || inputCost <= 0) {
+      return 0;
+    }
+
+    const lostQty = Math.max(inputQty - outputQty, 0);
+    const inputUnitCost = inputCost / inputQty;
+
+    return lostQty * inputUnitCost;
+  };
+
   const getYieldQualityStatus = () => {
     const yieldPercent = transformationYieldSummary.yieldPercent;
 
