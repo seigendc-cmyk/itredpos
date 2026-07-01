@@ -3630,8 +3630,8 @@ function buildOwnerDeskPrintHtml(domain: string, title: string, fields: Array<[s
 }
 
 function toOwnerDeskRole(value?: string): Role {
-  const roles: Role[] = ['Owner', 'SysAdmin', 'Manager', 'Cashier', 'Stock Controller', 'Supervisor', 'Delivery Staff', 'Accountant', 'Viewer'];
-  return roles.includes(value as Role) ? value as Role : 'Owner';
+  const validRoles: ReadonlyArray<Role> = ['Owner', 'SysAdmin', 'Manager', 'Cashier', 'Stock Controller', 'Supervisor', 'Delivery Staff', 'Accountant', 'Viewer'];
+  return validRoles.find(r => r === value) || 'Viewer';
 }
 
 function sum<T extends Record<string, unknown>>(rows: T[], key: keyof T): number {
