@@ -14,20 +14,24 @@ export default function PosStaffAccess({
 }: PosStaffAccessProps) {
   
   // Build-development tenant data source.
-  const vendors = mockVendors.map(v => v.name);
   const tenantSession = getCurrentTenantSession();
+  const vendorName = tenantSession.vendorName || tenantSession.vendorEmail || 'Current Vendor';
+  const vendors = [{ id: tenantSession.vendorId || 'current-vendor', name: vendorName }];
+
   const staffProfiles = loadStaffProfilesForCurrentTenant();
   const branchAccessRows = loadBranchesForCurrentTenant();
   const branches = branchAccessRows.map((branch) => ({ id: branch.branchId, name: branch.branchName, location: branch.branchName }));
-  const terminalAccessRows = loadTerminalsForCurrentBranch(selectedBranchId || branches[0]?.id || '', selectedStaffId);
-  const terminals = terminalAccessRows.map((terminal) => ({ id: terminal.terminalId, name: terminal.terminalName, branchId: terminal.branchId, type: terminal.terminalStatus || 'POS' }));
   const staffList = staffProfiles.map((staff) => ({ id: staff.staffId, name: staff.staffName, email: staff.staffEmail || tenantSession.vendorEmail || '', role: staff.role, pass: '', branchId: staff.defaultBranchId || branches[0]?.id || '' }));
 
   // Connection selections state
-  const [selectedVendor, setSelectedVendor] = useState<string>(vendors[0]);
+  const [selectedVendor, setSelectedVendor] = useState<string>(vendors[0].name);
   const [selectedBranchId, setSelectedBranchId] = useState<string>(branches[0]?.id || '');
-  const [selectedTerminalId, setSelectedTerminalId] = useState<string>(terminals[0]?.id || '');
   const [selectedStaffId, setSelectedStaffId] = useState<string>(staffList[0]?.id || '');
+
+  const terminalAccessRows = loadTerminalsForCurrentBranch(selectedBranchId || branches[0]?.id || '', selectedStaffId);
+  const terminals = terminalAccessRows.map((terminal) => ({ id: terminal.terminalId, name: terminal.terminalName, branchId: terminal.branchId, type: terminal.terminalStatus || 'POS' }));
+
+  const [selectedTerminalId, setSelectedTerminalId] = useState<string>(terminals[0]?.id || '');
   const [password, setPassword] = useState<string>('');
   
   const [errorMsg, setErrorMsg] = useState<string>('');
@@ -118,8 +122,8 @@ export default function PosStaffAccess({
               className="w-full bg-slate-950 text-emerald-400 border border-slate-800 focus:border-[#00f0ff] px-3 py-2 outline-none rounded-none text-xs font-bold transition-colors cursor-pointer"
             >
               {vendors.map((v) => (
-                <option key={v} value={v}>
-                  {v}
+                <option key={v.id} value={v.name}>
+                  {v.name}
                 </option>
               ))}
             </select>
