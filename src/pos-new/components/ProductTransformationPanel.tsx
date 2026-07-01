@@ -660,6 +660,10 @@ export default function ProductTransformationPanel() {
     return lostQty * inputUnitCost;
   };
 
+  const getTotalTransformationCost = () => {
+    return Number(transformationInputCost || 0);
+  };
+
   const getYieldQualityStatus = () => {
     const yieldPercent = transformationYieldSummary.yieldPercent;
 
