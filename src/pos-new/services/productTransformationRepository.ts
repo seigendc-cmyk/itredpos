@@ -9,6 +9,7 @@ import {
   where
 } from 'firebase/firestore';
 import { db, firebaseReady } from '../firebase/firebaseApp';
+import { isPOSFirebaseWritesAllowed } from '../auth/posActivationService';
 import type {
   ProductTransformation,
   ProductTransformationInputLine,
@@ -31,7 +32,7 @@ export async function readFirestoreTransformations(): Promise<ProductTransformat
 }
 
 export async function writeFirestoreTransformation(record: ProductTransformation): Promise<void> {
-  if (!canUseProductTransformationFirestore() || !db) return;
+  if (!canUseProductTransformationFirestore() || !db || !isPOSFirebaseWritesAllowed()) return;
 
   await setDoc(doc(db, TRANSFORMATION_COLLECTION, record.transformationId), record, { merge: true });
 }
@@ -49,7 +50,7 @@ export async function readFirestoreInputLines(transformationId: string): Promise
 }
 
 export async function writeFirestoreInputLine(record: ProductTransformationInputLine): Promise<void> {
-  if (!canUseProductTransformationFirestore() || !db) return;
+  if (!canUseProductTransformationFirestore() || !db || !isPOSFirebaseWritesAllowed()) return;
 
   await setDoc(doc(db, INPUT_LINE_COLLECTION, record.lineId), record, { merge: true });
 }
@@ -67,18 +68,18 @@ export async function readFirestoreOutputLines(transformationId: string): Promis
 }
 
 export async function writeFirestoreOutputLine(record: ProductTransformationOutputLine): Promise<void> {
-  if (!canUseProductTransformationFirestore() || !db) return;
+  if (!canUseProductTransformationFirestore() || !db || !isPOSFirebaseWritesAllowed()) return;
 
   await setDoc(doc(db, OUTPUT_LINE_COLLECTION, record.lineId), record, { merge: true });
 }
 export async function deleteFirestoreInputLine(lineId: string): Promise<void> {
-  if (!canUseProductTransformationFirestore() || !db || !lineId) return;
+  if (!canUseProductTransformationFirestore() || !db || !lineId || !isPOSFirebaseWritesAllowed()) return;
 
   await deleteDoc(doc(db, INPUT_LINE_COLLECTION, lineId));
 }
 
 export async function deleteFirestoreOutputLine(lineId: string): Promise<void> {
-  if (!canUseProductTransformationFirestore() || !db || !lineId) return;
+  if (!canUseProductTransformationFirestore() || !db || !lineId || !isPOSFirebaseWritesAllowed()) return;
 
   await deleteDoc(doc(db, OUTPUT_LINE_COLLECTION, lineId));
 }

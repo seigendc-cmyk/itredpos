@@ -32,6 +32,7 @@ import type {
   TenantStaffProfileContract,
   TenantTerminalAccessContract
 } from './tenantResolutionTypes';
+import { createPOSSessionFromActivation, savePOSSession, type POSActivationRecord } from './posActivationService';
 
 const SESSION_KEY = 'itred_pos_tenant_session';
 const ACTIVITY_KEY = 'itred_pos_auth_activity';
@@ -78,6 +79,15 @@ function getDynamicStaffProfiles(vendorId: string, membershipId?: string): Tenan
       { staffId: `ST-MARY-${prefix}`, vendorId, membershipId, staffName: `Mary Cashier ${prefix}`, staffCode: 'MARY', role: 'Cashier', status: 'Active', pinRequired: false }
     ];
   }
+  if (rows.length === 0) {
+    const session = readJson<TenantSession | null>(SESSION_KEY, null);
+    if (session?.tenantResolved && session.vendorId === vendorId) {
+      rows = [
+        { staffId: 'ST-ACTIVATED-OWNER', vendorId, membershipId: session.membershipId || membershipId, staffName: 'Activated POS Owner', staffCode: 'OWNER', role: 'VendorOwner', status: 'Active', pinRequired: false },
+        { staffId: 'ST-ACTIVATED-CASHIER', vendorId, membershipId: session.membershipId || membershipId, staffName: 'Activated Cashier', staffCode: 'CASHIER', role: 'Cashier', status: 'Active', pinRequired: false }
+      ];
+    }
+  }
   return rows;
 }
 
@@ -89,6 +99,19 @@ function getDynamicBranchAccess(vendorId: string, staffId?: string): TenantBranc
       { branchAccessId: `BA-OWNER-HARARE-${prefix}`, vendorId, branchId: `BR-HARARE-${prefix}`, branchName: `Harare Main ${prefix}`, staffId: staffId || `ST-OWNER-${prefix}`, accessStatus: 'Active' },
       { branchAccessId: `BA-OWNER-BYO-${prefix}`, vendorId, branchId: `BR-BYO-${prefix}`, branchName: `Bulawayo Branch ${prefix}`, staffId: staffId || `ST-OWNER-${prefix}`, accessStatus: 'Active' }
     ];
+  }
+  if (rows.length === 0) {
+    const session = readJson<TenantSession | null>(SESSION_KEY, null);
+    if (session?.tenantResolved && session.vendorId === vendorId && session.branchId) {
+      rows = [{
+        branchAccessId: `BA-${vendorId}-${session.branchId}`,
+        vendorId,
+        branchId: session.branchId,
+        branchName: session.branchName || session.branchId,
+        staffId: staffId || session.staffId || 'ST-ACTIVATED-OWNER',
+        accessStatus: 'Active'
+      }];
+    }
   }
   return rows;
 }
@@ -102,6 +125,20 @@ function getDynamicTerminalAccess(vendorId: string, branchId?: string, staffId?:
     rows = [
       { terminalAccessId: `TA-OWNER-POS01-${prefix}`, vendorId, branchId: resolvedBranchId, terminalId: `POS-01-${prefix}`, terminalName: `POS-01 Counter ${prefix}`, staffId: resolvedStaffId, accessStatus: 'Active' }
     ];
+  }
+  if (rows.length === 0) {
+    const session = readJson<TenantSession | null>(SESSION_KEY, null);
+    if (session?.tenantResolved && session.vendorId === vendorId && session.terminalId) {
+      rows = [{
+        terminalAccessId: `TA-${vendorId}-${session.terminalId}`,
+        vendorId,
+        branchId: branchId || session.branchId || 'BR-ACTIVATED',
+        terminalId: session.terminalId,
+        terminalName: session.terminalName || session.terminalId,
+        staffId: staffId || session.staffId || 'ST-ACTIVATED-OWNER',
+        accessStatus: 'Active'
+      }];
+    }
   }
   return rows;
 }
@@ -234,6 +271,73 @@ export function createTenantSessionFromFirebaseUser(profile: FirebaseAuthUserPro
       : 'Unlicensed Google email. No tenant resolved.'
   };
   saveSession(session);
+  return session;
+}
+
+export function applyPOSActivationToTenantSession(profile: FirebaseAuthUserProfile, activation: POSActivationRecord): TenantSession {
+  const timestamp = nowIso();
+  const current = readJson<TenantSession | null>(SESSION_KEY, null);
+  const posSession = {
+    ...createPOSSessionFromActivation(activation),
+    openedAt: timestamp,
+    googleEmail: profile.email || activation.ownerEmail
+  };
+  const session: TenantSession = {
+    ...(current || {
+      sessionId: makeId('SESSION'),
+      authProvider: 'Google' as const,
+      permissions: [],
+      isBuildDevelopmentSession: false,
+      authRequired: isFirebaseAuthRequired(),
+      staffAuthenticated: false,
+      createdAt: timestamp
+    }),
+    authProvider: 'Google',
+    status: 'Tenant Resolved',
+    vendorId: activation.vendorId,
+    vendorName: activation.vendorName || activation.vendorId,
+    vendorEmail: activation.ownerEmail || profile.email,
+    firebaseUid: profile.uid,
+    googleEmail: profile.email,
+    membershipId: `MEM-${activation.vendorId}-POS`,
+    membershipRole: 'VendorOwner',
+    branchId: activation.branchId,
+    branchName: activation.branchName || activation.branchId,
+    terminalId: activation.terminalId,
+    terminalName: activation.terminalName || activation.terminalId,
+    licenseId: activation.licenseId,
+    planId: activation.planId,
+    licenseMode: activation.licenseMode,
+    storageMode: activation.storageMode,
+    activationId: activation.activationId,
+    permissions: getTenantPermissionsForRole('VendorOwner'),
+    isBuildDevelopmentSession: false,
+    authRequired: isFirebaseAuthRequired(),
+    tenantResolved: true,
+    staffAuthenticated: false,
+    updatedAt: timestamp,
+    expiresAt: activation.expiresAt,
+    notes: activation.licenseMode === 'demo'
+      ? 'POS activation validated. Demo mode active; Firebase writes disabled.'
+      : 'POS activation validated from SCI Control Centre activation record.'
+  };
+  saveSession(session);
+  savePOSSession(posSession);
+  refreshTenantSessionClaims(session);
+  recordAuthActivity({
+    eventType: 'POS_ACTIVATION_VALIDATED',
+    label: 'POS Activation Validated',
+    message: `Activation ${activation.activationId} validated for ${activation.ownerEmail}.`,
+    vendorId: activation.vendorId,
+    staffId: session.staffId
+  });
+  recordAuthActivity({
+    eventType: 'SESSION_CREATED',
+    label: 'POS Session Created',
+    message: `POS consumer session created for vendor ${activation.vendorId}, branch ${activation.branchId}, terminal ${activation.terminalId}.`,
+    vendorId: activation.vendorId,
+    staffId: session.staffId
+  });
   return session;
 }
 

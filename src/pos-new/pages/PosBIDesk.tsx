@@ -772,7 +772,8 @@ export default function PosBIDesk({
 
     try {
       const { db, firebaseReady } = await import("../firebase/firebaseApp");
-      if (firebaseReady && db && session?.vendor) {
+      const { isPOSFirebaseWritesAllowed } = await import("../auth/posActivationService");
+      if (firebaseReady && db && session?.vendor && isPOSFirebaseWritesAllowed()) {
         const { collection, addDoc } = await import("firebase/firestore");
         const colRef = collection(
           db,

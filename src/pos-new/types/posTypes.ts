@@ -1786,10 +1786,20 @@ export interface BIEvent {
 
 export interface POSSession {
   vendor: string;
+  vendorId?: string;
   branch: string;
+  branchId?: string;
   terminal: string;
+  terminalId?: string;
   staffName: string;
   role: string;
+  licenseId?: string;
+  planId?: string;
+  licenseMode?: string;
+  storageMode?: string;
+  activationId?: string;
+  dashboardType?: string;
+  openedAt?: string;
 }
 
 export interface POSSettings {

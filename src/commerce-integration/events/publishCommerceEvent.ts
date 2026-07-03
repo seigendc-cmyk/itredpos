@@ -1,5 +1,6 @@
 import { addDoc, collection, serverTimestamp } from 'firebase/firestore';
 import { db, firebaseReady } from '../../pos-new/firebase/firebaseApp';
+import { isPOSFirebaseWritesAllowed } from '../../pos-new/auth/posActivationService';
 import type { CommerceEvent, CommerceEventInput } from './commerceEvents';
 import { dispatchCommerceEvent } from './eventDispatcher';
 
@@ -20,7 +21,7 @@ export async function publishCommerceEvent(input: CommerceEventInput): Promise<C
     occurredAt: new Date().toISOString(),
   };
 
-  if (firebaseReady && db) {
+  if (firebaseReady && db && isPOSFirebaseWritesAllowed()) {
     await addDoc(collection(db, 'commerceEvents'), {
       ...event,
       createdAt: serverTimestamp(),

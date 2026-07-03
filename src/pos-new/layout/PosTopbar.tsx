@@ -20,6 +20,16 @@ interface PosTopbarProps {
   tenantName?: string;
 }
 
+const displaySessionValue = (value?: string): string => {
+  const text = String(value || '').trim();
+  return text || 'N/A';
+};
+
+const displayMode = (value?: string): string => {
+  const text = displaySessionValue(value);
+  return text === 'N/A' ? text : text.toUpperCase();
+};
+
 export default function PosTopbar({
   terminalId,
   activeShiftStatus,
@@ -125,6 +135,19 @@ export default function PosTopbar({
         <div className="pos-topbar-title" title={`${tenantName} - iTred Commerce OS`}>
           {tenantName} - iTred Commerce OS
         </div>
+        {session && (
+          <div
+            className="pos-session-badge"
+            title={`Vendor ${displaySessionValue(session.vendor)} / Branch ${displaySessionValue(session.branch)} / Terminal ${displaySessionValue(session.terminal)} / Plan ${displaySessionValue(session.planId)} / ${displayMode(session.licenseMode)} / ${displaySessionValue(session.storageMode)}`}
+          >
+            <span><strong>Vendor</strong>{displaySessionValue(session.vendor)}</span>
+            <span><strong>Branch</strong>{displaySessionValue(session.branch)}</span>
+            <span><strong>Terminal</strong>{displaySessionValue(session.terminal)}</span>
+            <span><strong>Plan</strong>{displaySessionValue(session.planId)}</span>
+            <span><strong>Mode</strong>{displayMode(session.licenseMode)}</span>
+            <span><strong>Storage</strong>{displaySessionValue(session.storageMode)}</span>
+          </div>
+        )}
       </div>
 
       <div className="flex items-center gap-2">

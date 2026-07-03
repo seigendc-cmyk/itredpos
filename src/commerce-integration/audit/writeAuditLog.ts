@@ -1,5 +1,6 @@
 import { addDoc, collection, serverTimestamp } from 'firebase/firestore';
 import { db, firebaseReady } from '../../pos-new/firebase/firebaseApp';
+import { isPOSFirebaseWritesAllowed } from '../../pos-new/auth/posActivationService';
 
 export interface AuditLogInput {
   vendorId: string;
@@ -38,7 +39,7 @@ export async function writeAuditLog(input: AuditLogInput): Promise<AuditLog> {
     createdAt: new Date().toISOString(),
   };
 
-  if (firebaseReady && db) {
+  if (firebaseReady && db && isPOSFirebaseWritesAllowed()) {
     await addDoc(collection(db, 'auditLogs'), {
       ...auditLog,
       createdAt: serverTimestamp(),

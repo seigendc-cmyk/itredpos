@@ -82,10 +82,18 @@ export default function PosStaffAccess({
       // Successful login - passes back details
       onLoginSuccess({
         vendor: selectedVendor,
+        vendorId: tenantSession.vendorId,
         branch: branchObj.name,
+        branchId: branchObj.id,
         terminal: terminalObj.name,
+        terminalId: terminalObj.id,
         staffName: staffObj.name,
-        role: staffObj.role
+        role: staffObj.role,
+        licenseId: tenantSession.licenseId,
+        planId: tenantSession.planId,
+        licenseMode: tenantSession.licenseMode,
+        storageMode: tenantSession.storageMode,
+        activationId: tenantSession.activationId
       });
     }, 600);
   };

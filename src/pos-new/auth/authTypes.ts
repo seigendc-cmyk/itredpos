@@ -77,6 +77,11 @@ export interface TenantSession {
   branchName?: string;
   terminalId?: string;
   terminalName?: string;
+  licenseId?: string;
+  planId?: string;
+  licenseMode?: string;
+  storageMode?: string;
+  activationId?: string;
   permissions: PermissionKey[];
   isBuildDevelopmentSession: boolean;
   authRequired: boolean;
@@ -129,7 +134,12 @@ export interface AuthActivityEvent {
     | 'STAFF_PIN_VERIFIED_PLACEHOLDER'
     | 'TENANT_SESSION_ACTIVATED'
     | 'TENANT_SESSION_LOCKED'
-    | 'TENANT_SESSION_CLEARED';
+    | 'TENANT_SESSION_CLEARED'
+    | 'POS_ACTIVATION_VALIDATED'
+    | 'POS_LOGIN_ALLOWED'
+    | 'POS_LOGIN_BLOCKED'
+    | 'ACTIVATION_VALIDATED'
+    | 'SESSION_CREATED';
   label: string;
   message: string;
   createdAt: string;

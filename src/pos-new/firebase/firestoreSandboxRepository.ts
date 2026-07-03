@@ -10,6 +10,7 @@ import {
   isFirestoreBusinessReadEnabled,
   isFirestoreBusinessWriteEnabled
 } from '../repositories/repositoryConfig';
+import { isPOSFirebaseWritesAllowed } from '../auth/posActivationService';
 
 let lastSandboxResult: FirebaseSandboxResult | undefined;
 
@@ -47,8 +48,8 @@ const assertSandboxReady = (operation: FirebaseSandboxOperation, collectionPath:
   if (!firebaseReady || !db) {
     return unavailable(operation, startedAt, 'Firebase is not configured or Firestore shell is not available.');
   }
-  if (writeOperation && !isFirebaseSandboxWriteEnabled()) {
-    return unavailable(operation, startedAt, 'Firebase sandbox writes are disabled.');
+  if (writeOperation && (!isFirebaseSandboxWriteEnabled() || !isPOSFirebaseWritesAllowed())) {
+    return unavailable(operation, startedAt, 'Firebase writes are disabled for the current POS activation.');
   }
   if (!writeOperation && !isFirebaseSandboxReadEnabled()) {
     return unavailable(operation, startedAt, 'Firebase sandbox reads are disabled.');
@@ -78,7 +79,7 @@ export function getFirebaseSandboxHealth(): FirebaseSandboxHealth {
     configured: firebaseInitStatus.configured,
     appInitialized: firebaseInitStatus.appInitialized,
     firestoreAvailable: firebaseInitStatus.firestoreAvailable,
-    sandboxWritesEnabled: isFirebaseSandboxWriteEnabled(),
+    sandboxWritesEnabled: isFirebaseSandboxWriteEnabled() && isPOSFirebaseWritesAllowed(),
     sandboxReadsEnabled: isFirebaseSandboxReadEnabled(),
     businessWritesEnabled: isFirestoreBusinessWriteEnabled(),
     businessReadsEnabled: isFirestoreBusinessReadEnabled(),
@@ -230,4 +231,3 @@ export async function softDeleteSandboxTestDoc(collectionPath: string, docId: st
 export function clearSandboxLocalResultHistory(): void {
   lastSandboxResult = undefined;
 }
-

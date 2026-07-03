@@ -53,7 +53,8 @@ import {
 import { getEffectivePageIdsForRole, normalizeRoleKey } from './auth/effectivePermissionService';
 import { recordSecurityMatrixEvent } from './auth/permissionMatrixService';
 import { getCurrentFirebaseUserProfile, signInWithGooglePlaceholder, subscribeToFirebaseAuthState, signOutFirebasePlaceholder } from './auth/firebaseAuthShell';
-import { createTenantSessionFromFirebaseUser, getCurrentTenantSession, resolveTenantPlaceholder } from './auth/tenantSessionService';
+import { applyPOSActivationToTenantSession, createTenantSessionFromFirebaseUser, getCurrentTenantSession, recordAuthActivity } from './auth/tenantSessionService';
+import { clearActivePOSActivation, getSavedPOSSession, validatePOSActivationForEmail, type POSActivationValidationResult } from './auth/posActivationService';
 import { loadLocalProducts, POS_PRODUCT_STORE_EVENT, updateLocalProductStock } from './utils/localProductStore';
 import './posNew.css';
 
@@ -132,17 +133,78 @@ export default function PosPrototypeApp() {
   const [googleAuthMessage, setGoogleAuthMessage] = useState('Sign in with Google to continue to Staff Access.');
   const [authLoading, setAuthLoading] = useState(true);
   const [licenseChecked, setLicenseChecked] = useState(false);
+  const [activationChecking, setActivationChecking] = useState(false);
+  const [activationResult, setActivationResult] = useState<POSActivationValidationResult | null>(null);
+
+  const validateAndApplyPOSActivation = async (profile: NonNullable<ReturnType<typeof getCurrentFirebaseUserProfile>>) => {
+    setActivationChecking(true);
+    createTenantSessionFromFirebaseUser(profile);
+    try {
+      const result = await validatePOSActivationForEmail(profile.email || '');
+      setActivationResult(result);
+      recordAuthActivity({
+        eventType: 'ACTIVATION_VALIDATED',
+        label: 'Activation Validated',
+        message: `${result.reasonCode}: ${result.message}`,
+        vendorId: result.activation?.vendorId,
+        staffId: profile.email
+      });
+      if (result.allowed && result.activation) {
+        applyPOSActivationToTenantSession(profile, result.activation);
+        recordAuthActivity({
+          eventType: 'POS_LOGIN_ALLOWED',
+          label: 'POS Login Allowed',
+          message: `POS login allowed for ${profile.email}.`,
+          vendorId: result.activation.vendorId,
+          staffId: profile.email
+        });
+        setLicenseChecked(true);
+        setGoogleAuthMessage(`${result.message} Continue with Staff Access.`);
+      } else {
+        recordAuthActivity({
+          eventType: 'POS_LOGIN_BLOCKED',
+          label: 'POS Login Blocked',
+          message: `${profile.email || 'Unknown Google account'} blocked: ${result.reasonCode}.`,
+          vendorId: result.activation?.vendorId,
+          staffId: profile.email
+        });
+        setLicenseChecked(false);
+        setActiveSession(null);
+        setGoogleAuthMessage(result.message);
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Activation validation failed.';
+      setActivationResult({
+        allowed: false,
+        reasonCode: 'NO_ACTIVATION_FOUND',
+        message
+      });
+      recordAuthActivity({
+        eventType: 'POS_LOGIN_BLOCKED',
+        label: 'POS Login Blocked',
+        message: `${profile.email || 'Unknown Google account'} blocked: ${message}`,
+        staffId: profile.email
+      });
+      setLicenseChecked(false);
+      setActiveSession(null);
+      clearActivePOSActivation();
+      setGoogleAuthMessage(message);
+    } finally {
+      setActivationChecking(false);
+    }
+  };
 
   // Automatically restore active session state on reload
   useEffect(() => {
     const unsubscribe = subscribeToFirebaseAuthState((profile) => {
       setGoogleAuthProfile(profile);
       if (profile) {
-        createTenantSessionFromFirebaseUser(profile);
-        resolveTenantPlaceholder(profile);
-        setGoogleAuthMessage(`Google session restored: ${profile.email}`);
+        void validateAndApplyPOSActivation(profile);
       } else {
         setGoogleAuthMessage('Sign in with Google to continue to Staff Access.');
+        setActivationResult(null);
+        setLicenseChecked(false);
+        clearActivePOSActivation();
       }
       setAuthLoading(false);
     });
@@ -774,12 +836,19 @@ export default function PosPrototypeApp() {
     setGoogleAuthProfile(profile);
 
     if (profile) {
-      createTenantSessionFromFirebaseUser(profile);
-      resolveTenantPlaceholder(profile);
-      setGoogleAuthMessage(`Google signed in as ${profile.email}. Continue with Staff Access.`);
+      await validateAndApplyPOSActivation(profile);
     } else {
       setGoogleAuthMessage('Google sign-in completed, but profile was not loaded.');
     }
+  };
+
+  const handlePOSSignOut = async () => {
+    await signOutFirebasePlaceholder();
+    setGoogleAuthProfile(null);
+    setLicenseChecked(false);
+    setActivationResult(null);
+    clearActivePOSActivation();
+    setActiveSession(null);
   };
 
   // Render loading state while authenticating
@@ -823,64 +892,70 @@ export default function PosPrototypeApp() {
     );
   }
 
-  // Blocked license screen if the tenant is unlicensed
-  const isUnlicensed = getCurrentTenantSession().vendorId === 'unlicensed' || getCurrentTenantSession().status === 'Error';
-
-  if (googleAuthProfile && isUnlicensed) {
+  if (googleAuthProfile && !activationChecking && activationResult && !activationResult.allowed) {
+    const blockedActivation = activationResult.activation;
     return (
       <main className="min-h-screen bg-slate-950 text-slate-100 flex items-center justify-center p-6">
-        <section className="w-full max-w-md border border-rose-500/40 bg-slate-900 p-6 shadow-2xl text-center space-y-4">
+        <section className="w-full max-w-lg border border-rose-500/40 bg-slate-900 p-6 shadow-2xl text-center space-y-4">
           <p className="text-[10px] font-black uppercase tracking-[0.3em] text-rose-400">POS License Blocked</p>
-          <h1 className="text-xl font-black uppercase text-white">Access Denied</h1>
+          <h1 className="text-xl font-black uppercase text-white">POS Access Denied</h1>
           <div className="border border-rose-700 bg-slate-950 p-3 text-xs text-rose-300 font-bold">
-            No POS license found for this Google account. Contact iTredVD administrator.
+            {activationResult.message}
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-left">
+            <div className="border border-slate-700 bg-slate-950 p-3 text-[10px] text-slate-300 font-black uppercase">
+              <span className="block text-slate-500">Authenticated Google Email</span>
+              <span className="text-slate-100 normal-case break-all">{googleAuthProfile.email || 'Unknown'}</span>
+            </div>
+            <div className="border border-slate-700 bg-slate-950 p-3 text-[10px] text-slate-300 font-black uppercase">
+              <span className="block text-slate-500">Reason</span>
+              <span className="text-rose-300">{activationResult.reasonCode}</span>
+            </div>
+            <div className="border border-slate-700 bg-slate-950 p-3 text-[10px] text-slate-300 font-black uppercase">
+              <span className="block text-slate-500">License Status</span>
+              <span className="text-slate-100">{blockedActivation?.status || 'Not available'}</span>
+            </div>
+            <div className="border border-slate-700 bg-slate-950 p-3 text-[10px] text-slate-300 font-black uppercase">
+              <span className="block text-slate-500">Expiry</span>
+              <span className="text-slate-100">{blockedActivation?.expiresAt || 'Not available'}</span>
+            </div>
           </div>
           <p className="text-xs text-slate-400">
-            Authenticated as: <strong className="text-slate-200">{googleAuthProfile.email}</strong>
+            Contact Administrator to link this Google account or correct the activation record in the SCI Control Centre.
           </p>
-          <button
-            type="button"
-            onClick={async () => {
-              await signOutFirebasePlaceholder();
-              setGoogleAuthProfile(null);
-              setLicenseChecked(false);
-              setActiveSession(null);
-            }}
-            className="w-full border border-rose-500 bg-rose-600 hover:bg-rose-500 px-4 py-3 text-sm font-black uppercase text-white"
-          >
-            Sign Out & Try Another Account
-          </button>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            <button
+              type="button"
+              onClick={() => void handlePOSSignOut()}
+              className="w-full border border-slate-600 bg-slate-800 hover:bg-slate-700 px-4 py-3 text-sm font-black uppercase text-white"
+            >
+              Sign Out
+            </button>
+            <button
+              type="button"
+              onClick={() => void handlePOSSignOut()}
+              className="w-full border border-rose-500 bg-rose-600 hover:bg-rose-500 px-4 py-3 text-sm font-black uppercase text-white"
+            >
+              Try Another Account
+            </button>
+          </div>
         </section>
       </main>
     );
   }
 
-  // License Gate Placeholder between Google Auth and Staff Access
-  if (!licenseChecked) {
+  if (googleAuthProfile && (activationChecking || !licenseChecked)) {
     return (
       <main className="min-h-screen bg-slate-950 text-slate-100 flex items-center justify-center p-6">
         <section className="w-full max-w-md border border-emerald-500/40 bg-slate-900 p-6 shadow-2xl">
-          <p className="text-[10px] font-black uppercase tracking-[0.3em] text-emerald-400">License Verification</p>
-          <h1 className="mt-3 text-2xl font-black uppercase text-white">License Gate</h1>
+          <p className="text-[10px] font-black uppercase tracking-[0.3em] text-emerald-400">POS Activation</p>
+          <h1 className="mt-3 text-2xl font-black uppercase text-white">Checking Activation</h1>
           <div className="mt-5 border border-emerald-700 bg-slate-950 p-3 text-xs text-emerald-300 font-bold text-center">
-            License verified by iTredVD Console
+            Reading sci_pos_activations for {googleAuthProfile.email}
           </div>
           <p className="mt-4 text-xs text-slate-400 leading-relaxed">
-            {/* 
-              Production license verification:
-              This placeholder verifies the vendor tenant license using local defaults.
-              Production implementation will fetch token claims or invoke the iTredVD Console backend API 
-              to verify active subscription/licensing before granting entry to POS staff desks.
-            */}
-            Vendor tenant subscription is verified. Local build development access is active.
+            POS access opens only when the SCI Control Centre activation is active, unexpired, and compatible with the requested storage mode.
           </p>
-          <button
-            type="button"
-            onClick={() => setLicenseChecked(true)}
-            className="mt-6 w-full border border-emerald-500 bg-emerald-600 hover:bg-emerald-500 px-4 py-3 text-sm font-black uppercase text-white"
-          >
-            Proceed to Staff Access
-          </button>
         </section>
       </main>
     );
@@ -890,7 +965,23 @@ export default function PosPrototypeApp() {
   if (!activeSession) {
     return (
       <PosStaffAccess 
-        onLoginSuccess={setActiveSession}
+        onLoginSuccess={(session) => {
+          const tenant = getCurrentTenantSession();
+          const posSession = getSavedPOSSession();
+          setActiveSession({
+            ...session,
+            vendorId: tenant.vendorId,
+            branchId: tenant.branchId,
+            terminalId: tenant.terminalId,
+            licenseId: tenant.licenseId,
+            planId: tenant.planId,
+            licenseMode: tenant.licenseMode,
+            storageMode: tenant.storageMode,
+            activationId: tenant.activationId,
+            dashboardType: posSession?.dashboardType || 'POS',
+            openedAt: posSession?.openedAt || new Date().toISOString()
+          });
+        }}
         onBackToBios={() => {
           window.history.pushState({}, '', '/');
           window.dispatchEvent(new PopStateEvent('popstate'));
@@ -910,16 +1001,19 @@ export default function PosPrototypeApp() {
       activeOperator={activeOperatorName}
       activeShiftStatus={activeShift ? 'ACTIVE' : 'CLOSED'}
       activeSession={activeSession}
-      onSignOut={async () => {
-        await signOutFirebasePlaceholder();
-        setGoogleAuthProfile(null);
-        setLicenseChecked(false);
-        setActiveSession(null);
-      }}
+      onSignOut={() => void handlePOSSignOut()}
       allowedPages={allowedForAccess}
       tenantName={businessProfile.legalName || businessProfile.tradingName || 'Tenant'}
       tenantLogo={receiptSetting.logoDataUrl}
     >
+      {activeSession?.licenseMode === 'demo' && (
+        <>
+          <div className="pos-demo-watermark" aria-hidden="true">DEMO MODE</div>
+          <div className="pos-demo-mode-chip">
+            DEMO MODE - Firebase writes disabled
+          </div>
+        </>
+      )}
       {/* Dynamic page switches */}
       {isPageRestricted ? (
         <div className="flex flex-col items-center justify-center min-h-[400px] border border-rose-800 bg-slate-950/60 p-8 font-mono space-y-4 max-w-xl mx-auto my-12">
