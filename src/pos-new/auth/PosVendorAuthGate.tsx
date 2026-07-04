@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import VendorBusinessSetupPage from "../pages/VendorBusinessSetupPage";
+import PosStaffAccessPage from "../pages/PosStaffAccessPage";
 import {
   PosVendorAuthContext,
   createInitialPosAuthContext,
@@ -101,18 +102,7 @@ export default function PosVendorAuthGate({ children }: PosVendorAuthGateProps) 
   }
 
   if (context.stage === "staffAccessRequired") {
-    return (
-      <div className="min-h-screen bg-[#f7f5ef] flex items-center justify-center p-6">
-        <div className="max-w-md w-full bg-white border border-gray-300 p-6">
-          <h1 className="text-xl font-black uppercase text-[#1e222b]">
-            Staff Access
-          </h1>
-          <p className="text-sm mt-2 text-slate-600">
-            Staff PIN login will be wired in the next build.
-          </p>
-        </div>
-      </div>
-    );
+    return <PosStaffAccessPage />;
   }
 
   if (context.stage === "licenseRequired") {
@@ -132,3 +122,4 @@ export default function PosVendorAuthGate({ children }: PosVendorAuthGateProps) 
 
   return <>{children}</>;
 }
+
