@@ -49,8 +49,8 @@ export default function DebtorOpeningBalancesPanel({ customers, selectedCustomer
     if (type === 'Approve') await approveDebtorOpeningBalance(row.openingBalanceId, staffName, notes || 'Approved locally.');
     if (type === 'Post') await postDebtorOpeningBalance(row.openingBalanceId);
     if (type === 'Reject') await rejectDebtorOpeningBalance(row.openingBalanceId, notes || 'Rejected locally.');
-    if (type === 'Reverse') await reverseDebtorOpeningBalance(row.openingBalanceId, notes || 'Reversed locally.', staffName);
-    onNotice(`Opening balance ${type.toLowerCase()} action completed locally.`);
+    if (type === 'Reverse') await reverseDebtorOpeningBalance(row.openingBalanceId, notes || 'Reversed.', staffName);
+    onNotice(`Opening balance ${type.toLowerCase()} action completed.`);
     load();
     onChanged?.();
   };

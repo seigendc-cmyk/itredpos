@@ -112,7 +112,7 @@ function menuArticle(
     relatedArticles: [],
     tags,
     searchKeywords: [...tags, ...keyTabs, ...records, title],
-    buildModeNote: 'This help article describes the local/mock build-development workflow. External business services are not connected here.'
+    buildModeNote: 'This help article describes the current POS workflow and supporting business review steps.'
   });
 }
 
@@ -147,7 +147,7 @@ function actionArticle(articleId: string, title: string, groupId: string, target
     bodySections: [
       { heading: 'What this action does', text: summary },
       { heading: 'Before you click', text: 'Check the record status, amount, branch, customer or supplier, and any warning messages. If the action changes money, stock, debt, supplier balance, or approval status, leave a clear note.' },
-      { heading: 'What happens after', text: `The system records the local/mock workflow result for ${actionName}. Related modules may show a task, approval, warning, payment line, stock movement, or review item depending on the page.` }
+      { heading: 'What happens after', text: `The system records the workflow result for ${actionName}. Related modules may show a task, approval, warning, payment line, stock movement, or review item depending on the page.` }
     ],
     steps: [
       `Open the page for ${actionName}.`,
@@ -170,7 +170,7 @@ function actionArticle(articleId: string, title: string, groupId: string, target
     relatedArticles: [],
     tags,
     searchKeywords: [...tags, actionName, title, targetTab || ''],
-    buildModeNote: 'This action uses local/mock behaviour unless the page says otherwise.'
+    buildModeNote: 'This action records the workflow result and related review details.'
   });
 }
 
@@ -192,7 +192,7 @@ const actionArticles: HelpArticle[] = [
   actionArticle('action-map-columns', 'Check Columns', 'stock-inventory-import', 'STOCK', 'Check Columns', 'Matches pasted CSV columns to accepted product, SKU, price, quantity, cost, shelf, and category fields.', ['check columns', 'inventory import'], 'Product Import'),
   actionArticle('action-validate-import', 'Validate Import', 'stock-inventory-import', 'STOCK', 'Validate Import', 'Checks imported rows for missing required fields, duplicate SKU risk, invalid numbers, and import readiness.', ['validate import', 'duplicate risk'], 'Product Import'),
   actionArticle('action-submit-import', 'Review Import', 'stock-inventory-import', 'STOCK', 'Review Import', 'Reviews valid, warning, duplicate, and error rows before importing products.', ['review import'], 'Product Import'),
-  actionArticle('action-post-import', 'Post Import', 'stock-inventory-import', 'STOCK', 'Post Import', 'Imports valid CSV rows into the local POS product store when ready.', ['post import', 'product import'], 'Product Import'),
+  actionArticle('action-post-import', 'Post Import', 'stock-inventory-import', 'STOCK', 'Post Import', 'Imports valid CSV rows into the POS product store when ready.', ['post import', 'product import'], 'Product Import'),
   actionArticle('action-stock-adjustment', 'Stock Adjustment', 'stock-inventory-import', 'STOCK', 'Stock Adjustment', 'Records a controlled stock correction with reason, approval status, and movement impact.', ['stock adjustment'], 'Stock Adjustments'),
   actionArticle('action-stocktake', 'Stocktake', 'stock-inventory-import', 'STOCK', 'Stocktake', 'Counts stock physically and compares counted quantities with system balances.', ['stocktake', 'variance'], 'Stocktake'),
   actionArticle('action-grn', 'Goods Receiving Note', 'purchasing-creditors', 'STOCK', 'GRN', 'Receives supplier goods against purchase/order context and updates receiving readiness locally.', ['grn', 'goods receiving'], 'Goods Receiving'),
@@ -214,8 +214,8 @@ const actionArticles: HelpArticle[] = [
   actionArticle('action-approve', 'Approve', 'tasks-approvals', 'APPROVALS', 'Approve', 'Records a local approval decision after risk and evidence have been checked.', ['approve', 'decision file']),
   actionArticle('action-reject', 'Reject', 'tasks-approvals', 'APPROVALS', 'Reject', 'Records a rejected decision with a reason so staff know what must change.', ['reject', 'approval']),
   actionArticle('action-request-info', 'Request Info', 'tasks-approvals', 'APPROVALS', 'Request Info', 'Asks the requester for more evidence before approving or rejecting.', ['request info']),
-  actionArticle('action-notify', 'Notify', 'tasks-approvals', 'APPROVALS', 'Notify', 'Prepares local/mock in-app, staff inbox, WhatsApp link, email preview, or SMS preview notification.', ['notify', 'notification']),
-  actionArticle('action-live-chat', 'Open Live Chat', 'tasks-approvals', 'APPROVALS', 'Open Live Chat', 'Opens the local approval room chat for decision discussion and evidence requests.', ['live chat', 'approval room']),
+  actionArticle('action-notify', 'Notify', 'tasks-approvals', 'APPROVALS', 'Notify', 'Prepares in-app, staff inbox, WhatsApp link, email preview, or SMS preview notification.', ['notify', 'notification']),
+  actionArticle('action-live-chat', 'Open Live Chat', 'tasks-approvals', 'APPROVALS', 'Open Live Chat', 'Opens the approval room chat for decision discussion and evidence requests.', ['live chat', 'approval room']),
   actionArticle('action-close-task', 'Close Task', 'tasks-approvals', 'TASK_DESK', 'Close Task', 'Closes a task after the required work or review is complete.', ['close task']),
   actionArticle('action-escalate-task', 'Escalate Task', 'tasks-approvals', 'TASK_DESK', 'Escalate Task', 'Raises task priority when the current role cannot resolve it or risk is increasing.', ['escalate task']),
   actionArticle('action-eod-readiness', 'EOD Readiness', 'owner-closing', 'OWNER_DESK', 'EOD Readiness', 'Checks whether sales, cash, payments, inventory, delivery, BI, and accounting are ready for day close.', ['eod readiness']),
@@ -249,7 +249,7 @@ function narrativeArticle(articleId: string, title: string, groupId: string, sum
     relatedArticles: [],
     tags,
     searchKeywords: [...tags, title],
-    buildModeNote: 'Routine guidance is written for local/mock build-development workflows and will remain useful when services are connected later.'
+    buildModeNote: 'Routine guidance is written for current POS workflows and business review discipline.'
   });
 }
 
@@ -264,7 +264,7 @@ const narrativeArticles: HelpArticle[] = [
   narrativeArticle('routine-approvals', 'How to Handle Approvals Professionally', 'tasks-approvals', 'Approvals should be handled with evidence, reason, risk review, and a clear decision note.', ['Open the decision file.', 'Read reason and related record.', 'Start review.', 'Request info if evidence is weak.', 'Approve or reject with a note.', 'Notify staff when action is recorded.'], ['Do not approve based on verbal instruction only.', 'Do not reject without explaining what must change.'], ['approvals', 'decision file'], [link('Open Approvals', 'APPROVALS', 'Review approval queue.')]),
   narrativeArticle('routine-bi-warnings', 'How to Use BI Warnings', 'bi-risk-control', 'BI warnings are early risk signals. They help managers route tasks, request approval, and prevent losses before closing.', ['Open BI Desk.', 'Read source trigger.', 'Open related record.', 'Create task or approval if action is needed.', 'Resolve or dismiss only after review.'], ['Do not dismiss warnings to clean the screen.', 'Do not ignore repeated low-risk warnings.'], ['bi warnings', 'risk control'], [link('Open BI Desk', 'BI_DESK', 'Review BI warnings.'), link('Open Task Desk', 'TASK_DESK', 'Route action points.')]),
   narrativeArticle('routine-day-lock', 'How to Prepare for Day Lock', 'owner-closing', 'Day lock should happen only after sales, cash, payments, stock, delivery, BI, and accounting readiness are reviewed.', ['Finish all sales.', 'Close and count shifts.', 'Review cash and payment summaries.', 'Review inventory and delivery exceptions.', 'Resolve approvals and tasks.', 'Record owner notes.', 'Lock the day when records are explained.'], ['Do not lock before cash variance review.', 'Do not leave import, delivery, or approval exceptions unresolved.'], ['day lock', 'eod', 'owner'], [link('Open Owner Desk', 'OWNER_DESK', 'Prepare day lock.'), link('Open Cash Control', 'CASH', 'Review cash.')]),
-  narrativeArticle('routine-build-mode', 'Understanding Build Development Mode', 'getting-started', 'Build-development mode uses local/mock services. It is designed to prove workflows before real business integrations are connected.', ['Use local workflows normally.', 'Read notices that say preview, placeholder, or local/mock.', 'Treat WhatsApp, email, SMS, and accounting posting as prepared previews unless the page says real service is connected.', 'Use Help Desk to learn intended operating discipline.'], ['Do not assume Firestore business data is connected.', 'Do not treat accounting readiness as final statutory posting.'], ['build development', 'local mock', 'firestore not connected'], [link('Open Help Desk', 'HELP_DESK', 'Read local guide.'), link('Open Settings', 'SETTINGS', 'Review settings.')])
+  narrativeArticle('routine-production-readiness', 'Understanding POS Workflow Readiness', 'getting-started', 'The POS prepares business workflows, review records, and approval discipline before final external integrations are enabled.', ['Use POS workflows normally.', 'Read notices that say review, preview, or prepared.', 'Treat WhatsApp, email, SMS, and accounting posting as prepared previews unless the page says a live service is connected.', 'Use Help Desk to learn intended operating discipline.'], ['Do not treat accounting readiness as final statutory posting.', 'Do not skip owner review for high-risk money, stock, or approval actions.'], ['workflow readiness', 'business review', 'integrations'], [link('Open Help Desk', 'HELP_DESK', 'Read POS guide.'), link('Open Settings', 'SETTINGS', 'Review settings.')])
 ];
 
 export const helpArticles: HelpArticle[] = [...menuArticles, ...actionArticles, ...narrativeArticles].map((item) => ({

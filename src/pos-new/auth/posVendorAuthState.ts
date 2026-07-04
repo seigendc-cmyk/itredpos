@@ -16,8 +16,27 @@ export type PosVendorAuthContext = {
   warehouseId?: string;
   staffId?: string;
   staffRole?: string;
-  licenseStatus?: 'Demo' | 'Active' | 'Expired' | 'Suspended';
+  planCode?: string;
+  licenseMode?: 'trial' | 'active' | 'demo' | string;
+  licenseStatus?: 'Demo' | 'Trial' | 'Active' | 'Expired' | 'Suspended' | 'Rejected' | 'Pending';
+  activationStatus?: string;
+  accountStatus?: string;
+  verificationStatus?: string;
+  trialStartedAt?: string;
+  trialExpiresAt?: string;
+  activatedAt?: string;
+  suspendedAt?: string;
+  rejectedAt?: string;
+  featureFlags?: Record<string, boolean>;
+  maxBranches?: number;
+  maxWarehouses?: number;
+  maxTerminals?: number;
+  maxStaff?: number;
+  maxProducts?: number;
   demoExpiresAt?: string;
+  syncStatus?: 'Synced' | 'PendingSync';
+  consoleProvisionedAt?: string;
+  consoleProvisioningError?: string;
   message?: string;
 };
 
@@ -51,7 +70,17 @@ export function resolveNextAuthStage(context: PosVendorAuthContext): PosAuthStag
   if (!context.googleUid || !context.googleEmail) return 'googleSignInRequired';
   if (!context.vendorId || !context.vendorName) return 'businessProfileRequired';
 
-  if (context.licenseStatus === 'Expired' || context.licenseStatus === 'Suspended') {
+  const statusValues = [
+    context.licenseStatus,
+    context.activationStatus,
+    context.accountStatus,
+    context.verificationStatus
+  ].map((value) => String(value || '').toLowerCase());
+
+  if (
+    context.licenseStatus === 'Expired' ||
+    statusValues.some((value) => value === 'suspended' || value === 'rejected')
+  ) {
     return 'licenseRequired';
   }
 

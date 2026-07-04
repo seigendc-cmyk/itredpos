@@ -90,7 +90,7 @@ async function defaultAccounts(): Promise<FinancialControlAccount[]> {
         availableBalance: seed.current - seed.restricted,
         active: account.status !== 'Inactive',
         protected: seed.protected,
-        notes: 'Build Development local COA-driven financial control account.',
+        notes: 'COA-driven financial control account.',
         createdAt: now(),
         updatedAt: now()
       };
@@ -121,7 +121,7 @@ function makeAccount(accountId: string, coaAccountId: string, code: string, name
     availableBalance: current - restricted,
     active: true,
     protected: protectedFlag,
-    notes: 'Build Development local financial control account.',
+    notes: 'Financial control account.',
     createdAt: now(),
     updatedAt: now()
   };

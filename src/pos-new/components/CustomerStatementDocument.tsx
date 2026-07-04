@@ -1,4 +1,5 @@
 import type { CustomerStatementPayload } from '../services/customerCreditService';
+import { getVendorDocumentIdentity } from '../vendor/vendorBootstrapModel';
 
 interface CustomerStatementDocumentProps {
   statement: CustomerStatementPayload | null;
@@ -11,13 +12,15 @@ function money(value?: number): string {
 export default function CustomerStatementDocument({ statement }: CustomerStatementDocumentProps) {
   if (!statement) return null;
   const customer = statement.customer;
+  const identity = getVendorDocumentIdentity();
   return (
     <section id="customer-statement-print-area" className="customer-statement-document">
       <header className="customer-statement-document__header">
         <div>
           <h1>Customer Statement</h1>
-          <p>Demo Vendor</p>
-          <p>Local/mock statement. No external posting or payment gateway.</p>
+          <p>{identity.displayName}</p>
+          <p>{[identity.addressLine, identity.cityLine].filter(Boolean).join(', ')}</p>
+          {[identity.phoneLine, identity.whatsappLine, identity.emailLine].filter(Boolean).map((line) => <p key={line}>{line}</p>)}
         </div>
         <div>
           <strong>Generated</strong>

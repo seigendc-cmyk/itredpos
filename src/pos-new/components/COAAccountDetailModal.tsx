@@ -41,8 +41,8 @@ export default function COAAccountDetailModal({
             <Field label="Linked Domain" value={account.linkedDomain} />
             <Field label="Status" value={account.status} />
             <Field label="Created By" value={account.createdBy || 'Owner Desk'} />
-            <Field label="Created At" value={account.createdAt || 'Local placeholder seed'} />
-            <Field label="Updated At" value={account.updatedAt || 'No local update'} />
+            <Field label="Created At" value={account.createdAt || 'Pending timestamp'} />
+            <Field label="Updated At" value={account.updatedAt || 'No update recorded'} />
           </div>
           <section className="coa-account-modal-section">
             <span>Notes</span>

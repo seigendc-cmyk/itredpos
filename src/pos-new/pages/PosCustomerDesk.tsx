@@ -338,7 +338,7 @@ export default function PosCustomerDesk({ session, onNavigate }: PosCustomerDesk
 
   const handleDuplicate = async (customer: CustomerRecord) => {
     if (!requirePermission('customers.requests.approve')) return;
-    await markCustomerDuplicate(customer.customerId, 'Duplicate Review Placeholder', session.staffName, 'Duplicate warning placeholder confirmed.');
+    await markCustomerDuplicate(customer.customerId, 'Duplicate review', session.staffName, 'Duplicate warning confirmed.');
     await refreshAfterAction('Customer marked duplicate.', customer.customerId);
   };
 
@@ -530,7 +530,7 @@ export default function PosCustomerDesk({ session, onNavigate }: PosCustomerDesk
     }
     if (action === 'Create Follow-up Task') {
       await createCustomerCreditBIAdvice('CUSTOMER_CREDIT_FOLLOW_UP_TASK', debt.customerName, `Follow up ${debt.customerName} for ${money(debt.outstandingAmount)} on ${debt.receiptNumber}.`, 'Medium');
-      setNotice('Follow-up task placeholder created in BI Advice Flow.');
+      setNotice('Follow-up task prepared in BI Advice Flow.');
       return;
     }
     if (action === 'Mark Disputed') {
@@ -986,7 +986,7 @@ function CustomerTable({ customers, actionItems, onProfile }: { customers: Custo
                 <td className="pos-customer-row-actions"><RowActionMenu ariaLabel={`Actions for ${customer.customerName}`} open={openMenuId === customer.customerId} items={actionItems(customer)} onOpenChange={(open) => setOpenMenuId(open ? customer.customerId : '')} /></td>
               </tr>
             ))}
-            {customers.length === 0 && <EmptyTableRow colSpan={10} label="No customers match the current filters." />}
+            {customers.length === 0 && <EmptyTableRow colSpan={10} label="No customers captured yet." />}
           </tbody>
         </table>
       </div>

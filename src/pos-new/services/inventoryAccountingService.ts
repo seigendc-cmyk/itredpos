@@ -20,34 +20,21 @@ import {
   mockInventoryAccountingReadinessRecords
 } from '../mock/mockPosData';
 import { getInventoryMovementById } from './inventoryMovementService';
+import { ENABLE_MOCK_SEED_DATA, getActiveVendorId, readVendorScopedList, writeVendorScopedList } from '../utils/vendorDataMode';
 
 const RECORDS_KEY = 'sci_pos_inventory_accounting_readiness_records';
 const LINES_KEY = 'sci_pos_inventory_accounting_readiness_lines';
 const EVENTS_KEY = 'sci_pos_inventory_accounting_readiness_events';
 
-let memoryRecords: InventoryAccountingReadinessRecord[] = [...mockInventoryAccountingReadinessRecords];
-let memoryLines: InventoryAccountingReadinessLine[] = [...mockInventoryAccountingReadinessLines];
+let memoryRecords: InventoryAccountingReadinessRecord[] = ENABLE_MOCK_SEED_DATA ? [...mockInventoryAccountingReadinessRecords] : [];
+let memoryLines: InventoryAccountingReadinessLine[] = ENABLE_MOCK_SEED_DATA ? [...mockInventoryAccountingReadinessLines] : [];
 
 function readList<T>(key: string, fallback: T[]): T[] {
-  try {
-    const cached = localStorage.getItem(key);
-    if (!cached) {
-      localStorage.setItem(key, JSON.stringify(fallback));
-      return fallback;
-    }
-    return JSON.parse(cached) as T[];
-  } catch {
-    return fallback;
-  }
+  return readVendorScopedList<T>(key, fallback);
 }
 
 function writeList<T>(key: string, rows: T[]): T[] {
-  try {
-    localStorage.setItem(key, JSON.stringify(rows));
-  } catch {
-    // localStorage may be unavailable in test contexts.
-  }
-  return rows;
+  return writeVendorScopedList(key, rows);
 }
 
 function records(): InventoryAccountingReadinessRecord[] {
@@ -242,21 +229,21 @@ async function generateBySource(sourceType: InventoryAccountingSourceType, sourc
   const record: InventoryAccountingReadinessRecord = {
     readinessId,
     readinessNumber: makeNumber(),
-    vendorId: 'SCI-LOG-ZW',
+    vendorId: getActiveVendorId(),
     sourceType,
     sourceId,
     sourceNumber: sourceId,
     movementType,
     impactType,
-    branchId: 'BR-HARARE',
-    branchName: 'Harare Main',
-    warehouseId: 'WH-HARARE-01',
-    warehouseName: 'Harare Main Warehouse',
+    branchId: 'main-branch',
+    branchName: 'Main Branch',
+    warehouseId: 'main-warehouse',
+    warehouseName: 'Main Warehouse',
     status: 'Pending Review',
     riskLevel: impactType === 'Transfer Neutral' ? 'Low' : 'Medium',
     totalValueImpact: impactType === 'Transfer Neutral' ? 0 : 125,
     currency: 'USD',
-    notes: `${sourceType} accounting review placeholder prepared only when source is posted.`,
+    notes: `${sourceType} accounting review prepared only when source is posted.`,
     createdAt: now,
     updatedAt: now
   };

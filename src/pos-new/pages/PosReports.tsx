@@ -300,7 +300,7 @@ export default function PosReports({ products, transactions, cashLogs, session, 
                     {Object.keys(filteredRows[0] || row).map((key) => <td key={key}>{row[key]}</td>)}
                   </tr>
                 ))}
-                {filteredRows.length === 0 && <tr><td>No report rows match the current filters.</td></tr>}
+                {filteredRows.length === 0 && <tr><td>No report data yet.</td></tr>}
               </tbody>
             </table>
           </div>

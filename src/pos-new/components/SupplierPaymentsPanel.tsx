@@ -38,7 +38,7 @@ export default function SupplierPaymentsPanel() {
       nonReserveAmount: source === 'COGSReserve' ? 0 : numericAmount,
       approvedBy: 'Manager',
       paidBy: 'Accountant',
-      notes: `${allocationMethod} local/mock supplier payment.`
+      notes: `${allocationMethod} supplier payment review.`
     });
     await markSupplierPaymentPaid(payment.paymentId, 'Accountant');
     setNotice(`${payment.paymentNumber} created, paid and allocated locally.`);

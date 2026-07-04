@@ -46,14 +46,14 @@ type WindowMode = 'normal' | 'minimized' | 'maximized';
 const tabs: ImportTab[] = ['Import Setup', 'Column Mapping', 'Sector Mapping', 'Validation Issues', 'Import Preview', 'Duplicate Review', 'Opening Balance Drafts', 'Activity'];
 const targetFields = ['productName', 'sku', 'barcode', 'alu', 'vendorSku', 'productNumericNumber', 'description', 'brand', 'manufacturer', 'supplierName', 'supplierItemCode', 'industrialSector', 'productCategory', 'productSubCategory', 'unitOfMeasure', 'condition', 'colour', 'costPrice', 'sellingPrice', 'taxMode', 'vatRate', 'qty', 'shelfLocation', 'reorderLevel', 'reorderQty', 'tags', 'make', 'model', 'yearFrom', 'yearTo', 'side', 'partNumber', 'oemNumber', 'engineCode', 'chassisCode', 'size', 'material', 'grade', 'productType', 'wattage', 'voltage', 'batteryCapacity', 'panelType', 'inverterType'];
 const sampleCsv = `productName,sku,barcode,alu,brand,make,model,side,category,costPrice,sellingPrice,qty,shelfLocation,supplierName
-Toyota Hilux GD6 Mirror Right Chrome,MIR-GD6-RC,,MIR-GD6-RC,Toyota,Toyota,Hilux GD6,Right,Body Parts,34,68,2,A1-S4,Motor Spares Wholesalers
-Universal Radiator Cap 1.1 Bar,RAD-CAP-11,,,Universal,,,,Cooling,3.5,8,10,A2-S2,Motor Spares Wholesalers`;
+Sample Product A,GEN-001,,GEN-001,Vendor Brand,,,,General,10,15,0,,Vendor Supplier
+Sample Product B,GEN-002,,GEN-002,Vendor Brand,,,,General,20,30,0,,Vendor Supplier`;
 
 export default function ProductImportForm(props: ProductImportFormProps) {
   const [activeTab, setActiveTab] = useState<ImportTab>('Import Setup');
   const [mode, setMode] = useState<WindowMode>('normal');
   const [csvText, setCsvText] = useState(sampleCsv);
-  const [sector, setSector] = useState<IndustrialSectorCode>(props.batch?.industrialSectorCode || 'MOTOR_SPARES');
+  const [sector, setSector] = useState<IndustrialSectorCode>(props.batch?.industrialSectorCode || 'GENERAL_RETAIL');
   const [source, setSource] = useState<ProductImportSource>(props.batch?.source || 'Paste Table');
   const [fileName, setFileName] = useState(props.batch?.fileName || 'product-import.csv');
   const [notes, setNotes] = useState(props.batch?.notes || '');
@@ -95,13 +95,13 @@ export default function ProductImportForm(props: ProductImportFormProps) {
               {activeTab === 'Import Setup' && (
                 <div className="space-y-4">
                   <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
-                    <Field label="Batch Number" value={props.batch?.batchNumber || 'Auto-generated placeholder'} readOnly />
-                    <Select label="Source" value={source} options={['Excel Upload Placeholder', 'CSV Upload', 'Paste Table', 'Manual Batch', 'Supplier File', 'Offline Catalogue File']} onChange={(value) => setSource(value as ProductImportSource)} />
+                    <Field label="Batch Number" value={props.batch?.batchNumber || 'Auto-generated'} readOnly />
+                    <Select label="Source" value={source} options={['Excel Upload', 'CSV Upload', 'Paste Table', 'Manual Batch', 'Supplier File', 'Offline Catalogue File']} onChange={(value) => setSource(value as ProductImportSource)} />
                     <Field label="File Name" value={fileName} onChange={setFileName} />
                     <Select label="Industrial Sector" value={sector} options={props.templates.map((template) => template.industrialSectorCode)} onChange={(value) => setSector(value as IndustrialSectorCode)} />
-                    <Field label="Branch" value={props.batch?.branchId || 'BR-HARARE'} readOnly />
-                    <Field label="Warehouse" value={props.batch?.warehouseId || 'WH-HARARE-01'} readOnly />
-                    <Field label="Default Supplier" value="Motor Spares Wholesalers" readOnly />
+                    <Field label="Branch" value={props.batch?.branchId || 'main-branch'} readOnly />
+                    <Field label="Warehouse" value={props.batch?.warehouseId || 'main-warehouse'} readOnly />
+                    <Field label="Default Supplier" value="Vendor Supplier" readOnly />
                     <Field label="Default Category" value={selectedTemplate?.defaultCategoryOptions[0] || 'Imported'} readOnly />
                     <Field label="Default Subcategory" value={selectedTemplate?.defaultSubcategoryOptions[0] || 'Standard'} readOnly />
                     <Field label="Default Unit Of Measure" value="pcs" readOnly />
@@ -116,7 +116,7 @@ export default function ProductImportForm(props: ProductImportFormProps) {
                     <button className="sci-pos-button sci-pos-button--secondary" disabled={!currentBatchId} onClick={() => props.onUploadPlaceholder(currentBatchId, fileName)}><Upload size={14} />Upload File</button>
                     <button className="sci-pos-button sci-pos-button--secondary" onClick={() => setCsvText('')}>Clear</button>
                   </div>
-                  <p className="text-[11px] text-slate-600 font-bold">Excel parser will be connected later. CSV paste/import is available for build-development.</p>
+                  <p className="text-[11px] text-slate-600 font-bold">CSV paste/import is available. Uploaded spreadsheets can be mapped before importing.</p>
                 </div>
               )}
               {activeTab === 'Column Mapping' && (
@@ -159,12 +159,12 @@ function SectorTemplateView({ template }: { template: IndustrialSectorMappingTem
 }
 
 function ImportPreview({ rows, preview, onSkipRow }: { rows: ProductImportRow[]; preview: ProductImportPreviewSummary | null; onSkipRow: (row: ProductImportRow) => void }) {
-  return <div className="space-y-3">{preview && <div className="grid grid-cols-2 md:grid-cols-7 gap-2">{[['Total Rows', preview.totalRows], ['Valid Rows', preview.validRows], ['Warning Rows', preview.warningRows], ['Error Rows', preview.errorRows], ['Duplicate Rows', preview.duplicateRows], ['Products To Create', preview.productsToCreate], ['Opening Balance Drafts', preview.openingBalanceDraftsToCreate]].map(([label, value]) => <div key={label} className="border border-[#b1b5c2] p-3"><span className="text-[9px] uppercase text-slate-500 font-black">{label}</span><strong className="block text-sm">{value}</strong></div>)}</div>}<SimpleTable headers={['Row No.', 'SKU', 'Barcode', 'ALU', 'Product Name', 'Brand', 'Sector', 'Category', 'Cost', 'Price', 'Qty', 'Branch', 'Warehouse', 'Shelf', 'Status', 'Action']}>{rows.map((row) => <tr key={row.rowId}><Td>{row.rowNumber}</Td><Td>{String(row.mappedProduct.sku || '-')}</Td><Td>{String(row.mappedProduct.barcode || '-')}</Td><Td>{String(row.mappedProduct.alu || '-')}</Td><Td>{String(row.mappedProduct.productName || '-')}</Td><Td>{String(row.mappedProduct.brand || '-')}</Td><Td>{String(row.mappedProduct.industrialSector || '-')}</Td><Td>{String(row.mappedProduct.productCategory || row.mappedProduct.category || '-')}</Td><Td>{String(row.mappedProduct.costPrice || '-')}</Td><Td>{String(row.mappedProduct.sellingPrice || '-')}</Td><Td>{String(row.mappedProduct.qty || '-')}</Td><Td>BR-HARARE</Td><Td>WH-HARARE-01</Td><Td>{String(row.mappedProduct.shelfLocation || '-')}</Td><Td><Badge value={row.status} /></Td><Td><button className="sci-pos-button sci-pos-button--secondary" onClick={() => onSkipRow(row)}>Skip Row</button></Td></tr>)}</SimpleTable></div>;
+  return <div className="space-y-3">{preview && <div className="grid grid-cols-2 md:grid-cols-7 gap-2">{[['Total Rows', preview.totalRows], ['Valid Rows', preview.validRows], ['Warning Rows', preview.warningRows], ['Error Rows', preview.errorRows], ['Duplicate Rows', preview.duplicateRows], ['Products To Create', preview.productsToCreate], ['Opening Balance Drafts', preview.openingBalanceDraftsToCreate]].map(([label, value]) => <div key={label} className="border border-[#b1b5c2] p-3"><span className="text-[9px] uppercase text-slate-500 font-black">{label}</span><strong className="block text-sm">{value}</strong></div>)}</div>}<SimpleTable headers={['Row No.', 'SKU', 'Barcode', 'ALU', 'Product Name', 'Brand', 'Sector', 'Category', 'Cost', 'Price', 'Qty', 'Branch', 'Warehouse', 'Shelf', 'Status', 'Action']}>{rows.map((row) => <tr key={row.rowId}><Td>{row.rowNumber}</Td><Td>{String(row.mappedProduct.sku || '-')}</Td><Td>{String(row.mappedProduct.barcode || '-')}</Td><Td>{String(row.mappedProduct.alu || '-')}</Td><Td>{String(row.mappedProduct.productName || '-')}</Td><Td>{String(row.mappedProduct.brand || '-')}</Td><Td>{String(row.mappedProduct.industrialSector || '-')}</Td><Td>{String(row.mappedProduct.productCategory || row.mappedProduct.category || '-')}</Td><Td>{String(row.mappedProduct.costPrice || '-')}</Td><Td>{String(row.mappedProduct.sellingPrice || '-')}</Td><Td>{String(row.mappedProduct.qty || '-')}</Td><Td>{String(row.mappedProduct.branchId || 'main-branch')}</Td><Td>{String(row.mappedProduct.warehouseId || 'main-warehouse')}</Td><Td>{String(row.mappedProduct.shelfLocation || '-')}</Td><Td><Badge value={row.status} /></Td><Td><button className="sci-pos-button sci-pos-button--secondary" onClick={() => onSkipRow(row)}>Skip Row</button></Td></tr>)}</SimpleTable></div>;
 }
 
 function OpeningBalanceDrafts({ rows, drafts }: { rows: ProductImportRow[]; drafts: OpeningBalanceDraftFromImport[] }) {
   const rowsWithQty = rows.filter((row) => Number(row.mappedProduct.qty || 0) > 0);
-  return <SimpleTable headers={['Row No.', 'SKU', 'Product', 'Branch', 'Warehouse', 'Shelf', 'Imported Qty', 'Unit Cost', 'Value Estimate', 'Status', 'Action']}>{rowsWithQty.map((row) => <tr key={row.rowId}><Td>{row.rowNumber}</Td><Td>{String(row.mappedProduct.sku || '-')}</Td><Td>{String(row.mappedProduct.productName || '-')}</Td><Td>BR-HARARE</Td><Td>WH-HARARE-01</Td><Td>{String(row.mappedProduct.shelfLocation || '-')}</Td><Td>{String(row.mappedProduct.qty || '0')}</Td><Td>{String(row.mappedProduct.costPrice || '0')}</Td><Td>{(Number(row.mappedProduct.qty || 0) * Number(row.mappedProduct.costPrice || 0)).toFixed(2)}</Td><Td>{drafts.some((draft) => draft.rowId === row.rowId) ? 'Draft Created - Not Posted' : 'Preview Only - Not Posted'}</Td><Td><button className="sci-pos-button sci-pos-button--secondary" onClick={() => window.alert(`Stock adjustment preview opened for row ${row.rowNumber}.`)}>Open Stock Adjustment</button></Td></tr>)}</SimpleTable>;
+  return <SimpleTable headers={['Row No.', 'SKU', 'Product', 'Branch', 'Warehouse', 'Shelf', 'Imported Qty', 'Unit Cost', 'Value Estimate', 'Status', 'Action']}>{rowsWithQty.map((row) => <tr key={row.rowId}><Td>{row.rowNumber}</Td><Td>{String(row.mappedProduct.sku || '-')}</Td><Td>{String(row.mappedProduct.productName || '-')}</Td><Td>{String(row.mappedProduct.branchId || 'main-branch')}</Td><Td>{String(row.mappedProduct.warehouseId || 'main-warehouse')}</Td><Td>{String(row.mappedProduct.shelfLocation || '-')}</Td><Td>{String(row.mappedProduct.qty || '0')}</Td><Td>{String(row.mappedProduct.costPrice || '0')}</Td><Td>{(Number(row.mappedProduct.qty || 0) * Number(row.mappedProduct.costPrice || 0)).toFixed(2)}</Td><Td>{drafts.some((draft) => draft.rowId === row.rowId) ? 'Draft Created - Not Posted' : 'Preview Only - Not Posted'}</Td><Td><button className="sci-pos-button sci-pos-button--secondary" onClick={() => window.alert(`Stock adjustment preview opened for row ${row.rowNumber}.`)}>Open Stock Adjustment</button></Td></tr>)}</SimpleTable>;
 }
 
 function SimpleTable({ headers, children }: { headers: string[]; children: ReactNode }) {

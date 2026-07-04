@@ -83,7 +83,7 @@ export default function FinancialControlReportsPanel({ session }: { session?: Po
   }, [activeReportId, periodFrom, periodTo]);
 
   async function buildReport(id: ReportId): Promise<GeneratedReport> {
-    const notes = ['Local/mock report only. No Firestore, banking, supplier API, PDF package, or final accounting posting is used.'];
+    const notes = ['Review report only. No banking, supplier API, PDF package, or final accounting posting is used.'];
     if (id === 'supplierBalances') {
       const rows = getSupplierCreditProfiles({ search }).map((profile) => ({
         supplier: profile.supplierName,
@@ -385,7 +385,7 @@ export default function FinancialControlReportsPanel({ session }: { session?: Po
           notes={generated.notes}
         />
       ) : (
-        <div className="creditors-notice">Choose Generate Report to build the selected local/mock financial control output.</div>
+        <div className="creditors-notice">Choose Generate Report to build the selected financial control output.</div>
       )}
     </section>
   );

@@ -33,7 +33,7 @@ export default function SyncConflictForm({ conflict, decisions, activity, onClos
 
   const submitResolution = (resolution: SyncConflictResolution) => {
     if (noteRequired.has(resolution) && reason.trim().length < 3) return;
-    onResolve(resolution, reason.trim() || `${resolution} placeholder decision recorded.`);
+    onResolve(resolution, reason.trim() || `${resolution} decision recorded.`);
   };
 
   return (
@@ -69,7 +69,7 @@ export default function SyncConflictForm({ conflict, decisions, activity, onClos
               {activeTab === 'Remote Version' && <pre className="bg-slate-950 text-amber-100 p-4 text-[11px] overflow-auto max-h-96">{JSON.stringify(sanitizePayloadForDisplay(conflict.remotePayload || {}), null, 2)}</pre>}
               {activeTab === 'Resolution' && (
                 <div className="space-y-3">
-                  <textarea className="w-full border border-[#b1b5c2] p-3 text-xs min-h-24" value={reason} onChange={(event) => setReason(event.target.value)} placeholder="Decision notes. Required for Use Local, Use Remote, Merge, and Cancel Local." />
+                  <textarea className="w-full border border-[#b1b5c2] p-3 text-xs min-h-24" value={reason} onChange={(event) => setReason(event.target.value)} placeholder="Decision notes. Required for each resolution option." />
                   <div className="flex flex-wrap gap-2">
                     {resolutionActions.map((resolution) => <button key={resolution} className={`sci-pos-button ${noteRequired.has(resolution) && reason.trim().length < 3 ? 'sci-pos-button--secondary opacity-60' : resolution === 'Cancel Local' ? 'sci-pos-button--danger' : 'sci-pos-button--primary'}`} onClick={() => submitResolution(resolution)}>{resolution}</button>)}
                   </div>

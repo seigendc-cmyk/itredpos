@@ -93,8 +93,8 @@ export default function StocktakeForm({
   onViewLedger
 }: StocktakeFormProps) {
   const [windowState, setWindowState] = useState<'normal' | 'minimized' | 'maximized'>('normal');
-  const [branchId, setBranchId] = useState(session?.branchId || branchOptions[0] || 'Harare Main');
-  const [warehouseId, setWarehouseId] = useState(session?.warehouseId || warehouseOptions[0] || 'Harare Spares Depot');
+  const [branchId, setBranchId] = useState(session?.branchId || branchOptions[0] || 'Main Branch');
+  const [warehouseId, setWarehouseId] = useState(session?.warehouseId || warehouseOptions[0] || 'Main Warehouse');
   const [scope, setScope] = useState<StocktakeScope>(session?.scope || 'Selected Products');
   const [countMode, setCountMode] = useState<StocktakeCountMode>(session?.countMode || 'Visible System Qty');
   const [notes, setNotes] = useState(session?.notes || 'Physical count session. No stock change until posting.');
@@ -112,8 +112,8 @@ export default function StocktakeForm({
   const countInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
 
   useEffect(() => {
-    setBranchId(session?.branchId || branchOptions[0] || 'Harare Main');
-    setWarehouseId(session?.warehouseId || warehouseOptions[0] || 'Harare Spares Depot');
+    setBranchId(session?.branchId || branchOptions[0] || 'Main Branch');
+    setWarehouseId(session?.warehouseId || warehouseOptions[0] || 'Main Warehouse');
     setScope(session?.scope || 'Selected Products');
     setCountMode(session?.countMode || 'Visible System Qty');
     setNotes(session?.notes || 'Physical count session. No stock change until posting.');

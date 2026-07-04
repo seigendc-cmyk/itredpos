@@ -1,14 +1,18 @@
 import { Sale, HeldTransaction, CartItem } from '../types/posTypes';
 import { mockHeldTransactions, mockRecentSales } from '../mock/mockPosData';
 import { publishCommerceEvent, writeAuditLog, CommerceOperationContext } from '../../commerce-integration';
+import { readVendorScopedList, writeVendorScopedList } from '../utils/vendorDataMode';
+
+const HELD_SALES_KEY = 'itred_pos_held_transactions_v1';
+const RECENT_SALES_KEY = 'itred_pos_transactions';
 
 export const saleService = {
   getHeldTransactions: async (): Promise<HeldTransaction[]> => {
-    return mockHeldTransactions;
+    return readVendorScopedList<HeldTransaction>(HELD_SALES_KEY, mockHeldTransactions);
   },
 
   getRecentSales: async (): Promise<Sale[]> => {
-    return mockRecentSales;
+    return readVendorScopedList<Sale>(RECENT_SALES_KEY, mockRecentSales);
   },
 
   holdTransaction: async (items: CartItem[], notes?: string): Promise<HeldTransaction> => {
@@ -26,7 +30,7 @@ export const saleService = {
       items,
       total
     };
-    mockHeldTransactions.push(nextHeld);
+    writeVendorScopedList(HELD_SALES_KEY, [nextHeld, ...readVendorScopedList<HeldTransaction>(HELD_SALES_KEY, mockHeldTransactions)]);
     return nextHeld;
   },
 
@@ -40,7 +44,7 @@ export const saleService = {
       invoiceNo: `INV-${Math.floor(100000 + Math.random() * 900000)}`,
       date: new Date().toISOString()
     };
-    mockRecentSales.push(freshSale);
+    writeVendorScopedList(RECENT_SALES_KEY, [freshSale, ...readVendorScopedList<Sale>(RECENT_SALES_KEY, mockRecentSales)]);
 
     // Eventing and Auditing will only occur if context is provided.
     if (context) {

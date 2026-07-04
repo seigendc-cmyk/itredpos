@@ -21,6 +21,8 @@ import { getSupplierBills, getSupplierCreditProfile, getSupplierCreditProfiles }
 import { getCustomerDebtRecords } from './customerCreditService';
 import { createPurchaseOrder, getPurchaseOrders } from './purchaseOrderService';
 import { getGoodsReceivingLines, getGoodsReceivingNotes } from './goodsReceivingService';
+import { getActiveVendorId, readVendorScopedList, writeVendorScopedList } from '../utils/vendorDataMode';
+import { loadLocalProducts } from '../utils/localProductStore';
 
 const REQUEST_KEY = 'itred_pos_purchase_discipline_requests_v1';
 const ASSESSMENT_KEY = 'itred_pos_purchase_risk_assessments_v1';
@@ -119,29 +121,11 @@ function addDays(date: string, days: number): string {
 }
 
 function readList<T>(key: string, fallback: T[] = []): T[] {
-  if (typeof localStorage === 'undefined') return fallback;
-  try {
-    const raw = localStorage.getItem(key);
-    if (!raw) {
-      localStorage.setItem(key, JSON.stringify(fallback));
-      return fallback;
-    }
-    const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed as T[] : fallback;
-  } catch {
-    return fallback;
-  }
+  return readVendorScopedList<T>(key, fallback);
 }
 
 function saveList<T>(key: string, value: T[]): T[] {
-  if (typeof localStorage !== 'undefined') {
-    try {
-      localStorage.setItem(key, JSON.stringify(value));
-    } catch {
-      // Local/mock persistence is best-effort.
-    }
-  }
-  return value;
+  return writeVendorScopedList(key, value);
 }
 
 function nextNumber(prefix: string, rows: Array<Record<string, string>>, key: string): string {
@@ -200,7 +184,7 @@ function seedRequests(): PurchaseDisciplineRequest[] {
   const fast = mockProducts.find((product) => product.stock <= (product.reorderLevel ?? product.minStock)) || mockProducts[0];
   const dead = mockProducts.find((product) => product.stockStatus === 'Dead Stock' || product.healthStatus === 'Dead Stock') || mockProducts[1] || fast;
   return [
-    buildSeedRequest('PDR-0001', fast, 8, 'SUP-LD', 'Local Distributors', 'Fast-moving product at reorder level. Build Development sample.'),
+    buildSeedRequest('PDR-0001', fast, 8, 'SUP-LD', 'Local Distributors', 'Fast-moving product at reorder level.'),
     buildSeedRequest('PDR-0002', dead, 5, 'SUP-MOTOR', 'Motor Parts Wholesale', 'Dead/slow stock reorder blocked sample.', 'Blocked')
   ];
 }
@@ -218,9 +202,9 @@ function buildSeedRequest(number: string, product: Product, qty: number, supplie
     productId: product.id,
     productName: productName(product),
     sku: productSku(product),
-    branchId: product.branchId || 'BR-HARARE',
-    branchName: product.branch || 'Harare Main',
-    warehouseId: product.warehouseId || product.warehouse || 'WH-HARARE-01',
+    branchId: product.branchId || 'main-branch',
+    branchName: product.branch || 'Main Branch',
+    warehouseId: product.warehouseId || product.warehouse || 'main-warehouse',
     supplierId,
     supplierName,
     requestedQty: qty,
@@ -233,7 +217,7 @@ function buildSeedRequest(number: string, product: Product, qty: number, supplie
     expectedGrossMarginAmount: marginAmount,
     expectedGrossMarginPercent: marginPercent,
     stockMovementClass: movementClass,
-    requestedBy: 'Build 19AQ',
+    requestedBy: 'System',
     requestedAt: nowIso(),
     reason,
     status,
@@ -241,7 +225,7 @@ function buildSeedRequest(number: string, product: Product, qty: number, supplie
     protectionDecision: blocked ? 'Block' : 'Warn',
     riskScore: blocked ? 100 : 45,
     riskNarrative: reason,
-    notes: 'Build Development local purchase discipline sample.'
+    notes: 'Purchase discipline review.'
   };
 }
 
@@ -268,9 +252,9 @@ function decisionFromRisk(risk: PurchaseRiskLevel): ReorderProtectionDecision {
 
 async function createPurchaseApproval(input: { approvalType: string; relatedRecord: string; requestedBy: string; reason: string; amount: number; risk: PurchaseRiskLevel }) {
   return createOperationalApproval({
-    vendorId: 'SCI-LOG-ZW',
-    branchId: 'BR-HARARE',
-    branch: 'Harare Main',
+    vendorId: getActiveVendorId(),
+    branchId: 'main-branch',
+    branch: 'Main Branch',
     category: 'Purchase Order',
     requestedBy: input.requestedBy,
     requestedByRole: 'Manager',
@@ -278,7 +262,7 @@ async function createPurchaseApproval(input: { approvalType: string; relatedReco
     amountOrValue: `USD ${input.amount.toFixed(2)}`,
     risk: input.risk === 'Blocked' ? 'Critical' : input.risk === 'Low' ? 'Low' : input.risk === 'Medium' ? 'Medium' : 'High',
     reason: input.reason,
-    context: 'Build 19AQ local/mock purchase discipline approval placeholder.',
+    context: 'Purchase discipline approval review.',
     approvalType: input.approvalType,
     requiredPermission: 'approvals.approve'
   });
@@ -314,7 +298,7 @@ export function getPurchaseDisciplineRequest(requestId: string): PurchaseDiscipl
 }
 
 export function calculateProductMovementClass(productId: string): PurchaseDisciplineRequest['stockMovementClass'] {
-  const product = mockProducts.find((item) => item.id === productId);
+  const product = loadLocalProducts().find((item) => item.id === productId);
   if (!product) return 'Unknown';
   if (product.stockStatus === 'Dead Stock' || product.healthStatus === 'Dead Stock') return 'DeadStock';
   if (product.stockStatus === 'Slow Moving' || product.healthStatus === 'Slow Moving') return 'SlowMoving';
@@ -324,7 +308,7 @@ export function calculateProductMovementClass(productId: string): PurchaseDiscip
 }
 
 export function calculateProductMarginRisk(productId: string): number {
-  const product = mockProducts.find((item) => item.id === productId);
+  const product = loadLocalProducts().find((item) => item.id === productId);
   if (!product) return 25;
   const price = productPrice(product);
   const cost = productCost(product);
@@ -403,7 +387,7 @@ export function runReorderProtectionRules(payload: Pick<PurchaseDisciplineReques
 }
 
 export function previewPurchaseRisk(payload: RequestPayload): PurchaseRiskAssessment {
-  const product = mockProducts.find((item) => item.id === payload.productId);
+  const product = loadLocalProducts().find((item) => item.id === payload.productId);
   const estimatedTotalCost = Math.max(0, payload.requestedQty * payload.estimatedUnitCost);
   const expectedSellingPrice = payload.expectedSellingPrice ?? (product ? productPrice(product) : payload.estimatedUnitCost * 1.35);
   const grossMarginAmount = expectedSellingPrice - payload.estimatedUnitCost;
@@ -451,7 +435,7 @@ export function previewPurchaseRisk(payload: RequestPayload): PurchaseRiskAssess
 
 export async function createPurchaseDisciplineRequest(payload: RequestPayload): Promise<PurchaseDisciplineRequest> {
   const requests = getPurchaseDisciplineRequests();
-  const product = mockProducts.find((item) => item.id === payload.productId);
+  const product = loadLocalProducts().find((item) => item.id === payload.productId);
   const preview = previewPurchaseRisk(payload);
   const expectedSellingPrice = payload.expectedSellingPrice ?? (product ? productPrice(product) : payload.estimatedUnitCost * 1.35);
   const grossMarginAmount = expectedSellingPrice - payload.estimatedUnitCost;
@@ -551,7 +535,7 @@ export async function createSupplierPurchaseCommitment(payload: Omit<SupplierPur
 
 export function getSupplierPurchaseCommitments(filters: Partial<{ search: string; status: PurchaseCommitmentStatus | 'ALL' }> = {}): SupplierPurchaseCommitment[] {
   return readList<SupplierPurchaseCommitment>(COMMITMENT_KEY, [
-    { commitmentId: 'SPC-ID-0001', commitmentNumber: 'SPC-0001', sourceRequestId: 'PDR-ID-PDR-0001', supplierId: 'SUP-LD', supplierName: 'Local Distributors', productId: mockProducts[0]?.id, productName: productName(mockProducts[0]), commitmentDate: today(), dueDate: addDays(today(), 14), amount: 280, reserveNeeded: 280, reserveAvailableAtCreation: getCOGSReserveSummary().currentReserveBalance, status: 'Active', riskLevel: 'Medium', approvedBy: 'Manager', approvedAt: nowIso(), createdBy: 'Build 19AQ', createdAt: nowIso(), notes: 'Build Development approved purchase commitment.' }
+    { commitmentId: 'SPC-ID-0001', commitmentNumber: 'SPC-0001', sourceRequestId: 'PDR-ID-PDR-0001', supplierId: 'SUP-LD', supplierName: 'Local Distributors', productId: mockProducts[0]?.id, productName: productName(mockProducts[0]), commitmentDate: today(), dueDate: addDays(today(), 14), amount: 280, reserveNeeded: 280, reserveAvailableAtCreation: getCOGSReserveSummary().currentReserveBalance, status: 'Active', riskLevel: 'Medium', approvedBy: 'Manager', approvedAt: nowIso(), createdBy: 'Manager', createdAt: nowIso(), notes: 'Approved purchase commitment.' }
   ]).filter((commitment) => {
     const haystack = `${commitment.commitmentNumber} ${commitment.supplierName} ${commitment.productName || ''} ${commitment.status} ${commitment.riskLevel} ${commitment.notes}`.toLowerCase();
     const words = (filters.search || '').toLowerCase().split(/\s+/).filter(Boolean);
@@ -568,9 +552,9 @@ export async function convertRequestToPurchaseOrder(requestId: string) {
     return null;
   }
   const po = await createPurchaseOrder({
-    vendorId: 'SCI-LOG-ZW',
+    vendorId: getActiveVendorId(),
     branchId: request.branchId,
-    warehouseId: request.warehouseId || 'WH-HARARE-01',
+    warehouseId: request.warehouseId || 'main-warehouse',
     supplierId: request.supplierId || 'SUP-LOCAL',
     supplierName: request.supplierName || 'Local Supplier',
     supplierPhone: '',
@@ -585,13 +569,13 @@ export async function convertRequestToPurchaseOrder(requestId: string) {
     source: 'Manual',
     status: 'Draft',
     deliveryBranchId: request.branchId,
-    deliveryWarehouseId: request.warehouseId || 'WH-HARARE-01',
+    deliveryWarehouseId: request.warehouseId || 'main-warehouse',
     deliveryAddress: request.branchName,
     currency: 'USD',
     deliveryCostEstimate: 0,
     notes: `Linked Purchase Discipline Request ${request.requestNumber}. Risk ${request.riskLevel}.`,
     internalMemo: request.riskNarrative,
-    termsAndConditions: 'Local/mock purchase discipline conversion. No stock or accounting posted.',
+    termsAndConditions: 'Purchase discipline conversion. No stock or accounting posted until receiving is completed.',
     lines: [{
       productId: request.productId,
       sku: request.sku,
@@ -755,10 +739,12 @@ export async function getPurchasingDisciplineBISummary(): Promise<PurchasingDisc
   }).sort((a, b) => b.riskScore - a.riskScore);
 
   const requests = getPurchaseDisciplineRequests();
-  const products = mockProducts.slice(0, 24).map<PurchasingProductAnalytics>((product) => {
+  const sourceProducts = loadLocalProducts().slice(0, 24);
+  const recentSales = readVendorScopedList<Sale>('itred_pos_transactions', mockRecentSales);
+  const products = sourceProducts.map<PurchasingProductAnalytics>((product) => {
     const productId = product.id;
     const sku = productSku(product);
-    const salesQty = mockRecentSales
+    const salesQty = recentSales
       .filter((sale) => sale.status === 'COMPLETED')
       .flatMap((sale) => sale.items)
       .filter((item) => item.productId === productId || item.code === sku)
@@ -794,7 +780,7 @@ export async function getPurchasingDisciplineBISummary(): Promise<PurchasingDisc
     };
   }).sort((a, b) => b.salesVelocity - a.salesVelocity);
 
-  const weeklyDemand = weeklyCOGSDemand(mockRecentSales);
+  const weeklyDemand = weeklyCOGSDemand(recentSales);
   const supplierCommitments = commitments.reduce((sum, commitment) => sum + commitment.reserveNeeded, 0);
   const cashAvailable = reserve.safeBuyingCapacity;
   const coverageScore = clampScore(reserve.reserveCoveragePercent);
@@ -866,7 +852,7 @@ export function getPurchaseDisciplineActivityEvents(): PurchaseDisciplineActivit
 }
 
 export function getPurchaseDisciplineProducts(): Product[] {
-  return mockProducts.slice(0, 80);
+  return loadLocalProducts().slice(0, 80);
 }
 
 export function getPurchaseDisciplineSuppliers() {

@@ -7,6 +7,7 @@ import {
   StockTransferStatus,
   StockTransferType
 } from '../types';
+import { getActiveVendorId } from '../utils/vendorDataMode';
 
 type TransferProduct = Product & {
   sku?: string;
@@ -86,10 +87,10 @@ export default function StockTransferForm({
   const [transferType, setTransferType] = useState<StockTransferType>('Warehouse To Branch');
   const [priority, setPriority] = useState<StockTransfer['priority']>('Normal');
   const [reason, setReason] = useState('Branch replenishment');
-  const [sourceBranchName, setSourceBranchName] = useState(branchOptions[0] || 'Harare Main');
-  const [sourceWarehouseName, setSourceWarehouseName] = useState(warehouseOptions[0] || 'Harare Spares Depot');
-  const [destinationBranchName, setDestinationBranchName] = useState(branchOptions[0] || 'Harare Main');
-  const [destinationWarehouseName, setDestinationWarehouseName] = useState(warehouseOptions[1] || warehouseOptions[0] || 'Harare Sales Floor');
+  const [sourceBranchName, setSourceBranchName] = useState(branchOptions[0] || 'Main Branch');
+  const [sourceWarehouseName, setSourceWarehouseName] = useState(warehouseOptions[0] || 'Main Warehouse');
+  const [destinationBranchName, setDestinationBranchName] = useState(branchOptions[0] || 'Main Branch');
+  const [destinationWarehouseName, setDestinationWarehouseName] = useState(warehouseOptions[1] || warehouseOptions[0] || 'Main Warehouse');
   const [expectedArrivalDate, setExpectedArrivalDate] = useState(new Date().toISOString().slice(0, 10));
   const [transportMethod, setTransportMethod] = useState('Internal Runner');
   const [courierReference, setCourierReference] = useState('');
@@ -104,10 +105,10 @@ export default function StockTransferForm({
     setTransferType(transfer?.transferType || 'Warehouse To Branch');
     setPriority(transfer?.priority || 'Normal');
     setReason(transfer?.reason || 'Branch replenishment');
-    setSourceBranchName(transfer?.sourceBranchName || branchOptions[0] || 'Harare Main');
-    setSourceWarehouseName(transfer?.sourceWarehouseName || warehouseOptions[0] || 'Harare Spares Depot');
-    setDestinationBranchName(transfer?.destinationBranchName || branchOptions[0] || 'Harare Main');
-    setDestinationWarehouseName(transfer?.destinationWarehouseName || warehouseOptions[1] || warehouseOptions[0] || 'Harare Sales Floor');
+    setSourceBranchName(transfer?.sourceBranchName || branchOptions[0] || 'Main Branch');
+    setSourceWarehouseName(transfer?.sourceWarehouseName || warehouseOptions[0] || 'Main Warehouse');
+    setDestinationBranchName(transfer?.destinationBranchName || branchOptions[0] || 'Main Branch');
+    setDestinationWarehouseName(transfer?.destinationWarehouseName || warehouseOptions[1] || warehouseOptions[0] || 'Main Warehouse');
     setExpectedArrivalDate(transfer?.expectedArrivalDate || new Date().toISOString().slice(0, 10));
     setTransportMethod(transfer?.transportMethod || 'Internal Runner');
     setCourierReference(transfer?.courierReference || '');
@@ -128,7 +129,7 @@ export default function StockTransferForm({
 
   const saveDraft = () => {
     const payload = {
-      vendorId: 'SCI-LOG-ZW',
+      vendorId: getActiveVendorId(),
       transferType,
       sourceBranchId: sourceBranchName,
       sourceBranchName,
@@ -270,7 +271,7 @@ export default function StockTransferForm({
             </div>
 
             <footer className="sticky bottom-0 bg-white border border-[#b1b5c2] p-3 flex flex-wrap items-center justify-between gap-2">
-              <span className="text-[9px] uppercase font-bold text-slate-600">Accounting impact remains inventory movement / pending accounting review placeholder only.</span>
+              <span className="text-[9px] uppercase font-bold text-slate-600">Accounting impact remains inventory movement / pending accounting review.</span>
               <div className="flex flex-wrap gap-2">
                 <ActionButton label="Save Draft" icon={<Save className="w-3.5 h-3.5" />} onClick={saveDraft} disabled={isLocked} />
                 <ActionButton label="Submit for Approval" icon={<Send className="w-3.5 h-3.5" />} onClick={onSubmit} disabled={!transfer || isLocked} />

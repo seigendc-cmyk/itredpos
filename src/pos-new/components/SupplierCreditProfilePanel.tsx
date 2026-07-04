@@ -22,8 +22,8 @@ export default function SupplierCreditProfilePanel() {
 
   const supplierActions = (profile: SupplierCreditProfile): RowActionMenuItem[] => [
     { id: 'preferred', label: profile.preferredSupplier ? 'Clear Preferred' : 'Mark Preferred', onClick: () => updatePreferred(profile) },
-    { id: 'block', label: 'Block', danger: true, separatorBefore: true, disabled: profile.creditStatus === 'CreditBlocked', onClick: async () => { await blockSupplierCredit(profile.supplierId, 'Build 19AO supplier credit block review.', 'Manager'); setNotice('Supplier credit block approval placeholder created.'); load(); } },
-    { id: 'release', label: 'Release', disabled: profile.creditStatus !== 'CreditBlocked', onClick: async () => { await releaseSupplierCredit(profile.supplierId, 'Build 19AO supplier release review.', 'Manager'); setNotice('Supplier credit release approval placeholder created.'); load(); } }
+    { id: 'block', label: 'Block', danger: true, separatorBefore: true, disabled: profile.creditStatus === 'CreditBlocked', onClick: async () => { await blockSupplierCredit(profile.supplierId, 'Supplier credit block review.', 'Manager'); setNotice('Supplier credit block approval created.'); load(); } },
+    { id: 'release', label: 'Release', disabled: profile.creditStatus !== 'CreditBlocked', onClick: async () => { await releaseSupplierCredit(profile.supplierId, 'Supplier credit release review.', 'Manager'); setNotice('Supplier credit release approval created.'); load(); } }
   ];
 
   return (

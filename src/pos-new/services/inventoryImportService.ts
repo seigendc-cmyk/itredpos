@@ -28,6 +28,7 @@ import {
   submitImportForApproval,
   validateImportBatch
 } from './productImportService';
+import { getActiveVendorId } from '../utils/vendorDataMode';
 
 const TEMPLATE_KEY = 'itred_pos_inventory_import_mapping_templates_v1';
 const now = () => new Date().toISOString();
@@ -140,10 +141,10 @@ function defaultTemplates(): InventoryImportMappingTemplate[] {
     templateId: `INV-TPL-${normalize(templateName)}`,
     templateName,
     sector,
-    description: `${templateName} build-development local mapping template.`,
+    description: `${templateName} mapping template.`,
     mappings,
     startRow: 1,
-    createdBy: 'Build Development',
+    createdBy: 'System',
     createdAt: now(),
     updatedAt: now(),
     defaultTemplate
@@ -158,7 +159,7 @@ function defaultTemplates(): InventoryImportMappingTemplate[] {
   ];
   return [
     base('Default Inventory Template', 'General', common, true),
-    base('Motor Spares Template', 'Motor Spares', [...common, { sourceColumnName: 'Make', targetFieldKey: 'vehicleMake' }, { sourceColumnName: 'Model', targetFieldKey: 'vehicleModel' }, { sourceColumnName: 'Part No', targetFieldKey: 'partNumber' }]),
+    base('Automotive Parts Template', 'Automotive Parts', [...common, { sourceColumnName: 'Make', targetFieldKey: 'vehicleMake' }, { sourceColumnName: 'Model', targetFieldKey: 'vehicleModel' }, { sourceColumnName: 'Part No', targetFieldKey: 'partNumber' }]),
     base('Grocery Template', 'Grocery', common),
     base('Hardware Template', 'Hardware', common),
     base('Pharmacy Template', 'Pharmacy', common),
@@ -278,7 +279,7 @@ export async function validateImportRows(batchId: string): Promise<InventoryImpo
 }
 
 export async function createInventoryImportBatch(payload: { fileName: string; staffName: string; csvText?: string; startRow?: number }): Promise<ProductImportBatch> {
-  const batch = await createProductImportBatch({ vendorId: 'SCI-LOG-ZW', branchId: 'BR-HARARE', warehouseId: 'WH-HARARE-01', industrialSectorCode: 'MOTOR_SPARES', source: payload.csvText ? 'CSV Upload' : 'Manual Batch', fileName: payload.fileName, uploadedByStaffId: payload.staffName, uploadedByStaffName: payload.staffName, notes: 'Created from Inventory Import Mapping Wizard.' });
+  const batch = await createProductImportBatch({ vendorId: getActiveVendorId(), branchId: 'main-branch', warehouseId: 'main-warehouse', industrialSectorCode: 'GENERAL_RETAIL', source: payload.csvText ? 'CSV Upload' : 'Manual Batch', fileName: payload.fileName, uploadedByStaffId: payload.staffName, uploadedByStaffName: payload.staffName, notes: 'Created from Inventory Import Mapping Wizard.' });
   if (payload.csvText) await parseCSVTextPlaceholder(batch.batchId, payload.csvText);
   return batch;
 }

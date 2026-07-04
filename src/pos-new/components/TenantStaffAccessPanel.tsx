@@ -125,7 +125,7 @@ export default function TenantStaffAccessPanel({ onSessionChange }: { onSessionC
           <Action label="Load Branch Access" onClick={() => loadBranches()} />
           <Action label="Load Terminal Access" onClick={() => loadTerminals()} />
           <Action label="Activate Staff Session" onClick={activate} primary />
-          <Action label="Create Build Development Owner Session" onClick={() => applySession(createBuildDevelopmentSession())} />
+          <Action label="Create Owner Session" onClick={() => applySession(createBuildDevelopmentSession())} />
           <Action label="Clear Session" onClick={() => applySession(clearTenantSession())} />
         </div>
 

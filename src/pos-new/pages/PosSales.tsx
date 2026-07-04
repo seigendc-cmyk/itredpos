@@ -21,6 +21,7 @@ import ReceiptOutputModal from '../components/ReceiptOutputModal';
 import SalesProfitSnapshotCard from '../components/SalesProfitSnapshotCard';
 import MiscellaneousSaleModal, { MiscellaneousSalePayload } from '../components/MiscellaneousSaleModal';
 import { mockProducts, mockRecentSales } from '../mock/mockPosData';
+import { ENABLE_MOCK_SEED_DATA } from '../utils/vendorDataMode';
 import { createAccountingPostingPlaceholder } from '../services/accountingService';
 import { biEventService } from '../services/biEventService';
 import { createReceiptFromSale, getReceiptPreview } from '../services/receiptService';
@@ -92,8 +93,8 @@ interface SalesAuditEvent {
 
 type SalesWorkspaceDrawer = 'recentReceipts' | 'heldSales' | 'activityFeed' | null;
 
-const DEFAULT_PRODUCTS = mockProducts;
-const VENDOR_ID = 'SCI-LOG-ZW';
+const DEFAULT_PRODUCTS = ENABLE_MOCK_SEED_DATA ? mockProducts : [];
+const DEFAULT_VENDOR_ID = 'unassigned-vendor';
 const SHIFT_START_INTENT_KEY = 'itred_pos_open_shift_start_wizard_v1';
 const SELECTED_CUSTOMER_FOR_SALE_KEY = 'itred-pos-selected-customer-for-sale';
 const SELECTED_CUSTOMER_FOR_SALE_SESSION_KEY = 'itred_pos_selected_customer_for_sale_v1';
@@ -199,9 +200,10 @@ export default function PosSales({
 }: PosSalesProps) {
   const staffName = session?.staffName || 'Admin User';
   const roleName = (session?.role || 'Owner') as Role;
-  const branchName = session?.branch || 'Harare Main';
+  const branchName = session?.branch || 'Main Branch';
   const terminalName = session?.terminal || 'POS-01';
-  const vendorName = session?.vendor || 'iTred Commerce POS';
+  const vendorName = session?.vendor || 'Business';
+  const vendorId = session?.vendorId || DEFAULT_VENDOR_ID;
   const warehouseName = 'Main Warehouse';
 
   const [localProducts, setLocalProducts] = useState<Product[]>(products.length > 0 ? products : DEFAULT_PRODUCTS);
@@ -237,7 +239,7 @@ export default function PosSales({
   const [deliveryFulfilmentCode, setDeliveryFulfilmentCode] = useState('');
   const [deliveryDraftMessage, setDeliveryDraftMessage] = useState('');
   const [heldSales, setHeldSales] = useState<HeldSaleRecord[]>([]);
-  const [recentSales, setRecentSales] = useState<Sale[]>(mockRecentSales.slice(0, 5));
+  const [recentSales, setRecentSales] = useState<Sale[]>(ENABLE_MOCK_SEED_DATA ? mockRecentSales.slice(0, 5) : []);
   const [auditEvents, setAuditEvents] = useState<SalesAuditEvent[]>([]);
   const [statusMessage, setStatusMessage] = useState('');
   const [receiptPreview, setReceiptPreview] = useState<ReceiptPrintPreview | null>(null);
@@ -348,7 +350,7 @@ export default function PosSales({
   useEffect(() => {
     let cancelled = false;
     runTerminalControlCheck({
-      vendorId: VENDOR_ID,
+      vendorId,
       branchId: branchIdFromName(branchName),
       terminalId: terminalName,
       terminalName,
@@ -636,11 +638,11 @@ export default function PosSales({
       requestedByStaffName: staffName,
       requestedByRole: roleName
     });
-    logEvent('NEW_CUSTOMER_REQUEST_CREATED_FROM_SALE', `${created.customerName} customer request saved locally.`);
+    logEvent('NEW_CUSTOMER_REQUEST_CREATED_FROM_SALE', `${created.customerName} customer request saved.`);
     const network = await getNetworkStatus();
     if (network === 'Offline' || network === 'Unstable') {
       await enqueueOfflineAction({
-        vendorId: VENDOR_ID,
+        vendorId,
         branchId: branchIdFromName(branchName),
         terminalId: terminalName,
         staffId: staffName,
@@ -651,10 +653,10 @@ export default function PosSales({
         operationType: 'CREATE_CUSTOMER_REQUEST',
         payload: { customerId: created.customerId, customerName: created.customerName, phone: created.phone, status: created.status },
         status: 'Queued',
-        notes: 'Customer request saved locally and queued for sync.'
+        notes: 'Customer request saved and queued for sync.'
       });
       await enqueueOfflineAction({
-        vendorId: VENDOR_ID,
+        vendorId,
         branchId: branchIdFromName(branchName),
         terminalId: terminalName,
         staffId: staffName,
@@ -665,7 +667,7 @@ export default function PosSales({
         operationType: 'CREATE_APPROVAL_REQUEST',
         payload: { approvalType: 'CUSTOMER_REQUEST', customerId: created.customerId, status: 'Pending Approval' },
         status: 'Queued',
-        notes: 'Approval request queued locally for customer request.'
+        notes: 'Approval request queued for customer request.'
       });
     }
     try {
@@ -677,9 +679,9 @@ export default function PosSales({
         payload: { customerId: created.customerId, customerName: created.customerName, status: created.status }
       });
     } catch {
-      logEvent('CUSTOMER_CREATED_PENDING_BI_SKIPPED', 'Customer pending BI placeholder was skipped safely.');
+      logEvent('CUSTOMER_CREATED_PENDING_BI_SKIPPED', 'Customer business insight update was skipped safely.');
     }
-    setStatusMessage(network === 'Offline' || network === 'Unstable' ? 'Customer request saved locally and queued for sync.' : 'Customer request created and sent for approval.');
+    setStatusMessage(network === 'Offline' || network === 'Unstable' ? 'Customer request saved and queued for sync.' : 'Customer request created and sent for approval.');
     getCustomers({ status: 'Active' }).then(setActiveCustomers).catch(() => undefined);
   };
 
@@ -822,7 +824,7 @@ export default function PosSales({
       return;
     }
     setCart((current) => current.map((item) => item.product.id === productId ? { ...item, discount: item.discount > 0 ? 0 : 5 } : item));
-    logEvent('SALES_DISCOUNT_APPLIED', 'Line discount updated locally.');
+    logEvent('SALES_DISCOUNT_APPLIED', 'Line discount updated.');
   };
 
   const handleApplyCartDiscount = (payload: SalesDiscountPayload) => {
@@ -846,7 +848,7 @@ export default function PosSales({
       setCartDiscountAmount(Math.min(subtotal, Math.max(0, nextDiscount)));
     }
     const highDiscount = payload.type === 'Percentage' ? payload.value >= 15 : payload.value >= subtotal * 0.15;
-    setStatusMessage(highDiscount ? 'Discount applied locally. Manager approval warning recorded.' : 'Discount applied locally.');
+    setStatusMessage(highDiscount ? 'Discount applied. Manager approval warning recorded.' : 'Discount applied.');
     logEvent('SALES_DISCOUNT_APPLIED', `${payload.scope} discount applied. Reason: ${payload.reason}.`);
   };
 
@@ -862,7 +864,7 @@ export default function PosSales({
     const maxRedeem = Math.min(availableCustomerCredit, grandTotalBeforeCredit);
     const amount = Math.min(maxRedeem, Math.max(0, payload.amount));
     setCreditRedemptionAmount(amount);
-    setStatusMessage(`Customer credit redeemed locally for ${money(amount)}.`);
+    setStatusMessage(`Customer credit redeemed for ${money(amount)}.`);
     logEvent('CUSTOMER_CREDIT_REDEEMED_LOCAL', `${money(amount)} redeemed with reference ${payload.reference}.`);
   };
 
@@ -878,7 +880,7 @@ export default function PosSales({
     const points = Math.min(availableLoyaltyPoints, Math.max(0, payload.points));
     const amount = Math.min(grandTotalBeforeCredit, payload.value || points * 0.01);
     setLoyaltyRedemptionAmount(amount);
-    setStatusMessage(`Loyalty rewards redeemed locally for ${money(amount)}.`);
+    setStatusMessage(`Loyalty rewards redeemed for ${money(amount)}.`);
     logEvent('LOYALTY_POINTS_REDEEMED_LOCAL', `${points} point(s) redeemed.`);
     logEvent('LOYALTY_POINTS_EARNED_ESTIMATE', `${Math.floor(grandTotal)} point(s) estimated from this sale.`);
   };
@@ -897,7 +899,7 @@ export default function PosSales({
       return;
     }
     setPaymentMethod('Credit / Account');
-    setStatusMessage('Customer account payment method applied locally.');
+    setStatusMessage('Customer account payment method applied.');
     logEvent('CUSTOMER_ACCOUNT_VIEWED_FROM_SALE', `${customerName} account viewed and applied to sale.`);
   };
 
@@ -1030,7 +1032,7 @@ export default function PosSales({
     const hasInventoryLines = cart.some((item) => item.lineType !== 'MiscellaneousItem' && item.isInventoryAsset !== false && item.stockMovementRequired !== false);
     const hasMiscellaneousLines = cart.some((item) => item.lineType === 'MiscellaneousItem' || item.biFlagged);
     const controlCheck = await runTerminalControlCheck({
-      vendorId: VENDOR_ID,
+      vendorId,
       branchId: branchIdFromName(branchName),
       terminalId: terminalName,
       terminalName,
@@ -1044,7 +1046,7 @@ export default function PosSales({
       setStatusMessage(reason);
       logEvent('SALE_BLOCKED_SHIFT_OR_TERMINAL', reason);
       await logTerminalControlEvent({
-        vendorId: VENDOR_ID,
+        vendorId,
         branchId: branchIdFromName(branchName),
         terminalId: terminalName,
         staffId: staffName,
@@ -1062,7 +1064,7 @@ export default function PosSales({
           payload: { reason, reasons: controlCheck.reasons }
         });
       } catch {
-        logEvent('SALE_BLOCKED_SHIFT_OR_TERMINAL_BI_SKIPPED', 'Blocked sale BI placeholder was skipped safely.');
+        logEvent('SALE_BLOCKED_SHIFT_OR_TERMINAL_BI_SKIPPED', 'Blocked sale business insight update was skipped safely.');
       }
       return false;
     }
@@ -1130,7 +1132,7 @@ export default function PosSales({
         const currentProduct = localProducts.find((product) => product.id === item.product.id) || item.product;
         const balanceBefore = productStock(currentProduct);
         return postSaleMovement({
-          vendorId: VENDOR_ID,
+          vendorId,
           branchId: currentProduct.branchId || branchIdFromName(branchName),
           warehouseId: currentProduct.warehouseId || currentProduct.warehouse || warehouseName,
           productId: currentProduct.id,
@@ -1184,7 +1186,7 @@ export default function PosSales({
           : [{ method: paymentMethod, amount: grandTotal, reference: paymentReference.trim() || undefined }];
       const receipt = await createReceiptFromSale({
         sale,
-        vendorId: VENDOR_ID,
+        vendorId,
         businessVendor: vendorName,
         branchId: branchIdFromName(branchName),
         branch: branchName,
@@ -1230,7 +1232,7 @@ export default function PosSales({
           terminalId: terminalName,
           cashierStaffId: staffName,
           paymentTermsDays: creditDecision.profile.paymentTermsDays,
-          notes: creditSaleOverrideAllowed ? 'Credit sale completed with local manager override.' : 'Credit sale completed within local rules.'
+          notes: creditSaleOverrideAllowed ? 'Credit sale completed with manager override.' : 'Credit sale completed within account rules.'
         });
         if (creditSaleOverrideAllowed) {
           await createCustomerCreditApprovalRequest({
@@ -1255,7 +1257,7 @@ export default function PosSales({
       const shouldQueueOffline = network === 'Offline' || network === 'Unstable';
       const queueStatus = shouldQueueOffline ? 'Queued' : 'Ready To Sync';
       await enqueueOfflineAction({
-        vendorId: VENDOR_ID,
+        vendorId,
         branchId: branchIdFromName(branchName),
         terminalId: terminalName,
         staffId: staffName,
@@ -1266,10 +1268,10 @@ export default function PosSales({
         operationType: 'CREATE_RECEIPT',
         payload: { receiptNumber: receipt.receiptNumber, invoiceNo, total: grandTotal, paymentMode: receiptPaymentMode(payments[0]?.method || paymentMethod), offlineCompleted: shouldQueueOffline },
         status: queueStatus,
-        notes: shouldQueueOffline ? 'Sale completed locally and queued for sync.' : 'Development placeholder queue item. No backend call made.'
+        notes: shouldQueueOffline ? 'Sale completed and queued for sync.' : 'Sale completed and ready for sync.'
       });
       await enqueueOfflineAction({
-        vendorId: VENDOR_ID,
+        vendorId,
         branchId: branchIdFromName(branchName),
         terminalId: terminalName,
         staffId: staffName,
@@ -1280,21 +1282,21 @@ export default function PosSales({
         operationType: 'CREATE_PAYMENT',
         payload: { receiptNumber: receipt.receiptNumber, amount: creditSaleRequested ? nonCreditPaymentReceived : grandTotal, paymentMode: creditSaleRequested ? 'Credit Sale' : receiptPaymentMode(payments[0]?.method || paymentMethod), payments: receiptPaymentLines },
         status: queueStatus,
-        notes: 'Payment sync placeholder queued locally.'
+        notes: 'Payment queued for sync.'
       });
       await enqueueOfflineAction({
-        vendorId: VENDOR_ID,
+        vendorId,
         branchId: branchIdFromName(branchName),
         terminalId: terminalName,
         staffId: staffName,
         staffName,
         entityType: 'BI Event',
         entityId: `BI-${receipt.receiptNumber}`,
-        entityNumber: 'SALE_COMPLETED_LOCAL',
+        entityNumber: receipt.receiptNumber,
         operationType: 'CREATE_BI_EVENT',
-        payload: { eventType: shouldQueueOffline ? 'SALE_COMPLETED_LOCAL' : 'SALE_COMPLETED', receiptNumber: receipt.receiptNumber, total: grandTotal },
+        payload: { eventType: shouldQueueOffline ? 'SALE_COMPLETED_OFFLINE' : 'SALE_COMPLETED', receiptNumber: receipt.receiptNumber, total: grandTotal },
         status: queueStatus,
-        notes: 'BI/audit event queued locally for sync readiness.'
+        notes: 'Sales activity queued for sync.'
       });
       saleQueuedLocally = shouldQueueOffline;
       try {
@@ -1334,7 +1336,7 @@ export default function PosSales({
           }));
         }
       } catch {
-        logEvent('SALE_COMPLETION_SERVICE_PLACEHOLDER', 'Optional accounting, payment, or BI placeholder service was skipped safely.');
+        logEvent('SALE_COMPLETION_SERVICE_PENDING', 'Optional accounting, payment, or business insight update was skipped safely.');
       }
       const preview = await getReceiptPreview(receipt.receiptNumber, '80mm');
       if (!preview || preview.receipt.receiptNumber !== receipt.receiptNumber) {
@@ -1342,7 +1344,7 @@ export default function PosSales({
       }
       if (deliveryMode !== 'No Delivery') {
         const deliveryRequest = await createDeliveryRequestFromReceipt({
-          vendorId: VENDOR_ID,
+          vendorId,
           receiptId: receipt.id,
           receiptNumber: receipt.receiptNumber,
           branchId: branchIdFromName(branchName),
@@ -1373,7 +1375,7 @@ export default function PosSales({
           logEvent('DELIVERY_REQUEST_CREATED', `${deliveryRequest.deliveryNumber} prepared for ${receipt.receiptNumber}.`);
           if (shouldQueueOffline) {
             await enqueueOfflineAction({
-              vendorId: VENDOR_ID,
+              vendorId,
               branchId: branchIdFromName(branchName),
               terminalId: terminalName,
               staffId: staffName,
@@ -1384,7 +1386,7 @@ export default function PosSales({
               operationType: 'CREATE_DELIVERY_REQUEST',
               payload: { deliveryId: deliveryRequest.deliveryId, deliveryNumber: deliveryRequest.deliveryNumber, receiptNumber: receipt.receiptNumber, deliveryMethod: deliveryMode },
               status: 'Queued',
-              notes: 'Delivery request queued for sync. WhatsApp draft remains local.'
+              notes: 'Delivery request queued for sync. WhatsApp draft prepared.'
             });
             deliveryQueuedLocally = true;
           }
@@ -1397,7 +1399,7 @@ export default function PosSales({
               payload: { deliveryId: deliveryRequest.deliveryId, deliveryNumber: deliveryRequest.deliveryNumber, receiptNumber: receipt.receiptNumber, deliveryMethod: deliveryMode }
             });
           } catch {
-            logEvent('DELIVERY_BI_SKIPPED', 'Delivery BI placeholder was skipped safely.');
+            logEvent('DELIVERY_BI_SKIPPED', 'Delivery business insight update was skipped safely.');
           }
         }
       }
@@ -1410,7 +1412,7 @@ export default function PosSales({
       logEvent('SALE_COMPLETED', `Sale ${invoiceNo} completed for ${money(grandTotal)}.`);
       if (hasMiscellaneousLines) logEvent('SALE_COMPLETED_WITH_MISCELLANEOUS_LINE', `Sale ${invoiceNo} included miscellaneous non-inventory line(s).`);
       logEvent('RECEIPT_GENERATED', `Receipt ${receipt.receiptNumber} generated for completed sale.`);
-      if (saleQueuedLocally || deliveryQueuedLocally) logEvent('SALE_COMPLETED_LOCAL_QUEUE', 'Completed sale placeholder queue updated locally.');
+      if (saleQueuedLocally || deliveryQueuedLocally) logEvent('SALE_COMPLETED_SYNC_QUEUE', 'Completed sale sync queue updated.');
       return true;
     } catch (error) {
       setStatusMessage(error instanceof Error ? error.message : 'Sale completion failed.');
@@ -1508,7 +1510,7 @@ export default function PosSales({
   const handleCancelHeldSale = async (heldSale: HeldSaleRecord) => {
     await cancelHeldSalePlaceholder(heldSale.id, staffName, 'Cancelled from Held Sales drawer');
     setHeldSales(await getHeldSales());
-    setStatusMessage(`Held sale cancelled locally for ${heldSale.heldSaleNumber}.`);
+    setStatusMessage(`Held sale cancelled for ${heldSale.heldSaleNumber}.`);
     logEvent('SALE_CANCELLED', `Held sale ${heldSale.heldSaleNumber} cancelled.`);
   };
 
@@ -1604,7 +1606,7 @@ export default function PosSales({
       setCustomerTaxNumber(preservedCustomer.customerTaxNumber);
       setCustomerNotes(preservedCustomer.customerNotes);
     }
-    setStatusMessage('Cart voided locally.');
+    setStatusMessage('Cart voided.');
     logEvent('SALE_CART_VOIDED', `Cart voided. Reason: ${payload.reason}.`);
   };
 
@@ -1628,7 +1630,7 @@ export default function PosSales({
       setPreparedReceiptPreview(null);
       setReceiptOutputPreview(null);
     }
-    setStatusMessage(`${mode} cleared locally.`);
+    setStatusMessage(`${mode} cleared.`);
     logEvent('SALES_WORKSPACE_CLEARED', `${mode} cleared from Sales Terminal.`);
   };
 
@@ -1637,7 +1639,7 @@ export default function PosSales({
     setReceiptNote(payload.receiptNote);
     setCartDeliveryNote(payload.deliveryNote);
     if (payload.deliveryNote) setDeliveryNotes(payload.deliveryNote);
-    setStatusMessage('Cart notes saved locally.');
+    setStatusMessage('Cart notes saved.');
     logEvent('SALE_CART_NOTE_UPDATED', payload.internalNote || payload.receiptNote || payload.deliveryNote || 'Cart notes cleared.');
   };
 
@@ -1709,15 +1711,15 @@ export default function PosSales({
     setDeliveryMode('iDeliver Service');
     const code = deliveryFulfilmentCode || `${Math.floor(100000 + Math.random() * 900000)}`;
     setDeliveryFulfilmentCode(code);
-    setStatusMessage(`Local iDeliver request prepared. Fulfilment code ${code}.`);
+    setStatusMessage(`iDeliver request prepared. Fulfilment code ${code}.`);
     logEvent('IDELIVER_REQUEST_PREPARED_LOCAL', `iDeliver draft prepared for ${customerName}.`);
   };
 
   const handleGenerateDeliveryCode = () => {
     const code = `${Math.floor(100000 + Math.random() * 900000)}`;
     setDeliveryFulfilmentCode(code);
-    setStatusMessage(`Fulfilment code generated locally: ${code}.`);
-    logEvent('DELIVERY_CODE_GENERATED', `Fulfilment code ${code} generated locally.`);
+    setStatusMessage(`Fulfilment code generated: ${code}.`);
+    logEvent('DELIVERY_CODE_GENERATED', `Fulfilment code ${code} generated.`);
   };
 
   const handlePrepareDeliveryWhatsApp = () => {
@@ -1726,7 +1728,7 @@ export default function PosSales({
     const message = `Hi ${customerName || 'Customer'}, your ${deliveryMode} order from ${branchName} is being prepared. Fulfilment code: ${code}. Total: ${money(grandTotal)}.`;
     setDeliveryDraftMessage(message);
     setDeliveryNotes([deliveryNotes, message].filter(Boolean).join('\n'));
-    setStatusMessage('WhatsApp delivery message prepared locally.');
+    setStatusMessage('WhatsApp delivery message prepared.');
     logEvent('WHATSAPP_DELIVERY_MESSAGE_PREPARED', message);
   };
 
@@ -1788,7 +1790,7 @@ export default function PosSales({
         <div>
           <p className="sci-pos-eyebrow">iTred Commerce POS - Vendor Commerce Terminal</p>
           <h1>Sales Terminal</h1>
-          <p>Two-card checkout workspace for product search, cart, payment, delivery, tax, receipts, and local audit events.</p>
+          <p>Two-card checkout workspace for product search, cart, payment, delivery, tax, receipts, and sales activity.</p>
         </div>
         <div className="sci-page-header__actions">
           <div className="sales-workspace-menu-host">
@@ -1807,7 +1809,7 @@ export default function PosSales({
                   {canViewProfitSnapshot && (
                     <button type="button" onClick={() => { collapseProductFieldsForOperation('Sales Profit Snapshot'); setProfitSnapshotOpen(true); setWorkspaceMenuOpen(false); }}>Sales Profit Snapshot</button>
                   )}
-                  <button type="button" onClick={() => { collapseProductFieldsForOperation('Draft Receipt'); setStatusMessage(`Draft receipt prepared locally. Items: ${cart.length}, total: ${money(grandTotal)}${receiptNote ? `, note: ${receiptNote}` : ''}.`); logEvent('RECEIPT_DRAFTED', 'Draft receipt prepared from active cart.'); setWorkspaceMenuOpen(false); }}>Draft Receipt</button>
+                  <button type="button" onClick={() => { collapseProductFieldsForOperation('Draft Receipt'); setStatusMessage(`Draft receipt prepared. Items: ${cart.length}, total: ${money(grandTotal)}${receiptNote ? `, note: ${receiptNote}` : ''}.`); logEvent('RECEIPT_DRAFTED', 'Draft receipt prepared from active cart.'); setWorkspaceMenuOpen(false); }}>Draft Receipt</button>
                   {canProcessSalesReturns && <button type="button" onClick={() => openSalesHistoryFromMenu('Sales Returns')}>Sales Returns</button>}
                   {canViewSalesHistory && <button type="button" onClick={() => openSalesHistoryFromMenu('Sales History')}>Sales History</button>}
                   {canCreateMiscellaneousSale && <button type="button" onClick={handleOpenMiscellaneousSale}>Miscellaneous Sales</button>}
@@ -1881,6 +1883,21 @@ export default function PosSales({
             <div><span>Staff</span><strong>{getShiftRecoveryState()?.staffName || staffName}</strong></div>
             <div><span>Shift</span><strong>{getShiftRecoveryState()?.shift?.status || 'Review required'}</strong></div>
             <div><span>Saved At</span><strong>{getShiftRecoveryState()?.savedAt ? new Date(getShiftRecoveryState()!.savedAt).toLocaleString() : 'Not recorded'}</strong></div>
+          </div>
+        </section>
+      )}
+
+      {localProducts.length === 0 && (
+        <section className="sci-pos-card border-l-4 border-l-orange-500">
+          <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
+            <div>
+              <p className="sci-pos-eyebrow">Inventory Required</p>
+              <h2 className="text-lg font-black uppercase text-[#1e222b]">No sellable products yet</h2>
+              <p className="text-xs font-semibold text-slate-600 mt-1">Add inventory before starting sales.</p>
+            </div>
+            <button type="button" className="sci-pos-button sci-pos-button--primary" onClick={() => onNavigate('STOCK')}>
+              Go to Stock / Product Master
+            </button>
           </div>
         </section>
       )}
@@ -1993,13 +2010,13 @@ export default function PosSales({
           onAddPayment={handleAddPayment}
           onRemovePayment={(paymentId) => {
             setPayments((current) => current.filter((payment) => payment.id !== paymentId));
-            logEvent('PAYMENT_LINE_REMOVED', 'Payment line removed locally.');
+            logEvent('PAYMENT_LINE_REMOVED', 'Payment line removed.');
           }}
           onClearPayments={() => {
             setPayments([]);
             setPaymentAmount('');
             setPaymentReference('');
-            logEvent('PAYMENT_DRAFT_CLEARED', 'Payment draft cleared locally.');
+            logEvent('PAYMENT_DRAFT_CLEARED', 'Payment draft cleared.');
           }}
           onDeliveryModeChange={setDeliveryMode}
           onDeliveryAddressChange={setDeliveryAddress}
@@ -2010,11 +2027,11 @@ export default function PosSales({
           onDeliveryPaymentModeChange={setDeliveryPaymentMode}
           onCustomerDetailsSaved={() => {
             setStatusMessage('Customer details saved to current cart draft.');
-            logEvent('CUSTOMER_DETAILS_UPDATED', `${customerName || 'Customer'} details updated locally.`);
+            logEvent('CUSTOMER_DETAILS_UPDATED', `${customerName || 'Customer'} details updated.`);
           }}
           onDeliveryDetailsSaved={() => {
             setStatusMessage('Delivery details saved to current cart draft.');
-            logEvent('DELIVERY_DETAILS_UPDATED', `${deliveryMode} details saved locally.`);
+            logEvent('DELIVERY_DETAILS_UPDATED', `${deliveryMode} details saved.`);
           }}
           onCheckoutActivity={logEvent}
           onVatModeChange={setVatMode}
@@ -2064,7 +2081,7 @@ export default function PosSales({
                       <small>{sale.status}</small>
                       <div className="pos-recent-receipt__actions">
                         <button type="button" className="sci-pos-link-button" onClick={() => void handleOpenReceiptReview(sale)}>View Receipt</button>
-                        <button type="button" className="sci-pos-link-button" onClick={() => { setStatusMessage(`CAT form opened locally for ${sale.invoiceNo}.`); logEvent('CAT_FORM_OPENED_LOCAL', `${sale.invoiceNo} CAT form opened locally.`); }}>Open CAT Form</button>
+                        <button type="button" className="sci-pos-link-button" onClick={() => { setStatusMessage(`CAT form opened for ${sale.invoiceNo}.`); logEvent('CAT_FORM_OPENED_LOCAL', `${sale.invoiceNo} CAT form opened.`); }}>Open CAT Form</button>
                         <button type="button" className="sci-pos-link-button" onClick={() => void handleReprintSale(sale)}>Reprint</button>
                         <button type="button" className="sci-pos-link-button" disabled={!canPerformAction(roleName, 'sales.open')} onClick={() => handleDuplicateSaleToCart(sale)}>Duplicate as New Sale</button>
                       </div>
@@ -2130,7 +2147,7 @@ export default function PosSales({
         sale={receiptReviewSale}
         onClose={() => setReceiptReviewSale(null)}
         onReprint={handleReprintSale}
-        onCatForm={(sale) => { setStatusMessage(`CAT form opened locally for ${sale.invoiceNo}.`); logEvent('CAT_FORM_OPENED_LOCAL', `${sale.invoiceNo} CAT form opened locally.`); }}
+        onCatForm={(sale) => { setStatusMessage(`CAT form opened for ${sale.invoiceNo}.`); logEvent('CAT_FORM_OPENED_LOCAL', `${sale.invoiceNo} CAT form opened.`); }}
         onDuplicate={handleDuplicateSaleToCart}
         canReprint={canPerformAction(roleName, 'sales.reprintReceipt')}
         canOpenCatForm={canPerformAction(roleName, 'customers.purchaseHistory.view')}

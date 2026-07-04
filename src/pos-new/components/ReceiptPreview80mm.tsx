@@ -12,6 +12,8 @@ export default function ReceiptPreview80mm({ preview }: ReceiptPreview80mmProps)
   const contact = blueprint?.contactNumbers || blueprint?.contactInformation || receipt.businessDetails.contactNumbers || receipt.businessDetails.contactInformation || `Phone: ${receipt.businessDetails.phone} | WhatsApp: ${receipt.businessDetails.whatsApp}`;
   const email = blueprint?.emailAddress || receipt.businessDetails.emailAddress;
   const social = blueprint?.socialMediaHandles || blueprint?.socialMediaInformation || receipt.businessDetails.socialMediaHandles || receipt.businessDetails.socialMediaInformation;
+  const businessDescriptor = [receipt.businessDetails.businessType, receipt.businessDetails.industry].filter(Boolean).join(' / ');
+  const terminalName = receipt.businessDetails.terminalName || receipt.terminal;
 
   return (
     <div className="bg-white border-2 border-[#1e222b] p-4 text-[#111827] font-mono w-[320px] max-w-full mx-auto receipt-roll-preview">
@@ -20,12 +22,15 @@ export default function ReceiptPreview80mm({ preview }: ReceiptPreview80mmProps)
         <div className="text-sm font-black uppercase">{receipt.businessDetails.businessName}</div>
         {(blueprint?.headerMessage || receipt.businessDetails.headerMessage) && <div className="text-[9px] font-bold uppercase">{blueprint?.headerMessage || receipt.businessDetails.headerMessage}</div>}
         <div className="text-[10px] font-bold uppercase">{receipt.businessDetails.tradingName}</div>
-        <div className="text-[9px] mt-1">{receipt.businessDetails.branch}</div>
+        {businessDescriptor && <div className="text-[8px] uppercase">{businessDescriptor}</div>}
+        <div className="text-[9px] mt-1">{receipt.businessDetails.branch} | {terminalName}</div>
         <div className="text-[8px] leading-tight">{address}</div>
         <div className="text-[8px]">{contact}</div>
         {email && <div className="text-[8px]">{email}</div>}
         {social && <div className="text-[8px]">{social}</div>}
         {receipt.businessDetails.vatRegistered && <div className="text-[8px] font-bold">VAT No: {receipt.businessDetails.vatNumber}</div>}
+        {receipt.businessDetails.taxNumber && <div className="text-[8px] font-bold">Tax No: {receipt.businessDetails.taxNumber}</div>}
+        {receipt.businessDetails.registrationNumber && <div className="text-[8px] font-bold">Reg No: {receipt.businessDetails.registrationNumber}</div>}
         {isReprint && <div className="mt-2 border border-orange-500 text-orange-700 font-black text-[9px] uppercase">Reprint Copy</div>}
       </div>
 

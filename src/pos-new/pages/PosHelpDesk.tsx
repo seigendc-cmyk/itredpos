@@ -338,7 +338,7 @@ export default function PosHelpDesk({ session, onNavigate }: PosHelpDeskProps) {
 
             {selectedArticle.buildModeNote && (
               <section className="help-build-note">
-                <h3>Build-development note</h3>
+                <h3>Workflow note</h3>
                 <p>{selectedArticle.buildModeNote}</p>
               </section>
             )}
@@ -404,7 +404,7 @@ export default function PosHelpDesk({ session, onNavigate }: PosHelpDeskProps) {
             <dl>
               <div><dt>COGS Reserve</dt><dd>Replacement stock seed protected from sales money.</dd></div>
               <div><dt>Decision File</dt><dd>Approval record with reason, risk, audit, and related actions.</dd></div>
-              <div><dt>Build Mode</dt><dd>Local/mock workflows without Firestore business posting.</dd></div>
+              <div><dt>Workflow</dt><dd>Business actions, approvals, and supporting audit records.</dd></div>
             </dl>
           </div>
         </aside>

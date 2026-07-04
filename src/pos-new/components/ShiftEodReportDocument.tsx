@@ -1,4 +1,5 @@
 import type { ShiftEodPrintPayload } from '../services/shiftEodReportService';
+import { getVendorDocumentIdentity } from '../vendor/vendorBootstrapModel';
 
 interface ShiftEodReportDocumentProps {
   payload: ShiftEodPrintPayload;
@@ -67,6 +68,11 @@ function SignatureRow({ label, value }: { label: string; value: string }) {
 }
 
 export default function ShiftEodReportDocument({ payload }: ShiftEodReportDocumentProps) {
+  const identity = getVendorDocumentIdentity({
+    branchName: payload.summary.branch,
+    terminalName: payload.summary.terminal
+  });
+  const businessName = identity.displayName || payload.businessName;
   const shiftDetails: ReportRow[] = [
     { label: 'Shift ID', value: payload.summary.shiftId },
     { label: 'Terminal', value: payload.summary.terminal },
@@ -172,9 +178,9 @@ export default function ShiftEodReportDocument({ payload }: ShiftEodReportDocume
       <div className="shift-eod-report-document">
         <header className="shift-eod-report-document__header">
           <div>
-            <p className="shift-eod-report-brand">{payload.businessName}</p>
+            <p className="shift-eod-report-brand">{businessName}</p>
             <h1>SHIFT END OF DAY REPORT</h1>
-            <p>Terminal, shift, sales, VAT, drawer, payment, and cash variance summary.</p>
+            <p>{[identity.addressLine, identity.cityLine, identity.phoneLine, identity.emailLine].filter(Boolean).join(' | ')}</p>
           </div>
           <div className="shift-eod-report-meta">
             <span>Report Number: {payload.reportNumber}</span>
@@ -186,7 +192,7 @@ export default function ShiftEodReportDocument({ payload }: ShiftEodReportDocume
         </header>
 
         <div className="shift-eod-report-summary-line">
-          <span>Vendor: {payload.businessName}</span>
+          <span>Vendor: {businessName}</span>
           <span>Branch: {payload.summary.branch}</span>
           <span>Terminal: {payload.summary.terminal}</span>
           <span>Staff: {payload.summary.staff}</span>

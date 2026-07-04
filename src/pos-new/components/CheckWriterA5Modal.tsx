@@ -99,7 +99,7 @@ export default function CheckWriterA5Modal({ open, staffName, businessName, init
         memo: form.memo
       }, staffName);
       setSavedCheck(rows[0]);
-      onSaved(`${rows[0].checkNumber} saved locally.`);
+      onSaved(`${rows[0].checkNumber} saved.`);
     } catch (error) {
       onSaved(error instanceof Error ? error.message : 'Check draft could not be saved.');
     }

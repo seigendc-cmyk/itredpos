@@ -592,7 +592,7 @@ export default function SalesCartCard({
     if (deliveryMode === 'Vendor Delivery' || deliveryMode === 'iDeliver Service' || deliveryRequiresCashCollection) onGenerateDeliveryCode();
     setPendingCheckoutAfterDelivery(false);
     emitCheckoutActivity('CHECKOUT_DELIVERY_SAVED', 'Delivery review saved during checkout.');
-    if (deliveryMode === 'iDeliver Service') emitCheckoutActivity('CHECKOUT_IDELIVER_REQUEST_PREPARED', 'Local iDeliver request prepared during checkout.');
+    if (deliveryMode === 'iDeliver Service') emitCheckoutActivity('CHECKOUT_IDELIVER_REQUEST_PREPARED', 'iDeliver request prepared during checkout.');
     openPaymentFromCheckout();
   };
 
@@ -866,7 +866,7 @@ export default function SalesCartCard({
               )}
               {activeToolPanel === 'credit' && (
                 <section className="sales-drawer-section">
-                  <div className="pos-placeholder-card"><strong>{customerName || 'No customer selected'}</strong><span>Available local credit: {money(availableCredit)}</span><span>Current redemption: {money(creditRedemptionAmount)}</span></div>
+                  <div className="pos-placeholder-card"><strong>{customerName || 'No customer selected'}</strong><span>Available credit: {money(availableCredit)}</span><span>Current redemption: {money(creditRedemptionAmount)}</span></div>
                   <label>Redeem Amount<input type="number" min="0" value={creditAmount} onChange={(event) => setCreditAmount(event.target.value)} /></label>
                   <label>Credit Note / Reference<input value={creditReference} onChange={(event) => setCreditReference(event.target.value)} placeholder="Credit note or manager reference" /></label>
                   <label>Notes<textarea rows={3} value={creditNotes} onChange={(event) => setCreditNotes(event.target.value)} /></label>
@@ -1074,7 +1074,7 @@ export default function SalesCartCard({
                 <label>Address<input value={customerAddress} onChange={(event) => onCustomerAddressChange(event.target.value)} placeholder="Customer address" /></label>
                 <label>Tax Number<input value={customerTaxNumber} onChange={(event) => onCustomerTaxNumberChange(event.target.value)} placeholder="Tax number" /></label>
                 <label>Customer Notes<textarea value={customerNotes} onChange={(event) => onCustomerNotesChange(event.target.value)} placeholder="Customer notes" rows={3} /></label>
-                <div className="pos-placeholder-card">New customer request is saved locally and queued when offline sync is active.</div>
+                <div className="pos-placeholder-card">New customer request is saved and queued when offline sync is active.</div>
               </section>
             </div>
             <div className="sales-drawer-actions">
@@ -1115,12 +1115,12 @@ export default function SalesCartCard({
                 <label>Delivery Address<input value={deliveryAddress} onChange={(event) => onDeliveryAddressChange(event.target.value)} placeholder="Delivery address" /></label>
                 <label>WhatsApp<input value={deliveryWhatsApp} onChange={(event) => onDeliveryWhatsAppChange(event.target.value)} placeholder="+263" /></label>
                 <label>Delivery Notes<textarea value={deliveryNotes} onChange={(event) => onDeliveryNotesChange(event.target.value)} placeholder="Delivery notes" rows={3} /></label>
-                <div className="pos-placeholder-card">Delivery, iDeliver broadcast, fulfilment code, and WhatsApp message drafts stay local until sale completion.</div>
+                <div className="pos-placeholder-card">Delivery, iDeliver broadcast, fulfilment code, and WhatsApp message drafts are prepared with sale completion.</div>
               </section>
             </div>
             <div className="sales-drawer-actions">
-              <button type="button" className="sci-pos-button sci-pos-button--primary" disabled={!canSaveDelivery} onClick={() => { onDeliveryDetailsSaved(); emitCheckoutActivity('CHECKOUT_DELIVERY_SAVED', 'Delivery details saved locally.'); setDeliveryDrawerOpen(false); }}>Save Delivery Details</button>
-              <button type="button" className="sci-pos-button sci-pos-button--secondary" disabled={!canBroadcastDelivery || deliveryMode !== 'iDeliver Service'} onClick={() => { onPrepareIDeliverRequest(); emitCheckoutActivity('CHECKOUT_IDELIVER_REQUEST_PREPARED', 'Local iDeliver request prepared.'); }}>Prepare iDeliver Request</button>
+              <button type="button" className="sci-pos-button sci-pos-button--primary" disabled={!canSaveDelivery} onClick={() => { onDeliveryDetailsSaved(); emitCheckoutActivity('CHECKOUT_DELIVERY_SAVED', 'Delivery details saved.'); setDeliveryDrawerOpen(false); }}>Save Delivery Details</button>
+              <button type="button" className="sci-pos-button sci-pos-button--secondary" disabled={!canBroadcastDelivery || deliveryMode !== 'iDeliver Service'} onClick={() => { onPrepareIDeliverRequest(); emitCheckoutActivity('CHECKOUT_IDELIVER_REQUEST_PREPARED', 'iDeliver request prepared.'); }}>Prepare iDeliver Request</button>
               <button type="button" className="sci-pos-button sci-pos-button--secondary" onClick={onGenerateDeliveryCode}>Generate Fulfilment Code</button>
               <button type="button" className="sci-pos-button sci-pos-button--secondary" onClick={onPrepareDeliveryWhatsApp}>Prepare WhatsApp Message</button>
               {checkoutStartedFromCartItems && <button type="button" className="sci-pos-button sci-pos-button--secondary" onClick={backToCartItemsFromCheckout}>Back to Cart Items</button>}

@@ -44,6 +44,7 @@ export default function ReceiptOutputModal({
   const balance = Math.max(0, receipt.grandTotal - paid);
   const change = Math.max(0, paid - receipt.grandTotal);
   const customerPhone = receipt.customer.customerWhatsApp || receipt.customer.customerPhone || '';
+  const terminalName = receipt.businessDetails.terminalName || receipt.terminal;
 
   const runPrint = (mode: 'print' | 'pdf') => {
     if (mode === 'print') {
@@ -87,8 +88,8 @@ export default function ReceiptOutputModal({
         <div className="receipt-output-body">
           <div className="receipt-output-summary">
             <div><span>Business</span><strong>{receipt.businessDetails.businessName}</strong></div>
-            <div><span>Branch</span><strong>{receipt.branch}</strong></div>
-            <div><span>Terminal</span><strong>{receipt.terminal}</strong></div>
+            <div><span>Branch</span><strong>{receipt.businessDetails.branch || receipt.branch}</strong></div>
+            <div><span>Terminal</span><strong>{terminalName}</strong></div>
             <div><span>Cashier</span><strong>{receipt.cashier}</strong></div>
             <div><span>Receipt No.</span><strong>{receipt.receiptNumber}</strong></div>
             <div><span>Date / Time</span><strong>{new Date(receipt.dateTime).toLocaleString()}</strong></div>

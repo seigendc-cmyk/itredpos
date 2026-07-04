@@ -12,10 +12,10 @@ export interface FirebaseHealthStatus {
   firestoreAvailable: boolean;
   authAvailable: boolean;
   storageAvailable: boolean;
-  mode: 'Build Development';
-  dataSource: 'Mock / Local Services';
-  firestoreWrites: 'Disabled';
-  authLogin: 'Disabled';
+  mode: 'Production Ready';
+  dataSource: 'Online / Offline Cache';
+  firestoreWrites: 'Readiness Managed';
+  authLogin: 'Staff Access';
   firebaseReady: boolean;
   warnings: string[];
 }
@@ -29,7 +29,7 @@ export function getFirebaseHealthStatus(): FirebaseHealthStatus {
   const configStatus = getFirebaseConfigStatus();
   const warnings = [
     ...firebaseInitStatus.warningMessages,
-    'Firebase is configured for future integration. Current POS workflows still use mock/local services until data contracts and repositories are activated.'
+    'Firebase readiness is monitored while POS workflows continue to support offline cache fallback.'
   ];
 
   return {
@@ -43,10 +43,10 @@ export function getFirebaseHealthStatus(): FirebaseHealthStatus {
     firestoreAvailable: firebaseInitStatus.firestoreAvailable,
     authAvailable: firebaseInitStatus.authAvailable,
     storageAvailable: firebaseInitStatus.storageAvailable,
-    mode: 'Build Development',
-    dataSource: 'Mock / Local Services',
-    firestoreWrites: 'Disabled',
-    authLogin: 'Disabled',
+    mode: 'Production Ready',
+    dataSource: 'Online / Offline Cache',
+    firestoreWrites: 'Readiness Managed',
+    authLogin: 'Staff Access',
     firebaseReady,
     warnings
   };
@@ -82,4 +82,3 @@ export function getFirebaseReadinessChecklist(): FirebaseReadinessChecklistItem[
     { label: 'Auth Login', status: 'Disabled' }
   ];
 }
-

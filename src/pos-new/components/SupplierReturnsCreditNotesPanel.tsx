@@ -11,7 +11,7 @@ export default function SupplierReturnsCreditNotesPanel() {
 
   return (
     <section className="creditors-panel">
-      <div className="creditors-panel-header"><div><span>Supplier Returns / Credit Notes</span><h3>Supplier return records and credit note placeholders</h3></div></div>
+      <div className="creditors-panel-header"><div><span>Supplier Returns / Credit Notes</span><h3>Supplier return records and credit note reviews</h3></div></div>
       {summary && <div className="creditors-summary-grid">
         <div className="creditors-summary-card"><span>Pending Credit Notes</span><strong>{summary.creditNotesPending}</strong></div>
         <div className="creditors-summary-card"><span>Posted Returns</span><strong>{summary.postedReturns}</strong></div>

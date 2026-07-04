@@ -32,6 +32,7 @@ import { createProductMasterDraft, deleteProductMasterPlaceholder, getProductMas
 import { enqueueOfflineAction, getNetworkStatus } from './offlineSyncService';
 import { postInventoryMovement } from './inventoryMovementService';
 import { productMasterToPosProduct, upsertLocalProducts } from '../utils/localProductStore';
+import { ENABLE_MOCK_SEED_DATA, getActiveVendorId, readVendorScopedList, writeVendorScopedList } from '../utils/vendorDataMode';
 
 const BATCH_KEY = 'itred_pos_product_import_batches_v1';
 const ROW_KEY = 'itred_pos_product_import_rows_v1';
@@ -40,11 +41,11 @@ const ACTIVITY_KEY = 'itred_pos_product_import_activity_v1';
 const OPENING_BALANCE_DRAFT_KEY = 'itred_pos_product_import_opening_balance_drafts_v1';
 const IMPORT_EXECUTION_LOG_KEY = 'itred_pos_product_import_execution_logs_v1';
 
-let ramBatches = [...mockProductImportBatches];
-let ramRows = [...mockProductImportRows];
-let ramMappings = [...mockProductImportColumnMappings];
-let ramActivity = [...mockProductImportActivityEvents];
-let ramOpeningBalanceDrafts: OpeningBalanceDraftFromImport[] = [...mockOpeningBalanceDraftsFromImport];
+let ramBatches = ENABLE_MOCK_SEED_DATA ? [...mockProductImportBatches] : [];
+let ramRows = ENABLE_MOCK_SEED_DATA ? [...mockProductImportRows] : [];
+let ramMappings = ENABLE_MOCK_SEED_DATA ? [...mockProductImportColumnMappings] : [];
+let ramActivity = ENABLE_MOCK_SEED_DATA ? [...mockProductImportActivityEvents] : [];
+let ramOpeningBalanceDrafts: OpeningBalanceDraftFromImport[] = ENABLE_MOCK_SEED_DATA ? [...mockOpeningBalanceDraftsFromImport] : [];
 
 interface ProductImportExecutionLog {
   logId: string;
@@ -63,43 +64,14 @@ interface ProductImportExecutionLog {
   rolledBackByStaffId?: string;
 }
 
-function storageAvailable(): boolean {
-  try {
-    if (typeof localStorage === 'undefined') return false;
-    const key = '__pim_storage_test__';
-    localStorage.setItem(key, '1');
-    localStorage.removeItem(key);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
 function readList<T>(key: string, fallback: T[], ram: T[]): T[] {
-  if (!storageAvailable()) return ram;
-  try {
-    const raw = localStorage.getItem(key);
-    if (!raw) {
-      localStorage.setItem(key, JSON.stringify(fallback));
-      return [...fallback];
-    }
-    const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed : [...fallback];
-  } catch {
-    return [...fallback];
-  }
+  const rows = readVendorScopedList<T>(key, fallback);
+  return rows.length > 0 || ram.length === 0 ? rows : ram;
 }
 
 function writeList<T>(key: string, value: T[], setRam: (next: T[]) => void): T[] {
   setRam(value);
-  if (storageAvailable()) {
-    try {
-      localStorage.setItem(key, JSON.stringify(value));
-    } catch {
-      // Keep RAM copy if localStorage is full or unavailable.
-    }
-  }
-  return value;
+  return writeVendorScopedList(key, value);
 }
 
 function batches(): ProductImportBatch[] {
@@ -147,14 +119,7 @@ function importExecutionLogs(): ProductImportExecutionLog[] {
 }
 
 function saveImportExecutionLogs(next: ProductImportExecutionLog[]): ProductImportExecutionLog[] {
-  if (storageAvailable()) {
-    try {
-      localStorage.setItem(IMPORT_EXECUTION_LOG_KEY, JSON.stringify(next));
-    } catch {
-      // Local execution log best effort only.
-    }
-  }
-  return next;
+  return writeVendorScopedList(IMPORT_EXECUTION_LOG_KEY, next);
 }
 
 function now(): string {
@@ -290,12 +255,12 @@ function generateStableSku(productName: string, rowNumber: number): string {
 
 function branchNameFromId(branchId?: string): string {
   if (branchId === 'BR-BYO') return 'Bulawayo Branch';
-  return 'Harare Main';
+  return 'Main Branch';
 }
 
 function warehouseNameFromId(warehouseId?: string): string {
   if (warehouseId === 'WH-BYO-01') return 'Bulawayo Branch Warehouse';
-  return 'Harare Spares Depot';
+  return 'Main Warehouse';
 }
 
 function rowSku(row: ProductImportRow): string {
@@ -309,8 +274,8 @@ function rowQuantity(row: ProductImportRow): number {
 
 function normalizeImportedProduct(product: ProductMasterRecord, row: ProductImportRow, stock: number): Product {
   const mapped = row.mappedProduct;
-  const branchId = String(mapped.branchId || 'BR-HARARE');
-  const warehouseId = String(mapped.warehouseId || 'WH-HARARE-01');
+  const branchId = String(mapped.branchId || 'main-branch');
+  const warehouseId = String(mapped.warehouseId || 'main-warehouse');
   return {
     ...productMasterToPosProduct(product, stock),
     branchId,
@@ -653,7 +618,7 @@ export async function createProductDraftFromImportRow(row: ProductImportRow): Pr
   const mapped = row.mappedProduct;
   const productName = String(mapped.productName || 'Imported Product Draft');
   return createProductMasterDraft({
-    vendorId: 'SCI-LOG-ZW',
+    vendorId: getActiveVendorId(),
     productCode: String(mapped.sku || mapped.barcode || mapped.alu || `IMP-${Date.now()}`),
     sku: String(mapped.sku || mapped.barcode || mapped.alu || `IMP-${Date.now()}`),
     barcode: mapped.barcode ? String(mapped.barcode) : undefined,
@@ -784,8 +749,8 @@ export async function createOpeningBalanceDraftFromImportRow(row: ProductImportR
     rowNumber: row.rowNumber,
     sku: row.mappedProduct.sku ? String(row.mappedProduct.sku) : undefined,
     productName: String(row.mappedProduct.productName || 'Imported Product Draft'),
-    branchId: String(row.mappedProduct.branchId || 'BR-HARARE'),
-    warehouseId: String(row.mappedProduct.warehouseId || 'WH-HARARE-01'),
+    branchId: String(row.mappedProduct.branchId || 'main-branch'),
+    warehouseId: String(row.mappedProduct.warehouseId || 'main-warehouse'),
     shelfLocation: row.mappedProduct.shelfLocation ? String(row.mappedProduct.shelfLocation) : undefined,
     importedQty: qty,
     unitCost: parseNumber(row.mappedProduct.costPrice) || 0,

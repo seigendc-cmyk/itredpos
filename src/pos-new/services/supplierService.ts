@@ -9,6 +9,7 @@ import { createOperationalApproval } from './approvalService';
 import { createBIAdviceFromTrigger } from './biAdviceService';
 import { ensureSupplierCreditProfileFromSupplier, getSupplierCreditProfiles } from './creditorsService';
 import { createTask } from './taskService';
+import { getActiveVendorId } from '../utils/vendorDataMode';
 
 const SUPPLIER_KEY = 'itred_pos_supplier_records_v1';
 const SUPPLIER_ACTIVITY_KEY = 'itred_pos_supplier_activity_v1';
@@ -294,7 +295,7 @@ async function createSupplierWarningsAndTasks(supplier: SupplierRecord, poId?: s
       assignedStaffId: 'CREDITORS-DESK',
       assignedStaffName: 'Creditors Desk',
       priority: poValue >= 5000 ? 'High' : 'Medium',
-      description: `Review local/mock supplier ${supplier.supplierName} created from Purchase Order ${poId || 'draft'}.`,
+      description: `Review supplier ${supplier.supplierName} created from Purchase Order ${poId || 'draft'}.`,
       notes: 'Created by supplier auto-creation workflow.',
       createdBy: supplier.createdBy,
       linkedSupplierId: supplier.supplierId
@@ -302,9 +303,9 @@ async function createSupplierWarningsAndTasks(supplier: SupplierRecord, poId?: s
   }
   if (supplier.paymentTermsDays > 0 || supplier.creditLimit > 0) {
     await createOperationalApproval({
-      vendorId: 'SCI-LOG-ZW',
-      branchId: 'BR-HARARE',
-      branch: 'Harare Main',
+      vendorId: getActiveVendorId(),
+      branchId: 'main-branch',
+      branch: 'Main Branch',
       category: 'Purchase Order',
       requestedBy: supplier.createdBy,
       requestedByRole: 'Stock Controller',
@@ -312,7 +313,7 @@ async function createSupplierWarningsAndTasks(supplier: SupplierRecord, poId?: s
       amountOrValue: `${supplier.paymentTermsDays} days / ${supplier.creditLimit.toFixed(2)}`,
       risk: supplier.creditLimit > 0 ? 'High' : 'Medium',
       reason: 'SUPPLIER_CREDIT_PROFILE_REVIEW',
-      context: 'Local/mock supplier credit profile review placeholder from PO supplier creation.',
+      context: 'Supplier credit profile review from PO supplier creation.',
       approvalType: 'SUPPLIER_CREDIT_PROFILE_REVIEW',
       requiredPermission: 'approvals.approve'
     });

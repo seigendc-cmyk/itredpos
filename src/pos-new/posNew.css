@@ -194,6 +194,34 @@ th {
   z-index: 50;
 }
 
+.pos-trial-plan-chip {
+  align-items: center;
+  background: rgba(255, 247, 237, 0.98);
+  border: 1px solid #fdba74;
+  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.16);
+  color: #9a3412;
+  display: inline-flex;
+  gap: 0.45rem;
+  padding: 7px 10px;
+  position: fixed;
+  right: 16px;
+  top: 56px;
+  z-index: 50;
+}
+
+.pos-trial-plan-chip strong,
+.pos-trial-plan-chip span {
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+.pos-trial-plan-chip span {
+  color: #7c2d12;
+  font-weight: 750;
+}
+
 .pos-demo-watermark {
   color: rgba(245, 158, 11, 0.12);
   font-size: clamp(52px, 12vw, 160px);

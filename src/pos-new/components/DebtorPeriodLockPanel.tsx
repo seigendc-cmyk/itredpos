@@ -32,8 +32,8 @@ export default function DebtorPeriodLockPanel({ staffName, customerId = 'PERIOD'
     if (action === 'Lock') await lockDebtorPeriod(lock.periodLockId, staffName, note || 'Locked locally.');
     if (action === 'Unlock') await requestDebtorPeriodUnlock(lock.periodLockId, staffName, note || 'Unlock requested locally.');
     if (action === 'Temporary') await approveTemporaryDebtorUnlock(lock.periodLockId, staffName, new Date(Date.now() + 86400000).toISOString(), note || 'Temporary unlock approved locally.');
-    if (action === 'Close') await closeDebtorPeriod(lock.periodLockId, staffName, note || 'Closed locally.');
-    onNotice(`Period ${action.toLowerCase()} action completed locally.`);
+    if (action === 'Close') await closeDebtorPeriod(lock.periodLockId, staffName, note || 'Closed.');
+    onNotice(`Period ${action.toLowerCase()} action completed.`);
     load();
   };
 

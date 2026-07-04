@@ -1,10 +1,13 @@
 import type { CheckWriterRecord } from '../types/posTypes';
+import { getVendorDocumentIdentity } from '../vendor/vendorBootstrapModel';
 
 export default function CheckPrintPreviewDocument({ check, businessName }: { check: CheckWriterRecord; businessName: string }) {
+  const identity = getVendorDocumentIdentity();
+  const documentBusinessName = identity.displayName || businessName;
   return (
     <div className="check-print-document">
       <header>
-        <strong>{businessName}</strong>
+        <strong>{documentBusinessName}</strong>
         <span>Check / Payment Voucher Preview</span>
       </header>
       <div className="check-print-grid">

@@ -14,6 +14,8 @@ import {
 import { createOperationalApproval } from './approvalService';
 import { createGRNDraftFromPO, getPOReceivingSummary } from './goodsReceivingService';
 import { flagPOSupplierNotInRecords, recordSupplierActivity } from './supplierService';
+import { getVendorDocumentIdentity } from '../vendor/vendorBootstrapModel';
+import { readVendorScopedList, writeVendorScopedList } from '../utils/vendorDataMode';
 
 const PO_KEY = 'itred_pos_purchase_orders_v1';
 const PO_LINE_KEY = 'itred_pos_purchase_order_lines_v1';
@@ -33,34 +35,12 @@ type PurchaseOrderPatch = Partial<Omit<PurchaseOrder, 'poId' | 'createdAt'>> & {
 };
 
 function readList<T>(key: string, fallback: T[], isValid: (value: unknown) => boolean): T[] {
-  if (typeof localStorage === 'undefined') return fallback;
-  try {
-    const raw = localStorage.getItem(key);
-    if (!raw) {
-      localStorage.setItem(key, JSON.stringify(fallback));
-      return fallback;
-    }
-    const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) && parsed.every(isValid) ? parsed as T[] : fallback;
-  } catch {
-    try {
-      localStorage.setItem(key, JSON.stringify(fallback));
-    } catch {
-      // Local storage can be unavailable in restricted browser modes.
-    }
-    return fallback;
-  }
+  const rows = readVendorScopedList<T>(key, fallback);
+  return rows.every(isValid) ? rows : [];
 }
 
 function saveList<T>(key: string, value: T[]): T[] {
-  if (typeof localStorage !== 'undefined') {
-    try {
-      localStorage.setItem(key, JSON.stringify(value));
-    } catch {
-      // Purchase Orders remain in memory for the current action if persistence fails.
-    }
-  }
-  return value;
+  return writeVendorScopedList(key, value);
 }
 
 function isPO(value: unknown): boolean {
@@ -412,6 +392,7 @@ export async function createGoodsReceivingDraftFromPO(poId: string): Promise<{ m
 export async function exportPurchaseOrderPlaceholder(poId: string): Promise<{ success: boolean; message: string }> {
   const order = await getPurchaseOrderById(poId);
   if (!order) return { success: false, message: 'Purchase Order not found.' };
+  const identity = getVendorDocumentIdentity({ vendorId: order.vendorId, branchId: order.branchId || order.deliveryBranchId, warehouseId: order.warehouseId || order.deliveryWarehouseId });
   if (!hasLinkedSupplier(order)) {
     await recordSupplierValidationFailure(order, `${order.poNumber} supplier must be selected or created before export preparation.`);
     return { success: false, message: 'Supplier must be selected or created before preparing Purchase Order export.' };
@@ -420,9 +401,9 @@ export async function exportPurchaseOrderPlaceholder(poId: string): Promise<{ su
     order,
     'PURCHASE_ORDER_EXPORT_PREPARED',
     order.requestedByStaffName,
-    `${order.poNumber} export prepared. No financial posting created.`
+    `${order.poNumber} export prepared for ${identity.displayName}. No financial posting created.`
   );
-  return { success: true, message: `${order.poNumber} export prepared.` };
+  return { success: true, message: `${order.poNumber} export prepared for ${identity.displayName}.` };
 }
 
 export async function getPurchaseOrderActivityEvents(poId?: string, includeAll = false): Promise<PurchaseOrderActivityEvent[]> {

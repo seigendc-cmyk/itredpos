@@ -89,7 +89,7 @@ export default function PosFinancialControl({ session }: PosFinancialControlProp
             </p>
           </div>
           <div className="border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-800 max-w-xl">
-            Build-development control layer only. It reads local POS activity and COA placeholders; it does not post final accounts or connect to vendor consoles.
+            Finance control view for reviewing POS activity, chart of accounts readiness, and posting preparation.
           </div>
           <div className="flex flex-wrap gap-2">
             <button type="button" className="sci-pos-button sci-pos-button--primary" onClick={() => openCheck()}>

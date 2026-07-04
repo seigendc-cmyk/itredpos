@@ -19,6 +19,8 @@ import { createOperationalApproval } from './approvalService';
 import { getGoodsReceivingLines, getGoodsReceivingNoteById } from './goodsReceivingService';
 import { postSupplierReturnMovement } from './inventoryMovementService';
 import { loadInventoryMovements } from '../utils/localInventoryStore';
+import { getVendorDocumentIdentity } from '../vendor/vendorBootstrapModel';
+import { readVendorScopedList, writeVendorScopedList } from '../utils/vendorDataMode';
 
 const RETURN_KEY = 'itred_pos_supplier_returns_v1';
 const RETURN_LINE_KEY = 'itred_pos_supplier_return_lines_v1';
@@ -39,34 +41,12 @@ export interface SupplierReturnPostingResult {
 }
 
 function readList<T>(key: string, fallback: T[], isValid: (value: unknown) => boolean): T[] {
-  if (typeof localStorage === 'undefined') return fallback;
-  try {
-    const raw = localStorage.getItem(key);
-    if (!raw) {
-      localStorage.setItem(key, JSON.stringify(fallback));
-      return fallback;
-    }
-    const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) && parsed.every(isValid) ? parsed as T[] : fallback;
-  } catch {
-    try {
-      localStorage.setItem(key, JSON.stringify(fallback));
-    } catch {
-      // Local browser persistence can be blocked; keep the mock flow usable.
-    }
-    return fallback;
-  }
+  const rows = readVendorScopedList<T>(key, fallback);
+  return rows.every(isValid) ? rows : [];
 }
 
 function saveList<T>(key: string, value: T[]): T[] {
-  if (typeof localStorage !== 'undefined') {
-    try {
-      localStorage.setItem(key, JSON.stringify(value));
-    } catch {
-      // Ignore persistence failure in local/mock mode.
-    }
-  }
-  return value;
+  return writeVendorScopedList(key, value);
 }
 
 function hasKeys(...keys: string[]) {
@@ -698,8 +678,9 @@ export async function cancelSupplierReturn(supplierReturnId: string, staffId: st
 export async function exportSupplierReturnPlaceholder(supplierReturnId: string): Promise<{ message: string; payload: { record: SupplierReturn | null; lines: SupplierReturnLine[] } }> {
   const record = await getSupplierReturnById(supplierReturnId);
   const lines = record ? await getSupplierReturnLines(supplierReturnId) : [];
+  const identity = record ? getVendorDocumentIdentity({ vendorId: record.vendorId, branchId: record.branchId, warehouseId: record.warehouseId }) : null;
   return {
-    message: record ? `${record.supplierReturnNumber} export prepared.` : 'Supplier Return not found.',
+    message: record ? `${record.supplierReturnNumber} export prepared for ${identity?.displayName || 'vendor'}.` : 'Supplier Return not found.',
     payload: { record, lines }
   };
 }

@@ -1,10 +1,13 @@
 import type { JournalEntryRecord } from '../types/posTypes';
+import { getVendorDocumentIdentity } from '../vendor/vendorBootstrapModel';
 
 export default function JournalEntryPrintDocument({ journal, businessName }: { journal: JournalEntryRecord; businessName: string }) {
+  const identity = getVendorDocumentIdentity();
+  const documentBusinessName = identity.displayName || businessName;
   return (
     <div className="check-print-document">
       <header>
-        <strong>{businessName}</strong>
+        <strong>{documentBusinessName}</strong>
         <span>Journal Entry Readiness Preview</span>
       </header>
       <div className="check-print-grid">

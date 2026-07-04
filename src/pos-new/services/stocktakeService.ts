@@ -23,6 +23,7 @@ import {
 } from '../mock/mockPosData';
 import { createOperationalApproval } from './approvalService';
 import { calculateRunningBalance, postStocktakeAdjustmentMovement } from './inventoryMovementService';
+import { getVendorDocumentIdentity } from '../vendor/vendorBootstrapModel';
 
 const SESSION_KEY = 'itred_pos_stocktake_sessions_v1';
 const LINE_KEY = 'itred_pos_stocktake_lines_v1';
@@ -669,8 +670,9 @@ export async function cancelStocktake(stocktakeId: string, staffId: string, reas
 export async function exportStocktakePlaceholder(stocktakeId: string): Promise<{ message: string; payload: { record: StocktakeSession | null; lines: StocktakeLine[] } }> {
   const record = await getStocktakeSessionById(stocktakeId);
   const lines = record ? await getStocktakeLines(stocktakeId) : [];
+  const identity = record ? getVendorDocumentIdentity({ vendorId: record.vendorId, branchId: record.branchId, warehouseId: record.warehouseId }) : null;
   return {
-    message: record ? `${record.stocktakeNumber} export prepared locally.` : 'Stocktake not found.',
+    message: record ? `${record.stocktakeNumber} export prepared for ${identity?.displayName || 'vendor'}.` : 'Stocktake not found.',
     payload: { record, lines }
   };
 }

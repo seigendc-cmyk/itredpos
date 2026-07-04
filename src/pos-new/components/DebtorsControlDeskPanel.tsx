@@ -243,8 +243,8 @@ export default function DebtorsControlDeskPanel({
           <label className="pos-credit-checkbox"><input disabled={!canManagePolicy} type="checkbox" checked={policy.requireApprovalIfOverdue} onChange={(event) => updatePolicy('requireApprovalIfOverdue', event.target.checked)} /> Require Approval If Overdue</label>
         </div>
         <div className="pos-new-customer-modal__actions">
-          <button type="button" className="sci-pos-button sci-pos-button--primary" disabled={!canManagePolicy} onClick={() => { saveCreditPolicySettings(policy); onNotice('Credit policy saved locally.'); }}>Save Policy</button>
-          <button type="button" className="sci-pos-button sci-pos-button--secondary" disabled={!canManagePolicy} onClick={() => { const next = resetCreditPolicySettings(); setPolicy(next); onNotice('Credit policy reset locally.'); }}>Reset Defaults</button>
+          <button type="button" className="sci-pos-button sci-pos-button--primary" disabled={!canManagePolicy} onClick={() => { saveCreditPolicySettings(policy); onNotice('Credit policy saved.'); }}>Save Policy</button>
+          <button type="button" className="sci-pos-button sci-pos-button--secondary" disabled={!canManagePolicy} onClick={() => { const next = resetCreditPolicySettings(); setPolicy(next); onNotice('Credit policy reset.'); }}>Reset Defaults</button>
         </div>
       </section>
 

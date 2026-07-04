@@ -37,6 +37,7 @@ import {
   searchProductsAnyOrder
 } from '../services/purchaseOrderProductService';
 import { canPerformAction } from '../utils/posPermissions';
+import { getActiveVendorId } from '../utils/vendorDataMode';
 
 type WindowState = 'normal' | 'minimized' | 'maximized';
 
@@ -222,7 +223,7 @@ export default function PurchaseOrderForm({
   });
   const [deliveryBranchId, setDeliveryBranchId] = useState(order?.deliveryBranchId || activeBranch);
   const [deliveryWarehouseId, setDeliveryWarehouseId] = useState(order?.deliveryWarehouseId || 'Main Warehouse');
-  const [deliveryAddress, setDeliveryAddress] = useState(order?.deliveryAddress || 'Harare Main receiving bay');
+  const [deliveryAddress, setDeliveryAddress] = useState(order?.deliveryAddress || 'Main Branch receiving bay');
   const [deliveryNotes, setDeliveryNotes] = useState('');
   const [internalMemo, setInternalMemo] = useState(order?.internalMemo || '');
   const [termsAndConditions, setTermsAndConditions] = useState(order?.termsAndConditions || 'Supplier invoice and GRN required before stock is updated.');
@@ -306,7 +307,7 @@ export default function PurchaseOrderForm({
     });
     setDeliveryBranchId(order?.deliveryBranchId || activeBranch);
     setDeliveryWarehouseId(order?.deliveryWarehouseId || 'Main Warehouse');
-    setDeliveryAddress(order?.deliveryAddress || 'Harare Main receiving bay');
+    setDeliveryAddress(order?.deliveryAddress || 'Main Branch receiving bay');
     setDeliveryNotes('');
     setInternalMemo(order?.internalMemo || '');
     setTermsAndConditions(order?.termsAndConditions || 'Supplier invoice and GRN required before stock is updated.');
@@ -523,7 +524,7 @@ export default function PurchaseOrderForm({
       });
       setProductCreateOpen(false);
       recordPOProductActivity('PRODUCT_CREATED_FROM_PURCHASE_ORDER', `${product.productName} saved as Product Master draft from Purchase Order.`, staffId || staffName, product.productId, poId || poNumber);
-      setFeedback('Product draft saved locally. No stock quantity was created.');
+      setFeedback('Product draft saved. No stock quantity was created.');
     } catch (error) {
       setFeedback(error instanceof Error ? error.message : 'Product draft could not be saved.');
     }
@@ -663,7 +664,7 @@ export default function PurchaseOrderForm({
   };
 
   const buildPayload = () => ({
-    vendorId: order?.vendorId || 'SCI-LOG-ZW',
+    vendorId: order?.vendorId || getActiveVendorId(),
     branchId: deliveryBranchId,
     warehouseId: deliveryWarehouseId,
     supplierId,
@@ -734,7 +735,7 @@ export default function PurchaseOrderForm({
     setPoNumber(saved.poNumber);
     setStatus(saved.status);
     setFeedback(`${saved.poNumber} saved. No stock, accounting or cashbook posting was created.`);
-    onChanged('Purchase Order saved locally.');
+    onChanged('Purchase Order saved.');
     return saved;
   };
 
@@ -761,7 +762,7 @@ export default function PurchaseOrderForm({
     const targetPoId = poId || order?.poId;
     if (!(await ensureSupplierLinked())) return;
     if (!targetPoId) return;
-    const approved = await approvePurchaseOrder(targetPoId, staffId || staffName, 'Owner/authorized build-development approval.');
+    const approved = await approvePurchaseOrder(targetPoId, staffId || staffName, 'Owner/authorized approval.');
     if (approved) {
       setStatus(approved.status);
       setFeedback(`${approved.poNumber} approved. It remains a memo only until Goods Receiving posts quantities.`);
@@ -1042,7 +1043,7 @@ export default function PurchaseOrderForm({
                   <div className="bg-[#1e222b] text-white border-b-2 border-orange-500 px-4 py-3 flex items-center justify-between">
                     <div>
                       <div className="text-[10px] uppercase font-black tracking-wider">Create Supplier Record</div>
-                      <div className="text-[8px] uppercase text-slate-300">Source: Purchase Order. Local/mock supplier record only.</div>
+                      <div className="text-[8px] uppercase text-slate-300">Source: Purchase Order. Supplier record prepared for review.</div>
                     </div>
                     <button type="button" onClick={() => setSupplierCreateOpen(false)} className="p-1 border border-slate-700 hover:bg-slate-800"><X className="w-3.5 h-3.5" /></button>
                   </div>

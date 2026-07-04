@@ -15,6 +15,7 @@ import { createAccountingPostingPlaceholder } from './accountingService';
 import { createBIAdviceFromTrigger } from './biAdviceService';
 import { releaseReserveForSupplierPayment, validateCOGSReserveForSupplierPayment } from './cogsReserveService';
 import { recordSupplierPaymentCashImpact } from './cashControlService';
+import { getActiveVendorId, readVendorScopedList, writeVendorScopedList } from '../utils/vendorDataMode';
 
 const PROFILE_KEY = 'itred_pos_supplier_credit_profiles_v1';
 const BILL_KEY = 'itred_pos_supplier_bills_v1';
@@ -41,43 +42,25 @@ function addDays(date: string, days: number): string {
 }
 
 function readList<T>(key: string, fallback: T[] = []): T[] {
-  if (typeof localStorage === 'undefined') return fallback;
-  try {
-    const raw = localStorage.getItem(key);
-    if (!raw) {
-      localStorage.setItem(key, JSON.stringify(fallback));
-      return fallback;
-    }
-    const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed as T[] : fallback;
-  } catch {
-    return fallback;
-  }
+  return readVendorScopedList<T>(key, fallback);
 }
 
 function saveList<T>(key: string, value: T[]): T[] {
-  if (typeof localStorage !== 'undefined') {
-    try {
-      localStorage.setItem(key, JSON.stringify(value));
-    } catch {
-      // Local/mock storage can fail in restricted modes.
-    }
-  }
-  return value;
+  return writeVendorScopedList(key, value);
 }
 
 const seedProfiles: SupplierCreditProfile[] = [
-  { supplierId: 'SUP-LD', supplierName: 'Local Distributors', supplierCode: 'LD-001', creditStatus: 'CreditAllowed', paymentTermsDays: 30, supplierCreditLimit: 6500, currentPayableBalance: 1240, overduePayableBalance: 420, availableSupplierCredit: 5260, averageDaysToPay: 26, latePaymentCount: 1, disputedAmount: 0, preferredSupplier: true, lastPaymentDate: '2026-06-08', nextReviewDate: '2026-07-14', notes: 'Build Development supplier credit profile.', updatedAt: nowIso() },
-  { supplierId: 'SUP-MOTOR', supplierName: 'Motor Parts Wholesale', supplierCode: 'MPW-002', creditStatus: 'ManagerApprovalRequired', paymentTermsDays: 14, supplierCreditLimit: 3000, currentPayableBalance: 2680, overduePayableBalance: 1180, availableSupplierCredit: 320, averageDaysToPay: 38, latePaymentCount: 4, disputedAmount: 220, preferredSupplier: false, blockedReason: 'Near limit and overdue invoices.', nextReviewDate: '2026-06-20', notes: 'Build Development high-risk creditor example.', updatedAt: nowIso() }
+  { supplierId: 'SUP-LD', supplierName: 'Local Distributors', supplierCode: 'LD-001', creditStatus: 'CreditAllowed', paymentTermsDays: 30, supplierCreditLimit: 6500, currentPayableBalance: 1240, overduePayableBalance: 420, availableSupplierCredit: 5260, averageDaysToPay: 26, latePaymentCount: 1, disputedAmount: 0, preferredSupplier: true, lastPaymentDate: '2026-06-08', nextReviewDate: '2026-07-14', notes: 'Supplier credit profile.', updatedAt: nowIso() },
+  { supplierId: 'SUP-MOTOR', supplierName: 'Motor Parts Wholesale', supplierCode: 'MPW-002', creditStatus: 'ManagerApprovalRequired', paymentTermsDays: 14, supplierCreditLimit: 3000, currentPayableBalance: 2680, overduePayableBalance: 1180, availableSupplierCredit: 320, averageDaysToPay: 38, latePaymentCount: 4, disputedAmount: 220, preferredSupplier: false, blockedReason: 'Near limit and overdue invoices.', nextReviewDate: '2026-06-20', notes: 'High-risk creditor example.', updatedAt: nowIso() }
 ];
 
 const seedBills: SupplierBill[] = [
-  { billId: 'SUP-BILL-DEV-001', billNumber: 'SB-0001', supplierId: 'SUP-LD', supplierName: 'Local Distributors', supplierInvoiceNumber: 'LD-INV-789', purchaseOrderId: 'PO-ID-0003', purchaseOrderNumber: 'PO-0003', grnId: 'GRN-ID-0001', grnNumber: 'GRN-0001', billDate: today(), dueDate: addDays(today(), 30), originalAmount: 820, paidAmount: 250, outstandingAmount: 570, vatAmount: 106.96, currency: 'USD', status: 'PartiallyPaid', ageingBucket: 'Current', overdueDays: 0, branchId: 'BR-HARARE', warehouseId: 'WH-HARARE-01', createdBy: 'Build 19AO', createdAt: nowIso(), postedAt: nowIso(), notes: 'Build Development part-paid supplier bill.' },
-  { billId: 'SUP-BILL-DEV-002', billNumber: 'SB-0002', supplierId: 'SUP-MOTOR', supplierName: 'Motor Parts Wholesale', supplierInvoiceNumber: 'MPW-INV-448', purchaseOrderId: 'PO-ID-0001', purchaseOrderNumber: 'PO-0001', grnId: 'GRN-ID-0002', grnNumber: 'GRN-0002', billDate: '2026-04-28', dueDate: '2026-05-12', originalAmount: 1180, paidAmount: 0, outstandingAmount: 1180, vatAmount: 153.91, currency: 'USD', status: 'Overdue', ageingBucket: 'Days31To60', overdueDays: 33, branchId: 'BR-HARARE', warehouseId: 'WH-HARARE-01', createdBy: 'Build 19AO', createdAt: nowIso(), postedAt: nowIso(), notes: 'Build Development overdue supplier bill.' }
+  { billId: 'SUP-BILL-DEV-001', billNumber: 'SB-0001', supplierId: 'SUP-LD', supplierName: 'Local Distributors', supplierInvoiceNumber: 'LD-INV-789', purchaseOrderId: 'PO-ID-0003', purchaseOrderNumber: 'PO-0003', grnId: 'GRN-ID-0001', grnNumber: 'GRN-0001', billDate: today(), dueDate: addDays(today(), 30), originalAmount: 820, paidAmount: 250, outstandingAmount: 570, vatAmount: 106.96, currency: 'USD', status: 'PartiallyPaid', ageingBucket: 'Current', overdueDays: 0, branchId: 'BR-HARARE', warehouseId: 'WH-HARARE-01', createdBy: 'Manager', createdAt: nowIso(), postedAt: nowIso(), notes: 'Part-paid supplier bill.' },
+  { billId: 'SUP-BILL-DEV-002', billNumber: 'SB-0002', supplierId: 'SUP-MOTOR', supplierName: 'Motor Parts Wholesale', supplierInvoiceNumber: 'MPW-INV-448', purchaseOrderId: 'PO-ID-0001', purchaseOrderNumber: 'PO-0001', grnId: 'GRN-ID-0002', grnNumber: 'GRN-0002', billDate: '2026-04-28', dueDate: '2026-05-12', originalAmount: 1180, paidAmount: 0, outstandingAmount: 1180, vatAmount: 153.91, currency: 'USD', status: 'Overdue', ageingBucket: 'Days31To60', overdueDays: 33, branchId: 'BR-HARARE', warehouseId: 'WH-HARARE-01', createdBy: 'Manager', createdAt: nowIso(), postedAt: nowIso(), notes: 'Overdue supplier bill.' }
 ];
 
 const seedPayments: SupplierPayment[] = [
-  { paymentId: 'SUP-PAY-DEV-001', paymentNumber: 'SP-0001', supplierId: 'SUP-LD', supplierName: 'Local Distributors', paymentDate: today(), amount: 250, paymentMethod: 'Cash', paymentReference: 'DRAWER-SP-0001', source: 'COGSReserve', cogsReserveAmount: 250, nonReserveAmount: 0, status: 'Paid', approvedBy: 'Owner', approvedAt: nowIso(), paidBy: 'Accountant', paidAt: nowIso(), notes: 'Build Development supplier payment from COGS Reserve.' }
+  { paymentId: 'SUP-PAY-DEV-001', paymentNumber: 'SP-0001', supplierId: 'SUP-LD', supplierName: 'Local Distributors', paymentDate: today(), amount: 250, paymentMethod: 'Cash', paymentReference: 'DRAWER-SP-0001', source: 'COGSReserve', cogsReserveAmount: 250, nonReserveAmount: 0, status: 'Paid', approvedBy: 'Owner', approvedAt: nowIso(), paidBy: 'Accountant', paidAt: nowIso(), notes: 'Supplier payment from COGS Reserve.' }
 ];
 
 function nextNumber(prefix: string, rows: Array<{ [key: string]: string }>, key: string): string {
@@ -98,9 +81,9 @@ async function createCreditorApproval(input: {
   context?: string;
 }) {
   return createOperationalApproval({
-    vendorId: 'SCI-LOG-ZW',
-    branchId: 'BR-HARARE',
-    branch: 'Harare Main',
+    vendorId: getActiveVendorId(),
+    branchId: 'main-branch',
+    branch: 'Main Branch',
     category: 'Purchase Order',
     requestedBy: input.requestedBy,
     requestedByRole: 'Manager',
@@ -108,7 +91,7 @@ async function createCreditorApproval(input: {
     amountOrValue: input.amountOrValue || 'Review',
     risk: input.risk || 'High',
     reason: input.reason,
-    context: input.context || 'Build 19AO local/mock creditors approval placeholder.',
+    context: input.context || 'Creditors approval review.',
     approvalType: input.approvalType,
     requiredPermission: 'approvals.approve'
   });

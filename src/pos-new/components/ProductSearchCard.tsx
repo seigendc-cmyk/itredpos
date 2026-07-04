@@ -24,7 +24,7 @@ interface ProductSearchCardProps {
 
 type StockFilter = 'ALL' | 'IN_STOCK' | 'LOW_STOCK' | 'OUT_OF_STOCK';
 type ViewMode = 'list' | 'grid';
-type QuickCategory = 'ALL' | 'Motor Spares' | 'Hardware' | 'Grocery' | 'Agriculture' | 'Clothing' | 'Furniture' | 'Electronics' | 'Lubricants';
+type QuickCategory = 'ALL' | 'Hardware' | 'Grocery' | 'Agriculture' | 'Clothing' | 'Furniture' | 'Electronics' | 'Lubricants';
 type ProductFieldKey =
   | 'sku'
   | 'productName'
@@ -54,7 +54,6 @@ const defaultVisibleFields: ProductFieldKey[] = ['sku', 'productName', 'brand', 
 
 const quickCategories: QuickCategory[] = [
   'ALL',
-  'Motor Spares',
   'Hardware',
   'Grocery',
   'Agriculture',

@@ -65,6 +65,7 @@ import {
   calculateStockHealthStatus
 } from '../utils/stockHealthUtils';
 import { matchesFreeOrderSearch } from '../utils/searchUtils';
+import { getVendorDocumentIdentity } from '../vendor/vendorBootstrapModel';
 
 const REPORT_EVENT_KEY = 'sci_pos_inventory_report_events';
 
@@ -758,13 +759,19 @@ export async function generateInventoryReport(reportType: InventoryReportType, f
   const definition = getInventoryReportDefinition(reportType);
   const mergedFilters = { ...getInventoryReportDefaultFilters(reportType), ...filters, reportType };
   const rows = await reportRows(reportType, mergedFilters);
+  const identity = getVendorDocumentIdentity({
+    branchId: mergedFilters.branchId || mergedFilters.branch,
+    branchName: mergedFilters.branchName,
+    warehouseId: mergedFilters.warehouseId || mergedFilters.warehouse,
+    warehouseName: mergedFilters.warehouseName
+  });
   const payload: InventoryReportPayload = {
     reportId: `IR-${Date.now()}`,
     reportType,
     reportName: definition.reportName,
-    vendorName: 'SCI / iTred Commerce POS',
-    branchName: mergedFilters.branchName || mergedFilters.branch || mergedFilters.branchId || 'All Branches',
-    warehouseName: mergedFilters.warehouseName || mergedFilters.warehouse || mergedFilters.warehouseId || 'All Warehouses',
+    vendorName: identity.displayName,
+    branchName: mergedFilters.branchName || identity.branchName || mergedFilters.branch || mergedFilters.branchId || 'All Branches',
+    warehouseName: mergedFilters.warehouseName || identity.warehouseName || mergedFilters.warehouse || mergedFilters.warehouseId || 'All Warehouses',
     generatedAt: new Date().toISOString(),
     generatedBy: mergedFilters.staffId || 'Inventory Reports',
     filters: mergedFilters,

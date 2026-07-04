@@ -57,22 +57,21 @@ export default function PosDashboard({
   // Retrieve current active operator name
   const staffName = session?.staffName || 'Admin User';
   const roleName = session?.role || 'Owner';
-  const vendorName = session?.vendor || 'Demo Vendor';
-  const branchName = session?.branch || 'Harare Main';
+  const vendorName = session?.vendor || businessProfile?.tradingName || businessProfile?.legalName || businessProfile?.businessName || 'Business';
+  const branchName = session?.branch || 'Main Branch';
   const terminalName = session?.terminal || 'POS-01';
   const businessSummary = getBusinessProfileDashboardSummary(
     (permissionKey) => roleHasPermission(normalizeSecurityRole(roleName), permissionKey),
     businessProfile
   );
 
-  // State to simulate system notification feedback when quick actions are clicked
-  const [consoleNotification, setConsoleNotification] = useState<string>('Sync Status: Fully Synchronized');
+  const [consoleNotification, setConsoleNotification] = useState<string>('Workspace ready');
   const [notificationType, setNotificationType] = useState<'info' | 'success' | 'warning'>('info');
 
   // Local state for approval queue cards to allow interactive approving
-  const [overridesCount, setOverridesCount] = useState(2);
-  const [refundsCount, setRefundsCount] = useState(1);
-  const [adjustmentsCount, setAdjustmentsCount] = useState(3);
+  const [overridesCount, setOverridesCount] = useState(0);
+  const [refundsCount, setRefundsCount] = useState(0);
+  const [adjustmentsCount, setAdjustmentsCount] = useState(0);
   const [varianceCount, setVarianceCount] = useState(0);
   const [analyticsModal, setAnalyticsModal] = useState<'trading' | 'stock' | null>(null);
 
@@ -296,44 +295,8 @@ export default function PosDashboard({
     }
   };
 
-  // Exact BI alerts mandated by the user specification
-  const BI_ALERTS = [
-    {
-      id: 'AL-109',
-      type: 'LOW_STOCK_REMINDER',
-      severity: 'Medium',
-      message: 'Brake Pads Toyota GD6 below reorder level',
-      time: '15:48:12',
-    },
-    {
-      id: 'AL-110',
-      type: 'PRICE_OVERRIDE_REQUESTED',
-      severity: 'High',
-      message: 'Cashier requested 15% discount on radiator',
-      time: '15:40:02',
-    },
-    {
-      id: 'AL-111',
-      type: 'SALE_BLOCKED_ZERO_STOCK',
-      severity: 'Critical',
-      message: 'Attempted sale of out-of-stock clutch plate',
-      time: '15:21:49',
-    },
-    {
-      id: 'AL-112',
-      type: 'FAILED_TERMINAL_LOGIN',
-      severity: 'Medium',
-      message: 'Failed access attempt on POS-02',
-      time: '14:55:01',
-    },
-    {
-      id: 'AL-113',
-      type: 'RECOMMEND_MAJOR_STOCKTAKE',
-      severity: 'High',
-      message: 'Branch stock variance risk increasing',
-      time: '14:30:15',
-    }
-  ];
+  const BI_ALERTS: Array<{ id: string; type: string; severity: string; message: string; time: string }> = [];
+  const dashboardAlertCount = overridesCount + refundsCount + adjustmentsCount + varianceCount + BI_ALERTS.length;
 
   return (
     <div className="space-y-6 select-none font-mono text-xs text-slate-300">
@@ -396,6 +359,25 @@ export default function PosDashboard({
         </div>
       </div>
 
+      <section className="bg-white border-2 border-[#b1b5c2] p-4 text-[#1e222b]">
+        <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3 mb-4">
+          <div>
+            <p className="text-[9px] text-orange-600 uppercase font-black">Workspace Setup</p>
+            <h2 className="text-sm font-black uppercase">Complete your setup by adding products, creating staff, and opening your first shift.</h2>
+          </div>
+          <button type="button" onClick={() => onNavigate('STOCK')} className="sci-pos-button sci-pos-button--primary">
+            Add Products
+          </button>
+        </div>
+        <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+          <DashboardBusinessMetric label="Sales Today" value={money(tradingSummary.grossSales)} />
+          <DashboardBusinessMetric label="Products" value={String(products.length)} />
+          <DashboardBusinessMetric label="Customers" value="0" />
+          <DashboardBusinessMetric label="Deliveries" value="0" />
+          <DashboardBusinessMetric label="Alerts" value={String(dashboardAlertCount)} />
+        </div>
+      </section>
+
       <div className="bg-white border-2 border-[#b1b5c2] p-3 text-[#1e222b]">
         <div className="flex items-center justify-between gap-3 mb-3">
           <div>
@@ -447,14 +429,14 @@ export default function PosDashboard({
               {/* Metric 1 */}
               <div className="dashboard-analytics-card bg-[#10141e] border border-slate-800 p-4 relative flex flex-col justify-between h-28 hover:border-[#00f0ff] transition-all" onDoubleClick={() => setAnalyticsModal('trading')} title="Double click for trading analytics">
                 <div className="text-[9px] text-slate-500 uppercase font-black tracking-wider leading-none">
-                  Gross Sales (USD)
+                  Sales Today
                 </div>
                 <div className="text-lg font-black text-slate-50 font-mono tracking-tight my-1">
                   {money(tradingSummary.grossSales)}
                 </div>
                 <div className="text-[9px] text-emerald-400 uppercase font-black tracking-widest flex items-center gap-1">
                   <span className="w-1.5 h-1.5 bg-emerald-500 rounded-none shrink-0" />
-                  +12.8% VS PRIOR
+                  {tradingSummary.transactionCount > 0 ? 'Sales recorded' : 'No sales yet'}
                 </div>
               </div>
 
@@ -468,7 +450,7 @@ export default function PosDashboard({
                 </div>
                 <div className="text-[9px] text-indigo-400 uppercase font-black tracking-widest flex items-center gap-1">
                   <span className="w-1.5 h-1.5 bg-indigo-500 rounded-none shrink-0" />
-                  LEDGER POSTED
+                  {tradingSummary.transactionCount > 0 ? 'Receipts posted' : 'No receipts yet'}
                 </div>
               </div>
 
@@ -482,7 +464,7 @@ export default function PosDashboard({
                 </div>
                 <div className="text-[9px] text-cyan-400 uppercase font-black tracking-widest flex items-center gap-1">
                   <span className="w-1.5 h-1.5 bg-cyan-400 rounded-none shrink-0" />
-                  STABLE RANGE
+                  {tradingSummary.transactionCount > 0 ? 'Basket tracked' : 'Awaiting first sale'}
                 </div>
               </div>
 
@@ -496,7 +478,7 @@ export default function PosDashboard({
                 </div>
                 <div className="text-[9px] text-[#00f0ff] uppercase font-black tracking-widest flex items-center gap-1">
                   <span className="w-1.5 h-1.5 bg-[#00f0ff] rounded-none shrink-0" />
-                  DISPATCH ORDERED
+                  {tradingSummary.itemsSold > 0 ? 'Items sold' : 'No items sold'}
                 </div>
               </div>
 
@@ -521,22 +503,22 @@ export default function PosDashboard({
                 <div className="flex items-center justify-between border-b border-slate-900 pb-2">
                   <span className="text-slate-500 uppercase font-bold text-[10px]">Active Shift Lock:</span>
                   <span className="bg-emerald-950/60 border border-emerald-800 text-emerald-400 px-2 py-0.5 text-[9px] font-black tracking-widest uppercase">
-                    [Open / Active]
+                    {activeShift ? '[Open / Active]' : '[Not Open]'}
                   </span>
                 </div>
 
                 <div className="space-y-2 text-[10.5px]">
                   <div className="flex justify-between">
                     <span className="text-slate-500">Opened By:</span>
-                    <span className="text-slate-200 font-bold uppercase">{staffName}</span>
+                    <span className="text-slate-200 font-bold uppercase">{activeShift?.operator || staffName}</span>
                   </div>
                   <div className="flex justify-between">
                     <span className="text-slate-500">Opening Float:</span>
-                    <span className="text-slate-200 font-mono">USD 50.00</span>
+                    <span className="text-slate-200 font-mono">{money(activeShift?.startingCash || 0)}</span>
                   </div>
                   <div className="flex justify-between">
                     <span className="text-slate-500">Expected Cash:</span>
-                    <span className="text-amber-500 font-mono font-bold">USD 710.00</span>
+                    <span className="text-amber-500 font-mono font-bold">{money(activeShift?.expectedCash || 0)}</span>
                   </div>
                   <div className="flex justify-between border-t border-slate-900/50 pt-2 text-[10px]">
                     <span className="text-slate-500">Declared Cash:</span>
@@ -651,7 +633,7 @@ export default function PosDashboard({
                       </span>
                       <strong className="text-slate-200 text-[10.5px] font-mono">{overridesCount} Active Request(s)</strong>
                     </div>
-                    <p className="text-[9px] text-slate-500 max-w-md truncate">Cashier is requesting manually set 15% discount override on Radiators.</p>
+                    <p className="text-[9px] text-slate-500 max-w-md truncate">{overridesCount > 0 ? 'Price override request awaiting review.' : 'No price override requests yet.'}</p>
                   </div>
                   <button
                     onClick={approvePriceOverride}
@@ -671,7 +653,7 @@ export default function PosDashboard({
                       </span>
                       <strong className="text-slate-200 text-[10.5px] font-mono">{refundsCount} Active Request(s)</strong>
                     </div>
-                    <p className="text-[9px] text-slate-500 max-w-md truncate">Cash refund request for 20 M12 Heavy Hex Bolts returned due to size error.</p>
+                    <p className="text-[9px] text-slate-500 max-w-md truncate">{refundsCount > 0 ? 'Refund request awaiting review.' : 'No refund requests yet.'}</p>
                   </div>
                   <button
                     onClick={approveRefund}
@@ -691,7 +673,7 @@ export default function PosDashboard({
                       </span>
                       <strong className="text-slate-200 text-[10.5px] font-mono">{adjustmentsCount} Active Request(s)</strong>
                     </div>
-                    <p className="text-[9px] text-slate-500 max-w-md truncate">Manual write-in request to adjust Steel Thread Tapes counts upwards (+5 units).</p>
+                    <p className="text-[9px] text-slate-500 max-w-md truncate">{adjustmentsCount > 0 ? 'Stock adjustment request awaiting review.' : 'No stock adjustment requests yet.'}</p>
                   </div>
                   <button
                     onClick={approveAdjustment}
@@ -801,11 +783,11 @@ export default function PosDashboard({
 
         </div>
 
-        {/* RIGHT COLUMN: 5. BI ALERTS READOUT (1 Col) */}
+        {/* RIGHT COLUMN: 5. ALERTS READOUT (1 Col) */}
         <div className="space-y-3">
           <h3 className="text-[11px] font-black uppercase text-slate-400 tracking-wider flex items-center gap-2">
             <ShieldAlert className="w-4 h-4 text-rose-500 animate-pulse" />
-            5. BI Risk Alerts
+            5. Operational Alerts
           </h3>
 
           <div className="bg-[#0f131a] border border-slate-800 p-4 h-[730px] flex flex-col justify-between relative overflow-hidden">
@@ -875,6 +857,11 @@ export default function PosDashboard({
                     </div>
                   </div>
                 ))}
+                {BI_ALERTS.length === 0 && (
+                  <div className="p-6 border border-slate-800 text-center text-slate-500 text-[10px] font-black uppercase">
+                    No alerts recorded yet.
+                  </div>
+                )}
 
               </div>
             </div>
@@ -894,7 +881,7 @@ export default function PosDashboard({
         <div className="flex items-center gap-3">
           <Clock className="w-4 h-4 text-amber-500 shrink-0" />
           <div>
-            <div className="text-slate-600 text-[9px]">LOCALIZED REGISTRY DATE</div>
+            <div className="text-slate-600 text-[9px]">Business Date</div>
             <div className="text-slate-300 font-bold">
               {new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
             </div>
@@ -904,8 +891,8 @@ export default function PosDashboard({
         <div className="flex items-center gap-3 border-t md:border-t-0 md:border-x border-slate-800 py-2 md:py-0 md:px-4">
           <Database className="w-4 h-4 text-indigo-400 shrink-0" />
           <div>
-            <div className="text-slate-600 text-[9px]">Data Storage Status</div>
-            <div className="text-slate-200 font-bold">SOLID_STATE LOCALBYPASS BUFFER</div>
+            <div className="text-slate-600 text-[9px]">Connection Status</div>
+            <div className="text-slate-200 font-bold">Online</div>
           </div>
         </div>
 

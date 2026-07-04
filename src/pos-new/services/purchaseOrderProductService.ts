@@ -3,6 +3,7 @@ import { createBIAdviceFromTrigger } from './biAdviceService';
 import { createProductMasterDraft, getProductLocationBalances, getProductMasterById, getProductMasterRecords } from './productMasterService';
 import { getProductTotalAvailableStock } from './stockBalanceService';
 import { createTask } from './taskService';
+import { getActiveVendorId } from '../utils/vendorDataMode';
 
 const PO_PRODUCT_ACTIVITY_KEY = 'itred_pos_po_product_activity_v1';
 
@@ -304,17 +305,17 @@ export async function createProductFromPurchaseOrder(payload: POProductCreatePay
   const price = Math.max(0, payload.sellingPrice || 0);
   const category = payload.category?.trim() || payload.department?.trim() || '';
   const product = await createProductMasterDraft({
-    vendorId: 'SCI-LOG-ZW',
+    vendorId: getActiveVendorId(),
     productCode: sku,
     sku,
     barcode: payload.upc?.trim(),
     productName,
-    description: payload.notes || 'Created from Purchase Order local/mock workflow.',
+    description: payload.notes || 'Created from Purchase Order workflow.',
     brand: payload.brand?.trim(),
     manufacturer: payload.manufacturer?.trim(),
     supplierName: payload.supplierName?.trim(),
     supplierItemCode: payload.supplierItemCode?.trim(),
-    industrialSector: 'MOTOR_SPARES',
+    industrialSector: 'GENERAL_RETAIL',
     productCategory: category,
     productSubCategory: payload.department?.trim(),
     productType: 'Stock Item',

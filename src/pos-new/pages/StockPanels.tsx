@@ -108,6 +108,7 @@ import ProductMasterForm from '../components/ProductMasterForm';
 import ProductTransformationPanel from '../components/ProductTransformationPanel';
 import ManualProductForm from '../components/ManualProductForm';
 import RowActionMenu, { RowActionMenuItem } from '../components/RowActionMenu';
+import { getActiveVendorId, getVendorScopedStorageKey } from '../utils/vendorDataMode';
 import {
   postGoodsReceivedMovement,
   postStockAdjustmentMovement,
@@ -287,6 +288,8 @@ interface StockPanelsProps {
   setActiveTab: (tab: 'Stock List' | 'Product Master' | 'Goods Receiving' | 'Purchase Orders' | 'Supplier Returns' | 'Stock Adjustments' | 'Stocktake' | 'Stock Transfers' | 'Product Transformation') => void;
   stocktakePreselect?: { shelfLocation?: string; productIds?: string[] } | null;
   stocktakePreselectToken?: number;
+  productLimitReached?: boolean;
+  productLimitMessage?: string;
 }
 
 export default function StockPanels({
@@ -305,11 +308,16 @@ export default function StockPanels({
   activeTab,
   setActiveTab,
   stocktakePreselect,
-  stocktakePreselectToken = 0
+  stocktakePreselectToken = 0,
+  productLimitReached = false,
+  productLimitMessage = 'Product limit reached for your current plan.'
 }: StockPanelsProps) {
 
   // --- LOCAL PERSISTENCE STORAGE FOR SUB-PAGES ---
   const blockedPermissionMessage = 'You do not have permission to perform this action.';
+  const vendorId = getActiveVendorId();
+  const stockBranchName = activeBranch || 'Main Branch';
+  const supplierReturnsKey = getVendorScopedStorageKey('sci_pos_supplier_returns', vendorId);
 
   const [productMasterRows, setProductMasterRows] = useState<ProductMasterRecord[]>([]);
   const [allProductBalances, setAllProductBalances] = useState<ProductStockBalance[]>([]);
@@ -354,9 +362,9 @@ export default function StockPanels({
   const [selectedProductAudit, setSelectedProductAudit] = useState<Array<{ id: string; productId: string; eventType: string; message: string; staffId: string; createdAt: string }>>([]);
   const [productMasterNotice, setProductMasterNotice] = useState<string | null>(null);
   const emptyManualProductDraft = (): ManualProductDraft => ({
-    vendorId: 'SCI-LOG-ZW',
+    vendorId,
     productName: '',
-    industrialSector: 'MOTOR_SPARES',
+    industrialSector: 'GENERAL_RETAIL',
     category: '',
     subcategory: '',
     unitOfMeasure: 'pcs',
@@ -365,8 +373,8 @@ export default function StockPanels({
     productStatus: 'Draft',
     taxMode: 'VAT Registered',
     vatRate: 15,
-    branchId: 'BR-HARARE',
-    warehouseId: 'WH-HARARE-01',
+    branchId: stockBranchName,
+    warehouseId: 'main-warehouse',
     locationType: 'Main Warehouse',
     createdByStaffId: staffName,
     createdByStaffName: staffName
@@ -536,6 +544,10 @@ export default function StockPanels({
   }, []);
 
   const openManualProductForm = async () => {
+    if (productLimitReached) {
+      setProductMasterNotice(productLimitMessage);
+      return;
+    }
     if (!canPerformAction(simulatedRole, 'productMaster.create')) {
       setProductMasterNotice(blockedPermissionMessage);
       return;
@@ -564,6 +576,10 @@ export default function StockPanels({
   };
 
   const handleManualSaveDraft = async () => {
+    if (productLimitReached) {
+      setManualProductNotice(productLimitMessage);
+      return;
+    }
     if (!canPerformAction(simulatedRole, 'productMaster.create')) {
       setManualProductNotice(blockedPermissionMessage);
       return;
@@ -581,6 +597,10 @@ export default function StockPanels({
   };
 
   const handleManualActivate = async () => {
+    if (productLimitReached) {
+      setManualProductNotice(productLimitMessage);
+      return;
+    }
     if (!canPerformAction(simulatedRole, 'productMaster.activate')) {
       setManualProductNotice(blockedPermissionMessage);
       return;
@@ -600,6 +620,10 @@ export default function StockPanels({
   };
 
   const handleManualCreateOpeningBalance = async () => {
+    if (!manualSavedProduct && productLimitReached) {
+      setManualProductNotice(productLimitMessage);
+      return;
+    }
     if (!canPerformAction(simulatedRole, 'openingBalance.create')) {
       setManualProductNotice(blockedPermissionMessage);
       return;
@@ -703,20 +727,13 @@ export default function StockPanels({
 
   // 2. Goods Receiving Form and Lines State
   const [grnNumber, setGrnNumber] = useState(() => `GRN-2026-${Math.floor(Math.random() * 8999 + 1000)}`);
-  const [grnSupplier, setGrnSupplier] = useState('ABC Motor Spares Supplier');
+  const [grnSupplier, setGrnSupplier] = useState('');
   const [grnInvoiceNo, setGrnInvoiceNo] = useState('');
-  const [grnPoRef, setGrnPoRef] = useState('PO-1001');
-  const [grnBranch, setGrnBranch] = useState('Harare Main');
+  const [grnPoRef, setGrnPoRef] = useState('');
+  const [grnBranch, setGrnBranch] = useState(stockBranchName);
   const [grnWarehouse, setGrnWarehouse] = useState('Main Warehouse');
   const [grnNotes, setGrnNotes] = useState('');
-  
-  // Loading default mock items for receiving
-  const [grnLines, setGrnLines] = useState<GRNLine[]>([
-    { sku: 'BJ-CBHO49', productName: 'Ball Joint Honda Fit GD1', orderedQty: 20, receivedQty: 20, costPrice: 7.00, prevCostPrice: 6.80, currentPrice: 12.00, suggestedPrice: 13.00, status: 'Matched', accepted: false, rejected: false, priceUpdated: false, flagged: false },
-    { sku: 'BP-GD6-F', productName: 'Brake Pads Toyota GD6 Front', orderedQty: 10, receivedQty: 8, costPrice: 18.00, prevCostPrice: 17.50, currentPrice: 28.00, suggestedPrice: 30.00, status: 'Short Received', accepted: false, rejected: false, priceUpdated: false, flagged: false },
-    { sku: 'CLT-N16', productName: 'Clutch Plate Nissan N16', orderedQty: 5, receivedQty: 5, costPrice: 32.00, prevCostPrice: 30.00, currentPrice: 45.00, suggestedPrice: 48.00, status: 'Matched', accepted: false, rejected: false, priceUpdated: false, flagged: false },
-    { sku: 'RAD-COROLLA', productName: 'Radiator Toyota Corolla', orderedQty: 4, receivedQty: 6, costPrice: 40.00, prevCostPrice: 38.00, currentPrice: 65.00, suggestedPrice: 70.00, status: 'Over Received', accepted: false, rejected: false, priceUpdated: false, flagged: false }
-  ]);
+  const [grnLines, setGrnLines] = useState<GRNLine[]>([]);
 
   // Handle updates on active fields in GRN Table
   const updateGRNLineField = (sku: string, field: keyof GRNLine, value: any) => {
@@ -886,38 +903,24 @@ export default function StockPanels({
 
   // 3. Supplier Returns State & Form Binding
   const [supplierReturns, setSupplierReturns] = useState<LegacySupplierReturnRecord[]>(() => {
-    const cached = localStorage.getItem('sci_pos_supplier_returns');
-    return cached ? JSON.parse(cached) : [
-      {
-        id: 'RET-001',
-        supplierName: 'ABC Motor Spares Supplier',
-        originalGrn: 'GRN-2026-9041',
-        sku: 'BJ-CBHO49',
-        productName: 'Ball Joint Honda Fit GD1',
-        quantityReturned: 2,
-        reason: 'Wrong item supplied',
-        condition: 'Resellable',
-        status: 'Draft',
-        createdDate: '2026-06-08',
-        requestedBy: 'Stock Controller'
-      }
-    ];
+    const cached = localStorage.getItem(supplierReturnsKey);
+    return cached ? JSON.parse(cached) : [];
   });
 
   useEffect(() => {
-    localStorage.setItem('sci_pos_supplier_returns', JSON.stringify(supplierReturns));
-  }, [supplierReturns]);
+    localStorage.setItem(supplierReturnsKey, JSON.stringify(supplierReturns));
+  }, [supplierReturns, supplierReturnsKey]);
 
-  const [retSupplier, setRetSupplier] = useState('ABC Motor Spares Supplier');
+  const [retSupplier, setRetSupplier] = useState('');
   const [retGrn, setRetGrn] = useState('');
-  const [retSku, setRetSku] = useState('BJ-CBHO49');
+  const [retSku, setRetSku] = useState('');
   const [retQty, setRetQty] = useState('1');
   const [retReason, setRetReason] = useState('Wrong item supplied');
   const [retCondition, setRetCondition] = useState('Resellable');
   const [retFeedback, setRetFeedback] = useState<string | null>(null);
 
   // 4. Stock Adjustments State & Form Binding
-  const [adjSku, setAdjSku] = useState('BJ-CBHO49');
+  const [adjSku, setAdjSku] = useState('');
   const [adjType, setAdjType] = useState<'ADD' | 'DEDUCT'>('ADD');
   const [adjCountQty, setAdjCountQty] = useState('');
   const [adjReasonCode, setAdjReasonCode] = useState('Stocktake variance');
@@ -980,7 +983,7 @@ export default function StockPanels({
   const stocktakeCategoryOptions = useMemo(() => ['ALL', ...Array.from(new Set(localStock.map((item) => item.productCategory || item.category).filter(Boolean)))], [localStock]);
   const stocktakeShelfOptions = useMemo(() => ['ALL', ...Array.from(new Set(localStock.map((item) => item.shelfLocation).filter(Boolean)))], [localStock]);
   const stocktakeBranchDeskOptions = useMemo(() => Array.from(new Set(localStock.map((item) => item.branch || item.branchId || activeBranch).filter(Boolean))) as string[], [activeBranch, localStock]);
-  const stocktakeWarehouseDeskOptions = useMemo(() => Array.from(new Set(localStock.map((item) => item.warehouse || item.warehouseId || 'Harare Spares Depot').filter(Boolean))) as string[], [localStock]);
+  const stocktakeWarehouseDeskOptions = useMemo(() => Array.from(new Set(localStock.map((item) => item.warehouse || item.warehouseId || 'Main Warehouse').filter(Boolean))) as string[], [localStock]);
 
   const [stocktakeDeskSessions, setStocktakeDeskSessions] = useState<StocktakeSession[]>([]);
   const [stocktakeDeskLineMap, setStocktakeDeskLineMap] = useState<Record<string, StocktakeLine[]>>({});
@@ -1328,7 +1331,7 @@ export default function StockPanels({
   }) => {
     if (!enforceStocktakePermission('stocktake.create')) return;
     const record = await createStocktakeSession({
-      vendorId: 'SCI-LOG-ZW',
+      vendorId,
       requestedByStaffId: staffName,
       requestedByStaffName: staffName,
       ...payload
@@ -1428,7 +1431,7 @@ export default function StockPanels({
 
   const handleApproveStocktake = async () => {
     if (!selectedStocktake || !enforceStocktakePermission('stocktake.approve')) return;
-    const updated = await approveStocktake(selectedStocktake.stocktakeId, staffName, 'Approved from Stocktake Desk during build-development.');
+    const updated = await approveStocktake(selectedStocktake.stocktakeId, staffName, 'Approved from Stocktake Desk.');
     setStocktakeDeskNotice(updated ? `${updated.stocktakeNumber} approved. Approval does not update stock until posting.` : 'Stocktake could not be approved.');
     await reloadSelectedStocktake(selectedStocktake.stocktakeId);
   };
@@ -1559,7 +1562,7 @@ export default function StockPanels({
     if (overdueTransit) warnings.push(`${overdueTransit} transfer(s) in transit overdue.`);
     if (varianceUnresolved) warnings.push(`${varianceUnresolved} transfer variance warning(s) unresolved.`);
     if (closedOutstandingToday) warnings.push(`${closedOutstandingToday} transfer(s) closed with outstanding today.`);
-    if (postedReceiptReview) warnings.push(`${postedReceiptReview} transfer receipt(s) posted with variance review placeholder.`);
+    if (postedReceiptReview) warnings.push(`${postedReceiptReview} transfer receipt(s) posted with variance review.`);
     return warnings;
   }, [stockTransferLineMap, stockTransferRecords]);
 
@@ -1622,7 +1625,7 @@ export default function StockPanels({
   // Helper to log BI Events globally in localStorage to reflect on PosBIDesk.tsx
   const logGlobalBiEvent = (eventType: string, payload: any, severity: 'INFO' | 'WARNING' | 'HIGH' | 'CRITICAL') => {
     try {
-      const cached = localStorage.getItem('itred_pos_bi_events');
+      const cached = localStorage.getItem(getVendorScopedStorageKey('itred_pos_bi_events', vendorId));
       const events = cached ? JSON.parse(cached) : [];
       const newEvent = {
         id: 'BI-EV-' + Math.floor(Math.random() * 89999 + 10000),
@@ -1633,14 +1636,14 @@ export default function StockPanels({
         payload,
         severity
       };
-      localStorage.setItem('itred_pos_bi_events', JSON.stringify([newEvent, ...events]));
+      localStorage.setItem(getVendorScopedStorageKey('itred_pos_bi_events', vendorId), JSON.stringify([newEvent, ...events]));
     } catch (e) {
       console.warn("Failed to append global BI event:", e);
     }
   };
 
   const baseMovementPayload = (product: StockProduct, referenceNumber: string, notes: string) => ({
-    vendorId: product.vendorId || 'SCI-LOG-ZW',
+    vendorId: product.vendorId || vendorId,
     branchId: product.branchId || product.branch || activeBranch,
     warehouseId: product.warehouseId || product.warehouse || 'Main Warehouse',
     productId: product.id,
@@ -2198,7 +2201,7 @@ export default function StockPanels({
         setStockAdjustmentNotice('You do not have permission to perform this action.');
         return;
       }
-      await rejectStockAdjustment(record.adjustmentId, staffName, 'Rejected during build-development review.');
+      await rejectStockAdjustment(record.adjustmentId, staffName, 'Rejected during review.');
       setStockAdjustmentNotice('Stock adjustment rejected.');
     }
     if (action === 'post') {
@@ -2209,7 +2212,7 @@ export default function StockPanels({
       const result = await postStockAdjustment(record.adjustmentId, staffName);
       if (result) {
         applyPostedStockAdjustmentToLocalStock(result);
-        setStockAdjustmentNotice(result.stockPosted ? result.message : 'Posted placeholder completed. Inventory movement will be written by controlled stock movement logic.');
+        setStockAdjustmentNotice(result.stockPosted ? result.message : 'Posting review completed. Inventory movement will be written by controlled stock movement logic.');
       }
     }
     if (action === 'cancel') {
@@ -2217,7 +2220,7 @@ export default function StockPanels({
         setStockAdjustmentNotice('You do not have permission to perform this action.');
         return;
       }
-      await cancelStockAdjustment(record.adjustmentId, staffName, 'Cancelled during build-development review.');
+      await cancelStockAdjustment(record.adjustmentId, staffName, 'Cancelled during review.');
       setStockAdjustmentNotice('Stock adjustment cancelled.');
     }
     if (action === 'reverse') {
@@ -2238,7 +2241,7 @@ export default function StockPanels({
         setStockAdjustmentNotice('You do not have permission to perform this action.');
         return;
       }
-      await recordStockAdjustmentPlaceholderActivity(record.adjustmentId, staffName, 'STOCK_ADJUSTMENT_DUPLICATED_PLACEHOLDER', `${record.adjustmentNumber} duplicate as new draft prepared.`);
+      await recordStockAdjustmentPlaceholderActivity(record.adjustmentId, staffName, 'STOCK_ADJUSTMENT_DUPLICATED_DRAFT', `${record.adjustmentNumber} duplicate as new draft prepared.`);
       setStockAdjustmentNotice(`${record.adjustmentNumber} duplicate as new draft prepared.`);
     }
     await refreshStockAdjustments();
@@ -3210,7 +3213,7 @@ export default function StockPanels({
                 }
                 const updated = await updateProductMasterPlaceholder(selectedProductMaster.productId, patch, staffName);
                 if (updated) {
-                  setProductMasterNotice('Product Master draft saved locally.');
+                  setProductMasterNotice('Product Master draft saved.');
                   await refreshProductMaster(productMasterFilters);
                   await openProductMaster(updated);
                 }
@@ -4148,10 +4151,7 @@ export default function StockPanels({
                 onChange={(e) => setRetSupplier(e.target.value)}
                 className="w-full bg-white text-slate-800 border border-[#b1b5c2] focus:border-orange-500 px-2 py-1.5 text-[10.5px] font-bold rounded-none cursor-pointer outline-none"
               >
-                <option value="ABC Motor Spares Supplier">ABC Motor Spares Supplier</option>
-                <option value="Harare Lubricants Ltd">Harare Lubricants Ltd</option>
-                <option value="Toyota Parts Wholesale">Toyota Parts Wholesale</option>
-                <option value="Apex Gaskets Co.">Apex Gaskets Co.</option>
+                <option value="">Select supplier</option>
               </select>
             </div>
 
@@ -4729,7 +4729,7 @@ export default function StockPanels({
             products={localStock}
             operatorName={staffName}
             branchOptions={stocktakeBranchDeskOptions.length ? stocktakeBranchDeskOptions : [activeBranch]}
-            warehouseOptions={stocktakeWarehouseDeskOptions.length ? stocktakeWarehouseDeskOptions : ['Harare Spares Depot', 'Harare Sales Floor', 'Damaged Holding Area', 'Return Holding Area']}
+            warehouseOptions={stocktakeWarehouseDeskOptions.length ? stocktakeWarehouseDeskOptions : ['Main Warehouse', 'Receiving Warehouse', 'Damaged Holding Area', 'Return Holding Area']}
             onClose={() => setStockTransferFormOpen(false)}
             onCreateDraft={handleCreateStockTransferDraft}
             onUpdateDraft={handleUpdateStockTransferDraft}
@@ -4899,7 +4899,7 @@ export default function StockPanels({
             products={localStock}
             operatorName={staffName}
             branchOptions={stocktakeBranchDeskOptions.length ? stocktakeBranchDeskOptions : [activeBranch]}
-            warehouseOptions={stocktakeWarehouseDeskOptions.length ? stocktakeWarehouseDeskOptions : ['Harare Spares Depot']}
+            warehouseOptions={stocktakeWarehouseDeskOptions.length ? stocktakeWarehouseDeskOptions : ['Main Warehouse']}
             onClose={() => setStocktakeFormOpen(false)}
             onCreateDraft={handleCreateStocktakeDraft}
             onUpdateDraft={handleUpdateStocktakeDraft}

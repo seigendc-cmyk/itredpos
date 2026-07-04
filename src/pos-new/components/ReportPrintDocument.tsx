@@ -1,3 +1,5 @@
+import { getVendorDocumentIdentity } from '../vendor/vendorBootstrapModel';
+
 export interface ReportColumn {
   key: string;
   header: string;
@@ -22,13 +24,15 @@ export interface ReportPrintDocumentProps {
 }
 
 export default function ReportPrintDocument({ title, reportNumber, periodLabel, generatedBy, generatedAt, summary, columns, rows, notes = [] }: ReportPrintDocumentProps) {
+  const identity = getVendorDocumentIdentity();
+  const contactLine = [identity.phoneLine, identity.whatsappLine, identity.emailLine].filter(Boolean).join(' | ');
   return (
     <article className="print-document report-print-document">
       <header className="report-print-document__header">
         <div>
           <span>Business</span>
-          <strong>iTred Commerce POS</strong>
-          <small>Local/mock management-control report. No final accounting posting.</small>
+          <strong>{identity.displayName}</strong>
+          <small>{[identity.addressLine, identity.cityLine, contactLine].filter(Boolean).join(' | ')}</small>
         </div>
         <div>
           <span>Report</span>
@@ -58,7 +62,7 @@ export default function ReportPrintDocument({ title, reportNumber, periodLabel, 
           </thead>
           <tbody>
             {rows.length === 0 ? (
-              <tr><td colSpan={columns.length}>No local/mock rows found for this report.</td></tr>
+              <tr><td colSpan={columns.length}>No rows found for this report.</td></tr>
             ) : rows.map((row, index) => (
               <tr key={`${reportNumber}-${index}`}>
                 {columns.map((column) => <td key={column.key} style={{ textAlign: column.align || 'left' }}>{row[column.key] ?? ''}</td>)}

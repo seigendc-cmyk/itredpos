@@ -1,5 +1,6 @@
 import { mockProducts } from '../mock/mockPosData';
 import type { Product, ProductMasterRecord, StockStatus } from '../types/posTypes';
+import { ENABLE_MOCK_SEED_DATA, getVendorScopedStorageKey } from './vendorDataMode';
 
 export const POS_PRODUCT_STORE_KEY = 'itred_pos_products';
 export const POS_PRODUCT_STORE_EVENT = 'itred_pos_products_updated';
@@ -46,10 +47,10 @@ export function normalizeProduct(product: Partial<Product>): Product {
   const minStock = Number(product.minStock ?? product.reorderLevel ?? 0);
   const price = Number(product.price ?? product.sellingPrice ?? 0);
   const cost = Number(product.cost ?? product.costPrice ?? 0);
-  const branchId = product.branchId || (product.branch === 'Bulawayo Branch' ? 'BR-BYO' : 'BR-HARARE');
-  const branch = product.branch || (branchId === 'BR-BYO' ? 'Bulawayo Branch' : 'Harare Main');
-  const warehouseId = product.warehouseId || 'WH-HARARE-01';
-  const warehouse = product.warehouse || (warehouseId === 'WH-BYO-01' ? 'Bulawayo Branch Warehouse' : 'Harare Spares Depot');
+  const branchId = product.branchId || 'main-branch';
+  const branch = product.branch || 'Main Branch';
+  const warehouseId = product.warehouseId || 'main-warehouse';
+  const warehouse = product.warehouse || 'Main Warehouse';
   const status = (product.stockStatus || product.healthStatus || stockStatusFor(stock, minStock)) as StockStatus;
 
   return {
@@ -121,21 +122,30 @@ export function productMasterToPosProduct(product: ProductMasterRecord, stock = 
   });
 }
 
-export function loadLocalProducts(): Product[] {
-  const canonical = safeReadProducts(POS_PRODUCT_STORE_KEY);
-  if (canonical.length > 0) return canonical;
-
-  const legacy = safeReadProducts(LEGACY_STOCK_CATALOG_KEY);
-  const seeded = legacy.length > 0 ? legacy : mockProducts.map(normalizeProduct);
-  saveLocalProducts(seeded, false);
-  return seeded;
+export function getPosProductStoreKey(vendorId?: string): string {
+  return getVendorScopedStorageKey(POS_PRODUCT_STORE_KEY, vendorId);
 }
 
-export function saveLocalProducts(products: Product[], notify = true): Product[] {
+export function loadLocalProducts(vendorId?: string): Product[] {
+  const storeKey = getPosProductStoreKey(vendorId);
+  const canonical = safeReadProducts(storeKey);
+  if (canonical.length > 0) return canonical;
+
+  if (ENABLE_MOCK_SEED_DATA) {
+    const legacy = [...safeReadProducts(POS_PRODUCT_STORE_KEY), ...safeReadProducts(LEGACY_STOCK_CATALOG_KEY)];
+    const seeded = legacy.length > 0 ? legacy : mockProducts.map(normalizeProduct);
+    saveLocalProducts(seeded, false, vendorId);
+    return seeded;
+  }
+
+  saveLocalProducts([], false, vendorId);
+  return [];
+}
+
+export function saveLocalProducts(products: Product[], notify = true, vendorId?: string): Product[] {
   const normalized = products.map(normalizeProduct);
   if (storageAvailable()) {
-    localStorage.setItem(POS_PRODUCT_STORE_KEY, JSON.stringify(normalized));
-    localStorage.setItem(LEGACY_STOCK_CATALOG_KEY, JSON.stringify(normalized));
+    localStorage.setItem(getPosProductStoreKey(vendorId), JSON.stringify(normalized));
   }
   if (notify) dispatchProductUpdate();
   return normalized;

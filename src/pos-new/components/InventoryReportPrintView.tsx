@@ -91,7 +91,7 @@ export default function InventoryReportPrintView({
           </table>
 
           <footer className="inventory-report-print-footer">
-            iTred Commerce POS - Inventory Report | Build Development / Local Report | {payload.reportId}
+            iTred Commerce POS - Inventory Report | {payload.reportId}
           </footer>
         </article>
       </div>

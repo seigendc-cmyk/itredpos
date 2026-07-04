@@ -1,8 +1,10 @@
 import type { SupplierStatementRecord } from '../types';
+import { getVendorDocumentIdentity } from '../vendor/vendorBootstrapModel';
 
 const money = (value: number) => `$${value.toFixed(2)}`;
 
 export default function SupplierStatementDocument({ statement }: { statement: SupplierStatementRecord }) {
+  const identity = getVendorDocumentIdentity();
   const billTotal = statement.bills.reduce((sum, bill) => sum + bill.originalAmount, 0);
   const paymentTotal = statement.payments.reduce((sum, payment) => sum + payment.amount, 0);
   const returnTotal = statement.supplierReturns.reduce((sum, item) => sum + item.amount, 0);
@@ -19,7 +21,7 @@ export default function SupplierStatementDocument({ statement }: { statement: Su
   return (
     <article className="supplier-statement-document print-document">
       <header className="report-print-document__header">
-        <div><span>Business / Vendor</span><strong>iTred Commerce POS</strong><small>Local supplier statement placeholder</small></div>
+        <div><span>Business / Vendor</span><strong>{identity.displayName}</strong><small>{[identity.addressLine, identity.cityLine, identity.phoneLine, identity.emailLine].filter(Boolean).join(' | ')}</small></div>
         <div><span>Supplier</span><strong>{statement.supplierName}</strong><small>Supplier ID {statement.supplierId} - Contact on supplier profile</small></div>
         <div><span>Statement</span><strong>{statement.statementId}</strong><small>{statement.periodFrom} to {statement.periodTo}</small></div>
       </header>
@@ -42,7 +44,7 @@ export default function SupplierStatementDocument({ statement }: { statement: Su
       </section>
       <table className="creditors-table"><thead><tr><th>Date</th><th>Type</th><th>Reference</th><th>Debit</th><th>Credit</th><th>Balance</th></tr></thead><tbody>{statement.bills.map((bill) => <tr key={bill.billId}><td>{bill.billDate}</td><td>Supplier Bill</td><td>{bill.billNumber}</td><td>{money(bill.originalAmount)}</td><td>{money(bill.paidAmount)}</td><td>{money(bill.outstandingAmount)}</td></tr>)}{statement.payments.map((payment) => <tr key={payment.paymentId}><td>{payment.paymentDate}</td><td>Payment</td><td>{payment.paymentNumber}</td><td>{money(0)}</td><td>{money(payment.amount)}</td><td>-</td></tr>)}{statement.supplierReturns.map((item) => <tr key={item.reference}><td>{item.date}</td><td>Supplier Return</td><td>{item.reference}</td><td>{money(0)}</td><td>{money(item.amount)}</td><td>{item.notes}</td></tr>)}{statement.creditNotes.map((item) => <tr key={item.reference}><td>{item.date}</td><td>Credit Note</td><td>{item.reference}</td><td>{money(0)}</td><td>{money(item.amount)}</td><td>{item.notes}</td></tr>)}</tbody></table>
       <footer className="report-print-document__footer">
-        <div><span>Payment Instruction</span><p>Payment instruction placeholder only. Confirm bank details directly with supplier before payment.</p></div>
+        <div><span>Payment Instruction</span><p>Confirm bank details directly with supplier before payment.</p></div>
         <div><span>Generated</span><strong>{new Date(statement.generatedAt).toLocaleString()}</strong><p>Prepared by {statement.generatedBy}</p></div>
         <div><span>Signature / Review</span><strong>____________________________</strong></div>
       </footer>

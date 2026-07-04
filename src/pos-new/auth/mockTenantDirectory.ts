@@ -10,7 +10,7 @@ export const mockTenantMemberships: TenantMembershipContract[] = [
   {
     membershipId: 'MEM-DEMO-OWNER',
     vendorId: 'demo-vendor-001',
-    vendorName: 'Build Development Vendor',
+    vendorName: 'Business',
     signedInEmail: 'owner@build.local',
     role: 'VendorOwner',
     accessStatus: 'Active',
@@ -19,7 +19,7 @@ export const mockTenantMemberships: TenantMembershipContract[] = [
   {
     membershipId: 'MEM-DEMO-ADMIN',
     vendorId: 'demo-vendor-001',
-    vendorName: 'Build Development Vendor',
+    vendorName: 'Business',
     signedInEmail: 'admin@build.local',
     role: 'VendorAdmin',
     accessStatus: 'Active',
@@ -28,7 +28,7 @@ export const mockTenantMemberships: TenantMembershipContract[] = [
   {
     membershipId: 'MEM-DEMO-CASHIER',
     vendorId: 'demo-vendor-001',
-    vendorName: 'Build Development Vendor',
+    vendorName: 'Business',
     signedInEmail: 'cashier@build.local',
     role: 'Cashier',
     accessStatus: 'Active',
@@ -37,7 +37,7 @@ export const mockTenantMemberships: TenantMembershipContract[] = [
   {
     membershipId: 'MEM-DEMO-DISABLED',
     vendorId: 'demo-vendor-001',
-    vendorName: 'Build Development Vendor',
+    vendorName: 'Business',
     signedInEmail: 'disabled@build.local',
     role: 'Viewer',
     accessStatus: 'Disabled',

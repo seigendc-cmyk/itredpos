@@ -21,6 +21,7 @@ import {
   getProductTotalAvailableStock as getTotalAvailableStock
 } from './stockBalanceService';
 import { loadLocalProducts, productMasterToPosProduct, saveLocalProducts, upsertLocalProducts } from '../utils/localProductStore';
+import { ENABLE_MOCK_SEED_DATA, getVendorScopedStorageKey, readVendorScopedList, writeVendorScopedList } from '../utils/vendorDataMode';
 
 const PRODUCT_MASTER_KEY = 'sci_pos_product_master_records';
 const PRODUCT_AUDIT_KEY = 'sci_pos_product_master_audit';
@@ -28,38 +29,23 @@ const MANUAL_SUPPLIER_LINK_KEY = 'itred_pos_manual_product_supplier_links_v1';
 const MANUAL_PRICE_RECORD_KEY = 'itred_pos_manual_product_price_records_v1';
 const MANUAL_REORDER_RULE_KEY = 'itred_pos_manual_product_reorder_rules_v1';
 
-let memoryProducts: ProductMasterRecord[] = [...mockProductMasterRecords];
+let memoryProducts: ProductMasterRecord[] = ENABLE_MOCK_SEED_DATA ? [...mockProductMasterRecords] : [];
 
 function readProducts(): ProductMasterRecord[] {
-  try {
-    const cached = localStorage.getItem(PRODUCT_MASTER_KEY);
-    if (!cached) {
-      localStorage.setItem(PRODUCT_MASTER_KEY, JSON.stringify(mockProductMasterRecords));
-      memoryProducts = [...mockProductMasterRecords];
-      return memoryProducts;
-    }
-    memoryProducts = JSON.parse(cached) as ProductMasterRecord[];
-    return memoryProducts;
-  } catch {
-    return memoryProducts;
-  }
+  memoryProducts = readVendorScopedList<ProductMasterRecord>(PRODUCT_MASTER_KEY, mockProductMasterRecords);
+  return memoryProducts;
 }
 
 function writeProducts(products: ProductMasterRecord[]): ProductMasterRecord[] {
   memoryProducts = products;
-  try {
-    localStorage.setItem(PRODUCT_MASTER_KEY, JSON.stringify(products));
-  } catch {
-    // localStorage may be unavailable in some test contexts.
-  }
-  return products;
+  return writeVendorScopedList(PRODUCT_MASTER_KEY, products);
 }
 
 function recordProductAudit(productId: string, eventType: string, message: string, staffId = 'SYSTEM'): void {
   try {
-    const cached = localStorage.getItem(PRODUCT_AUDIT_KEY);
+    const cached = localStorage.getItem(getVendorScopedStorageKey(PRODUCT_AUDIT_KEY));
     const existing = cached ? JSON.parse(cached) as Array<Record<string, unknown>> : [];
-    localStorage.setItem(PRODUCT_AUDIT_KEY, JSON.stringify([{
+    localStorage.setItem(getVendorScopedStorageKey(PRODUCT_AUDIT_KEY), JSON.stringify([{
       id: `PMA-${Date.now()}`,
       productId,
       eventType,
@@ -73,14 +59,7 @@ function recordProductAudit(productId: string, eventType: string, message: strin
 }
 
 function readManualRows<T>(key: string): T[] {
-  try {
-    const cached = localStorage.getItem(key);
-    if (!cached) return [];
-    const parsed = JSON.parse(cached);
-    return Array.isArray(parsed) ? parsed as T[] : [];
-  } catch {
-    return [];
-  }
+  return readVendorScopedList<T>(key, []);
 }
 
 function matchesProductSearch(product: ProductMasterRecord, query = ''): boolean {
@@ -115,7 +94,7 @@ function matchesProductSearch(product: ProductMasterRecord, query = ''): boolean
 }
 
 function productBalanceMeta(productId: string): ProductStockBalance[] {
-  return mockProductStockBalances.filter((balance) => balance.productId === productId);
+  return readVendorScopedList<ProductStockBalance>('sci_pos_product_stock_balances', mockProductStockBalances).filter((balance) => balance.productId === productId);
 }
 
 function applyFilters(products: ProductMasterRecord[], filters: ProductMasterFilterState = {}): ProductMasterRecord[] {
@@ -169,8 +148,8 @@ export async function getProductById(productId: string): Promise<ProductMasterRe
 export async function getProductMasterSummary(filters: ProductMasterFilterState = {}): Promise<ProductMasterSummary> {
   const products = await getProductMasterRecords(filters);
   const productIds = new Set(products.map((product) => product.productId));
-  const balances = mockProductStockBalances.filter((balance) => productIds.has(balance.productId));
-  const linkedProducts = new Set(mockProductSupplierLinks.map((link) => link.productId));
+  const balances = (await getStockBalanceRows()).filter((balance) => productIds.has(balance.productId));
+  const linkedProducts = new Set(readManualRows<ProductSupplierLink>(MANUAL_SUPPLIER_LINK_KEY).map((link) => link.productId));
   return {
     totalProducts: products.length,
     activeProducts: products.filter((product) => (product.productStatus || product.status) === 'Active').length,
@@ -250,7 +229,7 @@ export async function markProductInactive(productId: string, staffId: string, no
 }
 
 export async function getProductBarcodes(productId: string): Promise<ProductBarcodeRecord[]> {
-  return mockProductBarcodeRecords.filter((barcode) => barcode.productId === productId);
+  return (ENABLE_MOCK_SEED_DATA ? mockProductBarcodeRecords : []).filter((barcode) => barcode.productId === productId);
 }
 
 export async function getProductStockBalances(productId: string): Promise<ProductStockBalance[]> {
@@ -278,28 +257,28 @@ export async function getProductLocationBalances(productId: string): Promise<Arr
 
 export async function getProductSupplierLinks(productId: string): Promise<ProductSupplierLink[]> {
   return [
-    ...mockProductSupplierLinks,
+    ...(ENABLE_MOCK_SEED_DATA ? mockProductSupplierLinks : []),
     ...readManualRows<ProductSupplierLink>(MANUAL_SUPPLIER_LINK_KEY)
   ].filter((link) => link.productId === productId);
 }
 
 export async function getProductPrices(productId: string): Promise<ProductPriceRecord[]> {
   return [
-    ...mockProductPriceRecords,
+    ...(ENABLE_MOCK_SEED_DATA ? mockProductPriceRecords : []),
     ...readManualRows<ProductPriceRecord>(MANUAL_PRICE_RECORD_KEY)
   ].filter((price) => price.productId === productId);
 }
 
 export async function getProductReorderRules(productId: string): Promise<ProductReorderRule[]> {
   return [
-    ...mockProductReorderRules,
+    ...(ENABLE_MOCK_SEED_DATA ? mockProductReorderRules : []),
     ...readManualRows<ProductReorderRule>(MANUAL_REORDER_RULE_KEY)
   ].filter((rule) => rule.productId === productId);
 }
 
 export async function getProductMasterAudit(productId: string): Promise<Array<{ id: string; productId: string; eventType: string; message: string; staffId: string; createdAt: string }>> {
   try {
-    const cached = localStorage.getItem(PRODUCT_AUDIT_KEY);
+    const cached = localStorage.getItem(getVendorScopedStorageKey(PRODUCT_AUDIT_KEY));
     const events = cached ? JSON.parse(cached) as Array<{ id: string; productId: string; eventType: string; message: string; staffId: string; createdAt: string }> : [];
     return events.filter((event) => event.productId === productId);
   } catch {
@@ -308,6 +287,6 @@ export async function getProductMasterAudit(productId: string): Promise<Array<{ 
 }
 
 export async function exportProductMasterPlaceholder(filters: ProductMasterFilterState = {}): Promise<{ message: string; filters: ProductMasterFilterState }> {
-  recordProductAudit('ALL', 'PRODUCT_MASTER_EXPORT_PLACEHOLDER', 'Product Master export placeholder requested.');
-  return { message: 'Product Master export placeholder prepared locally.', filters };
+  recordProductAudit('ALL', 'PRODUCT_MASTER_EXPORT_PREPARED', 'Product Master export prepared.');
+  return { message: 'Product Master export prepared.', filters };
 }

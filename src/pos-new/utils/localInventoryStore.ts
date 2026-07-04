@@ -1,42 +1,18 @@
 import { InventoryMovement } from '../types/posTypes';
 import { mockInventoryMovements } from '../mock/mockPosData';
+import { ENABLE_MOCK_SEED_DATA, readVendorScopedList, writeVendorScopedList } from './vendorDataMode';
 
 const STORE_KEY = 'sci_pos_inventory_movements';
-let memoryMovements: InventoryMovement[] = [...mockInventoryMovements];
-
-function canUseLocalStorage(): boolean {
-  try {
-    return typeof localStorage !== 'undefined';
-  } catch {
-    return false;
-  }
-}
+let memoryMovements: InventoryMovement[] = ENABLE_MOCK_SEED_DATA ? [...mockInventoryMovements] : [];
 
 export function loadInventoryMovements(): InventoryMovement[] {
-  if (!canUseLocalStorage()) return memoryMovements;
-
-  const cached = localStorage.getItem(STORE_KEY);
-  if (!cached) {
-    localStorage.setItem(STORE_KEY, JSON.stringify(mockInventoryMovements));
-    memoryMovements = [...mockInventoryMovements];
-    return memoryMovements;
-  }
-
-  try {
-    memoryMovements = JSON.parse(cached) as InventoryMovement[];
-    return memoryMovements;
-  } catch {
-    memoryMovements = [...mockInventoryMovements];
-    return memoryMovements;
-  }
+  memoryMovements = readVendorScopedList<InventoryMovement>(STORE_KEY, mockInventoryMovements);
+  return memoryMovements;
 }
 
 export function saveInventoryMovements(movements: InventoryMovement[]): InventoryMovement[] {
   memoryMovements = movements;
-  if (canUseLocalStorage()) {
-    localStorage.setItem(STORE_KEY, JSON.stringify(movements));
-  }
-  return movements;
+  return writeVendorScopedList(STORE_KEY, movements);
 }
 
 export function addInventoryMovement(movement: InventoryMovement): InventoryMovement {

@@ -9,10 +9,35 @@ import {
   savePosAuthContext,
   clearPosAuthContext
 } from "./posVendorAuthState";
+import {
+  mergeVendorLicenseIntoAuthContext,
+  subscribeToVendorLicense
+} from "./vendorLicenseRuntimeService";
+import { getNextPlanCode } from "./planFeatureGate";
+import UpgradeRequiredPanel from "../components/UpgradeRequiredPanel";
 
 type PosVendorAuthGateProps = {
   children: React.ReactNode;
 };
+
+const SHOW_DEV_BADGES = false;
+
+function readBusinessProfileForUpgrade(): Record<string, unknown> {
+  try {
+    const raw = localStorage.getItem('itred_pos_business_profile');
+    return raw ? JSON.parse(raw) as Record<string, unknown> : {};
+  } catch {
+    return {};
+  }
+}
+
+function profileText(profile: Record<string, unknown>, ...keys: string[]): string {
+  for (const key of keys) {
+    const value = String(profile[key] || '').trim();
+    if (value) return value;
+  }
+  return '';
+}
 
 export default function PosVendorAuthGate({ children }: PosVendorAuthGateProps) {
   const [context, setContext] = useState<PosVendorAuthContext>(
@@ -43,6 +68,17 @@ export default function PosVendorAuthGate({ children }: PosVendorAuthGateProps) 
     setContext(firstRunContext);
     savePosAuthContext(firstRunContext);
   }, []);
+
+  useEffect(() => {
+    if (!context.vendorId) return undefined;
+    return subscribeToVendorLicense(context.vendorId, (licenseSnapshot) => {
+      setContext((current) => {
+        const merged = mergeVendorLicenseIntoAuthContext(current, licenseSnapshot);
+        savePosAuthContext(merged);
+        return merged;
+      });
+    });
+  }, [context.vendorId]);
 
 
   const resetAuthFlow = () => {
@@ -85,7 +121,7 @@ export default function PosVendorAuthGate({ children }: PosVendorAuthGateProps) 
                 googleUid: `demo-google-${Date.now()}`,
                 googleEmail: "owner@example.com",
                 licenseStatus: "Demo",
-                message: "Demo Google identity captured. Complete business setup."
+                message: "Business identity captured. Complete business setup."
               };
 
               setContext(demoGoogleContext);
@@ -96,17 +132,21 @@ export default function PosVendorAuthGate({ children }: PosVendorAuthGateProps) 
             Continue with Google
           </button>
 
-          <button
-            type="button"
-            onClick={resetAuthFlow}
-            className="mt-3 w-full bg-white hover:bg-slate-50 border border-[#b1b5c2] text-[#1e222b] font-black uppercase py-2 rounded-none"
-          >
-            Reset Demo Auth
-          </button>
+          {SHOW_DEV_BADGES && (
+            <>
+              <button
+                type="button"
+                onClick={resetAuthFlow}
+                className="mt-3 w-full bg-white hover:bg-slate-50 border border-[#b1b5c2] text-[#1e222b] font-black uppercase py-2 rounded-none"
+              >
+                Reset Demo Auth
+              </button>
 
-          <div className="mt-4 text-xs uppercase font-bold text-slate-500">
-            AUTH-04 foundation: Google button is currently a safe local demo action. Real Firebase Google sign-in will be wired in AUTH-05.
-          </div>
+              <div className="mt-4 text-xs uppercase font-bold text-slate-500">
+                AUTH-04 foundation: Google button is currently a safe local demo action. Real Firebase Google sign-in will be wired in AUTH-05.
+              </div>
+            </>
+          )}
         </div>
       </div>
     );
@@ -121,29 +161,48 @@ export default function PosVendorAuthGate({ children }: PosVendorAuthGateProps) 
   }
 
   if (context.stage === "licenseRequired") {
+    const profile = readBusinessProfileForUpgrade();
+    const planCode = context.planCode || 'DEMO';
     return (
-      <div className="min-h-screen bg-[#f7f5ef] flex items-center justify-center p-6">
-        <div className="max-w-md w-full bg-white border border-gray-300 p-6">
-          <h1 className="text-xl font-black uppercase text-[#1e222b]">
-            License Required
-          </h1>
-          <p className="text-sm mt-2 text-slate-600">
-            Demo license has expired or account has been suspended.
-          </p>
-        </div>
-      </div>
+      <main className="min-h-screen bg-[#f7f5ef] p-6">
+        <UpgradeRequiredPanel
+          featureName="POS License"
+          currentPlan={planCode}
+          requiredPlan={String(getNextPlanCode(planCode))}
+          vendor={{
+            vendorName: context.vendorName || profileText(profile, 'legalName', 'tradingName', 'businessName') || 'Business',
+            vendorId: context.vendorId || profileText(profile, 'vendorId') || 'unassigned-vendor',
+            ownerName: profileText(profile, 'ownerName', 'contactPerson'),
+            ownerPhone: profileText(profile, 'ownerContact', 'ownerPhone', 'businessPhone', 'phone', 'phoneNumber1'),
+            ownerWhatsapp: profileText(profile, 'businessWhatsapp', 'whatsapp', 'ownerWhatsApp', 'whatsAppNumber1'),
+            city: profileText(profile, 'city', 'cityTown'),
+            suburb: profileText(profile, 'suburb', 'districtSuburb', 'district')
+          }}
+          detail={context.message || "Contact SCI support to activate POS access."}
+          onActivated={(result) => {
+            const nextContext = {
+              ...context,
+              message: result.message
+            };
+            setContext(nextContext);
+            savePosAuthContext(nextContext);
+          }}
+        />
+      </main>
     );
   }
 
   return (
     <>
-      <button
-        type="button"
-        onClick={resetAuthFlow}
-        className="fixed bottom-3 right-3 z-[9999] bg-white border border-[#b1b5c2] px-3 py-1.5 text-[8px] uppercase font-black text-[#1e222b] shadow"
-      >
-        Reset Auth
-      </button>
+      {SHOW_DEV_BADGES && (
+        <button
+          type="button"
+          onClick={resetAuthFlow}
+          className="fixed bottom-3 right-3 z-[9999] bg-white border border-[#b1b5c2] px-3 py-1.5 text-[8px] uppercase font-black text-[#1e222b] shadow"
+        >
+          Reset Auth
+        </button>
+      )}
       {children}
     </>
   );

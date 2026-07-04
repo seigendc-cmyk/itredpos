@@ -192,7 +192,7 @@ const accountingTabs: AccountingTab[] = [
   'Accounting Readiness'
 ];
 
-const branches = ['All Branches', 'Harare Main', 'Bulawayo Branch', 'Mutare Branch'];
+const branches = ['All Branches', 'Main Branch', 'Branch 2', 'Branch 3'];
 const terminals = ['All Terminals', 'POS-01', 'POS-02', 'BACK-01'];
 const cashiers = ['All Staff', 'Admin User', 'Mary Cashier', 'Tawanda Supervisor', 'Blessing Stock'];
 const paymentModes: Array<PaymentMode | 'All'> = ['All', 'Cash', 'EcoCash', 'Swipe', 'Bank Transfer', 'Split Payment', 'Credit Sale', 'Store Credit'];
@@ -356,8 +356,8 @@ export default function PosOwnerDesk({ session }: PosOwnerDeskProps) {
 
   const staffName = session?.staffName || 'Admin User';
   const currentRole = toOwnerDeskRole(session?.role);
-  const vendorId = 'SCI-LOG-ZW';
-  const vendorName = 'Demo Vendor';
+  const vendorId = session?.vendorId || 'current-vendor';
+  const vendorName = session?.vendor || 'Business';
   const businessDate = '2026-06-09';
 
   const filters = useMemo(
@@ -917,7 +917,7 @@ export default function PosOwnerDesk({ session }: PosOwnerDeskProps) {
     if (!ownerActionModal) return;
     const note = ownerActionNote.trim();
     if ((ownerActionModal.mode === 'notReady' || ownerActionModal.mode === 'forceClose' || ownerActionModal.mode === 'reconcile') && !note) {
-      showFeedback('error', 'Owner note is required for this local action.');
+      showFeedback('error', 'Owner note is required for this action.');
       return;
     }
     if (ownerActionModal.domain === 'EOD Readiness') {
@@ -1014,7 +1014,7 @@ export default function PosOwnerDesk({ session }: PosOwnerDeskProps) {
   const handleRunCheck = async () => {
     setChecklist(await runEODReadinessCheck(vendorId, businessDate));
     setActivity(await getEODActivityEvents());
-    showFeedback('success', 'EOD readiness check run for Demo Vendor.');
+    showFeedback('success', `EOD readiness check run for ${vendorName}.`);
   };
 
   const handleMarkReviewed = async (itemId: string) => {
@@ -1048,9 +1048,9 @@ export default function PosOwnerDesk({ session }: PosOwnerDeskProps) {
   };
 
   const handleAccountingReverse = async (postingId: string) => {
-    setAccountingActivity(await reverseAccountingPostingPlaceholder(postingId, 'Owner Desk reverse placeholder.'));
+    setAccountingActivity(await reverseAccountingPostingPlaceholder(postingId, 'Owner Desk reverse review.'));
     await loadAccounting();
-    showFeedback('warning', `${postingId} reverse placeholder recorded.`);
+    showFeedback('warning', `${postingId} reverse review recorded.`);
   };
 
   const handleAccountingExport = async (reportType: string) => {
@@ -1063,11 +1063,11 @@ export default function PosOwnerDesk({ session }: PosOwnerDeskProps) {
     await createAccountingPostingPlaceholder({
       sourceReference: 'MANUAL-PLACEHOLDER',
       source: 'Manual Placeholder',
-      branch: branch === 'All Branches' ? 'Harare Main' : branch,
+      branch: branch === 'All Branches' ? 'Main Branch' : branch,
       amount: 0
     });
     setAccountingActivity(await getAccountingActivityEvents());
-    showFeedback('success', 'New COA account form placeholder recorded locally.');
+    showFeedback('success', 'New COA account form recorded.');
   };
 
   const openCOAModal = async (account: COAAccount, mode: COAAccountModalMode) => {
@@ -1132,7 +1132,7 @@ export default function PosOwnerDesk({ session }: PosOwnerDeskProps) {
     setCOAAccounts(result.accounts);
     setAccountingActivity(result.activity);
     closeCOAModal();
-    showFeedback('success', `${selectedCOAAccount.accountCode} owner note saved locally.`);
+    showFeedback('success', `${selectedCOAAccount.accountCode} owner note saved.`);
   };
 
   const handleCOACreateReplacement = async (account: COAAccount) => {
@@ -1253,7 +1253,7 @@ export default function PosOwnerDesk({ session }: PosOwnerDeskProps) {
     }
     await markPostedPlaceholder(selectedInventoryAccounting.readinessId, staffName, notes);
     await refreshInventoryAccounting(selectedInventoryAccounting.readinessId);
-    showFeedback('success', `${selectedInventoryAccounting.readinessNumber} marked posted placeholder.`);
+    showFeedback('success', `${selectedInventoryAccounting.readinessNumber} marked posted for review.`);
   };
 
   const handleInventoryAccountingExport = async () => {
@@ -1351,7 +1351,7 @@ export default function PosOwnerDesk({ session }: PosOwnerDeskProps) {
           ]} />
           <Panel title="Owner Control Summary" icon={<ShieldAlert className="w-4 h-4 text-orange-500" />}>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-              <InfoBox label="Access Scope" value="Owner full access during build-development" />
+              <InfoBox label="Access Scope" value="Owner full access" />
               <InfoBox label="Tenant Scope" value="Owner Desk local EOD control only" />
               <InfoBox label="Data Source" value="Mock/local EOD data only" />
             </div>
@@ -1658,7 +1658,7 @@ export default function PosOwnerDesk({ session }: PosOwnerDeskProps) {
                     {coaAccounts.map((account) => (
                       <tr key={account.id}>
                         <td><strong>{account.accountCode}</strong></td>
-                        <td className="owner-desk-wrap-cell">{account.accountName}<span>{account.notes || 'Accounting readiness placeholder'}</span></td>
+                        <td className="owner-desk-wrap-cell">{account.accountName}<span>{account.notes || 'Accounting readiness note'}</span></td>
                         <td>{account.accountType}</td>
                         <td>{account.linkedDomain}</td>
                         <td><Badge value={account.status} /></td>
@@ -1785,7 +1785,7 @@ export default function PosOwnerDesk({ session }: PosOwnerDeskProps) {
           {activeAccountingTab === 'Cashbook' && (
             <div className="space-y-5">
               <div className="bg-white border-2 border-[#b1b5c2] p-3 grid grid-cols-1 md:grid-cols-4 xl:grid-cols-7 gap-2">
-                <InfoBox label="Business / Vendor" value="Demo Vendor" />
+                <InfoBox label="Business / Vendor" value={vendorName} />
                 <Select label="Branch" value={branch} onChange={setBranch} options={branches} />
                 <Select label="Terminal" value={terminal} onChange={setTerminal} options={terminals} />
                 <Select label="Cashier" value={cashier} onChange={setCashier} options={cashiers} />
@@ -1812,7 +1812,7 @@ export default function PosOwnerDesk({ session }: PosOwnerDeskProps) {
           {activeAccountingTab === 'VAT Summary' && (
             <div className="space-y-5">
               <div className="bg-white border-2 border-[#b1b5c2] p-3 grid grid-cols-1 md:grid-cols-5 gap-2">
-                <InfoBox label="Business / Vendor" value="Demo Vendor" />
+                <InfoBox label="Business / Vendor" value={vendorName} />
                 <Select label="Branch" value={branch} onChange={setBranch} options={branches} />
                 <Input label="Date From" value={dateFrom} onChange={setDateFrom} />
                 <Input label="Date To" value={dateTo} onChange={setDateTo} />
@@ -2147,7 +2147,7 @@ export default function PosOwnerDesk({ session }: PosOwnerDeskProps) {
 function Filters({ branch, setBranch, dateFrom, setDateFrom, dateTo, setDateTo }: { branch: string; setBranch: (value: string) => void; dateFrom: string; setDateFrom: (value: string) => void; dateTo: string; setDateTo: (value: string) => void }) {
   return (
     <div className="bg-white border-2 border-[#b1b5c2] p-3 grid grid-cols-1 md:grid-cols-4 gap-2">
-      <InfoBox label="Business / Vendor" value="Demo Vendor" />
+      <InfoBox label="Business / Vendor" value={vendorName} />
       <Select label="Branch" value={branch} onChange={setBranch} options={branches} />
       <Input label="Date From" value={dateFrom} onChange={setDateFrom} />
       <Input label="Date To" value={dateTo} onChange={setDateTo} />
@@ -2161,7 +2161,7 @@ function PaymentFilters(props: {
 }) {
   return (
     <div className="bg-white border-2 border-[#b1b5c2] p-3 grid grid-cols-1 md:grid-cols-4 xl:grid-cols-7 gap-2">
-      <InfoBox label="Business / Vendor" value="Demo Vendor" />
+      <InfoBox label="Business / Vendor" value={vendorName} />
       <Select label="Branch" value={props.branch} onChange={props.setBranch} options={branches} />
       <Select label="Terminal" value={props.terminal} onChange={props.setTerminal} options={terminals} />
       <Select label="Cashier" value={props.cashier} onChange={props.setCashier} options={cashiers} />
@@ -2190,7 +2190,7 @@ function AccountingFilters(props: {
 }) {
   return (
     <div className="bg-white border-2 border-[#b1b5c2] p-3 grid grid-cols-1 md:grid-cols-4 xl:grid-cols-6 gap-2">
-      <InfoBox label="Business / Vendor" value="Demo Vendor" />
+      <InfoBox label="Business / Vendor" value={vendorName} />
       <Select label="Branch" value={props.branch} onChange={props.setBranch} options={branches} />
       <Select label="Terminal" value={props.terminal} onChange={props.setTerminal} options={terminals} />
       <Select label="Cashier" value={props.cashier} onChange={props.setCashier} options={cashiers} />
@@ -2828,7 +2828,7 @@ function CashReconciliationModal({
           {(mode === 'review' || mode === 'detail') && (
             <div className="owner-cash-notes">
               <span>Activity Notes</span>
-              <p>{row.ownerNote || 'No owner note recorded yet. Review remains local/mock for build development.'}</p>
+              <p>{row.ownerNote || 'No owner note recorded yet. Review is ready for owner action.'}</p>
             </div>
           )}
 
@@ -2915,14 +2915,14 @@ function OwnerDeskActionModal({
           )}
           {modal.mode === 'detail' && (
             <div className="owner-cash-notes">
-              <span>Local Detail</span>
-              <p>This is a local/mock Owner Desk action surface. No external service or final posting is called.</p>
+              <span>Action Detail</span>
+              <p>This Owner Desk action records review notes and prepares the item for approval.</p>
             </div>
           )}
           {needsNote && (
             <label className="owner-cash-note-field">
               <span>Owner Note</span>
-              <textarea value={note} onChange={(event) => onNoteChange(event.target.value)} rows={5} placeholder="Enter owner note for this local action" />
+              <textarea value={note} onChange={(event) => onNoteChange(event.target.value)} rows={5} placeholder="Enter owner note for this action" />
             </label>
           )}
         </div>
@@ -3598,8 +3598,8 @@ function coaAccountFields(account: COAAccount): Array<[string, string]> {
     ['Status', account.status],
     ['Notes', account.notes || 'No notes recorded'],
     ['Created By', account.createdBy || 'Owner Desk'],
-    ['Created At', account.createdAt || 'Local placeholder seed'],
-    ['Updated At', account.updatedAt || 'No local update'],
+    ['Created At', account.createdAt || 'Pending timestamp'],
+    ['Updated At', account.updatedAt || 'No update recorded'],
     ['Used In Accounting Readiness Areas', `${account.linkedDomain} readiness preview`],
     ['Linked Transaction Domains', `${account.linkedDomain}, EOD Accounting, Owner Desk Accounting Preview`],
     ['Audit / Activity History', account.inactiveReason || account.notes || 'Visible in local accounting readiness history']

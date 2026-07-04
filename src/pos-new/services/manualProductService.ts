@@ -13,6 +13,7 @@ import { createProductMasterDraft, getProductMasterById, getProductMasterRecords
 import { postInventoryMovement } from './inventoryMovementService';
 import { createOperationalApproval } from './approvalService';
 import { enqueueOfflineAction, getNetworkStatus } from './offlineSyncService';
+import { getActiveVendorId, readVendorScopedList, writeVendorScopedList } from '../utils/vendorDataMode';
 
 const SUPPLIER_LINK_KEY = 'itred_pos_manual_product_supplier_links_v1';
 const PRICE_RECORD_KEY = 'itred_pos_manual_product_price_records_v1';
@@ -27,27 +28,11 @@ const moneyNumber = (value: unknown): number | undefined => {
 };
 
 function safeReadList<T>(key: string, fallback: T[] = []): T[] {
-  try {
-    if (typeof localStorage === 'undefined') return fallback;
-    const raw = localStorage.getItem(key);
-    if (!raw) {
-      localStorage.setItem(key, JSON.stringify(fallback));
-      return fallback;
-    }
-    const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed as T[] : fallback;
-  } catch {
-    return fallback;
-  }
+  return readVendorScopedList<T>(key, fallback);
 }
 
 function safeWriteList<T>(key: string, value: T[]): T[] {
-  try {
-    if (typeof localStorage !== 'undefined') localStorage.setItem(key, JSON.stringify(value));
-  } catch {
-    // Local build data must not crash if storage is unavailable.
-  }
-  return value;
+  return writeVendorScopedList(key, value);
 }
 
 function makeId(prefix: string): string {
@@ -114,7 +99,7 @@ function toProductMasterPayload(payload: ManualProductDraft, status: 'Draft' | '
     ['Storage Requirement', payload.storageRequirement]
   ]);
   return {
-    vendorId: payload.vendorId || 'SCI-LOG-ZW',
+    vendorId: payload.vendorId || getActiveVendorId(),
     productCode: sku,
     sku,
     barcode: payload.barcode || undefined,

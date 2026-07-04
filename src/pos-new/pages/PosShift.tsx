@@ -95,7 +95,7 @@ interface PosShiftProps {
 type ShiftAction = 'open' | 'close' | 'drawer' | null;
 type ShiftSection = 'Status' | 'Terminal Activation' | 'Shift Activity';
 
-const VENDOR_ID = 'SCI-LOG-ZW';
+const DEFAULT_VENDOR_ID = 'unassigned-vendor';
 const SHIFT_START_INTENT_KEY = 'itred_pos_open_shift_start_wizard_v1';
 const permissionBlockedMessage = 'You do not have permission to perform this action.';
 const processWarning = 'A shift process is still in progress. Finish or cancel the process before exiting.';
@@ -187,13 +187,14 @@ export default function PosShift({
   session,
   onNavigate
 }: PosShiftProps) {
-  const branchName = session?.branch || 'Harare Main';
+  const branchName = session?.branch || 'Main Branch';
   const branchId = branchIdFromName(branchName);
   const terminalId = session?.terminal || parentTerminalId || 'POS-01';
   const terminalName = terminalId;
-  const staffName = session?.staffName || activeOperator || 'Mary Cashier';
+  const staffName = session?.staffName || activeOperator || 'Cashier';
   const staffId = staffIdFromName(staffName);
   const roleName = (session?.role || 'Owner') as Role;
+  const VENDOR_ID = session?.vendorId || DEFAULT_VENDOR_ID;
 
   const [activeSection, setActiveSection] = useState<ShiftSection>('Status');
   const [activeModal, setActiveModal] = useState<ShiftAction>(null);
@@ -692,7 +693,7 @@ export default function PosShift({
       await handleRecoverShift();
       return;
     }
-    setStatusMessage(`${action}: ${request.terminalId} local placeholder opened.`);
+    setStatusMessage(`${action}: ${request.terminalId} shift action opened.`);
   };
 
   const handleLockTerminal = async () => {

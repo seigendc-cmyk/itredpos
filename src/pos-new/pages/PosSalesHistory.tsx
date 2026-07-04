@@ -23,6 +23,7 @@ import { formatReceiptCurrency, getActiveReceiptBlueprint, prepareReceiptWhatsAp
 import { DeliveryRequest, PosSession, ReceiptLine, ReceiptPrintPreview, ReceiptRecord, Role } from '../types';
 import { hasPermission, PermissionKey } from '../utils/posPermissions';
 import { matchesFreeOrderSearch } from '../utils/searchUtils';
+import { seedRows } from '../utils/vendorDataMode';
 
 interface PosSalesHistoryProps {
   session: PosSession;
@@ -37,8 +38,8 @@ const deliveryStatuses = ['All', 'Out for Delivery', 'Assigned', 'Waiting Collec
 const returnStatuses = ['All', 'Completed', 'Refunded', 'Partially Refunded', 'Voided', 'Fiscal Pending'];
 
 function makeReceiptPreview(receipt: ReceiptRecord): ReceiptPrintPreview {
-  const lines = mockReceiptLines.filter((line) => line.receiptNumber === receipt.receiptNumber);
-  const payments = mockReceiptPayments.filter((payment) => payment.receiptNumber === receipt.receiptNumber);
+  const lines = seedRows(mockReceiptLines).filter((line) => line.receiptNumber === receipt.receiptNumber);
+  const payments = seedRows(mockReceiptPayments).filter((payment) => payment.receiptNumber === receipt.receiptNumber);
   const blueprint = getActiveReceiptBlueprint();
   return {
     receipt,
@@ -60,7 +61,7 @@ function makeReceiptPreview(receipt: ReceiptRecord): ReceiptPrintPreview {
 }
 
 function receiptLines(receipt: ReceiptRecord): ReceiptLine[] {
-  return mockReceiptLines.filter((line) => line.receiptNumber === receipt.receiptNumber);
+  return seedRows(mockReceiptLines).filter((line) => line.receiptNumber === receipt.receiptNumber);
 }
 
 export default function PosSalesHistory({ session, onNavigate }: PosSalesHistoryProps) {
@@ -112,7 +113,7 @@ export default function PosSalesHistory({ session, onNavigate }: PosSalesHistory
   };
 
   const rows = useMemo(() => {
-    return mockReceiptRecords.filter((receipt) => {
+    return seedRows(mockReceiptRecords).filter((receipt) => {
       const delivery = deliveryByReceipt.get(receipt.receiptNumber);
       const deliveryStatus = delivery?.deliveryStatus || 'Not Linked';
       const receiptDate = receipt.businessDate || receipt.dateTime.slice(0, 10);
@@ -289,7 +290,7 @@ export default function PosSalesHistory({ session, onNavigate }: PosSalesHistory
           <h2>Sales History</h2>
           <p>Receipt Search, Review, Returns, Credit Notes, and Transaction Audit</p>
         </div>
-        <div className="sales-history-mode">Mode: Build Development</div>
+        <div className="sales-history-mode">Receipt Review</div>
       </div>
 
       {notice && (
@@ -361,7 +362,7 @@ export default function PosSalesHistory({ session, onNavigate }: PosSalesHistory
                 );
               })}
               {rows.length === 0 && (
-                <tr><td colSpan={11} className="sales-history-empty">No receipts match the selected filters.</td></tr>
+                <tr><td colSpan={11} className="sales-history-empty">No sales completed yet.</td></tr>
               )}
             </tbody>
           </table>
@@ -421,7 +422,7 @@ export default function PosSalesHistory({ session, onNavigate }: PosSalesHistory
 function DetailModalView({ modal, receipt, delivery, onClose }: { modal: DetailModal; receipt: ReceiptRecord | null; delivery?: DeliveryRequest; onClose: () => void }) {
   if (!modal || !receipt) return null;
   const lines = receiptLines(receipt);
-  const payments = mockReceiptPayments.filter((payment) => payment.receiptNumber === receipt.receiptNumber);
+  const payments = seedRows(mockReceiptPayments).filter((payment) => payment.receiptNumber === receipt.receiptNumber);
   const title = modal === 'CAT' ? 'CAT Form Audit' : modal === 'Payment' ? 'Payment Detail' : modal === 'Delivery' ? 'Delivery Detail' : 'Credit Note Review';
   return (
     <div className="sales-history-modal-backdrop" onClick={onClose}>
@@ -456,8 +457,8 @@ function DetailModalView({ modal, receipt, delivery, onClose }: { modal: DetailM
               </div>
             ))}
           </div>
-          {modal === 'CreditNote' && <div className="sales-history-local-note">Credit note draft is local/mock only. No accounting, cashbook, or refund posting was created.</div>}
-          {modal === 'CAT' && <div className="sales-history-local-note">CAT audit view is read-only and combines receipt, tax, payment, inventory line, delivery, and local audit placeholders.</div>}
+          {modal === 'CreditNote' && <div className="sales-history-local-note">Credit note draft prepared for review. No accounting, cashbook, or refund posting was created.</div>}
+          {modal === 'CAT' && <div className="sales-history-local-note">CAT audit view is read-only and combines receipt, tax, payment, inventory line, delivery, and audit details.</div>}
         </div>
         <footer className="sales-history-modal-actions">
           <button type="button" className="sci-pos-button sci-pos-button--primary" onClick={onClose}>Close</button>

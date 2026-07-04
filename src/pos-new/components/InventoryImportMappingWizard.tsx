@@ -70,7 +70,7 @@ const steps: Array<{ id: WizardStep; label: string }> = [
 const sectorProfiles: Array<{ label: string; code: IndustrialSectorCode; keywords: string[] }> = [
   { label: 'Grocery', code: 'GROCERY', keywords: ['barcode', 'expiryDate', 'batchNumber', 'unitOfMeasure', 'packSize'] },
   { label: 'Agriculture', code: 'AGRICULTURE', keywords: ['seedVariety', 'chemicalActiveIngredient', 'applicationRate', 'expiryDate', 'regulatoryNotes'] },
-  { label: 'Motor Spares', code: 'MOTOR_SPARES', keywords: ['make', 'model', 'vehicleMake', 'vehicleModel', 'yearRange', 'partNumber', 'oemNumber', 'side'] },
+  { label: 'Automotive Parts', code: 'MOTOR_SPARES', keywords: ['make', 'model', 'vehicleMake', 'vehicleModel', 'yearRange', 'partNumber', 'oemNumber', 'side'] },
   { label: 'Hardware', code: 'HARDWARE', keywords: ['size', 'material', 'grade', 'weight', 'unitOfMeasure'] },
   { label: 'Pharmacy', code: 'PHARMACY', keywords: ['dosage', 'strength', 'batchNumber', 'expiryDate', 'prescriptionRequired'] },
   { label: 'Clothing', code: 'CLOTHING', keywords: ['size', 'colour', 'gender', 'fabric', 'style'] },
@@ -98,9 +98,9 @@ const categoryFields: Record<ProductImportDataCategory, Array<{ key: string; lab
 };
 
 const sampleSheet = `Product Name,SKU,Barcode,Selling Price,Cost Price,Qty,Category,Supplier Name,Shelf Location,Make,Model,Part Number
-Toyota Hilux GD6 Mirror Right Chrome,MIR-GD6-RC,,68,34,2,Body Parts,Motor Spares Wholesalers,A1-S4,Toyota,Hilux GD6,MIR-GD6-RC
-Brake Pads Toyota GD6 Front,BP-GD6-F,,28,16,4,Braking,Motor Spares Wholesalers,B2-S2,Toyota,Hilux GD6,04465-0K290
-Universal Radiator Cap 1.1 Bar,RAD-CAP-11,,8,3.5,10,Cooling,Motor Spares Wholesalers,A2-S2,,,RAD-CAP-11`;
+Sample Product A,GEN-001,,15,10,0,General,Vendor Supplier,,,,
+Sample Product B,GEN-002,,30,20,0,General,Vendor Supplier,,,,
+Sample Product C,GEN-003,,45,30,0,General,Vendor Supplier,,,,`;
 
 function normalize(value: string): string {
   return value.toLowerCase().replace(/[^a-z0-9]/g, '');
@@ -115,7 +115,7 @@ export default function InventoryImportMappingWizard(props: WizardProps) {
   const [step, setStep] = useState<WizardStep>(1);
   const [importMode, setImportMode] = useState<ProductImportMode>(props.batch?.importMode || 'New Import');
   const [dataCategory, setDataCategory] = useState<ProductImportDataCategory>(props.batch?.dataCategory || 'Inventory List');
-  const [sectorLabel, setSectorLabel] = useState(() => sectorProfiles.find((profile) => profile.code === props.batch?.industrialSectorCode)?.label || 'Motor Spares');
+  const [sectorLabel, setSectorLabel] = useState(() => sectorProfiles.find((profile) => profile.code === props.batch?.industrialSectorCode)?.label || 'General Retail');
   const [sourceType, setSourceType] = useState<'Custom Excel File'>('Custom Excel File');
   const [fileName, setFileName] = useState(props.batch?.fileName || 'inventory-import.xlsx');
   const [worksheetName, setWorksheetName] = useState(props.batch?.worksheetName || 'Sheet1');

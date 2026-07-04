@@ -19,6 +19,8 @@ import {
 import { createOperationalApproval } from './approvalService';
 import { calculateRunningBalance, postStockAdjustmentMovement } from './inventoryMovementService';
 import { publishCommerceEvent, writeAuditLog, CommerceOperationContext } from '../../commerce-integration';
+import { getVendorDocumentIdentity } from '../vendor/vendorBootstrapModel';
+import { readVendorScopedList, writeVendorScopedList } from '../utils/vendorDataMode';
 
 const ADJUSTMENT_KEY = 'itred_pos_stock_adjustments_v1';
 const ADJUSTMENT_LINE_KEY = 'itred_pos_stock_adjustment_lines_v1';
@@ -48,34 +50,12 @@ export interface StockAdjustmentPostingResult {
 }
 
 function readList<T>(key: string, fallback: T[], isValid: (value: unknown) => boolean): T[] {
-  if (typeof localStorage === 'undefined') return fallback;
-  try {
-    const raw = localStorage.getItem(key);
-    if (!raw) {
-      localStorage.setItem(key, JSON.stringify(fallback));
-      return fallback;
-    }
-    const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) && parsed.every(isValid) ? parsed as T[] : fallback;
-  } catch {
-    try {
-      localStorage.setItem(key, JSON.stringify(fallback));
-    } catch {
-      // Local persistence may be unavailable in test/private contexts.
-    }
-    return fallback;
-  }
+  const rows = readVendorScopedList<T>(key, fallback);
+  return rows.every(isValid) ? rows : [];
 }
 
 function saveList<T>(key: string, value: T[]): T[] {
-  if (typeof localStorage !== 'undefined') {
-    try {
-      localStorage.setItem(key, JSON.stringify(value));
-    } catch {
-      // Keep the local/mock workflow usable even if persistence is blocked.
-    }
-  }
-  return value;
+  return writeVendorScopedList(key, value);
 }
 
 function hasKeys(...keys: string[]) {
@@ -571,8 +551,9 @@ export async function recordStockAdjustmentPlaceholderActivity(
 export async function exportStockAdjustmentPlaceholder(adjustmentId: string): Promise<{ message: string; payload: { record: StockAdjustment | null; lines: StockAdjustmentLine[] } }> {
   const record = await getStockAdjustmentById(adjustmentId);
   const lines = record ? await getStockAdjustmentLines(adjustmentId) : [];
+  const identity = record ? getVendorDocumentIdentity({ vendorId: record.vendorId, branchId: record.branchId, warehouseId: record.warehouseId }) : null;
   return {
-    message: record ? `${record.adjustmentNumber} export placeholder prepared.` : 'Stock Adjustment not found.',
+    message: record ? `${record.adjustmentNumber} export prepared for ${identity?.displayName || 'vendor'}.` : 'Stock Adjustment not found.',
     payload: { record, lines }
   };
 }

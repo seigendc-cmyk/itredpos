@@ -20,6 +20,8 @@ export default function ReceiptPrintDocument({ preview, mode = 'screen', instruc
   const contact = blueprint?.contactNumbers || blueprint?.contactInformation || receipt.businessDetails.contactNumbers || receipt.businessDetails.contactInformation || `${receipt.businessDetails.phone} | ${receipt.businessDetails.whatsApp}`;
   const email = blueprint?.emailAddress || receipt.businessDetails.emailAddress;
   const social = blueprint?.socialMediaHandles || blueprint?.socialMediaInformation || receipt.businessDetails.socialMediaHandles || receipt.businessDetails.socialMediaInformation;
+  const businessDescriptor = [receipt.businessDetails.businessType, receipt.businessDetails.industry].filter(Boolean).join(' / ');
+  const terminalName = receipt.businessDetails.terminalName || receipt.terminal;
 
   return (
     <section id="receipt-print-area" className={`receipt-print-document receipt-print-document--${mode} receipt-print-document--${layout.toLowerCase().replace(/\s+/g, '-')}`} aria-label="Receipt print document">
@@ -30,12 +32,15 @@ export default function ReceiptPrintDocument({ preview, mode = 'screen', instruc
         )}
         <h2>{receipt.businessDetails.businessName}</h2>
         {(blueprint?.headerMessage || receipt.businessDetails.headerMessage) && <p className="receipt-print-header-message">{blueprint?.headerMessage || receipt.businessDetails.headerMessage}</p>}
+        {businessDescriptor && <p>{businessDescriptor}</p>}
         <p>{address}</p>
-        <p>{receipt.branch} | {receipt.terminal}</p>
+        <p>{receipt.businessDetails.branch || receipt.branch} | {terminalName}</p>
         <p>{contact}</p>
         {email && <p>{email}</p>}
         {social && <p>{social}</p>}
         {receipt.businessDetails.vatNumber && <p>VAT: {receipt.businessDetails.vatNumber}</p>}
+        {receipt.businessDetails.taxNumber && <p>Tax: {receipt.businessDetails.taxNumber}</p>}
+        {receipt.businessDetails.registrationNumber && <p>Registration: {receipt.businessDetails.registrationNumber}</p>}
       </header>
 
       <div className="receipt-print-meta">

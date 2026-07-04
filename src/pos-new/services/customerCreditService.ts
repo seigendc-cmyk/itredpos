@@ -3,6 +3,7 @@ import { createOperationalApproval } from './approvalService';
 import { createAccountingPostingPlaceholder } from './accountingService';
 import { getCustomerById, getCustomerPurchaseHistory, realRecordsExist } from './customerService';
 import { mockCustomers } from '../mock/mockPosData';
+import { getActiveVendorId, readVendorScopedJson, readVendorScopedList, shouldUseMockSeedData, writeVendorScopedJson, writeVendorScopedList } from '../utils/vendorDataMode';
 
 /*
  * Placeholder / Mock Data Sources Audited (Phase 2):
@@ -16,8 +17,8 @@ import { mockCustomers } from '../mock/mockPosData';
  * - seedOpeningBalances: Returns a mock opening balance for Brian Dube.
  * - seedDeposits: Returns a mock deposit for Tapiwa Moyo.
  * - seedCreditNotes: Returns a mock credit note for Brian Dube.
- * - seedBulkCollectionBatches: Returns a mock bulk collection batch for Build Development.
- * - seedPeriodLocks: Returns a mock locked period for Build Development.
+ * - seedBulkCollectionBatches: Returns a sample bulk collection batch.
+ * - seedPeriodLocks: Returns a sample locked period.
  */
 import type {
   BulkCollectionActionType,
@@ -221,22 +222,9 @@ export interface CustomerCreditTask {
   createdAt: string;
 }
 
-function canUseLocalStorage(): boolean {
-  return typeof localStorage !== 'undefined';
-}
-
 function readList<T>(key: string, fallback: T[] = []): T[] {
-  if (!canUseLocalStorage()) return fallback;
   try {
-    const raw = localStorage.getItem(key);
-    let parsed: T[];
-    if (!raw) {
-      localStorage.setItem(key, JSON.stringify(fallback));
-      parsed = fallback;
-    } else {
-      const p = JSON.parse(raw);
-      parsed = Array.isArray(p) ? p as T[] : fallback;
-    }
+    const parsed = readVendorScopedList<T>(key, fallback);
     if (realRecordsExist()) {
       const mockIds = [
         'CUST-TAPIWA', 'CUST-RUDO', 'CUST-FARAI', 'CUST-MEMORY',
@@ -265,18 +253,12 @@ function readList<T>(key: string, fallback: T[] = []): T[] {
     }
     return parsed;
   } catch {
-    return fallback;
+    return [];
   }
 }
 
 function saveList<T>(key: string, value: T[]): T[] {
-  if (!canUseLocalStorage()) return value;
-  try {
-    localStorage.setItem(key, JSON.stringify(value));
-  } catch {
-    // Local credit persistence is best effort in development builds.
-  }
-  return value;
+  return writeVendorScopedList(key, value);
 }
 
 function nowIso(): string {
@@ -350,30 +332,15 @@ function defaultPolicy(): CustomerCreditPolicySettings {
 }
 
 function readValue<T>(key: string, fallback: T): T {
-  if (!canUseLocalStorage()) return fallback;
-  try {
-    const raw = localStorage.getItem(key);
-    if (!raw) {
-      localStorage.setItem(key, JSON.stringify(fallback));
-      return fallback;
-    }
-    return JSON.parse(raw) as T;
-  } catch {
-    return fallback;
-  }
+  return readVendorScopedJson<T>(key, fallback);
 }
 
 function saveValue<T>(key: string, value: T): T {
-  if (!canUseLocalStorage()) return value;
-  try {
-    localStorage.setItem(key, JSON.stringify(value));
-  } catch {
-    // Local persistence is best-effort.
-  }
-  return value;
+  return writeVendorScopedJson(key, value);
 }
 
 function seededDebtRows(): CustomerDebtRecord[] {
+  if (!shouldUseMockSeedData()) return [];
   if (realRecordsExist()) return [];
   const config = defaultConfig();
   return mockCustomers
@@ -398,8 +365,8 @@ function seededDebtRows(): CustomerDebtRecord[] {
         overdueDays,
         ageingBucket: assignAgeingBucket(overdueDays, config),
         status: overdueDays > 0 ? 'Overdue' : 'Open',
-        branchId: 'BR-HARARE',
-        branchName: 'Harare Main',
+        branchId: 'main-branch',
+        branchName: 'Main Branch',
         terminalId: 'POS-01',
         cashierStaffId: customer.createdByStaffId,
         paymentTermsDays: 30,
@@ -482,12 +449,12 @@ function seedCreditApplications(): CustomerCreditApplication[] {
     requestedPaymentTermsDays: 30,
     approvedPaymentTermsDays: 0,
     status: 'PendingReview',
-    reasonForCreditRequest: 'Build Development sample: customer requested account trading.',
-    supportingNotes: 'Local/mock credit application pending manager review.',
+    reasonForCreditRequest: 'Customer requested account trading.',
+    supportingNotes: 'Credit application pending manager review.',
     contactPersonName: 'Brian Dube',
     contactPersonPhone: '+263771000004',
     reviewDate: todayDate(),
-    createdBy: 'Build Development',
+    createdBy: 'Manager',
     createdAt: nowIso(),
     updatedAt: nowIso()
   }];
@@ -504,9 +471,9 @@ function seedPromises(): PromiseToPayRecord[] {
     promisedDate: todayDate(),
     promiseMethod: 'PhoneCall',
     status: 'Pending',
-    capturedBy: 'Build Development',
+    capturedBy: 'Manager',
     capturedAt: nowIso(),
-    followUpNote: 'Build Development sample: confirm payment before close of business.',
+    followUpNote: 'Confirm payment before close of business.',
     assignedTo: 'Manager',
     updatedAt: nowIso()
   }, {
@@ -518,9 +485,9 @@ function seedPromises(): PromiseToPayRecord[] {
     promisedDate: addDays(nowIso(), -2).slice(0, 10),
     promiseMethod: 'WhatsApp',
     status: 'Broken',
-    capturedBy: 'Build Development',
+    capturedBy: 'Supervisor',
     capturedAt: addDays(nowIso(), -5),
-    followUpNote: 'Build Development sample: payment promise missed.',
+    followUpNote: 'Payment promise missed.',
     assignedTo: 'Supervisor',
     brokenAt: nowIso(),
     brokenReason: 'No payment received by promise date.',
@@ -536,8 +503,8 @@ function seedCreditBlocks(): CustomerCreditBlockRecord[] {
     customerName: 'Brian Dube',
     previousStatus: 'Credit Review Required',
     newStatus: 'CreditBlocked',
-    reason: 'Build Development sample: repeated overdue promises.',
-    blockedBy: 'Build Development',
+    reason: 'Repeated overdue promises.',
+    blockedBy: 'Manager',
     blockedAt: nowIso(),
     active: true
   }];
@@ -555,9 +522,9 @@ function seedStatementAcknowledgements(): StatementAcknowledgementRecord[] {
     sentVia: 'WhatsApp Placeholder',
     sentTo: '+263771000004',
     status: 'NoResponse',
-    sentBy: 'Build Development',
+    sentBy: 'Manager',
     sentAt: addDays(nowIso(), -4),
-    notes: 'Build Development sample: awaiting statement acknowledgement.',
+    notes: 'Awaiting statement acknowledgement.',
     updatedAt: nowIso()
   }];
 }
@@ -571,9 +538,9 @@ function seedDebtDisputes(): DebtDisputeRecord[] {
     debtId: 'DEBT-BUILD-DEV-002',
     debtReference: 'RCP-CR-1002',
     disputedAmount: 45,
-    reason: 'Build Development sample: customer disputes delivery fee portion.',
+    reason: 'Customer disputes delivery fee portion.',
     status: 'Open',
-    openedBy: 'Build Development',
+    openedBy: 'Manager',
     openedAt: nowIso(),
     assignedTo: 'Accountant'
   }];
@@ -591,8 +558,8 @@ function seedCollectionDiary(): CollectionDiaryItem[] {
     dueDate: todayDate(),
     assignedTo: 'Manager',
     status: 'DueToday',
-    notes: 'Build Development local data: promise-to-pay due today.',
-    createdBy: 'Build Development',
+    notes: 'Promise-to-pay due today.',
+    createdBy: 'Manager',
     createdAt: nowIso()
   }, {
     diaryItemId: 'CDIARY-BUILD-DEV-002',
@@ -604,8 +571,8 @@ function seedCollectionDiary(): CollectionDiaryItem[] {
     dueDate: todayDate(),
     assignedTo: 'Supervisor',
     status: 'Overdue',
-    notes: 'Build Development local data: broken promise follow-up.',
-    createdBy: 'Build Development',
+    notes: 'Broken promise follow-up.',
+    createdBy: 'Supervisor',
     createdAt: nowIso()
   }];
 }
@@ -623,9 +590,9 @@ function seedOpeningBalances(): DebtorOpeningBalance[] {
     outstandingAmount: 180,
     dueDate: addDays(nowIso(), -15).slice(0, 10),
     ageingBucket: 'Overdue1',
-    notes: 'Build Development local opening debtor balance.',
+    notes: 'Opening debtor balance.',
     status: 'Approved',
-    importedBy: 'Build Development',
+    importedBy: 'Manager',
     importedAt: nowIso(),
     approvedBy: 'Manager',
     approvedAt: nowIso()
@@ -644,10 +611,10 @@ function seedDeposits(): CustomerDepositRecord[] {
     balance: 90,
     source: 'Cash',
     paymentReference: 'CASH-DEP-BUILD',
-    receivedBy: 'Build Development',
+    receivedBy: 'Cashier',
     receivedAt: nowIso(),
     status: 'PartiallyApplied',
-    notes: 'Build Development local customer deposit.',
+    notes: 'Customer deposit.',
     linkedDebtIds: []
   }];
 }
@@ -660,12 +627,12 @@ function seedCreditNotes(): CustomerCreditNote[] {
     customerId: 'CUST-BRIAN',
     customerName: 'Brian Dube',
     linkedDebtId: 'DEBT-BUILD-DEV-002',
-    reason: 'Build Development local credit note pending approval.',
+    reason: 'Credit note pending approval.',
     originalAmount: 35,
     amountApplied: 0,
     balance: 35,
     status: 'PendingApproval',
-    createdBy: 'Build Development',
+    createdBy: 'Manager',
     createdAt: nowIso(),
     notes: 'Pending manager approval.'
   }];
@@ -677,12 +644,12 @@ function seedBulkCollectionBatches(): BulkCollectionBatch[] {
     batchId: 'BCOLL-BUILD-DEV-001',
     batchNumber: 'BC-000001',
     actionType: 'GenerateOverdueReminders',
-    filterSummary: 'Build Development local overdue sample.',
+    filterSummary: 'Overdue account sample.',
     customerCount: 2,
     debtCount: 2,
     totalAmount: 360,
     status: 'Preview',
-    generatedBy: 'Build Development',
+    generatedBy: 'Manager',
     generatedAt: nowIso(),
     notes: 'No WhatsApp API used; messages prepared only.'
   }];
@@ -695,9 +662,9 @@ function seedPeriodLocks(): DebtorPeriodLock[] {
     periodStart: addDays(nowIso(), -90).slice(0, 10),
     periodEnd: addDays(nowIso(), -31).slice(0, 10),
     status: 'Locked',
-    lockedBy: 'Build Development',
+    lockedBy: 'Owner',
     lockedAt: nowIso(),
-    notes: 'Build Development local locked debtor period.'
+    notes: 'Locked debtor period.'
   }];
 }
 
@@ -893,7 +860,7 @@ export async function canCustomerBuyOnCredit(customerId: string, saleTotal: numb
     }
     if (controlStatus === 'CreditBlocked') {
       await createCustomerCreditBIAdvice('BLOCKED_CUSTOMER_ATTEMPTED_CREDIT_SALE', profile.customerName, `${profile.customerName} attempted a credit sale while blocked.`, 'Critical');
-      await createCustomerCreditApprovalRequest({ approvalType: 'BLOCKED_CUSTOMER_CREDIT_OVERRIDE', customerName: profile.customerName, requestedBy: 'Sales Terminal', requestedByRole: 'Manager', branchId: 'BR-LOCAL', branch: 'Local Branch', relatedRecord: customerId, amountOrValue: money(saleTotal), risk: 'Critical', reason: 'Blocked customer attempted credit sale.', context: 'Local blocked customer override placeholder.' });
+      await createCustomerCreditApprovalRequest({ approvalType: 'BLOCKED_CUSTOMER_CREDIT_OVERRIDE', customerName: profile.customerName, requestedBy: 'Sales Terminal', requestedByRole: 'Manager', branchId: 'main-branch', branch: 'Main Branch', relatedRecord: customerId, amountOrValue: money(saleTotal), risk: 'Critical', reason: 'Blocked customer attempted credit sale.', context: 'Blocked customer override review.' });
     }
     if (brokenPromiseStats.brokenCount >= 2) {
       await createCustomerCreditBIAdvice('REPEATED_BROKEN_PROMISES', profile.customerName, `${profile.customerName} has repeated broken promises before new credit sale.`, 'High');
@@ -1135,13 +1102,13 @@ export async function calculateCustomerBuyingPreferences(customerId: string): Pr
   const totals = history.map((row) => row.total);
   return {
     customerId,
-    topCategories: ['Engine Service', 'Brake Parts', 'Accessories'],
-    topProducts: history.slice(0, 3).map((row) => row.receiptNo).concat(['Brake Pads', 'Engine Oil']).slice(0, 3),
-    preferredBrands: ['Toyota', 'Bosch', 'SCI Industrial'],
+    topCategories: history.length ? ['General'] : [],
+    topProducts: history.slice(0, 3).map((row) => row.receiptNo),
+    preferredBrands: [],
     averageBasketValue: totals.length ? totals.reduce((sum, value) => sum + value, 0) / totals.length : 0,
     purchaseFrequency: history.length >= 4 ? 'Weekly' : history.length >= 2 ? 'Monthly' : 'New / Low activity',
     preferredPaymentMethod: history[0]?.paymentMethod || 'Cash',
-    preferredBranch: history[0]?.branch || 'Harare Main',
+    preferredBranch: history[0]?.branch || 'Main Branch',
     preferredSalesPeriod: 'Morning counter sales',
     priceSensitivity: history.length > 2 ? 'Medium' : 'Low',
     lastPurchaseDate: history[0]?.date || ''
@@ -1353,7 +1320,7 @@ export function prepareDebtReminderWhatsAppMessage(
   const dueDate = debts[0]?.dueDate ? new Date(debts[0].dueDate).toLocaleDateString() : 'your statement due date';
   const overdueDays = Math.max(0, ...debts.map((debt) => debt.overdueDays));
   return [
-    'Hello, this is Demo Vendor.',
+    'Hello from your account team.',
     `${customer.customerName}, ${reminderType.toLowerCase()} reminder for your account.`,
     `Outstanding amount: ${money(total)}.`,
     overdueDays > 0 ? `Oldest balance is ${overdueDays} day(s) overdue.` : `Due date: ${dueDate}.`,
@@ -1412,7 +1379,7 @@ export async function createCustomerCreditApprovalRequest(input: {
   context: string;
 }): Promise<void> {
   await createOperationalApproval({
-    vendorId: 'SCI-LOG-ZW',
+    vendorId: getActiveVendorId(),
     branchId: input.branchId,
     branch: input.branch,
     category: 'Customer Approval',
@@ -1476,7 +1443,7 @@ export async function submitCreditApplication(applicationId: string): Promise<Cu
   if (submitted) {
     const application = submitted as CustomerCreditApplication;
     logCreditEvent({ customerId: application.customerId, eventType: 'CREDIT_APPLICATION_SUBMITTED', user: application.createdBy, notes: 'Credit application submitted for approval.', relatedRecord: application.applicationId });
-    await createCustomerCreditApprovalRequest({ approvalType: 'CREDIT_APPLICATION_APPROVAL', customerName: application.customerName, requestedBy: application.createdBy, requestedByRole: 'Manager', branchId: 'BR-LOCAL', branch: 'Local Branch', relatedRecord: application.applicationId, amountOrValue: money(application.requestedCreditLimit), risk: 'Medium', reason: 'Credit application approval required.', context: application.reasonForCreditRequest });
+    await createCustomerCreditApprovalRequest({ approvalType: 'CREDIT_APPLICATION_APPROVAL', customerName: application.customerName, requestedBy: application.createdBy, requestedByRole: 'Manager', branchId: 'main-branch', branch: 'Main Branch', relatedRecord: application.applicationId, amountOrValue: money(application.requestedCreditLimit), risk: 'Medium', reason: 'Credit application approval required.', context: application.reasonForCreditRequest });
   }
   return submitted;
 }
@@ -1607,7 +1574,7 @@ export async function releaseCustomerCredit(customerId: string, reason: string, 
   const profile = await getCustomerCreditProfile(customerId);
   const rows = getCreditBlockHistory().map((block) => block.customerId === customerId && block.active ? { ...block, active: false, releaseRequestedBy: staffId, releasedBy: staffId, releasedAt: nowIso(), releaseReason: reason } : block);
   saveList(CREDIT_BLOCK_KEY, rows);
-  await createCustomerCreditApprovalRequest({ approvalType: 'CREDIT_BLOCK_RELEASE', customerName: profile.customerName, requestedBy: staffId, requestedByRole: 'Manager', branchId: 'BR-LOCAL', branch: 'Local Branch', relatedRecord: customerId, amountOrValue: profile.creditStatus, risk: 'Medium', reason, context: 'Credit block release requested locally.' });
+  await createCustomerCreditApprovalRequest({ approvalType: 'CREDIT_BLOCK_RELEASE', customerName: profile.customerName, requestedBy: staffId, requestedByRole: 'Manager', branchId: 'main-branch', branch: 'Main Branch', relatedRecord: customerId, amountOrValue: profile.creditStatus, risk: 'Medium', reason, context: 'Credit block release requested.' });
   const block = await createCreditBlockRecord(customerId, reason, staffId, 'CreditAllowed', 'CUSTOMER_CREDIT_RELEASED');
   return { ...block, active: false, releasedBy: staffId, releasedAt: nowIso(), releaseReason: reason };
 }
@@ -1786,7 +1753,7 @@ export async function createDebtorOpeningBalance(payload: Omit<DebtorOpeningBala
   saveList(OPENING_BALANCE_KEY, [opening, ...readList<DebtorOpeningBalance>(OPENING_BALANCE_KEY, seedOpeningBalances())]);
   logCreditEvent({ customerId: opening.customerId, eventType: 'DEBTOR_OPENING_BALANCE_CREATED', user: opening.importedBy, notes: `${money(opening.outstandingAmount)} opening balance created.`, relatedRecord: opening.openingBalanceId });
   if (opening.outstandingAmount >= 1000) await createCustomerCreditBIAdvice('LARGE_OPENING_BALANCE_REQUIRES_REVIEW', opening.customerName, `${opening.customerName} has a large opening balance of ${money(opening.outstandingAmount)}.`, 'High');
-  await createCustomerCreditApprovalRequest({ approvalType: 'DEBTOR_OPENING_BALANCE_APPROVAL', customerName: opening.customerName, requestedBy: opening.importedBy, requestedByRole: 'Accountant', branchId: 'BR-LOCAL', branch: 'Local Branch', relatedRecord: opening.openingReference, amountOrValue: money(opening.outstandingAmount), risk: opening.outstandingAmount >= 1000 ? 'High' : 'Medium', reason: 'Debtor opening balance approval required.', context: opening.notes });
+  await createCustomerCreditApprovalRequest({ approvalType: 'DEBTOR_OPENING_BALANCE_APPROVAL', customerName: opening.customerName, requestedBy: opening.importedBy, requestedByRole: 'Accountant', branchId: 'main-branch', branch: 'Main Branch', relatedRecord: opening.openingReference, amountOrValue: money(opening.outstandingAmount), risk: opening.outstandingAmount >= 1000 ? 'High' : 'Medium', reason: 'Debtor opening balance approval required.', context: opening.notes });
   return opening;
 }
 
@@ -1820,8 +1787,8 @@ export async function postDebtorOpeningBalance(openingBalanceId: string): Promis
     overdueDays: calculateOverdueDays(opening.dueDate),
     ageingBucket: opening.ageingBucket,
     status: opening.outstandingAmount > 0 ? 'Open' : 'Paid',
-    branchId: 'BR-LOCAL',
-    branchName: 'Local Branch',
+    branchId: 'main-branch',
+    branchName: 'Main Branch',
     terminalId: 'OPENING-BALANCE',
     cashierStaffId: opening.importedBy,
     paymentTermsDays: Math.max(0, daysBetween(opening.openingBalanceDate, opening.dueDate)),
@@ -1833,7 +1800,7 @@ export async function postDebtorOpeningBalance(openingBalanceId: string): Promis
   saveList(OPENING_BALANCE_KEY, getDebtorOpeningBalances().map((row) => row.openingBalanceId === openingBalanceId ? { ...row, status: 'Posted', postedAt: nowIso() } : row));
   await createOrUpdateCustomerCreditProfile(opening.customerId, { currentBalance: (await calculateCustomerOutstandingBalance(opening.customerId)) + opening.outstandingAmount });
   logCreditEvent({ customerId: opening.customerId, eventType: 'DEBTOR_OPENING_BALANCE_POSTED', user: opening.importedBy, notes: 'Opening balance posted to debtor ledger.', relatedRecord: openingBalanceId });
-  await createAccountingPostingPlaceholder({ source: 'Manual Placeholder', sourceReference: opening.openingReference, branch: 'Local Branch', amount: opening.outstandingAmount });
+  await createAccountingPostingPlaceholder({ source: 'Manual Entry', sourceReference: opening.openingReference, branch: 'Main Branch', amount: opening.outstandingAmount });
   await createCustomerCreditBIAdvice('OPENING_BALANCE_POSTED', opening.customerName, `Opening balance ${opening.openingReference} posted for ${money(opening.outstandingAmount)}.`, 'Medium');
   return debt;
 }
@@ -1851,7 +1818,7 @@ export async function reverseDebtorOpeningBalance(openingBalanceId: string, reas
   saveList(OPENING_BALANCE_KEY, rows);
   if (reversed) {
     logCreditEvent({ customerId: reversed.customerId, eventType: 'DEBTOR_OPENING_BALANCE_REVERSED', user: staffId, notes: reason, relatedRecord: openingBalanceId });
-    await createCustomerCreditApprovalRequest({ approvalType: 'DEBTOR_OPENING_BALANCE_REVERSAL', customerName: reversed.customerName, requestedBy: staffId, requestedByRole: 'Manager', branchId: 'BR-LOCAL', branch: 'Local Branch', relatedRecord: reversed.openingReference, amountOrValue: money(reversed.outstandingAmount), risk: 'High', reason, context: 'Opening balance reversal requested locally.' });
+    await createCustomerCreditApprovalRequest({ approvalType: 'DEBTOR_OPENING_BALANCE_REVERSAL', customerName: reversed.customerName, requestedBy: staffId, requestedByRole: 'Manager', branchId: 'main-branch', branch: 'Main Branch', relatedRecord: reversed.openingReference, amountOrValue: money(reversed.outstandingAmount), risk: 'High', reason, context: 'Opening balance reversal requested.' });
   }
   return reversed;
 }
@@ -1885,7 +1852,7 @@ export async function reversePaymentAllocation(allocationId: string, reason: str
   const allocation = getPaymentAllocations().find((row) => row.allocationId === allocationId) || null;
   if (allocation) {
     logCreditEvent({ customerId: allocation.customerId, eventType: 'DEBT_PAYMENT_ALLOCATION_REVERSED', user: staffId, notes: reason, relatedRecord: allocationId });
-    await createCustomerCreditApprovalRequest({ approvalType: 'PAYMENT_ALLOCATION_CORRECTION', customerName: allocation.customerId, requestedBy: staffId, requestedByRole: 'Accountant', branchId: 'BR-LOCAL', branch: 'Local Branch', relatedRecord: allocation.debtReference, amountOrValue: money(allocation.allocatedAmount), risk: 'Medium', reason, context: 'Payment allocation reversal placeholder.' });
+    await createCustomerCreditApprovalRequest({ approvalType: 'PAYMENT_ALLOCATION_CORRECTION', customerName: allocation.customerId, requestedBy: staffId, requestedByRole: 'Accountant', branchId: 'main-branch', branch: 'Main Branch', relatedRecord: allocation.debtReference, amountOrValue: money(allocation.allocatedAmount), risk: 'Medium', reason, context: 'Payment allocation reversal review.' });
   }
   return allocation;
 }
@@ -1898,7 +1865,7 @@ export async function receiveCustomerDeposit(payload: Omit<CustomerDepositRecord
   const deposit: CustomerDepositRecord = { ...payload, depositId: makeId('DEP'), depositNumber: `DEP-${Date.now().toString().slice(-6)}`, amountApplied: 0, balance: payload.amountReceived, status: 'Received', receivedAt: payload.receivedAt || nowIso() };
   saveList(CUSTOMER_DEPOSIT_KEY, [deposit, ...getCustomerDeposits()]);
   logCreditEvent({ customerId: deposit.customerId, eventType: 'CUSTOMER_DEPOSIT_RECEIVED', user: deposit.receivedBy, notes: `${money(deposit.amountReceived)} deposit received.`, relatedRecord: deposit.depositNumber });
-  await createAccountingPostingPlaceholder({ source: 'Manual Placeholder', sourceReference: deposit.depositNumber, branch: 'Local Branch', amount: deposit.amountReceived });
+  await createAccountingPostingPlaceholder({ source: 'Manual Entry', sourceReference: deposit.depositNumber, branch: 'Main Branch', amount: deposit.amountReceived });
   return deposit;
 }
 
@@ -1917,7 +1884,7 @@ function updateDepositApplication(depositId: string, amount: number, eventType: 
 
 export async function applyCustomerDepositToSale(depositId: string, saleId: string, amount: number): Promise<CustomerDepositRecord | null> {
   const updated = updateDepositApplication(depositId, amount, 'CUSTOMER_DEPOSIT_APPLIED_TO_SALE', saleId);
-  if (updated) await createAccountingPostingPlaceholder({ source: 'Manual Placeholder', sourceReference: `${updated.depositNumber}-${saleId}`, branch: 'Local Branch', amount });
+  if (updated) await createAccountingPostingPlaceholder({ source: 'Manual Entry', sourceReference: `${updated.depositNumber}-${saleId}`, branch: 'Main Branch', amount });
   return updated;
 }
 
@@ -1938,7 +1905,7 @@ export async function refundCustomerDeposit(depositId: string, amount: number, r
   }));
   if (updated) {
     logCreditEvent({ customerId: updated.customerId, eventType: 'CUSTOMER_DEPOSIT_REFUNDED', user: staffId, notes: reason, relatedRecord: depositId });
-    if (amount >= 100) await createCustomerCreditApprovalRequest({ approvalType: 'CUSTOMER_DEPOSIT_REFUND', customerName: updated.customerName, requestedBy: staffId, requestedByRole: 'Manager', branchId: 'BR-LOCAL', branch: 'Local Branch', relatedRecord: updated.depositNumber, amountOrValue: money(amount), risk: 'Medium', reason, context: 'Large customer deposit refund placeholder.' });
+    if (amount >= 100) await createCustomerCreditApprovalRequest({ approvalType: 'CUSTOMER_DEPOSIT_REFUND', customerName: updated.customerName, requestedBy: staffId, requestedByRole: 'Manager', branchId: 'main-branch', branch: 'Main Branch', relatedRecord: updated.depositNumber, amountOrValue: money(amount), risk: 'Medium', reason, context: 'Large customer deposit refund review.' });
   }
   return updated;
 }
@@ -1955,7 +1922,7 @@ export async function createCustomerCreditNote(payload: Omit<CustomerCreditNote,
   const note: CustomerCreditNote = { ...payload, creditNoteId: makeId('CN'), creditNoteNumber: `CN-${Date.now().toString().slice(-6)}`, amountApplied: 0, balance: payload.originalAmount, status: payload.status || 'PendingApproval', createdAt: nowIso() };
   saveList(CUSTOMER_CREDIT_NOTE_KEY, [note, ...getCustomerCreditNotes()]);
   logCreditEvent({ customerId: note.customerId, eventType: 'CUSTOMER_CREDIT_NOTE_CREATED', user: note.createdBy, notes: `${money(note.originalAmount)} credit note created.`, relatedRecord: note.creditNoteNumber });
-  await createCustomerCreditApprovalRequest({ approvalType: 'CUSTOMER_CREDIT_NOTE_APPROVAL', customerName: note.customerName, requestedBy: note.createdBy, requestedByRole: 'Manager', branchId: 'BR-LOCAL', branch: 'Local Branch', relatedRecord: note.creditNoteNumber, amountOrValue: money(note.originalAmount), risk: 'Medium', reason: note.reason, context: note.notes });
+  await createCustomerCreditApprovalRequest({ approvalType: 'CUSTOMER_CREDIT_NOTE_APPROVAL', customerName: note.customerName, requestedBy: note.createdBy, requestedByRole: 'Manager', branchId: 'main-branch', branch: 'Main Branch', relatedRecord: note.creditNoteNumber, amountOrValue: money(note.originalAmount), risk: 'Medium', reason: note.reason, context: note.notes });
   await createCustomerCreditBIAdvice('CREDIT_NOTE_PENDING_APPROVAL', note.customerName, `${note.creditNoteNumber} is pending approval.`, 'Medium');
   return note;
 }
@@ -1983,7 +1950,7 @@ export async function applyCreditNoteToDebt(creditNoteId: string, debtId: string
   }));
   if (updated) {
     logCreditEvent({ customerId: updated.customerId, eventType: 'CUSTOMER_CREDIT_NOTE_APPLIED', user: updated.approvedBy || updated.createdBy, notes: `${money(applied)} applied to ${debt.receiptNumber}.`, relatedRecord: updated.creditNoteNumber });
-    await createAccountingPostingPlaceholder({ source: 'Manual Placeholder', sourceReference: `${updated.creditNoteNumber}-${debt.receiptNumber}`, branch: debt.branchName, amount: applied });
+    await createAccountingPostingPlaceholder({ source: 'Manual Entry', sourceReference: `${updated.creditNoteNumber}-${debt.receiptNumber}`, branch: debt.branchName, amount: applied });
     if (debt.outstandingAmount >= 500) await createCustomerCreditBIAdvice('CREDIT_NOTE_USED_TO_CLEAR_HIGH_DEBT', debt.customerName, `${updated.creditNoteNumber} used against high debt ${debt.receiptNumber}.`, 'Medium');
   }
   return updated;
@@ -1994,7 +1961,7 @@ export async function cancelCustomerCreditNote(creditNoteId: string, reason: str
   saveList(CUSTOMER_CREDIT_NOTE_KEY, getCustomerCreditNotes().map((note) => note.creditNoteId === creditNoteId ? (cancelled = { ...note, status: 'Cancelled', notes: `${note.notes} Cancelled: ${reason}` }) : note));
   if (cancelled) {
     logCreditEvent({ customerId: cancelled.customerId, eventType: 'CUSTOMER_CREDIT_NOTE_CANCELLED', user: staffId, notes: reason, relatedRecord: cancelled.creditNoteNumber });
-    await createCustomerCreditApprovalRequest({ approvalType: 'CUSTOMER_CREDIT_NOTE_CANCELLATION', customerName: cancelled.customerName, requestedBy: staffId, requestedByRole: 'Manager', branchId: 'BR-LOCAL', branch: 'Local Branch', relatedRecord: cancelled.creditNoteNumber, amountOrValue: money(cancelled.balance), risk: 'Medium', reason, context: 'Credit note cancellation placeholder.' });
+    await createCustomerCreditApprovalRequest({ approvalType: 'CUSTOMER_CREDIT_NOTE_CANCELLATION', customerName: cancelled.customerName, requestedBy: staffId, requestedByRole: 'Manager', branchId: 'main-branch', branch: 'Main Branch', relatedRecord: cancelled.creditNoteNumber, amountOrValue: money(cancelled.balance), risk: 'Medium', reason, context: 'Credit note cancellation review.' });
   }
   return cancelled;
 }
@@ -2039,7 +2006,7 @@ export async function calculateDebtorRiskHeatMapItem(customerId: string): Promis
 }
 
 export async function getDebtorRiskHeatMap(filters: { customerId?: string } = {}): Promise<DebtorRiskHeatMapItem[]> {
-  const customerIds = filters.customerId ? [filters.customerId] : Array.from(new Set([...(await getCustomerDebtRecords()).map((debt) => debt.customerId), ...mockCustomers.map((customer) => customer.customerId)]));
+  const customerIds = filters.customerId ? [filters.customerId] : Array.from(new Set([...(await getCustomerDebtRecords()).map((debt) => debt.customerId), ...readList<CustomerRecord>('itred_pos_customers_v1', mockCustomers).map((customer) => customer.customerId)]));
   const rows = await Promise.all(customerIds.map((customerId) => calculateDebtorRiskHeatMapItem(customerId)));
   const risky = rows.filter((row) => row.riskLevel === 'High' || row.riskLevel === 'Critical');
   if (risky.length) await createCustomerCreditBIAdvice('HIGH_RISK_DEBTOR_HEATMAP', 'Debtor Heat Map', `${risky.length} high-risk debtor(s) found in heat map.`, 'High');
@@ -2068,7 +2035,7 @@ export async function requestDebtorPeriodUnlock(periodLockId: string, staffId: s
   saveList(DEBTOR_PERIOD_LOCK_KEY, getDebtorPeriodLocks().map((period) => period.periodLockId === periodLockId ? (updated = { ...period, status: 'UnlockRequested', unlockRequestedBy: staffId, unlockRequestedAt: nowIso(), unlockReason: reason }) : period));
   if (updated) {
     logCreditEvent({ customerId: 'PERIOD', eventType: 'DEBTOR_PERIOD_UNLOCK_REQUESTED', user: staffId, notes: reason, relatedRecord: periodLockId });
-    await createCustomerCreditApprovalRequest({ approvalType: 'DEBTOR_PERIOD_UNLOCK', customerName: 'Debtor Period', requestedBy: staffId, requestedByRole: 'Manager', branchId: 'BR-LOCAL', branch: 'Local Branch', relatedRecord: periodLockId, amountOrValue: updated.periodStart, risk: 'High', reason, context: 'Debtor period unlock requested locally.' });
+    await createCustomerCreditApprovalRequest({ approvalType: 'DEBTOR_PERIOD_UNLOCK', customerName: 'Debtor Period', requestedBy: staffId, requestedByRole: 'Manager', branchId: 'main-branch', branch: 'Main Branch', relatedRecord: periodLockId, amountOrValue: updated.periodStart, risk: 'High', reason, context: 'Debtor period unlock requested.' });
     await createCustomerCreditBIAdvice('PERIOD_UNLOCK_REQUESTED', 'Debtor Period', `Period unlock requested for ${updated.periodStart} to ${updated.periodEnd}.`, 'High');
   }
   return updated;
@@ -2097,8 +2064,8 @@ export async function createDebtorPeriodAdjustment(payload: Omit<DebtorPeriodAdj
   const adjustment: DebtorPeriodAdjustment = { ...payload, adjustmentId: makeId('DADJ'), createdAt: nowIso() };
   saveList(DEBTOR_PERIOD_ADJUSTMENT_KEY, [adjustment, ...readList<DebtorPeriodAdjustment>(DEBTOR_PERIOD_ADJUSTMENT_KEY)]);
   logCreditEvent({ customerId: adjustment.customerId, eventType: 'DEBTOR_PERIOD_ADJUSTMENT_CREATED', user: adjustment.createdBy, notes: adjustment.reason, relatedRecord: adjustment.adjustmentId });
-  await createCustomerCreditApprovalRequest({ approvalType: 'DEBTOR_PERIOD_ADJUSTMENT', customerName: adjustment.customerId, requestedBy: adjustment.createdBy, requestedByRole: 'Accountant', branchId: 'BR-LOCAL', branch: 'Local Branch', relatedRecord: adjustment.adjustmentId, amountOrValue: money(adjustment.amount), risk: 'High', reason: adjustment.reason, context: `Adjustment type ${adjustment.adjustmentType}.` });
-  await createAccountingPostingPlaceholder({ source: 'Manual Placeholder', sourceReference: adjustment.adjustmentId, branch: 'Local Branch', amount: adjustment.amount });
+  await createCustomerCreditApprovalRequest({ approvalType: 'DEBTOR_PERIOD_ADJUSTMENT', customerName: adjustment.customerId, requestedBy: adjustment.createdBy, requestedByRole: 'Accountant', branchId: 'main-branch', branch: 'Main Branch', relatedRecord: adjustment.adjustmentId, amountOrValue: money(adjustment.amount), risk: 'High', reason: adjustment.reason, context: `Adjustment type ${adjustment.adjustmentType}.` });
+  await createAccountingPostingPlaceholder({ source: 'Manual Entry', sourceReference: adjustment.adjustmentId, branch: 'Main Branch', amount: adjustment.amount });
   await createCustomerCreditBIAdvice('DEBTOR_ADJUSTMENT_AFTER_LOCK', adjustment.customerId, `Debtor period adjustment created for ${money(adjustment.amount)}.`, 'High');
   return adjustment;
 }

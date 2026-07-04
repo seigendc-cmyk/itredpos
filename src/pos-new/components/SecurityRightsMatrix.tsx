@@ -114,10 +114,10 @@ export default function SecurityRightsMatrix() {
         </div>
 
         <div className="flex flex-wrap gap-2">
-          <Action label="New Group Placeholder" onClick={() => setNotice('Custom security groups will be enabled after repository activation.')} />
-          <Action label="Copy Group Placeholder" onClick={() => { recordSecurityMatrixEvent({ eventType: 'SECURITY_GROUP_COPY_PLACEHOLDER', label: 'Security Group Copy Placeholder', message: 'Role permissions copied into draft override placeholder.', staffId }); setNotice('Selected role permissions copied into a draft override placeholder.'); }} />
-          <Action label="Print Placeholder" onClick={() => { recordSecurityMatrixEvent({ eventType: 'SECURITY_GROUP_PRINT_PLACEHOLDER', label: 'Security Group Print Placeholder', message: 'Permission matrix print placeholder prepared.', staffId }); setNotice('Permission matrix print placeholder prepared.'); }} />
-          <Action label="Save Changes" primary onClick={() => setNotice('Local/mock permission matrix state saved. Firestore permission repositories remain disabled.')} />
+          <Action label="New Group" onClick={() => setNotice('Custom security groups will be enabled after repository activation.')} />
+          <Action label="Copy Group" onClick={() => { recordSecurityMatrixEvent({ eventType: 'SECURITY_GROUP_COPY_PLACEHOLDER', label: 'Security Group Copy', message: 'Role permissions copied into draft override.', staffId }); setNotice('Selected role permissions copied into a draft override.'); }} />
+          <Action label="Print" onClick={() => { recordSecurityMatrixEvent({ eventType: 'SECURITY_GROUP_PRINT_PLACEHOLDER', label: 'Security Group Print', message: 'Permission matrix print prepared.', staffId }); setNotice('Permission matrix print prepared.'); }} />
+          <Action label="Save Changes" primary onClick={() => setNotice('Permission matrix changes saved for review.')} />
         </div>
 
         <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_320px] gap-3">

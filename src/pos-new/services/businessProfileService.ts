@@ -65,7 +65,7 @@ const recordActivity = (event: Omit<BusinessProfileActivityEvent, 'eventId' | 'c
 };
 
 export function getBusinessProfile(): BusinessProfile {
-  recordActivity({ eventType: 'BUSINESS_PROFILE_VIEWED', label: 'Business Profile Viewed', message: 'Business profile loaded from local/mock state.' });
+  recordActivity({ eventType: 'BUSINESS_PROFILE_VIEWED', label: 'Business Profile Viewed', message: 'Business profile loaded.' });
   return readJson<BusinessProfile>(PROFILE_KEY, mockSettings.businessProfile);
 }
 
@@ -122,11 +122,11 @@ export function saveBusinessProfile(profile: BusinessProfile, staffId: string): 
     profileUpdatedBy: staffId
   };
   writeJson(PROFILE_KEY, saved);
-  recordActivity({ eventType: 'BUSINESS_PROFILE_UPDATED', label: 'Business Profile Updated', message: 'Business profile saved locally.', staffId });
+  recordActivity({ eventType: 'BUSINESS_PROFILE_UPDATED', label: 'Business Profile Updated', message: 'Business profile saved.', staffId });
   recordActivity({ eventType: registered ? 'BUSINESS_REGISTRATION_ENABLED' : 'BUSINESS_REGISTRATION_DISABLED', label: registered ? 'Business Registration Enabled' : 'Business Registration Disabled', message: registered ? 'Registration details are enabled.' : 'Registration details are hidden.', staffId });
-  if (registered) recordActivity({ eventType: 'BUSINESS_REGISTRATION_DETAILS_UPDATED', label: 'Business Registration Details Updated', message: 'Business registration detail fields were saved locally.', staffId });
-  if (saved.vatRegistered || saved.taxCollector) recordActivity({ eventType: 'BUSINESS_TAX_DETAILS_UPDATED', label: 'Business Tax Details Updated', message: 'VAT/tax fields were saved locally.', staffId });
-  if (saved.accountantName || saved.businessAdministratorName) recordActivity({ eventType: 'BUSINESS_ADMINISTRATOR_DETAILS_UPDATED', label: 'Business Administrator Details Updated', message: 'Accountant or administrator contact fields were saved locally.', staffId });
+  if (registered) recordActivity({ eventType: 'BUSINESS_REGISTRATION_DETAILS_UPDATED', label: 'Business Registration Details Updated', message: 'Business registration detail fields were saved.', staffId });
+  if (saved.vatRegistered || saved.taxCollector) recordActivity({ eventType: 'BUSINESS_TAX_DETAILS_UPDATED', label: 'Business Tax Details Updated', message: 'VAT/tax fields were saved.', staffId });
+  if (saved.accountantName || saved.businessAdministratorName) recordActivity({ eventType: 'BUSINESS_ADMINISTRATOR_DETAILS_UPDATED', label: 'Business Administrator Details Updated', message: 'Accountant or administrator contact fields were saved.', staffId });
   return saved;
 }
 

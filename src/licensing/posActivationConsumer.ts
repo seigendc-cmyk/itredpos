@@ -1,3 +1,5 @@
+import { SCIPOSActivationRecord, validateSCIActivationForEmail, SCIPOSSession } from '../sdk';
+
 export type POSActivationReasonCode =
   | 'ACTIVATION_ACTIVE'
   | 'NO_ACTIVATION_FOUND'
@@ -11,27 +13,12 @@ export type POSActivationReasonCode =
 export type POSLicenseMode = 'demo' | 'production' | string;
 export type POSStorageMode = 'localOnly' | 'cloud' | string;
 
-export interface POSActivationRecord {
-  activationId: string;
-  ownerEmail: string;
-  status: string;
-  expiresAt: string;
-  vendorId: string;
-  branchId: string;
-  terminalId: string;
-  licenseId: string;
-  planId: string;
-  licenseMode: POSLicenseMode;
-  storageMode: POSStorageMode;
+export type POSActivationRecord = SCIPOSActivationRecord & {
   dashboardType?: string;
-  vendorName?: string;
-  branchName?: string;
   terminalName?: string;
-  createdAt?: string;
-  updatedAt?: string;
   source?: string;
   [key: string]: unknown;
-}
+};
 
 export interface POSActivationValidationResult {
   allowed: boolean;
@@ -40,15 +27,7 @@ export interface POSActivationValidationResult {
   activation?: POSActivationRecord;
 }
 
-export interface POSConsumerSession {
-  vendorId: string;
-  branchId: string;
-  terminalId: string;
-  licenseId: string;
-  planId: string;
-  storageMode: string;
-  licenseMode: string;
-  openedAt: string;
+export interface POSConsumerSession extends SCIPOSSession {
   dashboardType?: string;
   activationId?: string;
   vendorName?: string;
@@ -115,7 +94,7 @@ const writeJson = (key: string, value: unknown): void => {
   try {
     localStorage.setItem(key, JSON.stringify(value));
   } catch {
-    // localStorage is optional in build-development/prototype mode.
+    // localStorage is optional in restricted browser modes.
   }
 };
 
@@ -147,27 +126,56 @@ const normalizeActivationRecord = (raw: Record<string, unknown>, fallbackId = ''
   const vendorId = normalizeText(raw.vendorId || raw.tenantId);
   const activationId = normalizeText(raw.activationId || raw.id || raw.licenseActivationId || raw.posActivationId || fallbackId);
 
+  if (!ownerEmail && !vendorId) return null;
+
+  const fallbackDate = new Date().toISOString();
+  const id = normalizeText(raw.id || raw.activationId || activationId);
+  const createdAt = toIsoString(raw.createdAt || raw.issuedAt || fallbackDate);
+  const updatedAt = toIsoString(raw.updatedAt || raw.issuedAt || fallbackDate);
+
+  const status = normalizeText(raw.status || raw.activationStatus).toLowerCase() as any;
+  const licenseMode = normalizeLicenseMode(raw.licenseMode || raw.mode || raw.licenseType) as any;
+  const storageMode = normalizeStorageMode(raw.storageMode || raw.dataMode || raw.repositoryMode) as any;
+
   const record: POSActivationRecord = {
     ...raw,
+    // Base record fields
+    id: id || `id-${ownerEmail || vendorId || Date.now()}`,
+    createdAt,
+    updatedAt,
+    createdBy: normalizeText(raw.createdBy || raw.issuedBy) || 'system',
+    updatedBy: normalizeText(raw.updatedBy || raw.issuedBy) || 'system',
+
+    // SCIPOSActivationRecord fields
     activationId: activationId || `activation-${ownerEmail || vendorId || Date.now()}`,
-    ownerEmail,
-    status: normalizeText(raw.status || raw.activationStatus).toLowerCase(),
-    expiresAt: toIsoString(raw.expiresAt || raw.expiry || raw.expiryDate || raw.validUntil || raw.endsAt),
     vendorId,
-    branchId: normalizeText(raw.branchId || raw.defaultBranchId),
-    terminalId: normalizeText(raw.terminalId || raw.defaultTerminalId),
-    licenseId: normalizeText(raw.licenseId || raw.licenceId || raw.licenseKey),
-    planId: normalizeText(raw.planId || raw.plan || raw.subscriptionPlanId),
-    licenseMode: normalizeLicenseMode(raw.licenseMode || raw.mode || raw.licenseType),
-    storageMode: normalizeStorageMode(raw.storageMode || raw.dataMode || raw.repositoryMode),
+    vendorName: normalizeText(raw.vendorName || raw.tenantName) || vendorId || 'Unknown Vendor',
+    ownerEmail,
+    licenseId: normalizeText(raw.licenseId || raw.licenceId || raw.licenseKey) || 'demo-license-id',
+    planId: normalizeText(raw.planId || raw.plan || raw.subscriptionPlanId) || 'demo-plan-id',
+    planName: normalizeText(raw.planName || raw.plan || raw.planId) || 'Standard Plan',
+    branchId: normalizeText(raw.branchId || raw.defaultBranchId) || 'BR-DEMO',
+    branchName: normalizeText(raw.branchName) || 'Demo Branch',
+    terminalId: normalizeText(raw.terminalId || raw.defaultTerminalId) || 'POS-DEMO',
+    terminalCode: normalizeText(raw.terminalCode || raw.terminalId || raw.defaultTerminalId) || 'POS-DEMO',
+    status,
+    licenseMode,
+    storageMode,
+    startsAt: toIsoString(raw.startsAt || raw.issuedAt || createdAt),
+    expiresAt: toIsoString(raw.expiresAt || raw.expiry || raw.expiryDate || raw.validUntil || raw.endsAt || '2099-12-31T23:59:59.999Z'),
+    maxBranches: typeof raw.maxBranches === 'number' ? raw.maxBranches : 10,
+    maxTerminals: typeof raw.maxTerminals === 'number' ? raw.maxTerminals : 10,
+    maxStaff: typeof raw.maxStaff === 'number' ? raw.maxStaff : 50,
+    maxProducts: typeof raw.maxProducts === 'number' ? raw.maxProducts : 10000,
+    issuedBy: normalizeText(raw.issuedBy || raw.createdBy) || 'System',
+    issuedAt: toIsoString(raw.issuedAt || raw.createdAt || createdAt),
+
+    // Extra dynamic fields
     dashboardType: normalizeText(raw.dashboardType || raw.dashboard || 'POS'),
-    vendorName: normalizeText(raw.vendorName || raw.tenantName) || undefined,
-    branchName: normalizeText(raw.branchName) || undefined,
     terminalName: normalizeText(raw.terminalName) || undefined,
     source: normalizeText(raw.source) || undefined
   };
 
-  if (!record.ownerEmail && !record.vendorId) return null;
   return record;
 };
 
@@ -254,58 +262,57 @@ export function validatePOSActivationForEmail(email: string): POSActivationValid
     return result(false, 'NO_ACTIVATION_FOUND', 'No POS activation was found. Contact Administrator.');
   }
 
-  const activation = activations.find((row) => normalizeEmail(row.ownerEmail) === ownerEmail);
-  if (!activation) {
+  const hasLinkedEmail = activations.some((row) => normalizeEmail(row.ownerEmail) === ownerEmail);
+  if (!hasLinkedEmail) {
     clearAllowedActivation();
     return result(false, 'EMAIL_NOT_LINKED', 'Authenticated Google email is not linked to a POS activation.', activations[0]);
   }
 
-  const blocked = statusBlock(activation);
-  if (blocked) {
+  const decision = validateSCIActivationForEmail({
+    email: ownerEmail,
+    activations: activations as SCIPOSActivationRecord[]
+  });
+
+  const activation = decision.activation as POSActivationRecord | undefined;
+
+  if (!decision.allowed) {
     clearAllowedActivation();
-    return blocked;
+    return result(false, decision.reasonCode as POSActivationReasonCode, decision.message, activation);
   }
 
-  if (activation.licenseMode === 'demo') {
+  // Demo activation requires localOnly storage mode.
+  if (activation && activation.licenseMode === 'demo') {
     if (activation.storageMode !== 'localOnly') {
       clearAllowedActivation();
       return result(false, 'INVALID_STORAGE_MODE', 'Demo POS activation requires localOnly storage mode.', activation);
     }
-    rememberAllowedActivation(activation);
-    return result(true, 'ACTIVATION_ACTIVE', 'Demo POS activation accepted. Firebase writes are disabled.', activation);
   }
 
-  if (activation.licenseMode === 'production') {
-    if (activation.status !== 'active') {
-      clearAllowedActivation();
-      return result(false, 'NO_ACTIVATION_FOUND', 'No active production POS activation was found for this Google account.', activation);
-    }
-    if (!isFutureExpiry(activation.expiresAt)) {
-      clearAllowedActivation();
-      return result(false, 'ACTIVATION_EXPIRED', 'POS activation has expired.', activation);
-    }
-    if (activation.storageMode !== 'cloud') {
-      clearAllowedActivation();
-      return result(false, 'INVALID_STORAGE_MODE', 'Production POS activation requires cloud storage mode.', activation);
-    }
+  if (activation) {
     rememberAllowedActivation(activation);
-    return result(true, 'ACTIVATION_ACTIVE', 'Production POS activation is active.', activation);
+    const message = activation.licenseMode === 'demo'
+      ? 'Trial POS activation accepted.'
+      : decision.message;
+    return result(true, 'ACTIVATION_ACTIVE', message, activation);
   }
 
   clearAllowedActivation();
-  return result(false, 'INVALID_STORAGE_MODE', 'POS activation license mode is not valid for this POS consumer.', activation);
+  return result(false, 'NO_ACTIVATION_FOUND', 'POS activation validation failed.');
 }
 
 export function createPOSSessionFromActivation(activation: POSActivationRecord): POSConsumerSession {
   return {
+    sessionId: `session-${activation.activationId}-${Date.now()}`,
     vendorId: activation.vendorId,
     branchId: activation.branchId,
     terminalId: activation.terminalId,
     licenseId: activation.licenseId,
     planId: activation.planId,
-    storageMode: activation.storageMode,
-    licenseMode: activation.licenseMode,
+    ownerEmail: activation.ownerEmail,
+    licenseMode: activation.licenseMode as "demo" | "production",
+    storageMode: activation.storageMode as "localOnly" | "cloud",
     openedAt: new Date().toISOString(),
+    // extra optional fields:
     dashboardType: activation.dashboardType,
     activationId: activation.activationId,
     vendorName: activation.vendorName,

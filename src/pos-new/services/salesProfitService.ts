@@ -174,7 +174,7 @@ export function generateSalesProfitSnapshot(
     salesCount: completedSales.length,
     itemCount,
     averageGrossMargin,
-    notes: 'Local / Build Development Estimate. No accounting, cashbook, inventory, sale, or receipt records were posted or mutated.',
+    notes: 'Estimate only. No accounting, cashbook, inventory, sale, or receipt records were posted or mutated.',
     status: completedSales.length > 0 ? 'Generated' : 'Empty'
   };
   recordActivity('SALES_PROFIT_SNAPSHOT_GENERATED', `Sales Profit Snapshot generated for ${filter.period}.`, generatedBy);

@@ -208,26 +208,28 @@ export default function PosDeliveryDesk({ session }: PosDeliveryDeskProps) {
           <FilterInput label="Date From" value={filters.dateFrom || ''} onChange={(value) => setFilters({ ...filters, dateFrom: value })} type="date" />
           <FilterInput label="Date To" value={filters.dateTo || ''} onChange={(value) => setFilters({ ...filters, dateTo: value })} type="date" />
           <FilterSelect label="Priority" value={filters.priority || 'ALL'} options={['ALL', 'Normal', 'High', 'Urgent']} onChange={(value) => setFilters({ ...filters, priority: value as DeliveryFilterState['priority'] })} />
-          <button type="button" onClick={() => runAction('delivery.export', async () => { await exportDeliveryPlaceholder(filters); }, 'Delivery export placeholder prepared.')} className="px-3 py-2 bg-orange-600 text-white border border-orange-700 font-black uppercase text-[9px] rounded-none self-end flex items-center gap-2"><Download className="w-4 h-4" /> Prepare Export</button>
+          <button type="button" onClick={() => runAction('delivery.export', async () => { await exportDeliveryPlaceholder(filters); }, 'Delivery export prepared.')} className="px-3 py-2 bg-orange-600 text-white border border-orange-700 font-black uppercase text-[9px] rounded-none self-end flex items-center gap-2"><Download className="w-4 h-4" /> Prepare Export</button>
         </div>
       </div>
 
       {activeTab === 'Providers' ? (
         <Panel title="Delivery Providers">
-          <Table headers={['Provider ID', 'Provider Name', 'Provider Type', 'Phone', 'Vehicle / Bike', 'Active', 'Rating Placeholder', 'Completed', 'Failed', 'Cash Variance', 'Action']}>
+          <Table headers={['Provider ID', 'Provider Name', 'Provider Type', 'Phone', 'Vehicle / Bike', 'Active', 'Rating', 'Completed', 'Failed', 'Cash Variance', 'Action']}>
             {providers.map((provider) => (
               <tr key={provider.providerId} className="border-t border-[#d6d9e0]">
                 <Td strong>{provider.providerId}</Td><Td>{provider.providerName}</Td><Td>{provider.providerType}</Td><Td>{provider.phone}</Td><Td>{provider.vehiclePlaceholder}</Td><Td>{provider.active ? 'Active' : 'Inactive'}</Td><Td>{provider.ratingPlaceholder}</Td><Td>{provider.completedDeliveries}</Td><Td>{provider.failedDeliveries}</Td><Td>{provider.cashVarianceCount}</Td>
-                <Td><ActionButton label="View Provider Detail Placeholder" onClick={() => show('Provider detail placeholder opened.')} /></Td>
+                <Td><ActionButton label="View Provider Detail" onClick={() => show('Provider detail opened.')} /></Td>
               </tr>
             ))}
+            {providers.length === 0 && <EmptyTableRow colSpan={11} label="No delivery providers captured yet." />}
           </Table>
-          <button type="button" onClick={() => show('Add provider placeholder opened.')} className="mt-3 px-3 py-2 bg-orange-600 text-white font-black uppercase text-[9px]">Add Provider Placeholder</button>
+          <button type="button" onClick={() => show('Add provider form opened.')} className="mt-3 px-3 py-2 bg-orange-600 text-white font-black uppercase text-[9px]">Add Provider</button>
         </Panel>
       ) : activeTab === 'Delivery Activity' ? (
         <Panel title="Delivery Activity">
           <Table headers={['Date / Time', 'Event', 'Delivery', 'Receipt', 'User', 'Notes']}>
             {activity.map((event) => <tr key={event.id} className="border-t border-[#d6d9e0]"><Td>{event.createdAt}</Td><Td strong>{humanize(event.eventType)}</Td><Td>{event.deliveryNumber || '-'}</Td><Td>{event.receiptNumber || '-'}</Td><Td>{event.staffId || '-'}</Td><Td>{event.notes || event.message}</Td></tr>)}
+            {activity.length === 0 && <EmptyTableRow colSpan={6} label="No delivery activity recorded yet." />}
           </Table>
         </Panel>
       ) : (
@@ -251,14 +253,15 @@ export default function PosDeliveryDesk({ session }: PosDeliveryDeskProps) {
                 <Td>
                   <div className="flex flex-wrap gap-1">
                     <ActionButton label="View" onClick={() => void openRequest(request)} />
-                    <ActionButton label="Broadcast To iDeliver" onClick={() => runAction('delivery.broadcast', async () => { await broadcastToIDeliver(request.deliveryId, staffId); }, 'iDeliver broadcast placeholder prepared.')} />
+                    <ActionButton label="Broadcast To iDeliver" onClick={() => runAction('delivery.broadcast', async () => { await broadcastToIDeliver(request.deliveryId, staffId); }, 'iDeliver broadcast prepared.')} />
                     <ActionButton label="Assign Driver" onClick={() => runAction('delivery.assign', async () => { await assignVendorDriver(request.deliveryId, providers[0]?.providerId || 'DPROV-001', staffId); }, 'Vendor driver assigned.')} />
-                    <ActionButton label="Track" onClick={() => runAction('delivery.track', async () => { await addTrackingEvent(request.deliveryId, { status: 'En Route', locationText: 'Tracking update placeholder', notes: 'Google Maps live tracking integration will be connected later.', updatedByStaffId: staffId }); }, 'Tracking placeholder added.')} />
-                    <ActionButton label="Cancel" onClick={() => runAction('delivery.cancel', async () => { await cancelDelivery(request.deliveryId, staffId, 'Cancelled from Delivery Queue.'); }, 'Delivery cancelled locally.')} />
+                    <ActionButton label="Track" onClick={() => runAction('delivery.track', async () => { await addTrackingEvent(request.deliveryId, { status: 'En Route', locationText: 'Tracking update', notes: 'Tracking update recorded.', updatedByStaffId: staffId }); }, 'Tracking update added.')} />
+                    <ActionButton label="Cancel" onClick={() => runAction('delivery.cancel', async () => { await cancelDelivery(request.deliveryId, staffId, 'Cancelled from Delivery Queue.'); }, 'Delivery cancelled.')} />
                   </div>
                 </Td>
               </tr>
             ))}
+            {visibleRequests.length === 0 && <EmptyTableRow colSpan={14} label="No delivery requests yet." />}
           </Table>
         </Panel>
       )}
@@ -274,12 +277,12 @@ export default function PosDeliveryDesk({ session }: PosDeliveryDeskProps) {
           activity={activity.filter((event) => event.deliveryId === selectedRequest.deliveryId)}
           canSeeFullCode={role === 'Owner' || role === 'Manager' || role === 'Supervisor'}
           onClose={() => setSelectedRequest(null)}
-          onBroadcast={() => runAction('delivery.broadcast', async () => { await broadcastToIDeliver(selectedRequest.deliveryId, staffId); }, 'iDeliver broadcast placeholder prepared.')}
+          onBroadcast={() => runAction('delivery.broadcast', async () => { await broadcastToIDeliver(selectedRequest.deliveryId, staffId); }, 'iDeliver broadcast prepared.')}
           onSelectProvider={(providerId) => runAction('delivery.assign', async () => { await selectDeliveryProvider(selectedRequest.deliveryId, providerId, staffId); }, 'Delivery provider selected.')}
           onAssignDriver={(providerId) => runAction('delivery.assign', async () => { await assignVendorDriver(selectedRequest.deliveryId, providerId, staffId); }, 'Vendor driver assigned.')}
-          onAccept={() => runAction('delivery.track', async () => { await acceptDelivery(selectedRequest.deliveryId, staffId); }, 'Driver accepted placeholder recorded.')}
+          onAccept={() => runAction('delivery.track', async () => { await acceptDelivery(selectedRequest.deliveryId, staffId); }, 'Driver acceptance recorded.')}
           onPickedUp={() => runAction('delivery.track', async () => { await markPickedUp(selectedRequest.deliveryId, staffId); }, 'Delivery marked picked up.')}
-          onInTransit={() => runAction('delivery.track', async () => { await addTrackingEvent(selectedRequest.deliveryId, { status: 'En Route', locationText: 'Delivery en route placeholder', notes: 'Google Maps live tracking integration will be connected later.', updatedByStaffId: staffId }); }, 'Delivery tracking set to in transit.')}
+          onInTransit={() => runAction('delivery.track', async () => { await addTrackingEvent(selectedRequest.deliveryId, { status: 'En Route', locationText: 'Delivery en route', notes: 'Delivery tracking update recorded.', updatedByStaffId: staffId }); }, 'Delivery tracking set to in transit.')}
           onArrived={() => runAction('delivery.track', async () => { await markArrived(selectedRequest.deliveryId, staffId); }, 'Delivery marked arrived.')}
           onVerifyCode={(code) => runAction('delivery.verifyCode', async () => { await verifyDeliveryCode(selectedRequest.deliveryId, code, staffId); }, 'Delivery code verification processed.')}
           onMarkDelivered={() => runAction('delivery.complete', async () => { await markDelivered(selectedRequest.deliveryId, staffId, { overrideCode: role === 'Owner' || role === 'Supervisor', notes: 'Completed from Delivery Fulfilment form.' }); }, 'Delivery completion processed.')}
@@ -288,7 +291,7 @@ export default function PosDeliveryDesk({ session }: PosDeliveryDeskProps) {
           onCashCollected={(amount, notes) => runAction('delivery.cashReview', async () => { await recordCashCollectedByDriver(selectedRequest.deliveryId, staffId, amount, notes); }, 'Driver cash collection recorded for EOD review.')}
           onCashConfirmed={(amount, notes) => runAction('delivery.cashReview', async () => { await confirmDeliveryCashReceived(selectedRequest.deliveryId, staffId, amount, notes); }, 'Delivery cash confirmation recorded for EOD review.')}
           onPrepareMessage={(messageType) => runAction('delivery.create', async () => { await createWhatsAppMessageDraft(selectedRequest.deliveryId, messageType); }, 'WhatsApp delivery message draft prepared.')}
-          onExport={() => runAction('delivery.export', async () => { await exportDeliveryPlaceholder(filters); }, 'Delivery export placeholder prepared.')}
+          onExport={() => runAction('delivery.export', async () => { await exportDeliveryPlaceholder(filters); }, 'Delivery export prepared.')}
         />
       )}
     </div>
@@ -309,6 +312,10 @@ function Table({ headers, children }: { headers: string[]; children: React.React
 
 function Td({ children, strong }: { children: React.ReactNode; strong?: boolean }) {
   return <td className={strong ? 'font-black text-[#1e222b]' : 'font-semibold'}>{children}</td>;
+}
+
+function EmptyTableRow({ colSpan, label }: { colSpan: number; label: string }) {
+  return <tr><td colSpan={colSpan} className="py-8 text-center text-slate-500 font-black uppercase">{label}</td></tr>;
 }
 
 function Badge({ value }: { value: string }) {

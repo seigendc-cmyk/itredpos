@@ -586,7 +586,7 @@ export default function PosApprovals({ session, onNavigate }: PosApprovalsProps)
                   </td>
                 </tr>
               ))}
-              {filteredApprovals.length === 0 && <tr><td colSpan={9} className="sci-pos-empty-cell">No approvals match the selected filters.</td></tr>}
+              {filteredApprovals.length === 0 && <tr><td colSpan={9} className="sci-pos-empty-cell">No approvals recorded yet.</td></tr>}
             </tbody>
           </table>
         </div>

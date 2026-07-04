@@ -35,11 +35,14 @@ interface PosSidebarProps {
   session?: PosSession;
   onSignOut?: () => void;
   allowedPages?: PosPageId[];
+  planLockedPages?: PosPageId[];
 }
 
 type SidebarGroupId = 'operations' | 'stock' | 'control' | 'reports' | 'finance' | 'system';
 type SidebarNavItem = { id: PosPageId; label: string; icon: typeof Monitor };
 type SidebarGroup = { id: SidebarGroupId; label: string; icon: typeof Monitor; items: SidebarNavItem[] };
+
+const SHOW_DEV_BADGES = false;
 
 const sidebarGroups: SidebarGroup[] = [
   {
@@ -112,17 +115,19 @@ export default function PosSidebar({
   activeShiftStatus,
   session,
   onSignOut,
-  allowedPages
+  allowedPages,
+  planLockedPages
 }: PosSidebarProps) {
   const sidebarRef = useRef<HTMLElement | null>(null);
   const [openGroupId, setOpenGroupId] = useState<SidebarGroupId | null>(null);
+  const lockedPages = useMemo(() => new Set(planLockedPages || []), [planLockedPages]);
 
   const visibleGroups = useMemo(() => {
     const allowed = allowedPages ? new Set(allowedPages) : null;
     return sidebarGroups
       .map((group) => ({
         ...group,
-        items: group.items.filter((item) => !allowed || allowed.has(item.id))
+        items: group.items.filter((item) => (SHOW_DEV_BADGES || item.id !== 'SYNC_DESK') && (!allowed || allowed.has(item.id)))
       }))
       .filter((group) => group.items.length > 0);
   }, [allowedPages]);
@@ -151,6 +156,7 @@ export default function PosSidebar({
   };
 
   const selectPage = (pageId: PosPageId) => {
+    if (lockedPages.has(pageId)) return;
     onPageChange(pageId);
     setOpenGroupId(null);
   };
@@ -200,7 +206,7 @@ export default function PosSidebar({
         ) : (
           <div className="flex justify-between items-center text-slate-500 gap-2">
             <span>Operator:</span>
-            <span className="text-orange-300 font-bold truncate">{operatorName || 'SYS_ADMIN'}</span>
+            <span className="text-orange-300 font-bold truncate">{operatorName || 'Staff'}</span>
           </div>
         )}
 
@@ -249,6 +255,7 @@ export default function PosSidebar({
                     {group.items.map((item) => {
                       const ItemIcon = item.icon;
                       const isActive = activePage === item.id;
+                      const isPlanLocked = lockedPages.has(item.id);
 
                       return (
                         <button
@@ -256,10 +263,13 @@ export default function PosSidebar({
                           key={item.id}
                           type="button"
                           onClick={() => selectPage(item.id)}
-                          className={`pos-sidebar-subitem ${isActive ? 'pos-sidebar-subitem-active' : ''}`}
+                          aria-disabled={isPlanLocked}
+                          title={isPlanLocked ? `${item.label}: Upgrade required` : item.label}
+                          className={`pos-sidebar-subitem ${isActive ? 'pos-sidebar-subitem-active' : ''} ${isPlanLocked ? 'opacity-55 cursor-not-allowed' : ''}`}
                         >
                           <ItemIcon className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
-                          <span className="truncate">{item.label}</span>
+                          <span className="min-w-0 flex-1 truncate">{item.label}</span>
+                          {isPlanLocked && <span className="ml-auto text-[8px] font-black uppercase text-orange-300">Upgrade required</span>}
                         </button>
                       );
                     })}

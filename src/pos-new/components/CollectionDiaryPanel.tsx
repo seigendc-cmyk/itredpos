@@ -58,9 +58,9 @@ export default function CollectionDiaryPanel({ customers, staffName, onOpenCusto
     { label: 'Open Debt Ledger', icon: <FileText size={15} />, onClick: () => onOpenCustomer(row.customerId) },
     { label: 'Record Payment', icon: <FileText size={15} />, onClick: () => onRecordPayment(row.customerId) },
     { label: 'Add Promise to Pay', icon: <FileText size={15} />, onClick: () => onPromiseToPay(row.customerId) },
-    { label: 'Send WhatsApp Reminder', icon: <MessageCircle size={15} />, onClick: () => onNotice(`WhatsApp reminder prepared locally for ${row.customerName}.`) },
-    { label: 'Mark Completed', icon: <FileText size={15} />, onClick: () => void completeCollectionDiaryItem(row.diaryItemId, `Completed by ${staffName}.`).then(() => { onNotice('Diary item completed locally.'); load(); }) },
-    { label: 'Escalate', icon: <FileText size={15} />, onClick: () => void escalateCollectionDiaryItem(row.diaryItemId, `Escalated by ${staffName}.`).then(() => { onNotice('Diary item escalated locally.'); load(); }) },
+    { label: 'Send WhatsApp Reminder', icon: <MessageCircle size={15} />, onClick: () => onNotice(`WhatsApp reminder prepared for ${row.customerName}.`) },
+    { label: 'Mark Completed', icon: <FileText size={15} />, onClick: () => void completeCollectionDiaryItem(row.diaryItemId, `Completed by ${staffName}.`).then(() => { onNotice('Diary item completed.'); load(); }) },
+    { label: 'Escalate', icon: <FileText size={15} />, onClick: () => void escalateCollectionDiaryItem(row.diaryItemId, `Escalated by ${staffName}.`).then(() => { onNotice('Diary item escalated.'); load(); }) },
     { label: 'Add Note', icon: <FileText size={15} />, onClick: () => onNotice(`Note placeholder added locally for ${row.customerName}.`) }
   ];
 

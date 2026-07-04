@@ -24,6 +24,8 @@ import { createOperationalApproval } from './approvalService';
 import { postGoodsReceivedMovement } from './inventoryMovementService';
 import { createSupplierBillFromGRN, createSupplierPayment, markSupplierPaymentPaid } from './creditorsService';
 import { publishCommerceEvent, writeAuditLog, CommerceOperationContext } from '../../commerce-integration';
+import { getVendorDocumentIdentity } from '../vendor/vendorBootstrapModel';
+import { readVendorScopedList, writeVendorScopedList } from '../utils/vendorDataMode';
 
 const GRN_KEY = 'itred_pos_goods_receiving_notes_v1';
 const GRN_LINE_KEY = 'itred_pos_goods_receiving_lines_v1';
@@ -36,34 +38,12 @@ type GRNPatch = Partial<Omit<GoodsReceivingNote, 'grnId' | 'createdAt'>>;
 type GRNLinePatch = Partial<Omit<GoodsReceivingLine, 'lineId' | 'grnId'>>;
 
 function readList<T>(key: string, fallback: T[], isValid: (value: unknown) => boolean): T[] {
-  if (typeof localStorage === 'undefined') return fallback;
-  try {
-    const raw = localStorage.getItem(key);
-    if (!raw) {
-      localStorage.setItem(key, JSON.stringify(fallback));
-      return fallback;
-    }
-    const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) && parsed.every(isValid) ? parsed as T[] : fallback;
-  } catch {
-    try {
-      localStorage.setItem(key, JSON.stringify(fallback));
-    } catch {
-      // Local browser persistence can be unavailable in private or test contexts.
-    }
-    return fallback;
-  }
+  const rows = readVendorScopedList<T>(key, fallback);
+  return rows.every(isValid) ? rows : [];
 }
 
 function saveList<T>(key: string, value: T[]): T[] {
-  if (typeof localStorage !== 'undefined') {
-    try {
-      localStorage.setItem(key, JSON.stringify(value));
-    } catch {
-      // Keep the operation usable in memory if persistence is unavailable.
-    }
-  }
-  return value;
+  return writeVendorScopedList(key, value);
 }
 
 function hasKeys(...keys: string[]) {
@@ -741,8 +721,9 @@ export async function reopenPOPlaceholder(poId: string, staffId: string, reason:
 export async function exportGRNPlaceholder(grnId: string): Promise<{ success: boolean; message: string }> {
   const note = await getGoodsReceivingNoteById(grnId);
   if (!note) return { success: false, message: 'GRN not found.' };
-  await recordActivity({ grnId, grnNumber: note.grnNumber, poId: note.poId, poNumber: note.poNumber, eventType: 'GRN_DRAFT_UPDATED', message: `${note.grnNumber} export prepared.`, operator: note.receivedByStaffName });
-  return { success: true, message: `${note.grnNumber} export prepared.` };
+  const identity = getVendorDocumentIdentity({ vendorId: note.vendorId, branchId: note.branchId, warehouseId: note.warehouseId });
+  await recordActivity({ grnId, grnNumber: note.grnNumber, poId: note.poId, poNumber: note.poNumber, eventType: 'GRN_DRAFT_UPDATED', message: `${note.grnNumber} export prepared for ${identity.displayName}.`, operator: note.receivedByStaffName });
+  return { success: true, message: `${note.grnNumber} export prepared for ${identity.displayName}.` };
 }
 
 export async function getGoodsReceivingActivityEvents(filters: GoodsReceivingFilterState = {}): Promise<GoodsReceivingActivityEvent[]> {

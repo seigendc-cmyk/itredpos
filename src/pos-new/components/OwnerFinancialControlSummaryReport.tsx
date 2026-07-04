@@ -66,7 +66,7 @@ export default function OwnerFinancialControlSummaryReport({ generatedBy = 'Loca
     <article className="print-document owner-financial-summary">
       <header className="report-print-document__header">
         <div><span>Business</span><strong>iTred Commerce POS</strong><small>Owner financial control output</small></div>
-        <div><span>Report</span><strong>Owner Financial Control Summary</strong><small>Local/mock management-control only</small></div>
+        <div><span>Report</span><strong>Owner Financial Control Summary</strong><small>Management-control review</small></div>
         <div><span>Generated</span><strong>{new Date().toLocaleString()}</strong><small>Prepared by {generatedBy}</small></div>
       </header>
       <section className="report-print-document__summary">
@@ -81,7 +81,7 @@ export default function OwnerFinancialControlSummaryReport({ generatedBy = 'Loca
         <div>
           <span>Supplier Pressure</span>
           <strong>{summary.overdueSupplierBills} overdue bill(s)</strong>
-          <p>{money(summary.supplierPayments)} paid to suppliers in local/mock payment records.</p>
+          <p>{money(summary.supplierPayments)} paid to suppliers in payment records.</p>
         </div>
         <div>
           <span>Reserve Protection</span>

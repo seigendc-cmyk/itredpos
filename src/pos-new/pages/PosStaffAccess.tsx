@@ -8,6 +8,8 @@ interface PosStaffAccessProps {
   onBackToBios: () => void;
 }
 
+const SHOW_DEV_BADGES = false;
+
 export default function PosStaffAccess({ 
   onLoginSuccess, 
   onBackToBios
@@ -228,13 +230,15 @@ export default function PosStaffAccess({
                 <KeyRound className="w-3.5 h-3.5 text-amber-500" />
                 5. Authentication Password / PIN
               </label>
-              <button
-                type="button"
-                onClick={handleQuickFill}
-                className="text-[#00f0ff] hover:text-[#4df5ff] transition-all underline cursor-pointer"
-              >
-                [Auto-Fill PIN]
-              </button>
+              {SHOW_DEV_BADGES && (
+                <button
+                  type="button"
+                  onClick={handleQuickFill}
+                  className="text-[#00f0ff] hover:text-[#4df5ff] transition-all underline cursor-pointer"
+                >
+                  [Auto-Fill PIN]
+                </button>
+              )}
             </div>
             <input
               type="password"
@@ -291,10 +295,12 @@ export default function PosStaffAccess({
         >
           &larr; Return to Main Application
         </button>
-        <div className="text-[9px] text-slate-600 leading-normal max-w-md mx-auto uppercase">
-          iTred Commerce POS - Vendor Commerce Terminal<br />
-          Mode: Build Development / Backend: Mock / Local Services
-        </div>
+        {SHOW_DEV_BADGES && (
+          <div className="text-[9px] text-slate-600 leading-normal max-w-md mx-auto uppercase">
+            iTred Commerce POS - Vendor Commerce Terminal<br />
+            Diagnostics Enabled / Local Services
+          </div>
+        )}
       </div>
     </div>
   );

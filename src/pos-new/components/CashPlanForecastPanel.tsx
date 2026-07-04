@@ -20,7 +20,7 @@ export default function CashPlanForecastPanel() {
   }, []);
 
   const handleAddPlaceholder = async () => {
-    await addCashPlanLine({ type: 'Outflow', outflowType: 'OtherPlanned', description: 'Owner review placeholder outflow.', amount: 250, confidence: 'Medium' });
+    await addCashPlanLine({ type: 'Outflow', outflowType: 'OtherPlanned', description: 'Owner review planned outflow.', amount: 250, confidence: 'Medium' });
     await load();
   };
 

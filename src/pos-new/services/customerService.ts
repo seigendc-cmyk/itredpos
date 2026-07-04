@@ -28,18 +28,18 @@ import {
   Transaction
 } from '../types';
 import { createOperationalApproval } from './approvalService';
+import { getActiveVendorId, getVendorScopedStorageKey, readVendorScopedList, writeVendorScopedList } from '../utils/vendorDataMode';
 
 const CUSTOMER_KEY = 'itred_pos_customers_v1';
 const CUSTOMER_HISTORY_KEY = 'itred_pos_customer_purchase_history_v1';
 const CUSTOMER_NOTES_KEY = 'itred_pos_customer_notes_v1';
 const CUSTOMER_ACTIVITY_KEY = 'itred_pos_customer_activity_v1';
-const VENDOR_ID = 'SCI-LOG-ZW';
 
 export function realRecordsExist(): boolean {
   if (typeof localStorage === 'undefined') return false;
   try {
     // 1. Check transactions key
-    const rawTxs = localStorage.getItem('itred_pos_transactions');
+    const rawTxs = localStorage.getItem(getVendorScopedStorageKey('itred_pos_transactions'));
     if (rawTxs) {
       const txs = JSON.parse(rawTxs);
       if (Array.isArray(txs)) {
@@ -51,7 +51,7 @@ export function realRecordsExist(): boolean {
     }
 
     // 2. Check customer key
-    const rawCusts = localStorage.getItem('itred_pos_customers_v1');
+    const rawCusts = localStorage.getItem(getVendorScopedStorageKey(CUSTOMER_KEY));
     if (rawCusts) {
       const custs = JSON.parse(rawCusts);
       if (Array.isArray(custs)) {
@@ -62,7 +62,7 @@ export function realRecordsExist(): boolean {
     }
 
     // 3. Check debts key
-    const rawDebts = localStorage.getItem('itred_pos_customer_debts_v1');
+    const rawDebts = localStorage.getItem(getVendorScopedStorageKey('itred_pos_customer_debts_v1'));
     if (rawDebts) {
       const debts = JSON.parse(rawDebts);
       if (Array.isArray(debts) && debts.length > 0) return true;
@@ -93,27 +93,11 @@ export interface CustomerCreatePayload {
 }
 
 function readList<T>(key: string, fallback: T[]): T[] {
-  if (typeof localStorage === 'undefined') return fallback;
-  try {
-    const raw = localStorage.getItem(key);
-    if (!raw) {
-      localStorage.setItem(key, JSON.stringify(fallback));
-      return fallback;
-    }
-    const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed as T[] : fallback;
-  } catch {
-    return fallback;
-  }
+  return readVendorScopedList<T>(key, fallback);
 }
 
 function saveList<T>(key: string, value: T[]): T[] {
-  try {
-    if (typeof localStorage !== 'undefined') localStorage.setItem(key, JSON.stringify(value));
-  } catch {
-    return value;
-  }
-  return value;
+  return writeVendorScopedList(key, value);
 }
 
 function nowIso(): string {
@@ -229,7 +213,7 @@ export async function getCustomerSummary(filters: CustomerFilterState = {}): Pro
   let history: { customerId: string }[] = [];
   if (realRecordsExist()) {
     try {
-      const raw = localStorage.getItem('itred_pos_transactions');
+      const raw = localStorage.getItem(getVendorScopedStorageKey('itred_pos_transactions'));
       if (raw) {
         const txs = JSON.parse(raw);
         if (Array.isArray(txs)) {
@@ -278,7 +262,7 @@ export async function createCustomer(payload: CustomerCreatePayload, staffId: st
   const timestamp = nowIso();
   const customer: CustomerRecord = {
     customerId: makeId('CUST'),
-    vendorId: VENDOR_ID,
+    vendorId: getActiveVendorId(),
     customerCode: nextCustomerCode(customers),
     customerName: payload.customerName.trim(),
     customerType: payload.customerType,
@@ -288,8 +272,8 @@ export async function createCustomer(payload: CustomerCreatePayload, staffId: st
     taxNumber: payload.taxNumber?.trim() || '',
     billingAddress: payload.billingAddress?.trim() || '',
     deliveryAddress: payload.deliveryAddress?.trim() || payload.billingAddress?.trim() || '',
-    cityTown: payload.cityTown?.trim() || 'Harare',
-    district: payload.district?.trim() || 'Harare',
+    cityTown: payload.cityTown?.trim() || '',
+    district: payload.district?.trim() || '',
     suburb: payload.suburb?.trim() || '',
     source: payload.source || 'Sales Terminal',
     status: 'Active',
@@ -338,7 +322,7 @@ export async function createCustomerRequest(payload: {
   );
   const customer: CustomerRecord = {
     customerId: makeId('CUST'),
-    vendorId: VENDOR_ID,
+    vendorId: getActiveVendorId(),
     customerCode: `PEND-${String(customers.length + 1).padStart(4, '0')}`,
     customerName: payload.customerName || 'Pending Customer',
     customerType: 'Individual',
@@ -348,8 +332,8 @@ export async function createCustomerRequest(payload: {
     taxNumber: payload.taxNumber || '',
     billingAddress: payload.billingAddress || '',
     deliveryAddress: payload.deliveryAddress || payload.billingAddress || '',
-    cityTown: payload.cityTown || 'Harare',
-    district: payload.district || 'Harare',
+    cityTown: payload.cityTown || '',
+    district: payload.district || '',
     suburb: payload.suburb || '',
     source: payload.source || 'Sales Terminal',
     status: duplicate ? 'Duplicate' : 'Pending Approval',
@@ -364,19 +348,19 @@ export async function createCustomerRequest(payload: {
     customerId: customer.customerId,
     eventType: 'CUSTOMER_CREATED_PENDING',
     user: staffId,
-    notes: duplicate ? `Duplicate warning placeholder: possible match ${duplicate.customerCode}.` : 'Customer request created and sent for approval.'
+    notes: duplicate ? `Possible duplicate: ${duplicate.customerCode}.` : 'Customer request created and sent for approval.'
   });
   await createOperationalApproval({
-    vendorId: VENDOR_ID,
-    branchId: 'BR-HARARE',
-    branch: 'Harare Main',
+    vendorId: getActiveVendorId(),
+    branchId: 'main-branch',
+    branch: 'Main Branch',
     category: 'NEW_CUSTOMER',
     requestedBy: payload.requestedByStaffName,
     requestedByRole: payload.requestedByRole,
     relatedRecord: customer.customerId,
     amountOrValue: customer.customerName,
     risk: duplicate ? 'High' : 'Medium',
-    reason: duplicate ? 'Duplicate warning placeholder requires review.' : 'New customer request requires approval.',
+    reason: duplicate ? 'Possible duplicate requires review.' : 'New customer request requires approval.',
     context: `Customer approval request for ${customer.customerName}.`,
     requiredPermission: 'approvals.approve'
   });
@@ -436,7 +420,7 @@ export async function getCustomerPurchaseHistory(customerId: string): Promise<Cu
 
   let txs: any[] = [];
   try {
-    const raw = localStorage.getItem('itred_pos_transactions');
+    const raw = localStorage.getItem(getVendorScopedStorageKey('itred_pos_transactions'));
     if (raw) {
       txs = JSON.parse(raw);
     }
@@ -454,7 +438,7 @@ export async function getCustomerPurchaseHistory(customerId: string): Promise<Cu
     return mockCustomerPurchaseHistory.filter((row) => row.customerId === customerId);
   }
 
-  // Do not use placeholder/mock data when real completed sales exist
+  // Do not use seed data when real completed sales exist.
   const realTxs = txs.filter((tx) => tx.id !== 'TXN-88220' && tx.id !== 'TXN-88221');
 
   const matched = realTxs.filter((tx) => {
@@ -489,7 +473,7 @@ export async function getCustomerPurchaseHistory(customerId: string): Promise<Cu
       customerName: tx.customerName || customer.customerName || 'Walk-in Customer',
       receiptNo: tx.invoiceNo || tx.receiptNo || 'N/A',
       date: tx.date || tx.dateTime || new Date().toISOString(),
-      branch: tx.branch || 'Harare Main',
+      branch: tx.branch || 'Main Branch',
       cashier: tx.operator || 'Unknown',
       items: itemsCount,
       total: tx.total || tx.grandTotal || 0,

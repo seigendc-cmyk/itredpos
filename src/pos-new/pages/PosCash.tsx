@@ -94,10 +94,10 @@ export default function PosCash({
   session
 }: PosCashProps) {
   const roleName = (session?.role || 'Owner') as Role;
-  const staffName = session?.staffName || activeOperator || 'Local Cashier';
-  const branchName = session?.branch || 'Harare Main';
+  const staffName = session?.staffName || activeOperator || 'Cashier';
+  const branchName = session?.branch || 'Main Branch';
   const terminalName = session?.terminal || terminalId || 'POS-01';
-  const shiftId = activeShift?.id || 'SHIFT-DEV-CASH';
+  const shiftId = activeShift?.id || 'SHIFT-CASH';
   const drawerId = `DRAWER-${terminalName}`;
   const [activeTab, setActiveTab] = useState<CashTab>('Cash Dashboard');
   const [summary, setSummary] = useState<CashControlSummary | null>(null);
@@ -222,10 +222,10 @@ export default function PosCash({
       amount: 1,
       paymentMethod: 'Cash',
       referenceId: 'LOCAL-CORRECTION',
-      referenceNumber: 'LOCAL-CORRECTION',
-      notes: 'Manual local correction placeholder.'
+      referenceNumber: 'CASH-CORRECTION',
+      notes: 'Manual cash correction.'
     });
-    setNotice('Movement reviewed / local correction placeholder recorded.');
+    setNotice('Movement reviewed and cash correction recorded.');
     await load();
   };
 

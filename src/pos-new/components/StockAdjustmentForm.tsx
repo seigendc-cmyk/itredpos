@@ -25,6 +25,7 @@ import {
   updateStockAdjustmentLine
 } from '../services/stockAdjustmentService';
 import { canPerformAction } from '../utils/posPermissions';
+import { getActiveVendorId } from '../utils/vendorDataMode';
 
 type WindowState = 'normal' | 'minimized' | 'maximized';
 
@@ -119,8 +120,8 @@ export default function StockAdjustmentForm({
       return null;
     }
     const draft = await createStockAdjustmentDraft({
-      vendorId: 'SCI-LOG-ZW',
-      branchId: activeBranch || 'Harare Main',
+      vendorId: getActiveVendorId(),
+      branchId: activeBranch || 'Main Branch',
       warehouseId: 'Main Warehouse',
       requestedByStaffId: staffName,
       requestedByStaffName: staffName,
@@ -301,7 +302,7 @@ export default function StockAdjustmentForm({
                     <SelectInput label="Reason" value={record?.reason || 'Physical Count Correction'} options={reasons} disabled={!editable} onChange={(value) => record ? setRecord({ ...record, reason: value as StockAdjustmentReason }) : undefined} />
                     <Readonly label="Risk Level" value={totals.riskLevel} />
                     <Readonly label="Requested By" value={record?.requestedByStaffName || staffName} />
-                    <FormInput label="Branch" value={record?.branchId || activeBranch || 'Harare Main'} disabled={!editable} onChange={(value) => record ? setRecord({ ...record, branchId: value }) : undefined} />
+                    <FormInput label="Branch" value={record?.branchId || activeBranch || 'Main Branch'} disabled={!editable} onChange={(value) => record ? setRecord({ ...record, branchId: value }) : undefined} />
                     <FormInput label="Warehouse" value={record?.warehouseId || 'Main Warehouse'} disabled={!editable} onChange={(value) => record ? setRecord({ ...record, warehouseId: value }) : undefined} />
                   </div>
                 </section>

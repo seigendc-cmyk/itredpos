@@ -14,6 +14,7 @@ interface PosShellProps {
   activeSession?: PosSession;
   onSignOut?: () => void;
   allowedPages?: PosPageId[];
+  planLockedPages?: PosPageId[];
   tenantName?: string;
   tenantLogo?: string;
 }
@@ -28,7 +29,8 @@ export default function PosShell({
   activeSession,
   onSignOut,
   allowedPages,
-  tenantName = 'Tenant',
+  planLockedPages,
+  tenantName = 'Business',
   tenantLogo
 }: PosShellProps) {
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
@@ -117,6 +119,7 @@ export default function PosShell({
           session={activeSession}
           onSignOut={onSignOut}
           allowedPages={allowedPages}
+          planLockedPages={planLockedPages}
         />
       </div>
 
@@ -132,6 +135,7 @@ export default function PosShell({
               session={activeSession}
               onSignOut={onSignOut}
               allowedPages={allowedPages}
+              planLockedPages={planLockedPages}
             />
           </div>
           {/* backdrop click closes drawer */}

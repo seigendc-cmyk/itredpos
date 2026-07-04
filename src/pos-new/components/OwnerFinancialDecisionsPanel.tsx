@@ -24,7 +24,7 @@ export default function OwnerFinancialDecisionsPanel() {
     <div className="bg-white border border-slate-200">
       <div className="p-4 border-b border-slate-200">
         <h3 className="text-sm font-black uppercase tracking-wider text-slate-800">Owner Financial Decisions</h3>
-        <p className="text-xs text-slate-500">Decision rows stay local and can later convert to task, approval, or source-module action.</p>
+        <p className="text-xs text-slate-500">Decision rows can convert to task, approval, or source-module action.</p>
       </div>
       <div className="overflow-x-auto">
         <table className="min-w-full text-xs">

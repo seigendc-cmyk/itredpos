@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, Suspense, lazy } from 'react';
 
-import { readPosAuthContext } from './auth/posVendorAuthState';
+import { readPosAuthContext, savePosAuthContext } from './auth/posVendorAuthState';
 import { AlertTriangle } from 'lucide-react';
 import PosShell from './layout/PosShell';
 import PosDashboard from './pages/PosDashboard';
@@ -57,35 +57,53 @@ import { recordSecurityMatrixEvent } from './auth/permissionMatrixService';
 import { getCurrentFirebaseUserProfile, signInWithGooglePlaceholder, subscribeToFirebaseAuthState, signOutFirebasePlaceholder, handleGoogleRedirectResult } from './auth/firebaseAuthShell';
 import { applyPOSActivationToTenantSession, createTenantSessionFromFirebaseUser, getCurrentTenantSession, recordAuthActivity } from './auth/tenantSessionService';
 import { clearActivePOSActivation, getSavedPOSSession, validatePOSActivationForEmail, type POSActivationValidationResult } from './auth/posActivationService';
-import { loadLocalProducts, POS_PRODUCT_STORE_EVENT, updateLocalProductStock } from './utils/localProductStore';
+import { loadLocalProducts, POS_PRODUCT_STORE_EVENT, saveLocalProducts, updateLocalProductStock } from './utils/localProductStore';
+import { ENABLE_MOCK_SEED_DATA, getVendorScopedStorageKey, initializeEmptyVendorOperationalStores } from './utils/vendorDataMode';
+import { firebaseReady } from './firebase/firebaseApp';
+import {
+  mergeVendorLicenseIntoAuthContext,
+  readSavedVendorLicenseSnapshot,
+  subscribeToVendorLicense,
+  type VendorLicenseRuntimeSnapshot
+} from './auth/vendorLicenseRuntimeService';
+import {
+  getNextPlanCode,
+  getLockedPlanPages,
+  getPlanFeatureAccess,
+  isLimitReached,
+  type PlanFeatureAccess
+} from './auth/planFeatureGate';
+import UpgradeRequiredPanel, { type UpgradeRequiredVendorContext } from './components/UpgradeRequiredPanel';
 import './posNew.css';
 
 const PosReports = lazy(() => import('./pages/PosReports'));
+const SHOW_DEV_BADGES = false;
+const FIREBASE_WRITE_MODE_KEY = 'itred_pos_firebase_write_mode';
 
-// Core industrial standard catalog seeds loaded from centralized mockPosData
-const INITIAL_PRODUCTS: Product[] = mockProducts;
+// Developer seed data is opt-in only. New vendors start with live empty stores.
+const INITIAL_PRODUCTS: Product[] = ENABLE_MOCK_SEED_DATA ? mockProducts : [];
 
-// Seed initial transactions of the work day loaded from mockPosData
-const INITIAL_TRANSACTIONS: Transaction[] = mockRecentSales;
+const INITIAL_TRANSACTIONS: Transaction[] = ENABLE_MOCK_SEED_DATA ? mockRecentSales : [];
 
-// Seed cash drawer logs loaded from mockPosData
-const INITIAL_CASH_LOGS: CashLog[] = mockCashMovements;
+const INITIAL_CASH_LOGS: CashLog[] = ENABLE_MOCK_SEED_DATA ? mockCashMovements : [];
+
+const INITIAL_BI_EVENTS: BiEvent[] = ENABLE_MOCK_SEED_DATA ? mockBIEvents : [];
 
 const DEFAULT_RECEIPT_SETTING: ReceiptSetting = {
-  header: 'INDUSTRIAL HEAVY MACHINE SUPPLY',
-  footer: 'THANK YOU FOR YOUR PATRONAGE. SECURE TRANSACTION CORES.',
+  header: 'iTred Commerce POS',
+  footer: 'Thank you for shopping with us.',
   slipWidth: '32_COLUMNS (STANDARD_SLIP)',
   showTaxBreakdown: true,
   layout: 'Thermal Receipt Roll',
-  headerMessage: 'INDUSTRIAL HEAVY MACHINE SUPPLY',
-  footerMessage: 'THANK YOU FOR YOUR PATRONAGE. SECURE TRANSACTION CORES.',
+  headerMessage: '',
+  footerMessage: 'Thank you for shopping with us.',
   termsAndConditions: 'Goods may be returned according to store policy with a valid receipt.',
-  businessAddress: '12 Enterprise Road, Harare',
-  contactNumbers: '+263 242 000 100 | +263 77 000 0100',
-  emailAddress: 'sales@itredcommerce.local',
-  socialMediaHandles: '@itredcommerce',
-  contactInformation: '+263 242 000 100 | +263 77 000 0100',
-  socialMediaInformation: '@itredcommerce'
+  businessAddress: '',
+  contactNumbers: '',
+  emailAddress: '',
+  socialMediaHandles: '',
+  contactInformation: '',
+  socialMediaInformation: ''
 };
 
 function readStoredValue<T>(key: string, fallback: T): T {
@@ -107,13 +125,29 @@ function readStoredText(key: string, fallback: string): string {
   }
 }
 
+function isFirebaseWriteReady(): boolean {
+  return firebaseReady && readStoredText(FIREBASE_WRITE_MODE_KEY, 'disabled') === 'enabled';
+}
+
+function resolveRuntimeStorageMode(): string {
+  return isFirebaseWriteReady() ? 'firebase' : 'local';
+}
+
+function getTrialDaysRemaining(): number | null {
+  const authContext = readPosAuthContext();
+  const expiresAt = authContext?.trialExpiresAt || authContext?.demoExpiresAt;
+  const expiry = expiresAt ? Date.parse(expiresAt) : NaN;
+  if (!Number.isFinite(expiry)) return null;
+  return Math.max(0, Math.ceil((expiry - Date.now()) / (24 * 60 * 60 * 1000)));
+}
+
 function writeStoredValue(key: string, value: unknown): void {
   try {
     if (typeof localStorage !== 'undefined') {
       localStorage.setItem(key, typeof value === 'string' ? value : JSON.stringify(value));
     }
   } catch {
-    // Build-development fallback: ignore storage write failures and keep in-memory React state.
+    // Storage fallback: ignore write failures and keep in-memory React state.
   }
 }
 
@@ -123,8 +157,112 @@ function removeStoredValue(key: string): void {
       localStorage.removeItem(key);
     }
   } catch {
-    // Build-development fallback: ignore storage removal failures.
+    // Storage fallback: ignore removal failures.
   }
+}
+
+const VENDOR_PLACEHOLDER_NAMES = new Set([
+  'vendor n/a',
+  'sci logistics ltd',
+  'sci auto spares'
+]);
+
+function displayText(value?: string | null): string {
+  return String(value || '').trim();
+}
+
+function isPlaceholderVendorName(value?: string | null): boolean {
+  const text = displayText(value);
+  return !text || VENDOR_PLACEHOLDER_NAMES.has(text.toLowerCase());
+}
+
+function firstVendorDisplayName(...values: Array<string | undefined | null>): string {
+  return values.map(displayText).find((value) => !isPlaceholderVendorName(value)) || 'Business';
+}
+
+function resolveVendorDisplayName(
+  businessProfile?: Partial<BusinessProfile> | null,
+  vendorAuth?: ReturnType<typeof readPosAuthContext>,
+  session?: Partial<PosSession> | null
+): string {
+  return firstVendorDisplayName(
+    businessProfile?.legalName,
+    businessProfile?.tradingName,
+    businessProfile?.businessName,
+    vendorAuth?.vendorName,
+    session?.vendor,
+    session?.vendorId
+  );
+}
+
+function resolveStoredBranchName(branchId?: string, fallback?: string): string {
+  const id = displayText(branchId);
+  if (!id) return displayText(fallback) || 'main-branch';
+  const branches = readStoredValue<BranchSetting[]>('itred_pos_branches', []);
+  return branches.find((branch) => branch.id === id)?.name || displayText(fallback) || id;
+}
+
+function resolveStoredTerminalName(terminalId?: string, fallback?: string): string {
+  const id = displayText(terminalId);
+  if (!id) return displayText(fallback) || 'TERM-MAIN-001';
+  const terminals = readStoredValue<TerminalSetting[]>('itred_pos_terminals', []);
+  return terminals.find((terminal) => terminal.id === id)?.name || displayText(fallback) || id;
+}
+
+function normalizeSessionForVendorRuntime(
+  session: PosSession,
+  businessProfile?: Partial<BusinessProfile> | null,
+  vendorAuth?: ReturnType<typeof readPosAuthContext>
+): PosSession {
+  const isOnboardedVendorSession = Boolean(vendorAuth?.vendorId && vendorAuth?.vendorName);
+  const branchId = vendorAuth?.branchId || session.branchId || 'main-branch';
+  const terminalId = session.terminalId || (isOnboardedVendorSession ? 'TERM-MAIN-001' : undefined);
+  const planId = vendorAuth?.planCode || session.planId || (isOnboardedVendorSession ? 'DEMO' : undefined);
+  const licenseMode = vendorAuth?.licenseMode || session.licenseMode || (isOnboardedVendorSession ? 'demo' : undefined);
+
+  return {
+    ...session,
+    vendor: resolveVendorDisplayName(businessProfile, vendorAuth, session),
+    vendorId: vendorAuth?.vendorId || session.vendorId,
+    branchId,
+    branch: resolveStoredBranchName(branchId, session.branch),
+    terminalId,
+    terminal: resolveStoredTerminalName(terminalId, session.terminal),
+    planId,
+    licenseMode,
+    storageMode: resolveRuntimeStorageMode(),
+    licenseId: isOnboardedVendorSession ? (session.licenseId || `${vendorAuth?.vendorId || 'vendor'}-license`) : session.licenseId,
+    activationId: isOnboardedVendorSession ? (session.activationId || `${vendorAuth?.vendorId || 'vendor'}-activation`) : session.activationId
+  };
+}
+
+function licenseBlockTitle(snapshot: VendorLicenseRuntimeSnapshot): string {
+  return snapshot.blockReason === 'AccountSuspended' ? 'Account Suspended' : 'License Required';
+}
+
+function profileText(profile: Partial<BusinessProfile> | null | undefined, ...keys: string[]): string {
+  const row = (profile || {}) as Record<string, unknown>;
+  for (const key of keys) {
+    const value = displayText(row[key] as string);
+    if (value) return value;
+  }
+  return '';
+}
+
+function buildUpgradeVendorContext(
+  businessProfile: Partial<BusinessProfile> | null | undefined,
+  vendorAuth?: ReturnType<typeof readPosAuthContext>,
+  session?: Partial<PosSession> | null
+): UpgradeRequiredVendorContext {
+  return {
+    vendorName: resolveVendorDisplayName(businessProfile, vendorAuth, session),
+    vendorId: displayText(vendorAuth?.vendorId || session?.vendorId) || 'unassigned-vendor',
+    ownerName: profileText(businessProfile, 'ownerName', 'contactPerson', 'administratorName'),
+    ownerPhone: profileText(businessProfile, 'ownerContact', 'ownerPhone', 'businessPhone', 'phone', 'phoneNumber1'),
+    ownerWhatsapp: profileText(businessProfile, 'businessWhatsapp', 'whatsapp', 'ownerWhatsApp', 'whatsAppNumber1'),
+    city: profileText(businessProfile, 'city', 'cityTown'),
+    suburb: profileText(businessProfile, 'suburb', 'districtSuburb', 'district')
+  };
 }
 
 export default function PosPrototypeApp() {
@@ -259,10 +397,52 @@ export default function PosPrototypeApp() {
     };
   }, []);
 
+  function createPosSessionFromVendorAuthContext(): PosSession | null {
+    const vendorAuth = readPosAuthContext();
+    if (!vendorAuth || vendorAuth.stage !== 'posReady') {
+      return null;
+    }
+    const storedBusinessProfile = readStoredValue<BusinessProfile | null>('itred_pos_business_profile', null);
+    const branchId = vendorAuth.branchId || 'main-branch';
+    const terminalId = 'TERM-MAIN-001';
+    return normalizeSessionForVendorRuntime({
+      staffId: vendorAuth.staffId || 'owner-staff',
+      staffName: 'Owner',
+      role: (vendorAuth.staffRole || 'Owner') as PosSession['role'],
+      vendor: resolveVendorDisplayName(storedBusinessProfile, vendorAuth),
+      branch: resolveStoredBranchName(branchId),
+      terminal: resolveStoredTerminalName(terminalId),
+      vendorId: vendorAuth.vendorId || 'demo-vendor',
+      branchId,
+      terminalId,
+      licenseId: `${vendorAuth.vendorId || 'vendor'}-license`,
+      planId: vendorAuth.planCode || 'DEMO',
+      licenseMode: vendorAuth.licenseMode || 'demo',
+      storageMode: resolveRuntimeStorageMode(),
+      activationId: `${vendorAuth.vendorId || 'vendor'}-activation`,
+      dashboardType: 'POS',
+      openedAt: new Date().toISOString(),
+      googleEmail: vendorAuth.googleEmail || ''
+    }, storedBusinessProfile, vendorAuth);
+  }
+
   const [activeSession, setActiveSession] = useState<PosSession | null>(() => {
-    return readStoredValue<PosSession | null>('itred_pos_active_session', null);
+    const vendorAuth = readPosAuthContext();
+    const storedBusinessProfile = readStoredValue<BusinessProfile | null>('itred_pos_business_profile', null);
+    const storedSession = readStoredValue<PosSession | null>('itred_pos_active_session', null);
+    if (storedSession) {
+      return normalizeSessionForVendorRuntime(storedSession, storedBusinessProfile, vendorAuth);
+    }
+    return createPosSessionFromVendorAuthContext();
+  });
+  const [runtimeLicense, setRuntimeLicense] = useState<VendorLicenseRuntimeSnapshot | null>(() => {
+    const vendorId = readPosAuthContext()?.vendorId;
+    return vendorId ? readSavedVendorLicenseSnapshot(vendorId) : null;
   });
 
+  const [businessProfile, setBusinessProfile] = useState<BusinessProfile>(() => {
+    return readStoredValue<BusinessProfile>('itred_pos_business_profile', mockSettings.businessProfile);
+  });
 
   useEffect(() => {
     if (activeSession) return;
@@ -270,28 +450,65 @@ export default function PosPrototypeApp() {
     const vendorAuth = readPosAuthContext();
 
     if (!vendorAuth || vendorAuth.stage !== 'posReady') return;
+    const storedBusinessProfile = readStoredValue<BusinessProfile | null>('itred_pos_business_profile', null);
+    const branchId = vendorAuth.branchId || 'main-branch';
+    const terminalId = 'TERM-MAIN-001';
 
-    const bridgedSession: PosSession = {
+    const bridgedSession: PosSession = normalizeSessionForVendorRuntime({
       staffId: vendorAuth.staffId || 'owner-staff',
       staffName: 'Owner',
       role: (vendorAuth.staffRole || 'Owner') as PosSession['role'],
-      branch: vendorAuth.branchId || 'main-branch',
-      terminal: 'TERM-MAIN-001',
+      vendor: resolveVendorDisplayName(storedBusinessProfile, vendorAuth),
+      branch: resolveStoredBranchName(branchId),
+      terminal: resolveStoredTerminalName(terminalId),
       vendorId: vendorAuth.vendorId || 'demo-vendor',
-      branchId: vendorAuth.branchId || 'main-branch',
-      terminalId: 'TERM-MAIN-001',
-      licenseId: 'DEMO-LICENSE',
-      planId: 'DEMO',
-      licenseMode: 'demo',
-      storageMode: 'local',
-      activationId: 'LOCAL-DEMO-ACTIVATION',
+      branchId,
+      terminalId,
+      licenseId: `${vendorAuth.vendorId || 'vendor'}-license`,
+      planId: vendorAuth.planCode || 'DEMO',
+      licenseMode: vendorAuth.licenseMode || 'demo',
+      storageMode: resolveRuntimeStorageMode(),
+      activationId: `${vendorAuth.vendorId || 'vendor'}-activation`,
       dashboardType: 'POS',
       openedAt: new Date().toISOString(),
       googleEmail: vendorAuth.googleEmail || ''
-    };
+    }, storedBusinessProfile, vendorAuth);
 
     setActiveSession(bridgedSession);
   }, [activeSession]);
+
+  useEffect(() => {
+    const vendorId = activeSession?.vendorId || readPosAuthContext()?.vendorId;
+    if (!vendorId) return undefined;
+
+    return subscribeToVendorLicense(vendorId, (licenseSnapshot) => {
+      setRuntimeLicense(licenseSnapshot);
+      const currentAuth = readPosAuthContext() || {
+        stage: licenseSnapshot.allowed ? 'posReady' : 'licenseRequired',
+        vendorId
+      };
+      const nextAuth = mergeVendorLicenseIntoAuthContext(currentAuth, licenseSnapshot);
+      savePosAuthContext(nextAuth);
+
+      setActiveSession((currentSession) => {
+        if (!currentSession) return currentSession;
+        const nextSession = normalizeSessionForVendorRuntime({
+          ...currentSession,
+          planId: licenseSnapshot.planCode,
+          licenseMode: licenseSnapshot.licenseMode,
+          licenseId: currentSession.licenseId || `${vendorId}-license`,
+          activationId: currentSession.activationId || `${vendorId}-activation`
+        }, businessProfile, nextAuth);
+        const changed =
+          nextSession.planId !== currentSession.planId ||
+          nextSession.licenseMode !== currentSession.licenseMode ||
+          nextSession.storageMode !== currentSession.storageMode ||
+          nextSession.licenseId !== currentSession.licenseId ||
+          nextSession.activationId !== currentSession.activationId;
+        return changed ? nextSession : currentSession;
+      });
+    });
+  }, [activeSession?.vendorId, businessProfile]);
 
   // Clear active staff session when the Google profile email changes (tenant isolation enforcement)
   useEffect(() => {
@@ -307,22 +524,29 @@ export default function PosPrototypeApp() {
   const [products, setProducts] = useState<Product[]>(() => {
     return loadLocalProducts();
   });
+  const planAccess: PlanFeatureAccess = useMemo(() => {
+    return getPlanFeatureAccess(runtimeLicense || readPosAuthContext() || activeSession);
+  }, [runtimeLicense, activeSession?.planId, activeSession?.licenseMode]);
+  const planLockedPages = useMemo(() => getLockedPlanPages(planAccess), [planAccess]);
+  const productLimitReached = isLimitReached(products.length, planAccess.limits.maxProducts);
+  const productLimitMessage = 'Product limit reached for your current plan.';
+  const [planLimitNotice, setPlanLimitNotice] = useState('');
 
   const [transactions, setTransactions] = useState<Transaction[]>(() => {
-    return readStoredValue<Transaction[]>('itred_pos_transactions', INITIAL_TRANSACTIONS);
+    return readStoredValue<Transaction[]>(getVendorScopedStorageKey('itred_pos_transactions'), INITIAL_TRANSACTIONS);
   });
 
   const [cashLogs, setCashLogs] = useState<CashLog[]>(() => {
-    return readStoredValue<CashLog[]>('itred_pos_cash_logs', INITIAL_CASH_LOGS);
+    return readStoredValue<CashLog[]>(getVendorScopedStorageKey('itred_pos_cash_logs'), INITIAL_CASH_LOGS);
   });
 
   // Current Shift State
   const [activeShift, setActiveShift] = useState<Shift | null>(() => {
-    return readStoredValue<Shift | null>('itred_pos_active_shift', mockShift);
+    return readStoredValue<Shift | null>(getVendorScopedStorageKey('itred_pos_active_shift'), ENABLE_MOCK_SEED_DATA ? mockShift : null);
   });
 
   const [shiftHistory, setShiftHistory] = useState<Shift[]>(() => {
-    return readStoredValue<Shift[]>('itred_pos_shifthistory', [
+    return readStoredValue<Shift[]>(getVendorScopedStorageKey('itred_pos_shifthistory'), ENABLE_MOCK_SEED_DATA ? [
       {
         id: 'SHIFT-2026-06-07-01',
         operator: 'NIGHT_RECR',
@@ -349,19 +573,15 @@ export default function PosPrototypeApp() {
         salesCount: 8,
         totalSales: 330.00
       }
-    ]);
+    ] : []);
   });
 
   // Business Intelligence Events Cache State
   const [biEvents, setBiEvents] = useState<BiEvent[]>(() => {
-    return readStoredValue<BiEvent[]>('itred_pos_bi_events', mockBIEvents);
+    return readStoredValue<BiEvent[]>(getVendorScopedStorageKey('itred_pos_bi_events'), INITIAL_BI_EVENTS);
   });
 
   // Business Settings States
-  const [businessProfile, setBusinessProfile] = useState<BusinessProfile>(() => {
-    return readStoredValue<BusinessProfile>('itred_pos_business_profile', mockSettings.businessProfile);
-  });
-
   const [branches, setBranches] = useState<BranchSetting[]>(() => {
     return readStoredValue<BranchSetting[]>('itred_pos_branches', mockBranches);
   });
@@ -402,51 +622,53 @@ export default function PosPrototypeApp() {
 
   // Setup options (States)
   const [receiptHeader, setReceiptHeader] = useState(() => {
-    return readStoredText('itred_pos_conf_receipt_head', 'INDUSTRIAL HEAVY MACHINE SUPPLY');
+    return readStoredText('itred_pos_conf_receipt_head', 'iTred Commerce POS');
   });
 
   const [terminalUnit, setTerminalUnit] = useState(() => {
-    return readStoredText('itred_pos_conf_term_id', 'REGISTER_UNIT_NORTH_B2');
+    const storedTerminal = readStoredText('itred_pos_conf_term_id', 'TERM-MAIN-001');
+    return storedTerminal === 'REGISTER_UNIT_NORTH_B2' ? 'TERM-MAIN-001' : storedTerminal;
   });
 
   const [activeOperatorName, setActiveOperatorName] = useState(() => {
-    return readStoredText('itred_pos_conf_operator', 'SYS_ADMIN');
+    const storedOperator = readStoredText('itred_pos_conf_operator', 'Owner');
+    return storedOperator === 'SYS_ADMIN' ? 'Owner' : storedOperator;
   });
 
   // Synchronise localStorage writes on mutations
   useEffect(() => {
-    writeStoredValue('itred_pos_products', products);
-  }, [products]);
+    saveLocalProducts(products, false, activeSession?.vendorId);
+  }, [activeSession?.vendorId, products]);
 
   useEffect(() => {
-    const refreshProducts = () => setProducts(loadLocalProducts());
+    const refreshProducts = () => setProducts(loadLocalProducts(activeSession?.vendorId));
     window.addEventListener(POS_PRODUCT_STORE_EVENT, refreshProducts);
     return () => window.removeEventListener(POS_PRODUCT_STORE_EVENT, refreshProducts);
-  }, []);
+  }, [activeSession?.vendorId]);
 
   useEffect(() => {
-    writeStoredValue('itred_pos_transactions', transactions);
-  }, [transactions]);
+    writeStoredValue(getVendorScopedStorageKey('itred_pos_transactions', activeSession?.vendorId), transactions);
+  }, [activeSession?.vendorId, transactions]);
 
   useEffect(() => {
-    writeStoredValue('itred_pos_cash_logs', cashLogs);
-  }, [cashLogs]);
+    writeStoredValue(getVendorScopedStorageKey('itred_pos_cash_logs', activeSession?.vendorId), cashLogs);
+  }, [activeSession?.vendorId, cashLogs]);
 
   useEffect(() => {
     if (activeShift) {
-      writeStoredValue('itred_pos_active_shift', activeShift);
+      writeStoredValue(getVendorScopedStorageKey('itred_pos_active_shift', activeSession?.vendorId), activeShift);
     } else {
-      removeStoredValue('itred_pos_active_shift');
+      removeStoredValue(getVendorScopedStorageKey('itred_pos_active_shift', activeSession?.vendorId));
     }
-  }, [activeShift]);
+  }, [activeSession?.vendorId, activeShift]);
 
   useEffect(() => {
-    writeStoredValue('itred_pos_shifthistory', shiftHistory);
-  }, [shiftHistory]);
+    writeStoredValue(getVendorScopedStorageKey('itred_pos_shifthistory', activeSession?.vendorId), shiftHistory);
+  }, [activeSession?.vendorId, shiftHistory]);
 
   useEffect(() => {
-    writeStoredValue('itred_pos_bi_events', biEvents);
-  }, [biEvents]);
+    writeStoredValue(getVendorScopedStorageKey('itred_pos_bi_events', activeSession?.vendorId), biEvents);
+  }, [activeSession?.vendorId, biEvents]);
 
   useEffect(() => {
     writeStoredValue('itred_pos_conf_receipt_head', receiptHeader);
@@ -462,6 +684,7 @@ export default function PosPrototypeApp() {
 
   useEffect(() => {
     if (activeSession) {
+      initializeEmptyVendorOperationalStores(activeSession.vendorId);
       writeStoredValue('itred_pos_active_session', activeSession);
       setActiveOperatorName(activeSession.staffName);
       setTerminalUnit(activeSession.terminal);
@@ -469,6 +692,26 @@ export default function PosPrototypeApp() {
       removeStoredValue('itred_pos_active_session');
     }
   }, [activeSession]);
+
+  useEffect(() => {
+    if (!activeSession) return;
+    const vendorAuth = readPosAuthContext();
+    const normalizedSession = normalizeSessionForVendorRuntime(activeSession, businessProfile, vendorAuth);
+    const changed =
+      normalizedSession.vendor !== activeSession.vendor ||
+      normalizedSession.vendorId !== activeSession.vendorId ||
+      normalizedSession.branch !== activeSession.branch ||
+      normalizedSession.branchId !== activeSession.branchId ||
+      normalizedSession.terminal !== activeSession.terminal ||
+      normalizedSession.terminalId !== activeSession.terminalId ||
+      normalizedSession.planId !== activeSession.planId ||
+      normalizedSession.licenseMode !== activeSession.licenseMode ||
+      normalizedSession.storageMode !== activeSession.storageMode;
+
+    if (changed) {
+      setActiveSession(normalizedSession);
+    }
+  }, [activeSession, businessProfile]);
 
   useEffect(() => {
     writeStoredValue('itred_pos_business_profile', businessProfile);
@@ -576,6 +819,11 @@ export default function PosPrototypeApp() {
   };
 
   const handleAddProduct = (newProd: Omit<Product, 'id'>) => {
+    if (productLimitReached) {
+      setPlanLimitNotice(productLimitMessage);
+      window.setTimeout(() => setPlanLimitNotice(''), 4500);
+      return;
+    }
     const id = 'prod-' + Math.floor(Math.random() * 89999 + 10000);
     setProducts(prev => [...prev, { ...newProd, id }]);
   };
@@ -778,113 +1026,26 @@ export default function PosPrototypeApp() {
       'itred_pos_hardware_setting',
       'itred_pos_tax_setting',
       'itred_pos_receipt_setting'
-    ].forEach(removeStoredValue);
+    ].forEach((key) => {
+      removeStoredValue(key);
+      removeStoredValue(getVendorScopedStorageKey(key, activeSession?.vendorId));
+    });
 
     setProducts(INITIAL_PRODUCTS);
     setTransactions(INITIAL_TRANSACTIONS);
     setCashLogs(INITIAL_CASH_LOGS);
     setShiftHistory([]);
-    setBiEvents([
-      {
-        id: 'BI-EV-1001',
-        timestamp: '2026-06-08T15:20:00Z',
-        eventType: 'SUSPICIOUS_MOVEMENT_ALERT',
-        operator: 'CLERK_R4',
-        terminal: 'REGISTER_UNIT_NORTH_B2',
-        payload: { details: "Drawer opened manually 3 times within 5 minutes with 0 registered transaction rings.", suspicionScore: 92 },
-        severity: 'Critical'
-      },
-      {
-        id: 'BI-EV-1002',
-        timestamp: '2026-06-08T14:45:12Z',
-        eventType: 'CASH_VARIANCE_FOUND',
-        operator: 'AUX_T6',
-        terminal: 'REGISTER_UNIT_NORTH_B2',
-        payload: { expectedCash: 350.00, actualCash: 334.50, difference: -15.50, details: "Audit check completed. Discrepancy of -$15.50 beneath the threshold." },
-        severity: 'Critical'
-      },
-      {
-        id: 'BI-EV-1003',
-        timestamp: '2026-06-08T14:12:05Z',
-        eventType: 'FAILED_TERMINAL_LOGIN',
-        operator: 'UNKNOWN',
-        terminal: 'REGISTER_UNIT_SOUTH_A1',
-        payload: { details: "Operator lock block. 3 consecutive invalid authentication attempts.", attemptsCount: 3, user: 'OP_CLERK_2' },
-        severity: 'High'
-      },
-      {
-        id: 'BI-EV-1004',
-        timestamp: '2026-06-08T13:30:19Z',
-        eventType: 'SALE_BLOCKED_ZERO_STOCK',
-        operator: 'AUX_T6',
-        terminal: 'REGISTER_UNIT_NORTH_B2',
-        payload: { sku: 'SKU-H420', productName: 'HEAVY DIESEL GASKET', attemptedQty: 1, details: "Ringing blocked. Attempted sale of zero-stock item HEAVY DIESEL GASKET." },
-        severity: 'High'
-      },
-      {
-        id: 'BI-EV-1005',
-        timestamp: '2026-06-08T11:15:22Z',
-        eventType: 'PRICE_OVERRIDE_REQUESTED',
-        operator: 'CLERK_R4',
-        terminal: 'REGISTER_UNIT_SOUTH_A1',
-        payload: { sku: 'SKU-G80', productName: 'GASKET SEALER XL', standardPrice: 12.50, requestedPrice: 8.00, details: "Manual discount override (36%). GASKET SEALER XL reduced from $12.50 to $8.00." },
-        severity: 'Medium'
-      },
-      {
-        id: 'BI-EV-1006',
-        timestamp: '2026-06-08T09:40:00Z',
-        eventType: 'RECOMMEND_MAJOR_STOCKTAKE',
-        operator: 'SYS_ADMIN',
-        terminal: 'BACK_OFFICE_CON',
-        payload: { details: "Shrinkage check recommendation. Bin velocity audit flags high count drift in HYDRAULIC VALVE pack." },
-        severity: 'Medium'
-      },
-      {
-        id: 'BI-EV-1007',
-        timestamp: '2026-06-08T08:30:15Z',
-        eventType: 'STOCK_ADJUSTMENT_REQUESTED',
-        operator: 'SYS_ADMIN',
-        terminal: 'BACK_OFFICE_CON',
-        payload: { details: "Manual inventory write-in. Clerk adjusted STEEL_THREAD_TAPE count upwards by 5 Units.", reasons: "Discovered spare pack during shipping receiving." },
-        severity: 'Low'
-      }
-    ]);
+    setBiEvents(INITIAL_BI_EVENTS);
     setActiveShift(null);
-    setReceiptHeader('INDUSTRIAL HEAVY MACHINE SUPPLY');
-    setTerminalUnit('REGISTER_UNIT_NORTH_B2');
-    setActiveOperatorName('SYS_ADMIN');
+    setReceiptHeader('iTred Commerce POS');
+    setTerminalUnit('TERM-MAIN-001');
+    setActiveOperatorName('Owner');
 
-    // Deep Erase Custom Setting configurations
-    setBusinessProfile({
-      legalName: 'APEX INDUSTRIAL CORP',
-      taxNo: 'VAT-US-991208',
-      regNo: 'REG-552912',
-      address: '77 Industrial Parkway, Sector 4',
-      currency: 'USD'
-    });
-    setBranches([
-      { id: 'BR-DET-3', name: 'DETROIT FORGE #3', location: 'Detroit, MI' },
-      { id: 'BR-CHI-B', name: 'CHICAGO DISTRIBUTION B', location: 'Chicago, IL' },
-      { id: 'BR-GARY-4', name: 'GARY ASSEMBLY PLANT 4', location: 'Gary, IN' }
-    ]);
-    setWarehouses([
-      { id: 'WH-DET-01', name: 'Main Forge Warehouse', branchId: 'BR-DET-3' },
-      { id: 'WH-CHI-01', name: 'Chicago Logistical Hub', branchId: 'BR-CHI-B' },
-      { id: 'WH-GARY-01', name: 'Gary Storage Annex C', branchId: 'BR-GARY-4' }
-    ]);
-    setTerminalsSetting([
-      { id: 'TERM-DETROIT-01', name: 'TERM-DETROIT-01 (HEAVY REGISTER)', branchId: 'BR-DET-3', type: 'HEAVY' },
-      { id: 'TERM-DETROIT-02', name: 'TERM-DETROIT-02 (AUX-T6)', branchId: 'BR-DET-3', type: 'LIGHT' },
-      { id: 'TERM-CHICAGO-01', name: 'TERM-CHICAGO-01 (GATE_WAY_2)', branchId: 'BR-CHI-B', type: 'HEAVY' }
-    ]);
-    setStaffSetting([
-      { id: 'ST-001', name: 'Marcus Vance', email: 'marcus@apex.com', role: 'Supervisor', pass: 'lead123', branchId: 'BR-DET-3' },
-      { id: 'ST-002', name: 'Sarah Connor', email: 'sarah@apex.com', role: 'Cashier', pass: 'op123', branchId: 'BR-DET-3' },
-      { id: 'ST-003', name: 'John Connor', email: 'john@apex.com', role: 'Manager', pass: 'mngr123', branchId: 'BR-CHI-B' },
-      { id: 'ST-004', name: 'Elena Rostova', email: 'elena@apex.com', role: 'Stock Controller', pass: 'op456', branchId: 'BR-CHI-B' },
-      { id: 'ST-005', name: 'Cassie Reilly', email: 'cassie@apex.com', role: 'Owner', pass: 'owner123', branchId: 'BR-GARY-4' },
-      { id: 'ST-006', name: 'James Cole', email: 'james@apex.com', role: 'SysAdmin', pass: 'admin123', branchId: 'BR-GARY-4' }
-    ]);
+    setBusinessProfile(ENABLE_MOCK_SEED_DATA ? mockSettings.businessProfile : businessProfile);
+    setBranches(ENABLE_MOCK_SEED_DATA ? mockBranches : branches);
+    setWarehouses(ENABLE_MOCK_SEED_DATA ? mockWarehouses : warehouses);
+    setTerminalsSetting(ENABLE_MOCK_SEED_DATA ? mockTerminals : terminalsSetting);
+    setStaffSetting(ENABLE_MOCK_SEED_DATA ? mockStaff : staffSetting);
     setHardwareSetting({
       laserFocus: 'LASER_FOCUS: INTENSE_RED',
       drawerSignal: '12VDC_ELECTRO_M_PULSE'
@@ -972,7 +1133,7 @@ export default function PosPrototypeApp() {
     );
   }
 
-  if (false && googleAuthProfile && !activationChecking && activationResult && !activationResult.allowed) {
+  if (SHOW_DEV_BADGES && googleAuthProfile && !activationChecking && activationResult && !activationResult.allowed) {
     const blockedActivation = activationResult.activation;
     return (
       <main className="min-h-screen bg-slate-950 text-slate-100 flex items-center justify-center p-6">
@@ -1001,7 +1162,7 @@ export default function PosPrototypeApp() {
             </div>
           </div>
           <p className="text-xs text-slate-400">
-            Contact Administrator to link this Google account or correct the activation record in the SCI Control Centre.
+            Contact an administrator to link this Google account or correct the activation record.
           </p>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
             <button
@@ -1024,7 +1185,7 @@ export default function PosPrototypeApp() {
     );
   }
 
-  if (false && googleAuthProfile && (activationChecking || !licenseChecked)) {
+  if (SHOW_DEV_BADGES && googleAuthProfile && (activationChecking || !licenseChecked)) {
     return (
       <main className="min-h-screen bg-slate-950 text-slate-100 flex items-center justify-center p-6">
         <section className="w-full max-w-md border border-emerald-500/40 bg-slate-900 p-6 shadow-2xl">
@@ -1034,7 +1195,7 @@ export default function PosPrototypeApp() {
             Reading sci_pos_activations for {googleAuthProfile.email}
           </div>
           <p className="mt-4 text-xs text-slate-400 leading-relaxed">
-            POS access opens only when the SCI Control Centre activation is active, unexpired, and compatible with the requested storage mode.
+            POS access opens only when the activation record is active, unexpired, and compatible with the requested storage mode.
           </p>
         </section>
       </main>
@@ -1048,7 +1209,7 @@ export default function PosPrototypeApp() {
         onLoginSuccess={(session) => {
           const tenant = getCurrentTenantSession();
           const posSession = getSavedPOSSession();
-          setActiveSession({
+          setActiveSession(normalizeSessionForVendorRuntime({
             ...session,
             vendorId: tenant.vendorId,
             branchId: tenant.branchId,
@@ -1060,7 +1221,7 @@ export default function PosPrototypeApp() {
             activationId: tenant.activationId,
             dashboardType: posSession?.dashboardType || 'POS',
             openedAt: posSession?.openedAt || new Date().toISOString()
-          });
+          }, businessProfile, readPosAuthContext()));
         }}
         onBackToBios={() => {
           window.history.pushState({}, '', '/');
@@ -1070,8 +1231,50 @@ export default function PosPrototypeApp() {
     );
   }
 
+  const authContextForUpgrade = readPosAuthContext();
+  const upgradeVendorContext = buildUpgradeVendorContext(businessProfile, authContextForUpgrade, activeSession);
+
+  if (runtimeLicense && !runtimeLicense.allowed) {
+    return (
+      <main className="min-h-screen bg-[#f7f5ef] p-6">
+        <UpgradeRequiredPanel
+          featureName={licenseBlockTitle(runtimeLicense)}
+          currentPlan={planAccess.planCode}
+          requiredPlan={getNextPlanCode(planAccess.planCode)}
+          vendor={upgradeVendorContext}
+          detail={runtimeLicense.noticeDetail || 'Contact SCI support to restore POS access.'}
+          onActivated={(result) => setPlanLimitNotice(result.message)}
+        />
+      </main>
+    );
+  }
+
   const allowedForAccess = getEffectivePageIdsForRole(activeSession.role);
   const isPageRestricted = !allowedForAccess.includes(activePage);
+  const activePagePlanAccess = planAccess.pageAccess[activePage];
+  const isPagePlanLocked = !isPageRestricted && Boolean(activePagePlanAccess && !activePagePlanAccess.allowed);
+  const posTenantName = resolveVendorDisplayName(businessProfile, readPosAuthContext(), activeSession);
+  const authContextForNotice = authContextForUpgrade;
+  const trialDaysRemaining = getTrialDaysRemaining();
+  const licenseNotice = runtimeLicense && runtimeLicense.noticeKind !== 'active'
+    ? {
+      title: runtimeLicense.noticeTitle,
+      detail: runtimeLicense.noticeDetail,
+      kind: runtimeLicense.noticeKind
+    }
+    : (activeSession.licenseMode === 'trial' || activeSession.licenseMode === 'demo')
+      ? {
+        title: 'Trial Plan Active',
+        detail: trialDaysRemaining === null ? 'Trial access enabled' : `${trialDaysRemaining} Days Remaining`,
+        kind: 'trial'
+      }
+      : authContextForNotice?.activationStatus === 'PendingConsoleVerification'
+        ? {
+          title: 'Account Pending Verification',
+          detail: 'Trial access remains available while SCI reviews your registration.',
+          kind: 'pending'
+        }
+        : null;
 
   return (
     <PosShell
@@ -1083,16 +1286,44 @@ export default function PosPrototypeApp() {
       activeSession={activeSession}
       onSignOut={() => void handlePOSSignOut()}
       allowedPages={allowedForAccess}
-      tenantName={businessProfile.legalName || businessProfile.tradingName || 'Tenant'}
+      planLockedPages={planLockedPages}
+      tenantName={posTenantName}
       tenantLogo={receiptSetting.logoDataUrl}
     >
-      {activeSession?.licenseMode === 'demo' && (
-        <>
-          <div className="pos-demo-watermark" aria-hidden="true">DEMO MODE</div>
-          <div className="pos-demo-mode-chip">
-            DEMO MODE - Firebase writes disabled
+      {licenseNotice && (
+        SHOW_DEV_BADGES ? (
+          <>
+            <div className="pos-demo-watermark" aria-hidden="true">Diagnostics</div>
+            <div className="pos-demo-mode-chip">
+              Diagnostics enabled
+            </div>
+          </>
+        ) : (
+          <div className="pos-trial-plan-chip" role="status">
+            <strong>{licenseNotice.title}</strong>
+            <span>{licenseNotice.detail}</span>
           </div>
-        </>
+        )
+      )}
+      {planLimitNotice && (
+        <UpgradeRequiredPanel
+          featureName="Plan Limit"
+          currentPlan={planAccess.planCode}
+          requiredPlan={getNextPlanCode(planAccess.planCode)}
+          vendor={upgradeVendorContext}
+          detail={planLimitNotice}
+          onActivated={(result) => setPlanLimitNotice(result.message)}
+        />
+      )}
+      {!planLimitNotice && activePage === 'DASHBOARD' && licenseNotice && (licenseNotice.kind === 'trial' || licenseNotice.kind === 'pending') && (
+        <UpgradeRequiredPanel
+          featureName="Plan Upgrade"
+          currentPlan={planAccess.planCode}
+          requiredPlan={getNextPlanCode(planAccess.planCode)}
+          vendor={upgradeVendorContext}
+          detail={licenseNotice.detail}
+          onActivated={(result) => setPlanLimitNotice(result.message)}
+        />
       )}
       {/* Dynamic page switches */}
       {isPageRestricted ? (
@@ -1117,6 +1348,15 @@ export default function PosPrototypeApp() {
             Return to Operator Dashboard
           </button>
         </div>
+      ) : isPagePlanLocked ? (
+        <UpgradeRequiredPanel
+          featureName={activePagePlanAccess.featureName}
+          currentPlan={planAccess.planCode}
+          requiredPlan={String(activePagePlanAccess.requiredPlan)}
+          vendor={upgradeVendorContext}
+          detail="This feature is not included in your current plan."
+          onActivated={(result) => setPlanLimitNotice(result.message)}
+        />
       ) : (
         <>
           {activePage === 'DASHBOARD' && (
@@ -1170,6 +1410,9 @@ export default function PosPrototypeApp() {
           onUpdateMinStock={handleUpdateMinStockThreshold}
           onUpdateProduct={handleUpdateProduct}
           session={activeSession}
+          planAccess={planAccess}
+          productLimitReached={productLimitReached}
+          productLimitMessage={productLimitMessage}
         />
       )}
 
@@ -1285,6 +1528,7 @@ export default function PosPrototypeApp() {
           activeOperatorName={activeOperatorName}
           onUpdateOperatorName={setActiveOperatorName}
           activeRole={activeSession?.role}
+          planAccess={planAccess}
         />
       )}
         </>

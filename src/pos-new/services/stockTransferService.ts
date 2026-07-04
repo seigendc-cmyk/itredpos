@@ -28,6 +28,7 @@ import {
 import { calculateRunningBalance, postTransferMovement } from './inventoryMovementService';
 import { createOperationalApproval } from './approvalService';
 import { publishCommerceEvent, writeAuditLog, CommerceOperationContext } from '../../commerce-integration';
+import { getVendorDocumentIdentity } from '../vendor/vendorBootstrapModel';
 
 const TRANSFER_KEY = 'itred_pos_stock_transfers_v1';
 const LINE_KEY = 'itred_pos_stock_transfer_lines_v1';
@@ -594,8 +595,10 @@ export async function reverseTransferPlaceholder(transferId: string, staffId: st
 export async function exportStockTransferPlaceholder(transferId: string): Promise<{ message: string; payload: { transfer: StockTransfer | null; lines: StockTransferLine[] } }> {
   const transfer = await getStockTransferById(transferId);
   const transferLines = transfer ? await getStockTransferLines(transferId) : [];
-  if (transfer) await recordActivity({ transferId, transferNumber: transfer.transferNumber, eventType: 'STOCK_TRANSFER_EXPORTED', operator: 'System', severity: 'Low', message: `${transfer.transferNumber} export prepared locally.` });
-  return { message: transfer ? `${transfer.transferNumber} export prepared locally.` : 'Transfer not found.', payload: { transfer, lines: transferLines } };
+  const identity = transfer ? getVendorDocumentIdentity({ vendorId: transfer.vendorId, branchId: transfer.sourceBranchId, warehouseId: transfer.sourceWarehouseId }) : null;
+  const message = transfer ? `${transfer.transferNumber} export prepared for ${identity?.displayName || 'vendor'}.` : 'Transfer not found.';
+  if (transfer) await recordActivity({ transferId, transferNumber: transfer.transferNumber, eventType: 'STOCK_TRANSFER_EXPORTED', operator: 'System', severity: 'Low', message });
+  return { message, payload: { transfer, lines: transferLines } };
 }
 
 export async function getStockTransferActivityEvents(filters: StockTransferFilterState = {}): Promise<StockTransferActivityEvent[]> {

@@ -9,31 +9,17 @@ import {
   OperationalApprovalEventType,
   OperationalApprovalRequest
 } from '../types';
+import { readVendorScopedList, writeVendorScopedList } from '../utils/vendorDataMode';
 
 const APPROVAL_KEY = 'itred_pos_operational_approvals_v1';
 const APPROVAL_EVENT_KEY = 'itred_pos_operational_approval_events_v1';
 
 function readList<T>(key: string, fallback: T[]): T[] {
-  if (typeof localStorage === 'undefined') return fallback;
-  try {
-    const raw = localStorage.getItem(key);
-    if (!raw) {
-      localStorage.setItem(key, JSON.stringify(fallback));
-      return fallback;
-    }
-    const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed as T[] : fallback;
-  } catch {
-    localStorage.setItem(key, JSON.stringify(fallback));
-    return fallback;
-  }
+  return readVendorScopedList<T>(key, fallback);
 }
 
 function saveList<T>(key: string, value: T[]): T[] {
-  if (typeof localStorage !== 'undefined') {
-    localStorage.setItem(key, JSON.stringify(value));
-  }
-  return value;
+  return writeVendorScopedList(key, value);
 }
 
 function makeId(prefix: string): string {

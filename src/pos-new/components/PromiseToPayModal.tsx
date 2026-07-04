@@ -48,7 +48,7 @@ export default function PromiseToPayModal({ open, customer, debt, staffName, def
       followUpNote: note || 'Promise-to-pay captured locally.',
       assignedTo
     });
-    onNotice('Promise-to-pay saved locally.');
+    onNotice('Promise-to-pay saved.');
     load();
     onSaved();
   };

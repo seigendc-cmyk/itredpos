@@ -5,34 +5,20 @@ import {
   StockBalanceStatus
 } from '../types/posTypes';
 import { mockProductStockBalances } from '../mock/mockPosData';
+import { ENABLE_MOCK_SEED_DATA, readVendorScopedList, writeVendorScopedList } from '../utils/vendorDataMode';
 
 const STOCK_BALANCE_KEY = 'sci_pos_product_stock_balances';
 
-let memoryBalances: ProductStockBalance[] = [...mockProductStockBalances];
+let memoryBalances: ProductStockBalance[] = ENABLE_MOCK_SEED_DATA ? [...mockProductStockBalances] : [];
 
 function readBalances(): ProductStockBalance[] {
-  try {
-    const cached = localStorage.getItem(STOCK_BALANCE_KEY);
-    if (!cached) {
-      localStorage.setItem(STOCK_BALANCE_KEY, JSON.stringify(mockProductStockBalances));
-      memoryBalances = [...mockProductStockBalances];
-      return memoryBalances;
-    }
-    memoryBalances = JSON.parse(cached) as ProductStockBalance[];
-    return memoryBalances;
-  } catch {
-    return memoryBalances;
-  }
+  memoryBalances = readVendorScopedList<ProductStockBalance>(STOCK_BALANCE_KEY, mockProductStockBalances);
+  return memoryBalances;
 }
 
 function writeBalances(balances: ProductStockBalance[]): ProductStockBalance[] {
   memoryBalances = balances;
-  try {
-    localStorage.setItem(STOCK_BALANCE_KEY, JSON.stringify(balances));
-  } catch {
-    // localStorage may be unavailable in some test contexts.
-  }
-  return balances;
+  return writeVendorScopedList(STOCK_BALANCE_KEY, balances);
 }
 
 function classifyBalance(balance: ProductStockBalance): StockBalanceStatus {
@@ -282,7 +268,7 @@ export async function transferStockBalancePlaceholder(
   const fromBalance = balances.find((balance) => balance.balanceId === fromBalanceId && balance.productId === productId);
   const toBalance = balances.find((balance) => balance.balanceId === toBalanceId && balance.productId === productId);
   if (!fromBalance || !toBalance || quantity <= 0 || fromBalance.qtyAvailable < quantity) {
-    return { from: fromBalance || null, to: toBalance || null, message: 'Stock transfer placeholder could not be applied.' };
+    return { from: fromBalance || null, to: toBalance || null, message: 'Stock transfer could not be applied.' };
   }
 
   let nextFrom: ProductStockBalance | null = null;
@@ -303,11 +289,11 @@ export async function transferStockBalancePlaceholder(
     return balance;
   });
   writeBalances(next);
-  return { from: nextFrom, to: nextTo, message: 'Stock transfer placeholder applied locally.' };
+  return { from: nextFrom, to: nextTo, message: 'Stock transfer applied.' };
 }
 
 export async function exportStockBalancesPlaceholder(productId?: string): Promise<{ message: string; productId?: string }> {
-  return { message: 'Stock balance export placeholder prepared locally.', productId };
+  return { message: 'Stock balance export prepared.', productId };
 }
 
 export async function getLowStockBalances(filters: StockBalanceFilter = {}): Promise<ProductStockBalance[]> {

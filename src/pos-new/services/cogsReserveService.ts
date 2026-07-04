@@ -59,13 +59,13 @@ const seedMovements: COGSReserveMovement[] = [
     amount: 1800,
     sourceReferenceType: 'ManualAdjustment',
     sourceReferenceId: 'BUILD-19AO',
-    sourceReferenceNumber: 'Build Development Opening Reserve',
+    sourceReferenceNumber: 'Opening Reserve',
     staffId: 'ST-OWNER',
     staffName: 'Owner',
     reserveBalanceAfter: 1800,
     protected: true,
     requiresApproval: false,
-    notes: 'Build Development local COGS reserve opening balance. Management-control only.',
+    notes: 'COGS reserve opening balance. Management-control only.',
     createdAt: nowIso()
   },
   {
@@ -83,7 +83,7 @@ const seedMovements: COGSReserveMovement[] = [
     reserveBalanceAfter: 1580,
     protected: false,
     requiresApproval: true,
-    notes: 'Build Development reserve leakage example for BI review.',
+    notes: 'Reserve leakage example for BI review.',
     createdAt: nowIso()
   }
 ];

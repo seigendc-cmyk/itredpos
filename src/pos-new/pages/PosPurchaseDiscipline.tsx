@@ -9,7 +9,7 @@ import PurchaseBIWarningsPanel from '../components/PurchaseBIWarningsPanel';
 import PurchaseDisciplineActivityPanel from '../components/PurchaseDisciplineActivityPanel';
 import PurchasingDisciplineBIPanel from '../components/PurchasingDisciplineBIPanel';
 import SimpleProductSeeder from '../components/SimpleProductSeeder';
-import { getPurchasingDisciplineBISummary, type COGSReserveBIControl } from '../services/purchaseDisciplineService';
+import { getPurchaseDisciplineRequests, getPurchasingDisciplineBISummary, getSupplierPurchaseCommitments, type COGSReserveBIControl } from '../services/purchaseDisciplineService';
 
 type PurchaseDisciplineTab =
   | 'BI Overview'
@@ -28,20 +28,22 @@ const money = (value: number) => `$${value.toFixed(2)}`;
 export default function PosPurchaseDiscipline({ session }: { session?: PosSession | null }) {
   const [activeTab, setActiveTab] = useState<PurchaseDisciplineTab>('BI Overview');
   const [cogsSummary, setCogsSummary] = useState<COGSReserveBIControl | null>(null);
+  const [hasPurchaseDisciplineRecords, setHasPurchaseDisciplineRecords] = useState(false);
 
   useEffect(() => {
     void getPurchasingDisciplineBISummary().then((summary) => setCogsSummary(summary.cogs));
+    setHasPurchaseDisciplineRecords(getPurchaseDisciplineRequests().length > 0 || getSupplierPurchaseCommitments().length > 0);
   }, [activeTab]);
 
   return (
     <div className="pos-page creditors-page">
       <header className="pos-page-header">
         <div>
-          <span className="pos-page-kicker">Build 19AY</span>
+          <span className="pos-page-kicker">Purchasing Control</span>
           <h1>Purchasing Discipline</h1>
           <p>Supplier analytics, product buying intelligence, COGS reserve health, configurable rules and BI drill-down reports.</p>
         </div>
-        <div className="creditors-session-chip">{session?.staffName || 'Local User'} - {session?.role || 'Build Development'}</div>
+        <div className="creditors-session-chip">{session?.staffName || 'Staff'} - {session?.role || 'User'}</div>
       </header>
 
       {cogsSummary && (
@@ -57,6 +59,12 @@ export default function PosPurchaseDiscipline({ session }: { session?: PosSessio
       <nav className="creditors-tabs" aria-label="Purchase Discipline tabs">
         {tabs.map((tab) => <button key={tab} className={activeTab === tab ? 'active' : ''} onClick={() => setActiveTab(tab)}>{tab}</button>)}
       </nav>
+
+      {!hasPurchaseDisciplineRecords && (
+        <section className="creditors-panel">
+          <div className="creditors-notice">No purchase discipline records yet.</div>
+        </section>
+      )}
 
       {activeTab === 'BI Overview' && <PurchasingDisciplineBIPanel onOpenReport={setActiveTab} />}
       {activeTab === 'Reorder Requests' && <ReorderRequestsPanel />}

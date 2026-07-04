@@ -45,6 +45,7 @@ import {
   generateDeliveryConfirmationCode,
   verifyDeliveryConfirmationCode
 } from '../utils/deliveryCodeUtils';
+import { getActiveVendorId, readVendorScopedList, writeVendorScopedList } from '../utils/vendorDataMode';
 
 const REQUEST_KEY = 'sci_pos_delivery_requests_v2';
 const LINE_KEY = 'sci_pos_delivery_request_lines_v2';
@@ -70,24 +71,11 @@ function makeId(prefix: string): string {
 }
 
 function readList<T>(key: string, fallback: T[]): T[] {
-  try {
-    const cached = localStorage.getItem(key);
-    if (!cached) {
-      localStorage.setItem(key, JSON.stringify(fallback));
-      return fallback;
-    }
-    return JSON.parse(cached) as T[];
-  } catch {
-    return fallback;
-  }
+  return readVendorScopedList<T>(key, fallback);
 }
 
 function saveList<T>(key: string, rows: T[]): void {
-  try {
-    localStorage.setItem(key, JSON.stringify(rows));
-  } catch {
-    // Local storage may be unavailable in tests or private contexts.
-  }
+  writeVendorScopedList(key, rows);
 }
 
 function activity(event: Omit<DeliveryActivityEvent, 'id' | 'createdAt'>): DeliveryActivityEvent[] {
@@ -269,11 +257,11 @@ export async function createDeliveryDraftFromCart(payload: Partial<DeliveryReque
   const draft: DeliveryRequest = {
     deliveryId: makeId('DEL-DRAFT'),
     deliveryNumber: deliveryNumberFor(rows.length),
-    vendorId: payload.vendorId || 'SCI-LOG-ZW',
+    vendorId: payload.vendorId || getActiveVendorId(),
     receiptId: payload.receiptId || 'DRAFT',
     receiptNumber: payload.receiptNumber || 'DRAFT',
-    branchId: payload.branchId || 'BR-HARARE',
-    branchName: payload.branchName || 'Harare Main',
+    branchId: payload.branchId || 'main-branch',
+    branchName: payload.branchName || 'Main Branch',
     terminalId: payload.terminalId || 'POS-01',
     cashierStaffId: payload.cashierStaffId || 'DRAFT',
     cashierStaffName: payload.cashierStaffName || 'Draft User',

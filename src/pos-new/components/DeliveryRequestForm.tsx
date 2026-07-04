@@ -131,7 +131,7 @@ export default function DeliveryRequestForm({
                     <input value={reason} onChange={(event) => setReason(event.target.value)} className="mt-1 w-full border border-[#b1b5c2] p-2 text-xs rounded-none" placeholder="Required for failed or cancelled delivery" />
                   </label>
                   <ActionRow>
-                    <Action label="Save Draft" onClick={() => window.alert(`${request.deliveryNumber} draft saved locally.`)} />
+                    <Action label="Save Draft" onClick={() => window.alert(`${request.deliveryNumber} draft saved.`)} />
                     <Action label="Broadcast To iDeliver" onClick={onBroadcast} primary />
                     <Action label="Record Failure" onClick={() => onRecordFailure(reason || 'Failure reason captured from Delivery Fulfilment form.')} />
                     <Action label="Cancel Delivery" onClick={() => onCancel(reason || 'Cancelled from Delivery Fulfilment form.')} />

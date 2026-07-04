@@ -12,6 +12,8 @@ export default function ReceiptPreviewA4({ preview, onExport }: ReceiptPreviewA4
   const contact = blueprint?.contactNumbers || blueprint?.contactInformation || receipt.businessDetails.contactNumbers || receipt.businessDetails.contactInformation || `Phone: ${receipt.businessDetails.phone} | WhatsApp: ${receipt.businessDetails.whatsApp}`;
   const email = blueprint?.emailAddress || receipt.businessDetails.emailAddress;
   const social = blueprint?.socialMediaHandles || blueprint?.socialMediaInformation || receipt.businessDetails.socialMediaHandles || receipt.businessDetails.socialMediaInformation;
+  const businessDescriptor = [receipt.businessDetails.businessType, receipt.businessDetails.industry].filter(Boolean).join(' / ');
+  const terminalName = receipt.businessDetails.terminalName || receipt.terminal;
 
   return (
     <div className="bg-white border-2 border-[#1e222b] p-6 text-[#111827] font-mono max-w-4xl mx-auto">
@@ -19,17 +21,21 @@ export default function ReceiptPreviewA4({ preview, onExport }: ReceiptPreviewA4
         <div>
           <div className="text-xl font-black uppercase">{receipt.businessDetails.businessName}</div>
           <div className="text-xs font-bold uppercase text-slate-700">{receipt.businessDetails.tradingName}</div>
+          {businessDescriptor && <div className="text-[10px] font-bold uppercase text-slate-600">{businessDescriptor}</div>}
           <div className="text-[10px] mt-2">{address}</div>
           <div className="text-[10px]">{contact}</div>
           {email && <div className="text-[10px]">{email}</div>}
           {social && <div className="text-[10px]">{social}</div>}
           {receipt.businessDetails.vatRegistered && <div className="text-[10px] font-bold">VAT No: {receipt.businessDetails.vatNumber}</div>}
+          {receipt.businessDetails.taxNumber && <div className="text-[10px] font-bold">Tax No: {receipt.businessDetails.taxNumber}</div>}
+          {receipt.businessDetails.registrationNumber && <div className="text-[10px] font-bold">Reg No: {receipt.businessDetails.registrationNumber}</div>}
         </div>
         <div className="text-right">
           <div className="text-lg font-black uppercase">Receipt</div>
           <div className="text-orange-600 font-black">{receipt.receiptNumber}</div>
           <div className="text-[10px] mt-2">Date: {new Date(receipt.dateTime).toLocaleString()}</div>
-          <div className="text-[10px]">Terminal: {receipt.terminal}</div>
+          <div className="text-[10px]">Branch: {receipt.businessDetails.branch || receipt.branch}</div>
+          <div className="text-[10px]">Terminal: {terminalName}</div>
           <div className="text-[10px]">Served By: {receipt.cashier}</div>
         </div>
       </div>

@@ -482,10 +482,10 @@ export async function createCashBIAdvice(eventType: string, description: string,
 function seedMovements(): CashDrawerMovement[] {
   const now = nowIso();
   return [
-    movementSeed('OpeningFloat', 50, 'Opening float loaded for Build Development.', now, 'SHIFT-DEV-CASH', 'DRAWER-DEV-01'),
-    movementSeed('CashSale', 300, 'Build Development cash sale sample.', now, 'SHIFT-DEV-CASH', 'DRAWER-DEV-01'),
-    movementSeed('CashDebtorPayment', 40, 'Build Development debtor cash payment sample.', now, 'SHIFT-DEV-CASH', 'DRAWER-DEV-01'),
-    movementSeed('CashDrop', 80, 'Build Development cash drop sample.', now, 'SHIFT-DEV-CASH', 'DRAWER-DEV-01', 'Out')
+    movementSeed('OpeningFloat', 50, 'Opening float loaded.', now, 'SHIFT-DEV-CASH', 'DRAWER-DEV-01'),
+    movementSeed('CashSale', 300, 'Cash sale sample.', now, 'SHIFT-DEV-CASH', 'DRAWER-DEV-01'),
+    movementSeed('CashDebtorPayment', 40, 'Debtor cash payment sample.', now, 'SHIFT-DEV-CASH', 'DRAWER-DEV-01'),
+    movementSeed('CashDrop', 80, 'Cash drop sample.', now, 'SHIFT-DEV-CASH', 'DRAWER-DEV-01', 'Out')
   ];
 }
 
@@ -522,10 +522,10 @@ function seedExpenses(): DrawerExpenseRecord[] {
     drawerId: 'DRAWER-DEV-01',
     amount: 15,
     expenseType: 'Petty Cash',
-    reason: 'Build Development drawer expense sample.',
+    reason: 'Drawer expense sample.',
     paidTo: 'Local supplier',
-    notes: 'Local/mock only.',
-    createdBy: 'Build Dev',
+    notes: 'Prepared for review.',
+    createdBy: 'Manager',
     createdAt: nowIso(),
     status: 'Approved'
   }];
@@ -539,8 +539,8 @@ function seedCashDrops(): CashDropRecord[] {
     amount: 80,
     handedTo: 'Safe Custodian',
     receivedBy: 'Manager',
-    reason: 'Build Development safe drop sample.',
-    notes: 'Local/mock only.',
+    reason: 'Safe drop sample.',
+    notes: 'Prepared for review.',
     createdBy: 'Build Dev',
     createdAt: nowIso(),
     status: 'Approved'
@@ -575,8 +575,8 @@ function seedReconciliations(): CashDrawerReconciliation[] {
     variance: -5,
     varianceType: 'Short',
     status: 'VarianceFound',
-    notes: 'Build Development variance sample.',
-    preparedBy: 'Build Dev',
+    notes: 'Variance sample.',
+    preparedBy: 'Manager',
     createdAt: nowIso()
   }];
 }

@@ -45,10 +45,10 @@ interface LicensedVendor {
 }
 
 const emailToVendorMap: Record<string, LicensedVendor> = {
-  'owner@build.local': { vendorId: 'demo-vendor-001', vendorName: 'Build Development Vendor', role: 'VendorOwner' },
-  'admin@build.local': { vendorId: 'demo-vendor-001', vendorName: 'Build Development Vendor', role: 'VendorAdmin' },
-  'cashier@build.local': { vendorId: 'demo-vendor-001', vendorName: 'Build Development Vendor', role: 'Cashier' },
-  'disabled@build.local': { vendorId: 'demo-vendor-001', vendorName: 'Build Development Vendor', role: 'Viewer' },
+  'owner@build.local': { vendorId: 'demo-vendor-001', vendorName: 'Business', role: 'VendorOwner' },
+  'admin@build.local': { vendorId: 'demo-vendor-001', vendorName: 'Business', role: 'VendorAdmin' },
+  'cashier@build.local': { vendorId: 'demo-vendor-001', vendorName: 'Business', role: 'Cashier' },
+  'disabled@build.local': { vendorId: 'demo-vendor-001', vendorName: 'Business', role: 'Viewer' },
   'vendor-a@gmail.com': { vendorId: 'vendor-a', vendorName: 'Vendor A Tenant', role: 'VendorOwner' },
   'account-a@gmail.com': { vendorId: 'vendor-a', vendorName: 'Vendor A Tenant', role: 'VendorOwner' },
   'vendor-b@gmail.com': { vendorId: 'vendor-b', vendorName: 'Vendor B Tenant', role: 'VendorOwner' },
@@ -216,7 +216,7 @@ export function createBuildDevelopmentSession(): TenantSession {
     authProvider: 'Build Development',
     status: 'Build Development',
     vendorId: 'demo-vendor-001',
-    vendorName: 'Build Development Vendor',
+    vendorName: 'Business',
     membershipId: 'MEM-DEMO-OWNER',
     membershipRole: 'VendorOwner',
     staffId: 'ST-OWNER',
@@ -255,7 +255,7 @@ export function createTenantSessionFromFirebaseUser(profile: FirebaseAuthUserPro
     authProvider: 'Google',
     status: vendorInfo ? 'Vendor Authenticated' : 'Error',
     vendorId: vendorInfo?.vendorId || 'unlicensed',
-    vendorName: vendorInfo?.vendorName || 'Unlicensed Vendor',
+    vendorName: vendorInfo?.vendorName || 'Business',
     vendorEmail: profile.email,
     firebaseUid: profile.uid,
     googleEmail: profile.email,
@@ -318,8 +318,8 @@ export function applyPOSActivationToTenantSession(profile: FirebaseAuthUserProfi
     updatedAt: timestamp,
     expiresAt: activation.expiresAt,
     notes: activation.licenseMode === 'demo'
-      ? 'POS activation validated. Demo mode active; Firebase writes disabled.'
-      : 'POS activation validated from SCI Control Centre activation record.'
+      ? 'POS activation validated. Trial mode active.'
+      : 'POS activation validated from activation record.'
   };
   saveSession(session);
   savePOSSession(posSession);
@@ -350,7 +350,7 @@ export function resolveTenantPlaceholder(profile?: FirebaseAuthUserProfile | nul
   if (!vendorInfo) {
     const identity: VendorTenantIdentity = {
       vendorId: 'unlicensed',
-      vendorName: 'Unlicensed Vendor',
+      vendorName: 'Business',
       vendorEmail: email,
       firebaseUid: profile?.uid,
       googleEmail: email,
@@ -369,7 +369,7 @@ export function resolveTenantPlaceholder(profile?: FirebaseAuthUserProfile | nul
       ...current,
       status: 'Error' as const,
       vendorId: 'unlicensed',
-      vendorName: 'Unlicensed Vendor',
+      vendorName: 'Business',
       googleEmail: email,
       vendorEmail: email,
       tenantResolved: false,

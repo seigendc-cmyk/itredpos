@@ -15,10 +15,10 @@ import {
   mockVendorPOSSubscription
 } from '../mock/mockPosData';
 
-const DEFAULT_VENDOR_ID = 'SCI-LOG-ZW';
+const DEFAULT_VENDOR_ID = 'unassigned-vendor';
 
 /**
- * During build-development, Owner has full access. Commercial feature enforcement
+ * During diagnostics mode, Owner has full access. Commercial feature enforcement
  * will be implemented later from internal backend services.
  */
 export function isOwnerBuildDevelopmentBypass(role?: string): boolean {
@@ -50,7 +50,7 @@ function applyOwnerBuildDevelopmentEntitlements(
     ...entitlement,
     enabled: true,
     status: 'Enabled' as const,
-    uiEffect: 'Full access during build-development'
+    uiEffect: 'Full access'
   }));
 }
 
@@ -90,7 +90,7 @@ export async function checkPOSFeatureAccess(
     return {
       allowed: true,
       entitlement,
-      message: 'POS feature enabled during build-development (Owner full access).'
+      message: 'POS feature enabled for Owner access.'
     };
   }
 

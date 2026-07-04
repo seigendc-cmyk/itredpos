@@ -27,14 +27,14 @@ if (isFirebaseConfigured) {
     initializedAuth = getAuth(initializedApp);
     initializedStorage = getStorage(initializedApp);
   } catch {
-    warnings.push('Firebase shell could not initialize. POS workflows remain on mock/local services.');
+    warnings.push('Cloud services could not initialize. POS will continue with the offline workspace.');
     initializedApp = null;
     initializedDb = null;
     initializedAuth = null;
     initializedStorage = null;
   }
 } else {
-  warnings.push('Firebase environment variables are incomplete. POS workflows remain on mock/local services.');
+  warnings.push('Cloud configuration is incomplete. POS will continue with the offline workspace.');
 }
 
 const configStatus = getFirebaseConfigStatus();

@@ -8,6 +8,7 @@ import type {
   TaskStatus,
   TaskSummary
 } from '../types/posTypes';
+import { readVendorScopedList, writeVendorScopedList } from '../utils/vendorDataMode';
 
 const TASKS_KEY = 'itred_pos_task_desk_tasks_v1';
 const ACTIVITY_KEY = 'itred_pos_task_desk_activity_v1';
@@ -21,25 +22,11 @@ const tomorrow = () => {
 };
 
 function readList<T>(key: string, fallback: T[]): T[] {
-  try {
-    const raw = localStorage.getItem(key);
-    if (!raw) {
-      localStorage.setItem(key, JSON.stringify(fallback));
-      return fallback;
-    }
-    return JSON.parse(raw) as T[];
-  } catch {
-    return fallback;
-  }
+  return readVendorScopedList<T>(key, fallback);
 }
 
 function saveList<T>(key: string, rows: T[]): T[] {
-  try {
-    localStorage.setItem(key, JSON.stringify(rows));
-  } catch {
-    // Local workflow remains usable in memory if storage is blocked.
-  }
-  return rows;
+  return writeVendorScopedList(key, rows);
 }
 
 const makeId = (prefix: string) => `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
@@ -81,7 +68,7 @@ function defaultTasks(): TaskRecord[] {
       dueTime,
       status,
       description,
-      notes: 'Local build-development task workflow data.',
+      notes: 'Task workflow data.',
       createdBy: 'System',
       createdAt: now(),
       escalatedAt: status === 'Escalated' ? now() : undefined,

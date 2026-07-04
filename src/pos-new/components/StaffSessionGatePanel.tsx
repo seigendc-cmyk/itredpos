@@ -36,12 +36,12 @@ export default function StaffSessionGatePanel() {
     apply(startStaffGateSession({
       vendorId: selectedStaff?.vendorId || 'demo-vendor-001',
       staffId: selectedStaff?.staffId || 'ST-OWNER',
-      staffName: selectedStaff?.staffName || 'Build Owner',
+      staffName: selectedStaff?.staffName || 'Owner',
       staffRole: selectedStaff?.role || 'VendorOwner',
-      branchId: selectedBranch?.branchId || 'BR-HARARE',
-      branchName: selectedBranch?.branchName || 'Harare Main',
+      branchId: selectedBranch?.branchId || 'main-branch',
+      branchName: selectedBranch?.branchName || 'Main Branch',
       terminalId: selectedTerminal?.terminalId || 'POS-01',
-      terminalName: selectedTerminal?.terminalName || 'POS-01 Harare Front Counter',
+      terminalName: selectedTerminal?.terminalName || 'POS-01 Main Terminal',
       deskType,
       expiresAt: expiresAt || undefined
     }));
@@ -79,7 +79,7 @@ export default function StaffSessionGatePanel() {
           <Action label="Start Gate Session" onClick={start} />
           <Action label="Verify PIN" onClick={() => apply(verifyStaffGatePin(session.gateSessionId, pin))} />
           <Action label="Activate Session" onClick={() => apply(activateStaffGateSession(session.gateSessionId))} primary />
-          <Action label="Continue as Build Development Owner" onClick={ownerBypass} />
+          <Action label="Continue as Owner" onClick={ownerBypass} />
           <Action label="Lock Session" onClick={() => apply(lockStaffGateSession(session.gateSessionId, 'Locked from Staff Session Gate panel.'))} />
           <Action label="Clear Session" onClick={() => apply(clearStaffGateSession())} />
         </div>

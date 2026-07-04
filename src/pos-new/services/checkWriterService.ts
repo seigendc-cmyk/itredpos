@@ -64,16 +64,16 @@ function defaultSettings(): CheckWriterSettings {
     printPayeeLine: true,
     printAmountInWords: true,
     printMemo: true,
-    updatedBy: 'Build Development',
+    updatedBy: 'System',
     updatedAt: now()
   };
 }
 
 function defaultPayees(): PayeeRecord[] {
   return [
-    { payeeId: 'PAYEE-001', payeeCode: 'SUP-HYD', payeeName: 'Hydraulic Parts Supplier', payeeType: 'Supplier', defaultCOAAccountId: 'COA-AP', defaultPaymentPurpose: 'SupplierPayment', active: true, notes: 'Build-development local payee.', createdAt: now(), updatedAt: now() },
-    { payeeId: 'PAYEE-002', payeeCode: 'PETTY', payeeName: 'Petty Cash Custodian', payeeType: 'Staff', defaultCOAAccountId: 'COA-PETTY', defaultPaymentPurpose: 'PettyCash', active: true, notes: 'Build-development local payee.', createdAt: now(), updatedAt: now() },
-    { payeeId: 'PAYEE-003', payeeCode: 'OWNER', payeeName: 'Owner Drawings', payeeType: 'Owner', defaultCOAAccountId: 'COA-OWNER-FUNDS', defaultPaymentPurpose: 'OwnerDrawing', active: true, notes: 'Build-development local payee.', createdAt: now(), updatedAt: now() }
+    { payeeId: 'PAYEE-001', payeeCode: 'SUP-HYD', payeeName: 'Hydraulic Parts Supplier', payeeType: 'Supplier', defaultCOAAccountId: 'COA-AP', defaultPaymentPurpose: 'SupplierPayment', active: true, notes: 'Supplier payee.', createdAt: now(), updatedAt: now() },
+    { payeeId: 'PAYEE-002', payeeCode: 'PETTY', payeeName: 'Petty Cash Custodian', payeeType: 'Staff', defaultCOAAccountId: 'COA-PETTY', defaultPaymentPurpose: 'PettyCash', active: true, notes: 'Petty cash payee.', createdAt: now(), updatedAt: now() },
+    { payeeId: 'PAYEE-003', payeeCode: 'OWNER', payeeName: 'Owner Drawings', payeeType: 'Owner', defaultCOAAccountId: 'COA-OWNER-FUNDS', defaultPaymentPurpose: 'OwnerDrawing', active: true, notes: 'Owner drawings payee.', createdAt: now(), updatedAt: now() }
   ];
 }
 

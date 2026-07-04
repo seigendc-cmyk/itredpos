@@ -30,13 +30,16 @@ const displayMode = (value?: string): string => {
   return text === 'N/A' ? text : text.toUpperCase();
 };
 
+const SHOW_DEV_BADGES = false;
+
 export default function PosTopbar({
   terminalId,
+  activeOperator,
   activeShiftStatus,
   onPageChange,
   session,
   onSignOut,
-  tenantName = 'Tenant'
+  tenantName = 'Business'
 }: PosTopbarProps) {
   const [timeStr, setTimeStr] = useState('');
   const [connectivity, setConnectivity] = useState<'ONLINE' | 'OFFLINE'>('OFFLINE');
@@ -48,18 +51,20 @@ export default function PosTopbar({
     const checkSyncStatus = () => {
       try {
         const localOffline = localStorage.getItem('sci_pos_terminal_connectivity') === 'OFFLINE';
-        const conn = localOffline || !servicesReachable || (typeof navigator !== 'undefined' && !navigator.onLine) ? 'OFFLINE' : 'ONLINE';
+        const firebaseWritable = localStorage.getItem('itred_pos_firebase_write_mode') === 'enabled';
+        const browserOffline = typeof navigator !== 'undefined' && !navigator.onLine;
+        const conn = localOffline || browserOffline || (!firebaseWritable && !servicesReachable) ? 'OFFLINE' : 'ONLINE';
         setConnectivity(conn);
 
         const dataStr = localStorage.getItem('sci_pos_sync_queue');
         if (dataStr) {
           const items = JSON.parse(dataStr);
           if (Array.isArray(items)) {
-            const pending = (items as SyncQueueItem[]).filter((item) => item.syncStatus !== 'Synced').length;
+          const pending = (items as SyncQueueItem[]).filter((item) => item.syncStatus !== 'Synced').length;
             setPendingCount(pending);
           }
         } else {
-          setPendingCount(7);
+          setPendingCount(0);
         }
       } catch {
         setConnectivity('OFFLINE');
@@ -74,10 +79,11 @@ export default function PosTopbar({
 
   useEffect(() => {
     if (!session) return;
-    const branchId = session.branch.toLowerCase().includes('bulawayo') ? 'BR-BYO' : 'BR-HARARE';
+    const branchId = session.branchId || session.branch;
+    const vendorId = session.vendorId || session.vendor;
     let mounted = true;
     const runServiceCheck = () => runTerminalControlCheck({
-      vendorId: 'SCI-LOG-ZW',
+      vendorId,
       branchId,
       terminalId: terminalId || session.terminal,
       terminalName: session.terminal,
@@ -138,20 +144,26 @@ export default function PosTopbar({
         {session && (
           <div
             className="pos-session-badge"
-            title={`Vendor ${displaySessionValue(session.vendor)} / Branch ${displaySessionValue(session.branch)} / Terminal ${displaySessionValue(session.terminal)} / Plan ${displaySessionValue(session.planId)} / ${displayMode(session.licenseMode)} / ${displaySessionValue(session.storageMode)}`}
+            title={`Vendor ${displaySessionValue(session.vendor)} / Branch ${displaySessionValue(session.branch)} / Terminal ${displaySessionValue(session.terminal)} / Staff ${displaySessionValue(session.staffName || activeOperator)} / Role ${displaySessionValue(session.role)}`}
           >
             <span><strong>Vendor</strong>{displaySessionValue(session.vendor)}</span>
             <span><strong>Branch</strong>{displaySessionValue(session.branch)}</span>
             <span><strong>Terminal</strong>{displaySessionValue(session.terminal)}</span>
-            <span><strong>Plan</strong>{displaySessionValue(session.planId)}</span>
-            <span><strong>Mode</strong>{displayMode(session.licenseMode)}</span>
-            <span><strong>Storage</strong>{displaySessionValue(session.storageMode)}</span>
+            <span><strong>Staff</strong>{displaySessionValue(session.staffName || activeOperator)}</span>
+            <span><strong>Role</strong>{displaySessionValue(session.role)}</span>
+            {SHOW_DEV_BADGES && (
+              <>
+                <span><strong>Plan</strong>{displaySessionValue(session.planId)}</span>
+                <span><strong>Mode</strong>{displayMode(session.licenseMode)}</span>
+                <span><strong>Storage</strong>{displaySessionValue(session.storageMode)}</span>
+              </>
+            )}
           </div>
         )}
       </div>
 
       <div className="flex items-center gap-2">
-        <div className="hidden sm:flex items-center gap-2 text-slate-300 bg-slate-950 px-2 py-1 border border-slate-850" title="Local time">
+        <div className="hidden sm:flex items-center gap-2 text-slate-300 bg-slate-950 px-2 py-1 border border-slate-850" title="Current time">
           <Clock className="w-3.5 h-3.5 text-[#00f0ff]" />
           <span className="font-semibold text-[10px] text-emerald-400 tracking-widest">{timeStr || "TICKING..."}</span>
         </div>
@@ -160,26 +172,28 @@ export default function PosTopbar({
           {connectivity === 'ONLINE' ? (
             <span className="pos-service-status pos-service-status--online" title="Backend services reachable">
               <Wifi className="w-3.5 h-3.5" />
-              <strong>ONLINE</strong>
+              <strong>Online</strong>
             </span>
           ) : (
-            <span className="pos-service-status pos-service-status--offline" title="Backend services not reachable">
+            <span className="pos-service-status pos-service-status--offline" title="Connection is offline">
               <WifiOff className="w-3.5 h-3.5" />
-              <strong>OFFLINE</strong>
+              <strong>Offline</strong>
             </span>
           )}
 
-          <button 
-            onClick={() => onPageChange('SYNC_DESK')}
-            className={`w-8 h-8 font-bold text-[10px] cursor-pointer outline-none border ${
-              pendingCount > 0 
-                ? 'bg-orange-600 text-white border-orange-700'
-                : 'bg-slate-800 text-slate-400 border-slate-700'
-            }`}
-            title="Open Sync Desk"
-          >
-            {pendingCount}
-          </button>
+          {SHOW_DEV_BADGES && (
+            <button 
+              onClick={() => onPageChange('SYNC_DESK')}
+              className={`w-8 h-8 font-bold text-[10px] cursor-pointer outline-none border ${
+                pendingCount > 0 
+                  ? 'bg-orange-600 text-white border-orange-700'
+                  : 'bg-slate-800 text-slate-400 border-slate-700'
+              }`}
+              title="Open Sync Desk"
+            >
+              {pendingCount}
+            </button>
+          )}
         </div>
 
         {session && onSignOut && (

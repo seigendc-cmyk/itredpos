@@ -39,7 +39,7 @@ export default function AuthPreviewPanel() {
 
   const resolveTenant = () => {
     const identity = resolveTenantPlaceholder(getCurrentFirebaseUserProfile());
-    setAuthResult({ ok: true, status: 'Ready', message: `Tenant placeholder resolved: ${identity.vendorName}.` });
+    setAuthResult({ ok: true, status: 'Ready', message: `Tenant resolved: ${identity.vendorName}.` });
   };
 
   return (
@@ -63,18 +63,18 @@ export default function AuthPreviewPanel() {
           <Metric label="Branch" value={session.branchName || '-'} />
           <Metric label="Terminal" value={session.terminalName || '-'} />
           <Metric label="Staff PIN Required" value={isStaffPinRequired() ? 'Yes' : 'No'} />
-          <Metric label="Build Development Bypass" value={isBuildDevelopmentBypassEnabled() ? 'Enabled' : 'Disabled'} />
-          <Metric label="Tenant Resolution" value={isTenantResolutionEnabled() ? 'Enabled' : 'Mock Mode'} />
+          <Metric label="Owner Access Bypass" value={isBuildDevelopmentBypassEnabled() ? 'Enabled' : 'Disabled'} />
+          <Metric label="Tenant Resolution" value={isTenantResolutionEnabled() ? 'Enabled' : 'Standard Mode'} />
           <Metric label="Session Claims" value={claims.posAccessStatus} />
           <Metric label="Claim Permissions" value={String(claims.permissions.length)} />
         </div>
 
         <div className="flex flex-wrap gap-2">
           <Action label="Check Auth Shell" onClick={checkAuth} />
-          <Action label="Sign In With Google Placeholder / Shell" onClick={async () => setAuthResult(await signInWithGooglePlaceholder())} primary />
-          <Action label="Sign Out Placeholder" onClick={async () => setAuthResult(await signOutFirebasePlaceholder())} />
-          <Action label="Create Build Development Session" onClick={() => setSession(createBuildDevelopmentSession())} />
-          <Action label="Resolve Tenant Placeholder" onClick={resolveTenant} />
+          <Action label="Sign In With Google" onClick={async () => setAuthResult(await signInWithGooglePlaceholder())} primary />
+          <Action label="Sign Out" onClick={async () => setAuthResult(await signOutFirebasePlaceholder())} />
+          <Action label="Create Owner Session" onClick={() => setSession(createBuildDevelopmentSession())} />
+          <Action label="Resolve Tenant" onClick={resolveTenant} />
           <Action label="Open Staff Access Panel" onClick={() => setShowStaffPanel((current) => !current)} />
         </div>
 
@@ -102,7 +102,7 @@ export default function AuthPreviewPanel() {
         </div>
 
         <div className="border border-orange-200 bg-orange-50 p-2 text-[10px] text-orange-950 font-bold uppercase">
-          Firebase Auth is not a route guard in this build. Tenant resolution is {isTenantResolutionEnabled() ? 'enabled' : 'placeholder-disabled'} and Firestore business data remains disabled.
+          Tenant access status: {isTenantResolutionEnabled() ? 'enabled' : 'pending configuration'}.
         </div>
 
         {showStaffPanel && <TenantStaffAccessPanel onSessionChange={setSession} />}

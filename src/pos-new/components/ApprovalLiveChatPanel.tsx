@@ -90,7 +90,7 @@ export default function ApprovalLiveChatPanel({
         <input
           value={draft}
           onChange={(event) => setDraft(event.target.value)}
-          placeholder="Write a local approval message"
+          placeholder="Write an approval message"
           disabled={!canSend}
         />
         <button type="button" className="sci-pos-button sci-pos-button--primary" onClick={() => void handleSend()} disabled={!canSend || !draft.trim()} title="Send chat message">

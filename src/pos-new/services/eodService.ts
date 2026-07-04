@@ -219,7 +219,7 @@ export async function runEODReadinessCheck(vendorId: string, businessDate: strin
   saveList(CHECKLIST_KEY, refreshed);
   const session = await getEODSession(vendorId, businessDate);
   saveObject<EODSession>(SESSION_KEY, { ...session, status: 'Blocked', lastCheckTime: new Date().toISOString() });
-  addActivity('EOD_CHECK_RUN', 'EOD readiness check run for Demo Vendor.');
+  addActivity('EOD_CHECK_RUN', 'EOD readiness check run for active business.');
   return refreshed;
 }
 

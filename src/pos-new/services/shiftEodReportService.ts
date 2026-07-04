@@ -187,8 +187,8 @@ export async function generateShiftCreditSummary(input: ShiftEodContext | string
   };
 }
 
-const DEFAULT_VENDOR_ID = 'SCI-LOG-ZW';
-const DEFAULT_BRANCH_ID = 'BR-HARARE';
+const DEFAULT_VENDOR_ID = 'unassigned-vendor';
+const DEFAULT_BRANCH_ID = 'main-branch';
 const DEFAULT_TERMINAL_ID = 'POS-01';
 
 function nowIso(): string {
@@ -208,7 +208,7 @@ function contextFrom(input: ShiftEodContext | string): ShiftEodContext {
   return {
     vendorId: DEFAULT_VENDOR_ID,
     branchId: DEFAULT_BRANCH_ID,
-    branchName: 'Harare Main',
+    branchName: 'Main Branch',
     terminalId: DEFAULT_TERMINAL_ID,
     terminalName: DEFAULT_TERMINAL_ID,
     staffId: 'STAFF-LOCAL',
@@ -470,7 +470,7 @@ export async function prepareShiftEodPrintPayload(input: ShiftEodContext | strin
     generatedBy: context.staffName || summary.staff,
     reportNumber: buildReportNumber(summary, generatedAt),
     reportStatus: 'Local Build Preview',
-    source: 'Local Build Development',
+    source: 'POS Review',
     businessName: 'iTred Commerce POS',
     branchId: context.branchId,
     terminalId: context.terminalId,

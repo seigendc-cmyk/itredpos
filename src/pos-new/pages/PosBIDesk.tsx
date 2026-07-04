@@ -648,8 +648,8 @@ export default function PosBIDesk({
   onLogBiEvent,
   session,
 }: PosBIDeskProps) {
-  const vendorName = session?.vendor || "SCI Logistics Ltd";
-  const branchName = session?.branch || "Harare Main";
+  const vendorName = session?.vendor || "Business";
+  const branchName = session?.branch || "Main Branch";
   const terminalName = session?.terminal || "Term-A";
   const staffName = session?.staffName || "Admin User";
   const roleName = (session?.role || "Owner") as Role;
@@ -706,14 +706,14 @@ export default function PosBIDesk({
       id: "BIA-3",
       timestamp: "14:30:15",
       message:
-        "Price override approved by mock manager: Radiator discount authorized at 15%",
+        "Price override approved by manager: Radiator discount authorized at 15%",
       type: "SUCCESS",
     },
     {
       id: "BIA-4",
       timestamp: "13:10:05",
       message:
-        "Major stocktake recommendation created for low velocity category Motor Spares",
+        "Major stocktake recommendation created for a low velocity category",
       type: "ACTION",
     },
     {
@@ -854,7 +854,7 @@ export default function PosBIDesk({
         if (biProductFilter) filters.productId = biProductFilter;
 
         const metricsData = await biService.getBIDashboardMetrics(
-          session?.vendor || "SCI Logistics Ltd",
+          session?.vendor || "Business",
           session?.branch || undefined,
           filters,
         );
@@ -1277,7 +1277,7 @@ export default function PosBIDesk({
     link.click();
     URL.revokeObjectURL(url);
     addActivity(
-      "BI_MANAGEMENT_EXPORT_PREPARED: CSV placeholder exported.",
+      "BI_MANAGEMENT_EXPORT_PREPARED: CSV export prepared.",
       "SUCCESS",
     );
   };
@@ -1725,8 +1725,7 @@ export default function PosBIDesk({
             Desk
           </h1>
           <p>
-            {vendorName} / {branchName} / {terminalName} / Build Development
-            Rules
+            {vendorName} / {branchName} / {terminalName} / Active Rules
           </p>
         </div>
         <div className="sci-page-header__actions">
@@ -3108,7 +3107,7 @@ export default function PosBIDesk({
                     onExport={() => {
                       recordSalesProfitSnapshotExportPlaceholder(staffName);
                       addActivity(
-                        "SALES_PROFIT_SNAPSHOT_EXPORT_PLACEHOLDER: Export placeholder recorded.",
+                        "SALES_PROFIT_SNAPSHOT_EXPORT_PREPARED: Export prepared.",
                         "SUCCESS",
                       );
                     }}

@@ -27,10 +27,10 @@ export default function SupplierBillsPanel() {
       currency: 'USD',
       branchId: 'BR-HARARE',
       warehouseId: 'WH-HARARE-01',
-      createdBy: 'Build 19AO',
-      notes: 'Manual supplier bill local/mock placeholder.'
+      createdBy: 'Manager',
+      notes: 'Manual supplier bill review.'
     });
-    setNotice('Manual supplier bill draft created locally.');
+    setNotice('Manual supplier bill draft created.');
     load();
   };
 
@@ -48,7 +48,7 @@ export default function SupplierBillsPanel() {
             {bills.map((bill) => (
               <tr key={bill.billId}>
                 <td>{bill.supplierName}</td><td>{bill.billNumber}</td><td>{bill.supplierInvoiceNumber}</td><td>{bill.grnNumber || bill.purchaseOrderNumber || 'Manual'}</td><td>{bill.billDate}</td><td>{bill.dueDate}</td><td>{money(bill.originalAmount)}</td><td>{money(bill.paidAmount)}</td><td>{money(bill.outstandingAmount)}</td><td>{bill.ageingBucket}</td><td>{bill.status}</td>
-                <td><select onChange={async (event) => { const action = event.target.value; if (action === 'post') await postSupplierBill(bill.billId); if (action === 'dispute') await disputeSupplierBill(bill.billId, 'Build 19AO dispute placeholder.', 'Manager'); if (action === 'reverse') await reverseSupplierBill(bill.billId, 'Build 19AO reversal placeholder.', 'Manager'); event.currentTarget.value = ''; setNotice(`Action ${action} completed locally for ${bill.billNumber}.`); load(); }} defaultValue=""><option value="">...</option><option value="post">Post Bill</option><option value="dispute">Dispute</option><option value="reverse">Reverse</option></select></td>
+                <td><select onChange={async (event) => { const action = event.target.value; if (action === 'post') await postSupplierBill(bill.billId); if (action === 'dispute') await disputeSupplierBill(bill.billId, 'Supplier bill dispute review.', 'Manager'); if (action === 'reverse') await reverseSupplierBill(bill.billId, 'Supplier bill reversal review.', 'Manager'); event.currentTarget.value = ''; setNotice(`Action ${action} completed for ${bill.billNumber}.`); load(); }} defaultValue=""><option value="">...</option><option value="post">Post Bill</option><option value="dispute">Dispute</option><option value="reverse">Reverse</option></select></td>
               </tr>
             ))}
           </tbody>

@@ -76,6 +76,7 @@ import {
   , OpeningBalanceDraftFromImport
 } from '../types';
 import { mockProducts } from '../mock/mockPosData';
+import { ENABLE_MOCK_SEED_DATA, getVendorScopedStorageKey } from '../utils/vendorDataMode';
 import { canPerformAction } from '../utils/posPermissions';
 import { addLocalQueueItem } from '../utils/localQueueStore';
 import StockPanels from './StockPanels';
@@ -87,6 +88,7 @@ import { normalizeProductNumericNumber } from '../utils/productNumberUtils';
 import { matchesFreeOrderSearch } from '../utils/searchUtils';
 import { loadLocalProducts, saveLocalProducts } from '../utils/localProductStore';
 import { roleHasEffectivePermission } from '../auth/effectivePermissionService';
+import type { PlanFeatureAccess } from '../auth/planFeatureGate';
 import {
   exportProductLedgerPlaceholder,
   filterLedgerMovements,
@@ -171,6 +173,9 @@ interface PosStockProps {
   onUpdateMinStock: (productId: string, newMin: number) => void;
   onUpdateProduct?: (updatedProduct: Product) => void;
   session?: PosSession | null;
+  planAccess?: PlanFeatureAccess;
+  productLimitReached?: boolean;
+  productLimitMessage?: string;
 }
 
 interface StockProduct extends Product {
@@ -214,11 +219,11 @@ const INVENTORY_GROUPS: Array<{ group: InventoryGroup; tabs: StockTab[] }> = [
   { group: 'Intelligence', tabs: ['Stock Health', 'Inventory Reports'] }
 ];
 
-// Interactive default mock products specified by user request dynamically generated from mockPosData
-const INDUSTRIAL_SECTORS = ['Motor Spares', 'Mining Supplies', 'Retail FMCG', 'Agriculture', 'Hardware'] as const;
+// Optional developer seed products. Disabled for live vendor workspaces.
+const INDUSTRIAL_SECTORS = ['General Stock', 'Mining Supplies', 'Retail FMCG', 'Agriculture', 'Hardware'] as const;
 const PRODUCT_SUB_CATEGORIES = ['Suspension', 'Braking', 'Cooling', 'Electrical', 'Lubricants', 'Fasteners'] as const;
 
-const DEFAULT_STOCK_ITEMS: StockProduct[] = mockProducts.map((p, index) => {
+const DEFAULT_STOCK_ITEMS: StockProduct[] = ENABLE_MOCK_SEED_DATA ? mockProducts.map((p, index) => {
   let stockStatus: 'In Stock' | 'Low Stock' | 'Out of Stock' | 'Dead Stock' | 'Variance Risk' | 'Fast Moving' | 'Slow Moving' = 'In Stock';
   let riskLevel: 'Low' | 'Medium' | 'High' | 'Critical' = 'Low';
 
@@ -241,8 +246,8 @@ const DEFAULT_STOCK_ITEMS: StockProduct[] = mockProducts.map((p, index) => {
 
   return {
     ...p,
-    vendorId: 'SCI-LOG-ZW',
-    branchId: p.branch || 'Harare Main',
+    vendorId: 'seed-vendor',
+    branchId: p.branch || 'Main Branch',
     warehouseId: p.warehouse || 'Main Warehouse',
     industrialSector: INDUSTRIAL_SECTORS[index % INDUSTRIAL_SECTORS.length],
     productCategory: p.category,
@@ -255,7 +260,7 @@ const DEFAULT_STOCK_ITEMS: StockProduct[] = mockProducts.map((p, index) => {
     brand: p.brand || ['Toyota', 'Nissan', 'Honda', 'SCI Industrial'][index % 4],
     manufacturer: p.manufacturer || ['Denso', 'Genuine Parts', 'Bosch', 'SKF'][index % 4],
     supplierId: `SUP-${String((index % 4) + 1).padStart(3, '0')}`,
-    supplierName: p.supplierName || ['ABC Motor Spares Supplier', 'Harare Lubricants Ltd', 'Toyota Parts Wholesale', 'Industrial Line Supply'][index % 4],
+    supplierName: p.supplierName || ['Seed Supplier 1', 'Seed Supplier 2', 'Seed Supplier 3', 'Seed Supplier 4'][index % 4],
     shelfLocation: (p.code === 'STL-A40' || p.code === 'PSG-B10') ? '' : `A${(index % 4) + 1}-S${(index % 6) + 1}`,
     binLocation: `BIN-${String(index + 1).padStart(3, '0')}`,
     unitOfMeasure: p.unit || 'EA',
@@ -263,10 +268,10 @@ const DEFAULT_STOCK_ITEMS: StockProduct[] = mockProducts.map((p, index) => {
     reorderLevel: p.minStock,
     costPrice: p.cost,
     sellingPrice: p.price,
-    branch: p.code === 'STL-A40' ? 'Bulawayo Depot' : (p.branch || 'Harare Main'),
+    branch: p.code === 'STL-A40' ? 'Branch 2' : (p.branch || 'Main Branch'),
     warehouse: p.code === 'STL-A40' ? 'North Shed' : (p.warehouse || 'Main Warehouse'),
-    salesAccountCOA: p.category === 'Lubricants' ? '4020-SALES-LUBRICANTS' : p.category === 'Motor Spares' ? '4010-SALES-MOTOR' : '4000-SALES-STOCK',
-    assetAccountCOA: p.category === 'Lubricants' ? '1220-INVENTORY-LUBRICANTS' : p.category === 'Motor Spares' ? '1210-INVENTORY-MOTOR' : '1400-INVENTORY-ASSET',
+    salesAccountCOA: p.category === 'Lubricants' ? '4020-SALES-LUBRICANTS' : '4000-SALES-STOCK',
+    assetAccountCOA: p.category === 'Lubricants' ? '1220-INVENTORY-LUBRICANTS' : '1400-INVENTORY-ASSET',
     isSerialized: index % 5 === 0,
     isActive: true,
     createdByStaffId: 'SYSTEM',
@@ -275,7 +280,7 @@ const DEFAULT_STOCK_ITEMS: StockProduct[] = mockProducts.map((p, index) => {
     stockStatus,
     riskLevel
   };
-});
+}) : [];
 
 export default function PosStock({
   products,
@@ -283,12 +288,16 @@ export default function PosStock({
   onUpdateStock,
   onUpdateMinStock,
   onUpdateProduct,
-  session
+  session,
+  planAccess,
+  productLimitReached = false,
+  productLimitMessage = 'Product limit reached for your current plan.'
 }: PosStockProps) {
 
   // Dynamic Session defaults
-  const activeBranch = session?.branch || 'Harare Main';
+  const activeBranch = session?.branch || 'Main Branch';
   const staffName = session?.staffName || 'Admin Operator';
+  const vendorId = session?.vendorId || 'unassigned-vendor';
 
   // Tabbed Routing inside Stock Control
   const [activeTab, setActiveTab] = useState<StockTab>('Stock List');
@@ -323,32 +332,32 @@ export default function PosStock({
 
   // Shared Stock Approvals queue
   const [stockApprovals, setStockApprovals] = useState<ApprovalRequest[]>(() => {
-    const cached = localStorage.getItem('sci_pos_stock_approvals');
+    const cached = localStorage.getItem(getVendorScopedStorageKey('sci_pos_stock_approvals', session?.vendorId));
     if (cached) return JSON.parse(cached);
-    return [
+    return ENABLE_MOCK_SEED_DATA ? [
       {
         id: 'APR-GRN-01',
         type: 'GRN Variance Approval',
         status: 'Pending',
         requestedBy: 'Stock Controller',
-        notes: 'GRN-2026-9041 contains short supply - received 18/20 Ball Joints. Requires Supervisor approval.',
+        notes: 'Goods receipt contains a short supply variance. Requires Supervisor approval.',
         createdAt: '2026-06-08T09:12:00Z',
         payload: {
           grnNumber: 'GRN-2026-9041',
-          grnSupplier: 'ABC Motor Spares Supplier',
+          grnSupplier: 'Seed Supplier',
           grnInvoiceNo: 'INV-9921',
           grnPoRef: 'PO-1001',
           items: [
-            { sku: 'BJ-CBHO49', productName: 'Ball Joint Honda Fit GD1', orderedQty: 20, receivedQty: 18, costPrice: 7.00, prevCostPrice: 6.80, status: 'Short Received', currentPrice: 12, suggestedPrice: 13, accepted: false, rejected: false, priceUpdated: false, flagged: false }
+            { sku: 'GEN-001', productName: 'Sample Product A', orderedQty: 20, receivedQty: 18, costPrice: 7.00, prevCostPrice: 6.80, status: 'Short Received', currentPrice: 12, suggestedPrice: 13, accepted: false, rejected: false, priceUpdated: false, flagged: false }
           ]
         }
       }
-    ];
+    ] : [];
   });
 
   useEffect(() => {
-    localStorage.setItem('sci_pos_stock_approvals', JSON.stringify(stockApprovals));
-  }, [stockApprovals]);
+    localStorage.setItem(getVendorScopedStorageKey('sci_pos_stock_approvals', session?.vendorId), JSON.stringify(stockApprovals));
+  }, [session?.vendorId, stockApprovals]);
 
   const canApprove = (type: ApprovalRequestType, role: Role): boolean => {
     if (role === 'Owner' || role === 'SysAdmin' || role === 'Manager') return true;
@@ -394,6 +403,10 @@ export default function PosStock({
   const showProductImportNotice = (message: string) => {
     setProductImportNotice(message);
     window.setTimeout(() => setProductImportNotice(''), 4500);
+  };
+  const showProductLimitNotice = () => {
+    setProductListNotice(productLimitMessage);
+    showProductImportNotice(productLimitMessage);
   };
 
   const requireProductImportPermission = (permission: 'productImport.create' | 'productImport.map' | 'productImport.validate' | 'productImport.approve' | 'productImport.import' | 'productImport.cancel' | 'productImport.export') => {
@@ -441,13 +454,13 @@ export default function PosStock({
   };
 
   // State of Stock event feed
-  const [activityFeed, setActivityFeed] = useState<StockActivityEvent[]>([
+  const [activityFeed, setActivityFeed] = useState<StockActivityEvent[]>(ENABLE_MOCK_SEED_DATA ? [
     {
       id: 'EV-1',
       time: '15:42:15',
       type: 'STOCKTAKE_SUBMITTED',
       severity: 'Medium',
-      message: 'Brake Pads Toyota GD6 counted below system quantity'
+      message: 'Sample Product A counted below system quantity'
     },
     {
       id: 'EV-2',
@@ -461,7 +474,7 @@ export default function PosStock({
       time: '11:05:00',
       type: 'LOW_STOCK_REMINDER',
       severity: 'Medium',
-      message: 'Brake Pads Toyota GD6 below reorder level'
+      message: 'Sample Product A below reorder level'
     },
     {
       id: 'EV-4',
@@ -475,9 +488,9 @@ export default function PosStock({
       time: '08:00:30',
       type: 'RECOMMEND_MAJOR_STOCKTAKE',
       severity: 'High',
-      message: 'Variance risk detected in Motor Spares category'
+      message: 'Variance risk detected in stock category'
     }
-  ]);
+  ] : []);
 
   // View focused item details only when explicitly opened.
   const [selectedProduct, setSelectedProduct] = useState<StockProduct | null>(null);
@@ -511,7 +524,7 @@ export default function PosStock({
     status: 'ALL'
   });
   const [movementSummaryFilters, setMovementSummaryFilters] = useState<InventoryMovementFilters>({
-    vendorId: 'SCI-LOG-ZW',
+    vendorId,
     productId: 'ALL',
     movementType: 'ALL',
     referenceType: 'ALL',
@@ -542,7 +555,7 @@ export default function PosStock({
   });
   const [inventoryMovementEvents, setInventoryMovementEvents] = useState<Array<{ id: string; eventType: string; message: string; createdAt: string }>>([]);
   const [stockHealthFilters, setStockHealthFilters] = useState<StockHealthFilters>({
-    vendorId: 'SCI-LOG-ZW',
+    vendorId,
     branch: 'ALL',
     warehouse: 'ALL',
     industrialSector: 'ALL',
@@ -556,7 +569,7 @@ export default function PosStock({
     includeSerialized: true
   });
   const [reportFilters, setReportFilters] = useState<InventoryReportFilters>({
-    vendorId: 'SCI-LOG-ZW',
+    vendorId,
     branch: 'ALL',
     warehouse: 'ALL',
     industrialSector: 'ALL',
@@ -844,7 +857,7 @@ export default function PosStock({
     'DAMAGE',
     'MANUAL'
   ];
-  const vendorOptions = useMemo(() => ['SCI-LOG-ZW'], []);
+  const vendorOptions = useMemo(() => [vendorId], [vendorId]);
   const healthBranchOptions = useMemo(() => ['ALL', ...Array.from(new Set(localStock.map((item) => item.branch || item.branchId).filter(Boolean)))], [localStock]);
   const healthWarehouseOptions = useMemo(() => ['ALL', ...Array.from(new Set(localStock.map((item) => item.warehouse || item.warehouseId).filter(Boolean)))], [localStock]);
   const healthSectorOptions = useMemo(() => ['ALL', ...Array.from(new Set(localStock.map((item) => item.industrialSector).filter(Boolean)))], [localStock]);
@@ -1095,7 +1108,7 @@ export default function PosStock({
   const handleReverseMovement = async (movementId: string) => {
     const currentRole = session?.role || 'Owner';
     if (currentRole !== 'Owner' && currentRole !== 'Manager') {
-      alert('Only Owner or Manager can reverse posted inventory movements during build-development.');
+      alert('Only Owner or Manager can reverse posted inventory movements.');
       return;
     }
     const reason = prompt('Reason for reversing this inventory movement?');
@@ -1110,7 +1123,7 @@ export default function PosStock({
 
   const resetInventoryMovementFilters = () => {
     setMovementSummaryFilters({
-      vendorId: 'SCI-LOG-ZW',
+      vendorId,
       productId: 'ALL',
       movementType: 'ALL',
       referenceType: 'ALL',
@@ -1212,7 +1225,7 @@ export default function PosStock({
     }));
     void getInventoryMovementSummary(movementSummaryFilters, productContext).then(setInventorySummary);
     void getInventoryMovementEvents().then(setInventoryMovementEvents);
-    void getInventoryMovementsByFilters({ vendorId: 'SCI-LOG-ZW', ...movementSummaryFilters }, productContext).then(setAllInventoryMovements);
+    void getInventoryMovementsByFilters({ vendorId, ...movementSummaryFilters }, productContext).then(setAllInventoryMovements);
   }, [localStock, productLedgerEntries, movementSummaryFilters]);
 
   useEffect(() => {
@@ -1233,10 +1246,10 @@ export default function PosStock({
     const getTransferDelayReport = async () => {
     return {
       status: "READY",
-      source: "USING MANUAL DEV",
+      source: "Inventory report",
       buildCode: "Runtime Repair Patch",
       delayedTransfers: [],
-      summary: "Transfer delay report placeholder active.",
+      summary: "Transfer delay report active.",
     };
   };
 
@@ -1316,7 +1329,7 @@ export default function PosStock({
   };
 
   const buildMovementPayload = (product: StockProduct, referenceNumber: string, notes: string) => ({
-    vendorId: product.vendorId || 'SCI-LOG-ZW',
+    vendorId: product.vendorId || vendorId,
     branchId: product.branchId || product.branch || activeBranch,
     warehouseId: product.warehouseId || product.warehouse || 'Main Warehouse',
     productId: product.id,
@@ -1674,10 +1687,10 @@ export default function PosStock({
     productNo: p.productNumericNumber || '',
     sku: p.sku || p.code,
     product: p.productName || p.name,
-    sector: p.industrialSector || 'Motor Spares',
+    sector: p.industrialSector || 'General Stock',
     category: p.productCategory || p.category,
     supplier: p.supplierName || p.supplier || '',
-    branch: p.branch || 'Harare Main',
+    branch: p.branch || 'Main Branch',
     warehouse: p.warehouse || 'Main Warehouse',
     shelf: p.shelfLocation || 'A1-S1',
     qtyOnHand: p.stock,
@@ -1877,7 +1890,7 @@ export default function PosStock({
               <strong>Warehouse:</strong> <span className="text-[#1e222b] font-bold">Main Warehouse</span>
             </span>
             <span className="flex items-center gap-1">
-              <strong>Data Mode:</strong> <span className="text-slate-700 font-bold">Build Development</span>
+              <strong>Status:</strong> <span className="text-slate-700 font-bold">Active</span>
             </span>
           </div>
         </div>
@@ -1971,6 +1984,10 @@ export default function PosStock({
             void loadProductImportDesk(productImportFilters, batchId).then(() => setProductImportPopupOpen(true));
           }}
           onNewBatch={() => {
+            if (productLimitReached) {
+              showProductLimitNotice();
+              return;
+            }
             setSelectedImportBatchId('');
             setProductImportPopupOpen(true);
           }}
@@ -1998,6 +2015,10 @@ export default function PosStock({
             await loadProductImportDesk(productImportFilters, batchId);
           }}
           onImport={async (batchId) => {
+            if (productLimitReached) {
+              showProductLimitNotice();
+              return;
+            }
             if (!requireProductImportPermission('productImport.import')) return;
             const importedBatch = await importApprovedBatch(batchId, staffName);
             setLocalStock(loadLocalProducts() as StockProduct[]);
@@ -2177,7 +2198,7 @@ export default function PosStock({
               <div>
                 <div className="text-[9px] text-orange-400 uppercase font-black">Stock Health</div>
                 <h2 className="text-sm font-black uppercase">Inventory Risk and Movement Intelligence</h2>
-                <div className="text-[10px] text-slate-300 uppercase mt-1">Business / Vendor: SCI-LOG-ZW | Branch: {stockHealthFilters.branch || 'ALL'} | Warehouse: {stockHealthFilters.warehouse || 'ALL'} | Last Evaluation: {new Date().toISOString().slice(0, 10)}</div>
+                <div className="text-[10px] text-slate-300 uppercase mt-1">Business / Vendor: {vendorId} | Branch: {stockHealthFilters.branch || 'ALL'} | Warehouse: {stockHealthFilters.warehouse || 'ALL'} | Last Evaluation: {new Date().toISOString().slice(0, 10)}</div>
               </div>
             </div>
             <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-6 gap-3">
@@ -2195,7 +2216,7 @@ export default function PosStock({
               <LedgerMetric label="Products Without Shelf Location" value={stockHealthSummary.productsWithoutShelfLocation} />
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-3 bg-slate-50 border border-[#b1b5c2] p-3">
-              <LedgerSelect label="Business / Vendor" value={stockHealthFilters.vendorId || 'SCI-LOG-ZW'} onChange={(value) => setStockHealthFilters((current) => ({ ...current, vendorId: value }))} options={vendorOptions} />
+              <LedgerSelect label="Business / Vendor" value={stockHealthFilters.vendorId || vendorId} onChange={(value) => setStockHealthFilters((current) => ({ ...current, vendorId: value }))} options={vendorOptions} />
               <LedgerSelect label="Branch" value={stockHealthFilters.branch || 'ALL'} onChange={(value) => setStockHealthFilters((current) => ({ ...current, branch: value }))} options={healthBranchOptions as string[]} />
               <LedgerSelect label="Warehouse" value={stockHealthFilters.warehouse || 'ALL'} onChange={(value) => setStockHealthFilters((current) => ({ ...current, warehouse: value }))} options={healthWarehouseOptions as string[]} />
               <LedgerSelect label="Sector" value={stockHealthFilters.industrialSector || 'ALL'} onChange={(value) => setStockHealthFilters((current) => ({ ...current, industrialSector: value }))} options={healthSectorOptions as string[]} />
@@ -2508,7 +2529,7 @@ export default function PosStock({
                     <td className="inventory-product-hide-md" title={product.industrialSector || 'General'}>{product.industrialSector || 'General'}</td>
                     <td className="inventory-product-hide-md" title={product.brand || 'N/A'}>{product.brand || 'N/A'}</td>
                     <td className="inventory-product-hide-sm" title={product.supplierName || 'N/A'}>{product.supplierName || 'N/A'}</td>
-                    <td title={product.branch || 'Harare Main'}>{product.branch || 'Harare Main'}</td>
+                    <td title={product.branch || 'Main Branch'}>{product.branch || 'Main Branch'}</td>
                     <td className="inventory-product-hide-sm" title={product.warehouse || 'Main Warehouse'}>{product.warehouse || 'Main Warehouse'}</td>
                     <td title={product.shelfLocation || product.binLocation || 'N/A'}>{product.shelfLocation || product.binLocation || 'N/A'}</td>
                     <td className="inventory-product-num">{product.qtyOnHand ?? product.stock} {product.unitOfMeasure || product.unit}</td>
@@ -2555,7 +2576,7 @@ export default function PosStock({
                     <span>Brand: <strong>{productLedgerProduct.brand || 'N/A'}</strong></span>
                     <span>Manufacturer: <strong>{productLedgerProduct.manufacturer || 'N/A'}</strong></span>
                     <span>Supplier: <strong>{productLedgerProduct.supplierName || 'N/A'}</strong></span>
-                    <span>Branch: <strong>{productLedgerProduct.branch || 'Harare Main'}</strong></span>
+                    <span>Branch: <strong>{productLedgerProduct.branch || 'Main Branch'}</strong></span>
                     <span>Warehouse: <strong>{productLedgerProduct.warehouse || 'Main Warehouse'}</strong></span>
                     <span>Shelf: <strong>{productLedgerProduct.shelfLocation || 'N/A'}</strong></span>
                     <span>Qty: <strong>{productLedgerProduct.qtyOnHand ?? productLedgerProduct.stock}</strong></span>
@@ -2735,6 +2756,8 @@ export default function PosStock({
           setActiveTab={(tab) => setActiveTab(tab)}
           stocktakePreselect={stocktakePreselect}
           stocktakePreselectToken={stocktakePreselectToken}
+          productLimitReached={productLimitReached}
+          productLimitMessage={productLimitMessage}
         />
       ) : (
         <>
@@ -2928,8 +2951,8 @@ export default function PosStock({
         <div className="bg-white border border-[#b1b5c2] p-4 space-y-4 inventory-stock-table-card">
           
           <div className="inventory-card-header inventory-card-header--light">
-            <span className="font-extrabold text-[#111827] text-[10.5px] uppercase">MATCHES IN LOCAL SYSTEM ({sortedAndFilteredStock.length} SKU ENTITIES)</span>
-            <span className="text-[9px] bg-slate-900 text-white px-2 py-0.5 font-bold font-mono">STATUS: HIGH INTEGRITY TELEMETRY</span>
+            <span className="font-extrabold text-[#111827] text-[10.5px] uppercase">Inventory Items ({sortedAndFilteredStock.length})</span>
+            <span className="text-[9px] bg-slate-900 text-white px-2 py-0.5 font-bold">Live Workspace</span>
           </div>
 
           <div className="inventory-matches-scroll pos-custom-scroll">
@@ -2965,10 +2988,36 @@ export default function PosStock({
               <tbody className="divide-y divide-gray-200">
                 {sortedAndFilteredStock.length === 0 ? (
                   <tr>
-                    <td colSpan={14} className="py-12 text-center text-slate-400 uppercase font-bold bg-slate-50/50">
-                      <div className="flex flex-col items-center justify-center space-y-2">
-                        <Activity className="w-8 h-8 text-slate-300 animate-pulse" />
-                        <span>No materials matched your query parameters.</span>
+                    <td colSpan={14} className="py-12 text-center bg-slate-50/50">
+                      <div className="flex flex-col items-center justify-center space-y-3 max-w-xl mx-auto">
+                        <Package className="w-9 h-9 text-orange-500" />
+                        <div>
+                          <h3 className="text-sm font-black uppercase text-[#1e222b]">No inventory items yet</h3>
+                          <p className="text-xs font-semibold text-slate-600 mt-1">Add products manually, import inventory, or receive stock to begin.</p>
+                        </div>
+                        <div className="flex flex-wrap items-center justify-center gap-2">
+                          <button type="button" className="sci-pos-button sci-pos-button--primary" onClick={() => {
+                            if (productLimitReached) {
+                              showProductLimitNotice();
+                              return;
+                            }
+                            activateInventoryTab('Product Master');
+                          }}>
+                            Add Product
+                          </button>
+                          <button type="button" className="sci-pos-button sci-pos-button--secondary" onClick={() => {
+                            if (productLimitReached) {
+                              showProductLimitNotice();
+                              return;
+                            }
+                            activateInventoryTab('Product Import');
+                          }}>
+                            Import Inventory
+                          </button>
+                          <button type="button" className="sci-pos-button sci-pos-button--secondary" onClick={() => activateInventoryTab('Goods Receiving')}>
+                            Goods Receiving
+                          </button>
+                        </div>
                       </div>
                     </td>
                   </tr>
@@ -3006,7 +3055,7 @@ export default function PosStock({
                           <div className="font-extrabold text-slate-850 truncate uppercase">{p.productName || p.name}</div>
                           <div className="text-[8px] text-slate-400">BARCODE: {p.barcode || 'N/A'} | LAST MOVE: {p.lastMovementDate || 'N/A'}</div>
                         </td>
-                        <td className="py-2 px-3 uppercase text-[9.5px] text-slate-600 whitespace-nowrap">{p.industrialSector || 'Motor Spares'}</td>
+                        <td className="py-2 px-3 uppercase text-[9.5px] text-slate-600 whitespace-nowrap">{p.industrialSector || 'General Stock'}</td>
                         <td className="py-2 px-3 uppercase text-[9.5px] text-slate-500 whitespace-nowrap">
                           <div>{p.productCategory || p.category}</div>
                           <div className="text-[8px] text-slate-400">{p.productSubCategory || 'General'}</div>
@@ -3016,7 +3065,7 @@ export default function PosStock({
                           <div className="text-[8px]">{p.supplierName || p.supplier || 'N/A'}</div>
                         </td>
                         <td className="py-2 px-3 whitespace-nowrap text-[9.5px]">
-                          <div className="font-bold text-slate-700">{p.branch || 'Harare Main'}</div>
+                          <div className="font-bold text-slate-700">{p.branch || 'Main Branch'}</div>
                           <div className="text-[8.5px] text-slate-450">{p.warehouse || 'Main Warehouse'}</div>
                         </td>
                         <td className="py-2 px-3 whitespace-nowrap text-[9.5px] font-bold text-slate-700">
@@ -3111,7 +3160,7 @@ export default function PosStock({
                   </div>
                   <div className="flex justify-between py-1 border-b border-dashed border-gray-100">
                     <span className="text-slate-400">TOWN BRANCH:</span>
-                    <span className="font-bold text-slate-800 uppercase">{selectedProduct.branch || 'Harare Main'}</span>
+                    <span className="font-bold text-slate-800 uppercase">{selectedProduct.branch || 'Main Branch'}</span>
                   </div>
                   <div className="flex justify-between py-1 border-b border-dashed border-gray-100">
                     <span className="text-slate-400">WAREHOUSE UNIT:</span>
@@ -3528,7 +3577,7 @@ export default function PosStock({
                 <span className="font-black text-slate-800 text-[11px] block">{modalTargetProduct.code}</span>
                 <h3 className="font-extrabold uppercase text-slate-700 text-[10px] leading-tight">{modalTargetProduct.name}</h3>
                 <span className="text-[9px] text-slate-500 font-bold block uppercase mt-1">
-                  SOURCE BRANCH: {modalTargetProduct.branch || 'Harare Main'} ({modalTargetProduct.warehouse || 'Main Warehouse'})
+                  Source branch: {modalTargetProduct.branch || 'Main Branch'} ({modalTargetProduct.warehouse || 'Main Warehouse'})
                 </span>
                 <span className="text-[9px] text-slate-550 font-bold block uppercase">
                   ACTIVE ON-HAND QUANTITY AVAILABLE: {modalTargetProduct.stock} {modalTargetProduct.unit}
@@ -3741,10 +3790,14 @@ export default function PosStock({
           staffName={staffName}
           onClose={() => setProductImportPopupOpen(false)}
           onCreateBatch={async (payload) => {
+            if (productLimitReached) {
+              showProductLimitNotice();
+              return;
+            }
             if (!requireProductImportPermission('productImport.create')) return;
             const created = await createProductImportBatch({
-              vendorId: 'SCI-LOG-ZW',
-              branchId: activeBranch === 'Harare Main' ? 'BR-HARARE' : activeBranch,
+              vendorId,
+              branchId: activeBranch,
               warehouseId: 'WH-HARARE-01',
               industrialSectorCode: payload.industrialSectorCode,
               importMode: payload.importMode,
@@ -3762,6 +3815,10 @@ export default function PosStock({
             await loadProductImportDesk(productImportFilters, created.batchId);
           }}
           onParseCsv={async (batchId, csvText) => {
+            if (productLimitReached) {
+              showProductLimitNotice();
+              return;
+            }
             if (!requireProductImportPermission('productImport.create')) return;
             await parseCSVTextPlaceholder(batchId, csvText);
             showProductImportNotice('CSV paste parsed locally.');
@@ -3792,6 +3849,10 @@ export default function PosStock({
             await loadProductImportDesk(productImportFilters, batchId);
           }}
           onImport={async (batchId) => {
+            if (productLimitReached) {
+              showProductLimitNotice();
+              return;
+            }
             if (!requireProductImportPermission('productImport.import')) return;
             const importedBatch = await importApprovedBatch(batchId, staffName);
             setLocalStock(loadLocalProducts() as StockProduct[]);
@@ -3842,7 +3903,7 @@ function PartSpectralModal({
     ['System Qty', `${product.qtyOnHand ?? product.stock} ${product.unitOfMeasure || product.unit}`],
     ['Safety Floor / Reorder Level', `${product.reorderLevel ?? product.minStock} ${product.unitOfMeasure || product.unit}`],
     ['Category', product.productCategory || product.category],
-    ['Branch', product.branch || 'Harare Main'],
+    ['Branch', product.branch || 'Main Branch'],
     ['Warehouse', product.warehouse || 'Main Warehouse'],
     ['Catalog Rate / Selling Price', `USD ${(product.sellingPrice ?? product.price).toFixed(2)}`],
     ['Cost Basis', `USD ${(product.costPrice ?? product.cost).toFixed(2)}`],

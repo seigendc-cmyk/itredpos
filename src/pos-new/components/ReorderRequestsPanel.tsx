@@ -22,7 +22,7 @@ export default function ReorderRequestsPanel() {
   const [productId, setProductId] = useState(products[0]?.id || '');
   const [supplierId, setSupplierId] = useState(suppliers[0]?.supplierId || '');
   const [qty, setQty] = useState('5');
-  const [reason, setReason] = useState('Build 19AQ reorder request review.');
+  const [reason, setReason] = useState('Reorder request review.');
   const [rows, setRows] = useState<PurchaseDisciplineRequest[]>([]);
   const [notice, setNotice] = useState('');
   const product = products.find((item) => item.id === productId) || products[0];
@@ -33,8 +33,8 @@ export default function ReorderRequestsPanel() {
     productId: product.id,
     productName: product.productName || product.name,
     sku: product.sku || product.code,
-    branchId: product.branchId || 'BR-HARARE',
-    branchName: product.branch || 'Harare Main',
+    branchId: product.branchId || 'main-branch',
+    branchName: product.branch || 'Main Branch',
     warehouseId: product.warehouseId || product.warehouse,
     supplierId: supplier?.supplierId,
     supplierName: supplier?.supplierName,
@@ -61,8 +61,8 @@ export default function ReorderRequestsPanel() {
       productId: product.id,
       productName: product.productName || product.name,
       sku: product.sku || product.code,
-      branchId: product.branchId || 'BR-HARARE',
-      branchName: product.branch || 'Harare Main',
+      branchId: product.branchId || 'main-branch',
+      branchName: product.branch || 'Main Branch',
       warehouseId: product.warehouseId || product.warehouse,
       supplierId: supplier?.supplierId,
       supplierName: supplier?.supplierName,
@@ -74,7 +74,7 @@ export default function ReorderRequestsPanel() {
       expectedSellingPrice: product.sellingPrice ?? product.price,
       requestedBy: 'Stock Controller',
       reason,
-      notes: 'Build 19AQ local reorder request.'
+      notes: 'Reorder request.'
     });
     setNotice(`${request.requestNumber} created with ${request.riskLevel} risk and ${request.protectionDecision} decision.`);
     load();

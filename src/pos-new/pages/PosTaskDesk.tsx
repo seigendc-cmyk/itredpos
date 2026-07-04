@@ -196,9 +196,6 @@ export default function PosTaskDesk({ session, onNavigate }: PosTaskDeskProps) {
           </div>
           <button type="button" onClick={createFollowUpTask} className="industrial-primary-button min-h-[40px]"><ClipboardCheck className="w-4 h-4" />Create Task</button>
         </div>
-        <div className="mt-3 bg-orange-50 border border-orange-200 text-orange-900 p-3 text-[10px] font-bold uppercase">
-          Local build-development mode: workflow actions update local task state only.
-        </div>
       </div>
 
       {notice && <div className="bg-orange-50 border border-orange-300 text-orange-900 px-3 py-2 font-bold uppercase">{notice}</div>}
@@ -282,6 +279,9 @@ export default function PosTaskDesk({ session, onNavigate }: PosTaskDeskProps) {
                   </td>
                 </tr>
               ))}
+              {tasks.length === 0 && (
+                <tr><td colSpan={8} className="px-3 py-10 text-center text-slate-500 font-black uppercase">No task records yet.</td></tr>
+              )}
             </tbody>
           </table>
         </div>
@@ -394,7 +394,7 @@ function TaskWorkflowModal({
     <div className="fixed inset-0 z-[70] bg-slate-950/60 flex items-center justify-center p-4">
       <div className="bg-white border-2 border-[#1e222b] shadow-2xl w-full max-w-5xl max-h-[90vh] overflow-hidden flex flex-col">
         <div className="p-4 border-b border-[#b1b5c2] flex items-center justify-between">
-          <div><h3 className="text-sm font-black uppercase tracking-wider text-[#1e222b]">{title}</h3><p className="text-[10px] text-slate-500 uppercase">Local workflow state only.</p></div>
+          <div><h3 className="text-sm font-black uppercase tracking-wider text-[#1e222b]">{title}</h3><p className="text-[10px] text-slate-500 uppercase">Workflow state</p></div>
           <button type="button" onClick={onClose} className="industrial-secondary-button text-[10px]">Close</button>
         </div>
         <div className="p-4 overflow-y-auto pos-custom-scroll space-y-4">
@@ -412,7 +412,7 @@ function TaskWorkflowModal({
           </div>
           <div className="bg-slate-50 border border-[#b1b5c2] p-3 text-xs text-slate-700">{mode === 'related' ? relatedRecordNarrative(task) : task.description}</div>
           {mode === 'close' && task.status === 'Open' && <div className="bg-amber-50 border border-amber-300 text-amber-900 p-3 text-xs font-bold">This task has not been reviewed. Close anyway?</div>}
-          {(task.linkedApprovalId || task.linkedBIAdviceId) && (mode === 'close' || mode === 'complete') && <div className="bg-orange-50 border border-orange-300 text-orange-900 p-3 text-xs font-bold">Linked BI/approval references exist. Owner/Manager override remains local/mock only.</div>}
+          {(task.linkedApprovalId || task.linkedBIAdviceId) && (mode === 'close' || mode === 'complete') && <div className="bg-orange-50 border border-orange-300 text-orange-900 p-3 text-xs font-bold">Linked BI/approval references exist. Owner/Manager review is required.</div>}
           {mode === 'reassign' && <Select label="Assign To" value={reassignTo} options={staffOptions} onChange={onReassignToChange} />}
           {mode === 'escalate' && <Select label="Escalation Target" value={escalationTarget} options={escalationTargets} onChange={onEscalationTargetChange} />}
           {mode !== 'view' && mode !== 'related' && <Textarea label="Note / Outcome" value={note} onChange={onNoteChange} />}
@@ -445,6 +445,7 @@ function TaskActivityFeed({ activity }: { activity: TaskActivityEvent[] }) {
             <span className="text-[9px] text-slate-700 uppercase font-black">Operator: {event.staffName}</span>
           </div>
         ))}
+        {activity.length === 0 && <div className="text-xs text-slate-500 font-bold uppercase">No task activity recorded yet.</div>}
       </div>
     </div>
   );

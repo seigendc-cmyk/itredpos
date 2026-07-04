@@ -46,6 +46,9 @@ import { recordSecurityMatrixEvent } from '../auth/permissionMatrixService';
 import { saveBusinessProfile, validateBusinessProfile } from '../services/businessProfileService';
 import { getFinancialControlAccounts } from '../services/financialControlService';
 import { getCheckWriterSettings, previewNumber, updateCheckWriterSettings } from '../services/checkWriterService';
+import { getActiveVendorId } from '../utils/vendorDataMode';
+import { getNextPlanCode, isLimitReached, type PlanFeatureAccess } from '../auth/planFeatureGate';
+import UpgradeRequiredPanel, { type UpgradeRequiredVendorContext } from '../components/UpgradeRequiredPanel';
 
 interface PosSettingsProps {
   businessProfile: BusinessProfile;
@@ -74,6 +77,7 @@ interface PosSettingsProps {
   activeOperatorName: string;
   onUpdateOperatorName: (text: string) => void;
   activeRole?: string;
+  planAccess?: PlanFeatureAccess;
 }
 
 type SettingsSectionId = 
@@ -90,6 +94,29 @@ type SettingsSectionId =
   | 'BUILD_STATUS'
   | 'STAFF_ACCESS_RIGHTS'
   | 'RESET';
+
+const SHOW_DEV_BADGES = false;
+
+function profileText(profile: BusinessProfile, ...keys: string[]): string {
+  const row = profile as BusinessProfile & Record<string, unknown>;
+  for (const key of keys) {
+    const value = String(row[key] || '').trim();
+    if (value) return value;
+  }
+  return '';
+}
+
+function buildSettingsUpgradeVendorContext(profile: BusinessProfile): UpgradeRequiredVendorContext {
+  return {
+    vendorName: profile.legalName || profile.tradingName || profile.businessName || 'Business',
+    vendorId: profileText(profile, 'vendorId') || getActiveVendorId(),
+    ownerName: profileText(profile, 'ownerName', 'contactPerson', 'administratorName'),
+    ownerPhone: profileText(profile, 'ownerContact', 'ownerPhone', 'businessPhone', 'phone', 'phoneNumber1'),
+    ownerWhatsapp: profileText(profile, 'businessWhatsapp', 'whatsapp', 'ownerWhatsApp', 'whatsAppNumber1'),
+    city: profileText(profile, 'city', 'cityTown'),
+    suburb: profileText(profile, 'suburb', 'districtSuburb', 'district')
+  };
+}
 
 export default function PosSettings({
   businessProfile,
@@ -115,7 +142,8 @@ export default function PosSettings({
   onResetAllState,
   activeOperatorName,
   onUpdateOperatorName,
-  activeRole
+  activeRole,
+  planAccess
 }: PosSettingsProps) {
 
   // Current active configuration section tab
@@ -129,6 +157,10 @@ export default function PosSettings({
     setToastMessage(msg);
     setTimeout(() => setToastMessage(null), 3000);
   };
+  const limitReached = (count: number, limitKey: keyof PlanFeatureAccess['limits']) => {
+    return planAccess ? isLimitReached(count, planAccess.limits[limitKey]) : false;
+  };
+  const limitMessage = (label: string) => `${label} limit reached for your current plan.`;
 
   // --- SUB-FORM 1: BUSINESS PROFILE STATES ---
   const [profileForm, setProfileForm] = useState<BusinessProfile>({ ...businessProfile });
@@ -169,6 +201,10 @@ export default function PosSettings({
         alert("DUPLICATE ERROR: BRANCH ID ALREADY EXISTS.");
         return;
       }
+      if (limitReached(branches.length, 'maxBranches')) {
+        triggerToast(limitMessage('Branch'));
+        return;
+      }
       onUpdateBranches([...branches, branchForm]);
       triggerToast(`BRANCH ${branchForm.id} ADDED TO DIRECTORY.`);
     }
@@ -191,13 +227,18 @@ export default function PosSettings({
 
   const handleSaveBranchA5 = () => {
     const branchId = branchForm.id || branchForm.branchCode || `BR-${Date.now().toString().slice(-5)}`;
+    const isNewBranch = !branches.some((branch) => branch.id.toUpperCase() === branchId.toUpperCase());
+    if (isNewBranch && limitReached(branches.length, 'maxBranches')) {
+      triggerToast(limitMessage('Branch'));
+      return;
+    }
     const nextBranch: BranchSetting = {
       ...branchForm,
       id: branchId.toUpperCase(),
       branchCode: (branchForm.branchCode || branchId).toUpperCase(),
       name: branchForm.name || branchForm.branchCode || 'New Branch',
       location: branchForm.location || [branchForm.cityTown, branchForm.district].filter(Boolean).join(', ') || 'Unassigned',
-      vendorId: branchForm.vendorId || 'SCI-LOG-ZW',
+      vendorId: branchForm.vendorId || businessProfile.vendorId || getActiveVendorId(),
       createdByStaffId: activeOperatorName,
       createdAt: branchForm.createdAt || new Date().toISOString(),
       updatedAt: new Date().toISOString()
@@ -228,6 +269,10 @@ export default function PosSettings({
         alert("DUPLICATE ERROR: WAREHOUSE ID ALREADY IN USE.");
         return;
       }
+      if (limitReached(warehouses.length, 'maxWarehouses')) {
+        triggerToast(limitMessage('Warehouse'));
+        return;
+      }
       onUpdateWarehouses([...warehouses, warehouseForm]);
       triggerToast(`WAREHOUSE ${warehouseForm.id} PROVISIONED.`);
     }
@@ -250,13 +295,18 @@ export default function PosSettings({
 
   const handleSaveWarehouseA5 = () => {
     const warehouseId = warehouseForm.id || warehouseForm.warehouseCode || `WH-${Date.now().toString().slice(-5)}`;
+    const isNewWarehouse = !warehouses.some((warehouse) => warehouse.id.toUpperCase() === warehouseId.toUpperCase());
+    if (isNewWarehouse && limitReached(warehouses.length, 'maxWarehouses')) {
+      triggerToast(limitMessage('Warehouse'));
+      return;
+    }
     const nextWarehouse: WarehouseSetting = {
       ...warehouseForm,
       id: warehouseId.toUpperCase(),
       warehouseCode: (warehouseForm.warehouseCode || warehouseId).toUpperCase(),
       name: warehouseForm.name || warehouseForm.warehouseCode || 'New Warehouse',
       branchId: warehouseForm.branchId || branches[0]?.id || 'BR-HARARE',
-      vendorId: warehouseForm.vendorId || 'SCI-LOG-ZW',
+      vendorId: warehouseForm.vendorId || businessProfile.vendorId || getActiveVendorId(),
       createdByStaffId: activeOperatorName,
       createdAt: warehouseForm.createdAt || new Date().toISOString(),
       updatedAt: new Date().toISOString()
@@ -284,6 +334,10 @@ export default function PosSettings({
     } else {
       if (existsIdx !== -1) {
         alert("DUPLICATE REJECTED: TERMINAL UNIT CODENAME ASSIGNED.");
+        return;
+      }
+      if (limitReached(terminals.length, 'maxTerminals')) {
+        triggerToast(limitMessage('Terminal'));
         return;
       }
       onUpdateTerminals([...terminals, terminalForm]);
@@ -320,6 +374,10 @@ export default function PosSettings({
     } else {
       if (existsIdx !== -1) {
         alert("CRITICAL CONFLICT: EMPLOYEE CLERK REGISTER CARD ALREADY ACTIVE.");
+        return;
+      }
+      if (limitReached(staff.length, 'maxStaff')) {
+        triggerToast(limitMessage('Staff'));
         return;
       }
       onUpdateStaff([...staff, staffForm]);
@@ -469,17 +527,17 @@ export default function PosSettings({
     { id: 'STAFF_ACCESS_RIGHTS' as const, label: 'Staff Access Rights', icon: ShieldCheck, color: 'text-orange-500' },
     { id: 'BUILD_STATUS' as const, label: 'Build Status', icon: Info, color: 'text-orange-500' },
     { id: 'RESET' as const, label: 'System Maintenance', icon: AlertTriangle, color: 'text-red-500 font-extrabold' },
-  ];
+  ].filter((item) => SHOW_DEV_BADGES || (item.id !== 'BUILD_STATUS' && item.id !== 'RESET'));
 
   const hardwareDevices = [
-    { deviceName: 'Cash Drawer', connectionType: hardForm.drawerSignal, status: 'Ready', lastTest: 'Placeholder', permissionRequired: 'hardware.configure' },
-    { deviceName: 'Receipt Printer', connectionType: 'USB / Network', status: 'Not Connected', lastTest: 'Placeholder', permissionRequired: 'hardware.configure' },
-    { deviceName: 'Barcode Scanner', connectionType: 'USB HID', status: 'Ready', lastTest: 'Placeholder', permissionRequired: 'hardware.configure' },
-    { deviceName: 'Laser Scanner', connectionType: hardForm.laserFocus, status: 'Ready', lastTest: 'Placeholder', permissionRequired: 'hardware.configure' },
-    { deviceName: 'Customer Display', connectionType: 'USB / Serial', status: 'Not Connected', lastTest: 'Placeholder', permissionRequired: 'hardware.configure' },
-    { deviceName: 'USB Camera', connectionType: 'USB Camera', status: 'Not Connected', lastTest: 'Placeholder', permissionRequired: 'hardware.configure' },
-    { deviceName: 'Fiscal Device', connectionType: 'Not Connected', status: 'Disabled In Development', lastTest: 'Placeholder', permissionRequired: 'hardware.configure' },
-    { deviceName: 'Terminal Device Settings', connectionType: terminalUnit, status: 'Configured', lastTest: 'Placeholder', permissionRequired: 'hardware.configure' }
+    { deviceName: 'Cash Drawer', connectionType: hardForm.drawerSignal, status: 'Ready', lastTest: 'Not tested', permissionRequired: 'Hardware Manager' },
+    { deviceName: 'Receipt Printer', connectionType: 'USB / Network', status: 'Not Connected', lastTest: 'Not tested', permissionRequired: 'Hardware Manager' },
+    { deviceName: 'Barcode Scanner', connectionType: 'USB HID', status: 'Ready', lastTest: 'Not tested', permissionRequired: 'Hardware Manager' },
+    { deviceName: 'Laser Scanner', connectionType: hardForm.laserFocus, status: 'Ready', lastTest: 'Not tested', permissionRequired: 'Hardware Manager' },
+    { deviceName: 'Customer Display', connectionType: 'USB / Serial', status: 'Not Connected', lastTest: 'Not tested', permissionRequired: 'Hardware Manager' },
+    { deviceName: 'USB Camera', connectionType: 'USB Camera', status: 'Not Connected', lastTest: 'Not tested', permissionRequired: 'Hardware Manager' },
+    { deviceName: 'Fiscal Device', connectionType: 'Not Connected', status: 'Not Configured', lastTest: 'Not tested', permissionRequired: 'Hardware Manager' },
+    { deviceName: 'Terminal Device Settings', connectionType: terminalUnit, status: 'Configured', lastTest: 'Not tested', permissionRequired: 'Hardware Manager' }
   ];
 
   const canConfigureHardware = activeRole ? hasPermission(activeRole as Role, 'hardware.configure') : false;
@@ -488,7 +546,7 @@ export default function PosSettings({
       triggerToast('You do not have permission to perform this action.');
       return;
     }
-    triggerToast(`${label} placeholder queued.`);
+    triggerToast(`${label} queued.`);
   };
 
   return (
@@ -504,7 +562,7 @@ export default function PosSettings({
           <h2 className="text-base font-extrabold font-mono text-white mt-1 uppercase">iTred Commerce POS Settings</h2>
         </div>
         <p className="text-[10px] text-slate-550 font-mono max-w-sm uppercase leading-relaxed text-right">
-          Manage business profile, branches, staff, receipts, taxes, permissions, and terminal devices. <span className="text-orange-700 font-bold">Build Development</span>
+          Manage business profile, branches, staff, receipts, taxes, permissions, and terminal devices.
         </p>
       </div>
 
@@ -522,6 +580,19 @@ export default function PosSettings({
         )}
       </AnimatePresence>
 
+      {planAccess && (
+        <section className="border border-slate-300 bg-white p-1">
+          <UpgradeRequiredPanel
+            featureName="Subscription and Plan Limits"
+            currentPlan={String(planAccess.planCode)}
+            requiredPlan={String(getNextPlanCode(planAccess.planCode))}
+            vendor={buildSettingsUpgradeVendorContext(businessProfile)}
+            detail="Manage your POS plan, request an upgrade, or enter an activation code issued by SCI."
+            onActivated={(result) => triggerToast(result.message)}
+          />
+        </section>
+      )}
+
       {/* MAIN NESTED LAYOUT BOX */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
         
@@ -529,7 +600,7 @@ export default function PosSettings({
         <div className="lg:col-span-3 bg-[#1e222b] border border-[#3a3f4b] p-2 space-y-0.5">
           <div className="text-[10px] text-slate-100 font-bold font-mono py-1 px-2.5 uppercase tracking-wider border-b border-slate-600 flex items-center justify-between mb-2">
             <span>Settings Menu</span>
-            <span className="text-[9px] bg-orange-600 px-1 py-0.2 text-white">Local</span>
+            {SHOW_DEV_BADGES && <span className="text-[9px] bg-orange-600 px-1 py-0.2 text-white">Local</span>}
           </div>
 
           <div className="space-y-1">
@@ -585,14 +656,15 @@ export default function PosSettings({
             })}
           </div>
 
-          {/* CLERK DIAL METADATA INDICATOR */}
-          <div className="p-3 bg-slate-950 border border-slate-700 mt-4 text-[9px] space-y-1 text-slate-200 font-mono uppercase">
-            <div>Product: <span className="text-orange-400">iTred Commerce POS</span></div>
-            <div>Mode: <span className="text-slate-100">Build Development</span></div>
-            <div>Backend: <span className="text-slate-100">Mock / Local Services</span></div>
-            <div>Firebase: <span className="text-slate-100">Config Shell / Sandbox Only</span></div>
-            <div>Business Writes: <span className="text-orange-400">Disabled</span></div>
-          </div>
+          {SHOW_DEV_BADGES && (
+            <div className="p-3 bg-slate-950 border border-slate-700 mt-4 text-[9px] space-y-1 text-slate-200 font-mono uppercase">
+              <div>Product: <span className="text-orange-400">iTred Commerce POS</span></div>
+              <div>Mode: <span className="text-slate-100">Diagnostics</span></div>
+              <div>Backend: <span className="text-slate-100">Local Services</span></div>
+              <div>Firebase: <span className="text-slate-100">Config Shell</span></div>
+              <div>Business Writes: <span className="text-orange-400">Disabled</span></div>
+            </div>
+          )}
         </div>
 
         {/* DETAILS WORKSPACE FORMS (9 columns) */}
@@ -907,7 +979,7 @@ export default function PosSettings({
 
                 {/* Branch list table */}
                 <div className="space-y-2">
-                  <div className="text-[10px] font-bold text-slate-400 uppercase">ACTIVE INDUSTRIAL LOCALITIES</div>
+                  <div className="text-[10px] font-bold text-slate-400 uppercase">Active Branch Locations</div>
                   <div className="border border-slate-800 divide-y divide-slate-950">
                     {branches.map(b => (
                       <div key={b.id} className="p-3 bg-slate-950/60 flex justify-between items-center text-xs">
@@ -1159,7 +1231,7 @@ export default function PosSettings({
 
                 {/* Terminals list list */}
                 <div className="space-y-2">
-                  <div className="text-[10px] font-bold text-slate-400 uppercase font-mono">ACTIVE HARDWARE SLOTS ON LOCAL AREA LINK</div>
+                  <div className="text-[10px] font-bold text-slate-400 uppercase font-mono">Active Terminal Devices</div>
                   <div className="border border-slate-800 divide-y divide-slate-950 font-mono">
                     {terminals.map(t => {
                       const branchMapped = branches.find(b => b.id === t.branchId)?.name || 'UNKNOWN CONDUIT';
@@ -1236,7 +1308,7 @@ export default function PosSettings({
                       />
                     </div>
                     <div>
-                      <label className="block text-slate-500 mb-1 text-[9px]">LOCAL SYSTEM CORRESPONDING EMAIL</label>
+                      <label className="block text-slate-500 mb-1 text-[9px]">System Correspondence Email</label>
                       <input 
                         type="email" 
                         value={staffForm.email}
@@ -1462,11 +1534,11 @@ export default function PosSettings({
                     <Cpu className="w-4 h-4 text-orange-400" />
                     HARDWARE & DEVICES
                   </span>
-                  <span className="text-[9px] text-orange-600 uppercase bg-slate-50 px-1 border border-[#b1b5c2]">Permission: hardware.configure</span>
+                  <span className="text-[9px] text-orange-600 uppercase bg-slate-50 px-1 border border-[#b1b5c2]">Hardware Access</span>
                 </div>
 
                 <p className="text-[10px] text-slate-450 uppercase mb-4 leading-normal">
-                  Manage local terminal device settings for build-development. Device actions are placeholders and require hardware configuration permission.
+                  Manage terminal devices, printers, scanners, drawers, and display hardware for this POS workstation.
                 </p>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -1523,7 +1595,7 @@ export default function PosSettings({
                   <table className="w-full min-w-[980px] text-left">
                     <thead className="bg-[#1e222b] text-white">
                       <tr>
-                        {['Device Name', 'Connection Type', 'Status', 'Last Test', 'Permission Required', 'Action'].map((heading) => (
+                        {['Device Name', 'Connection Type', 'Status', 'Last Test', 'Access', 'Action'].map((heading) => (
                           <th key={heading} className="px-3 py-2 text-[10px] uppercase font-black">{heading}</th>
                         ))}
                       </tr>
@@ -1538,7 +1610,7 @@ export default function PosSettings({
                           <td className="px-3 py-2 font-bold">{device.permissionRequired}</td>
                           <td className="px-3 py-2">
                             <div className="flex flex-wrap gap-1.5">
-                              {['Test Device Placeholder', 'Configure Placeholder', 'Calibrate Placeholder', 'Disable Placeholder'].map((label) => (
+                              {['Test Device', 'Configure', 'Calibrate', 'Disable'].map((label) => (
                                 <button
                                   key={`${device.deviceName}-${label}`}
                                   type="button"
@@ -1753,7 +1825,7 @@ export default function PosSettings({
                     <Receipt className="w-4 h-4 text-orange-500" />
                     FINANCIAL CONTROL SETTINGS - CHECK WRITER
                   </span>
-                  <span className="text-[9px] text-orange-600 uppercase bg-slate-50 px-1 border border-[#b1b5c2]">LOCAL MOCK</span>
+                  {SHOW_DEV_BADGES && <span className="text-[9px] text-orange-600 uppercase bg-slate-50 px-1 border border-[#b1b5c2]">LOCAL MOCK</span>}
                 </div>
                 <SettingsFormSection title="Cheque Numbering">
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
@@ -1790,15 +1862,17 @@ export default function PosSettings({
                     <button type="button" className="border border-[#b1b5c2] text-[#1e222b] font-black uppercase px-4 py-2 text-[10px]" onClick={resetCheckSettings}>Reset to Defaults</button>
                     <button type="button" className="border border-orange-300 text-orange-700 font-black uppercase px-4 py-2 text-[10px]" onClick={() => { setNextCheckPreview(previewNumber(checkSettings)); triggerToast('CHECK_WRITER_NEXT_NUMBER_PREVIEWED'); }}>Preview Next Check Number</button>
                   </div>
-                  <div className="border border-orange-200 bg-orange-50 p-2 text-[10px] text-orange-900 font-bold uppercase">
-                    Local/mock settings only. No Firestore, bank, cheque printer, payment gateway, or final accounting posting is connected.
-                  </div>
+                  {SHOW_DEV_BADGES && (
+                    <div className="border border-orange-200 bg-orange-50 p-2 text-[10px] text-orange-900 font-bold uppercase">
+                      Local/mock settings only. No Firestore, bank, cheque printer, payment gateway, or final accounting posting is connected.
+                    </div>
+                  )}
                 </SettingsFormSection>
               </div>
             )}
 
             {/* TAB 10: BUILD DEVELOPMENT STATUS */}
-            {activeSection === 'BUILD_STATUS' && (
+            {SHOW_DEV_BADGES && activeSection === 'BUILD_STATUS' && (
               <div className="space-y-5">
                 <div className="border-b border-slate-800 pb-2 flex items-center justify-between">
                   <span className="text-xs font-bold text-white uppercase tracking-wider flex items-center gap-2">
@@ -1811,8 +1885,8 @@ export default function PosSettings({
                 <div className="bg-white border-2 border-[#b1b5c2] p-4 text-[#1e222b]">
                   <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3">
                     <ReadOnlyAccessMetric label="Product" value="iTred Commerce POS" />
-                    <ReadOnlyAccessMetric label="Mode" value="Build Development" />
-                    <ReadOnlyAccessMetric label="Backend" value="Mock / Local Services" />
+                    <ReadOnlyAccessMetric label="Mode" value="Diagnostics" />
+                    <ReadOnlyAccessMetric label="Backend" value="Local Services" />
                     <ReadOnlyAccessMetric label="External Cloud" value="Not Connected" />
                     <ReadOnlyAccessMetric label="Fiscalization" value="Not Connected" />
                     <ReadOnlyAccessMetric label="Admin Access" value="Internal SCI Tools Only" />
@@ -1822,7 +1896,7 @@ export default function PosSettings({
                     <ReadOnlyAccessMetric label="Current Staff Session" value={currentStaffGateSession.gateStatus} />
                   </div>
                   <div className="mt-3 border border-orange-200 bg-orange-50 p-2 text-[10px] text-orange-900 font-bold uppercase">
-                    During build-development, Owner has full access. Commercial feature enforcement is deferred.
+                    Diagnostics mode grants Owner full access. Commercial feature enforcement is deferred.
                   </div>
                 </div>
                 <div className="bg-white border-2 border-[#b1b5c2] p-4 text-[#1e222b]">
@@ -1845,7 +1919,7 @@ export default function PosSettings({
                     <ShieldCheck className="w-4 h-4 text-orange-500" />
                     STAFF ACCESS RIGHTS
                   </span>
-                  <span className="text-[9px] text-orange-600 uppercase bg-slate-50 px-1 border border-[#b1b5c2]">LOCAL MATRIX</span>
+                  <span className="text-[9px] text-orange-600 uppercase bg-slate-50 px-1 border border-[#b1b5c2]">Access Matrix</span>
                 </div>
                 <div className="border border-orange-300 bg-orange-50 text-orange-950 p-3 text-[10px] font-bold uppercase leading-relaxed">
                   Staff Access Rights is the active permission control centre. The older Roles & Permissions panel has been retired to avoid duplicate permission states.
@@ -1855,7 +1929,7 @@ export default function PosSettings({
             )}
 
             {/* TAB 11: WARNING: RESET */}
-            {activeSection === 'RESET' && (
+            {SHOW_DEV_BADGES && activeSection === 'RESET' && (
               <div className="space-y-5">
                 <div className="border-b border-red-800 pb-2 flex items-center gap-2 text-red-500 font-extrabold">
                   <AlertTriangle className="w-5 h-5 animate-pulse" />
@@ -1911,7 +1985,7 @@ export default function PosSettings({
       >
         <div className="space-y-4 font-mono">
           <div className="grid grid-cols-2 gap-3">
-            <SettingsField label="Vendor ID" value={branchForm.vendorId || 'SCI-LOG-ZW'} onChange={(value) => setBranchForm({ ...branchForm, vendorId: value })} />
+            <SettingsField label="Vendor ID" value={branchForm.vendorId || businessProfile.vendorId || getActiveVendorId()} onChange={(value) => setBranchForm({ ...branchForm, vendorId: value })} />
             <SettingsField label="Branch Code" value={branchForm.branchCode || branchForm.id} onChange={(value) => setBranchForm({ ...branchForm, branchCode: value.toUpperCase(), id: value.toUpperCase() })} required />
             <SettingsField label="Branch Name" value={branchForm.name} onChange={(value) => setBranchForm({ ...branchForm, name: value })} required />
             <SettingsSelect label="Branch Type" value={branchForm.branchType || 'Retail'} onChange={(value) => setBranchForm({ ...branchForm, branchType: value })} options={['Retail', 'Warehouse', 'Workshop', 'Head Office', 'Mobile']} />
@@ -1946,7 +2020,7 @@ export default function PosSettings({
       >
         <div className="space-y-4 font-mono">
           <div className="grid grid-cols-2 gap-3">
-            <SettingsField label="Vendor ID" value={warehouseForm.vendorId || 'SCI-LOG-ZW'} onChange={(value) => setWarehouseForm({ ...warehouseForm, vendorId: value })} />
+            <SettingsField label="Vendor ID" value={warehouseForm.vendorId || businessProfile.vendorId || getActiveVendorId()} onChange={(value) => setWarehouseForm({ ...warehouseForm, vendorId: value })} />
             <SettingsField label="Warehouse Code" value={warehouseForm.warehouseCode || warehouseForm.id} onChange={(value) => setWarehouseForm({ ...warehouseForm, warehouseCode: value.toUpperCase(), id: value.toUpperCase() })} required />
             <SettingsField label="Warehouse Name" value={warehouseForm.name} onChange={(value) => setWarehouseForm({ ...warehouseForm, name: value })} required />
             <SettingsSelect label="Warehouse Type" value={warehouseForm.warehouseType || 'Stock Room'} onChange={(value) => setWarehouseForm({ ...warehouseForm, warehouseType: value })} options={['Stock Room', 'Main Depot', 'Cold Room', 'Returns Cage', 'Yard']} />
