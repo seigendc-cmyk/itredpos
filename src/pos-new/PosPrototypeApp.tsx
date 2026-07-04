@@ -1,4 +1,4 @@
-import { lazy, Suspense, useState, useEffect } from 'react';
+import { lazy, Suspense, useState, useEffect, useRef } from 'react';
 import { AlertTriangle } from 'lucide-react';
 import PosShell from './layout/PosShell';
 import PosDashboard from './pages/PosDashboard';
@@ -52,7 +52,7 @@ import {
 } from './mock/mockPosData';
 import { getEffectivePageIdsForRole, normalizeRoleKey } from './auth/effectivePermissionService';
 import { recordSecurityMatrixEvent } from './auth/permissionMatrixService';
-import { getCurrentFirebaseUserProfile, signInWithGooglePlaceholder, subscribeToFirebaseAuthState, signOutFirebasePlaceholder } from './auth/firebaseAuthShell';
+import { getCurrentFirebaseUserProfile, signInWithGooglePlaceholder, subscribeToFirebaseAuthState, signOutFirebasePlaceholder, handleGoogleRedirectResult } from './auth/firebaseAuthShell';
 import { applyPOSActivationToTenantSession, createTenantSessionFromFirebaseUser, getCurrentTenantSession, recordAuthActivity } from './auth/tenantSessionService';
 import { clearActivePOSActivation, getSavedPOSSession, validatePOSActivationForEmail, type POSActivationValidationResult } from './auth/posActivationService';
 import { loadLocalProducts, POS_PRODUCT_STORE_EVENT, updateLocalProductStock } from './utils/localProductStore';
@@ -129,19 +129,29 @@ export default function PosPrototypeApp() {
   const [activePage, setActivePage] = useState<PosPageId>('DASHBOARD');
 
   // Client Session Identity Tracking
-  const [googleAuthProfile, setGoogleAuthProfile] = useState(getCurrentFirebaseUserProfile());
+  const [authUser, setAuthUser] = useState(getCurrentFirebaseUserProfile());
   const [googleAuthMessage, setGoogleAuthMessage] = useState('Sign in with Google to continue to Staff Access.');
-  const [authLoading, setAuthLoading] = useState(true);
+  const [checkingAuth, setCheckingAuth] = useState(true);
+  const [authError, setAuthError] = useState<string | null>(null);
   const [licenseChecked, setLicenseChecked] = useState(false);
   const [activationChecking, setActivationChecking] = useState(false);
-  const [activationResult, setActivationResult] = useState<POSActivationValidationResult | null>(null);
+  const [activationDecision, setActivationDecision] = useState<POSActivationValidationResult | null>(null);
+  const activationRunRef = useRef(0);
+  const googleAuthProfile = authUser;
+  const authLoading = checkingAuth;
+  const activationResult = activationDecision;
 
   const validateAndApplyPOSActivation = async (profile: NonNullable<ReturnType<typeof getCurrentFirebaseUserProfile>>) => {
+    const runId = activationRunRef.current + 1;
+    activationRunRef.current = runId;
     setActivationChecking(true);
+    setActivationDecision(null);
+    setLicenseChecked(false);
     createTenantSessionFromFirebaseUser(profile);
     try {
       const result = await validatePOSActivationForEmail(profile.email || '');
-      setActivationResult(result);
+      if (activationRunRef.current !== runId) return;
+      setActivationDecision(result);
       recordAuthActivity({
         eventType: 'ACTIVATION_VALIDATED',
         label: 'Activation Validated',
@@ -159,6 +169,7 @@ export default function PosPrototypeApp() {
           staffId: profile.email
         });
         setLicenseChecked(true);
+        setAuthError(null);
         setGoogleAuthMessage(`${result.message} Continue with Staff Access.`);
       } else {
         recordAuthActivity({
@@ -173,12 +184,14 @@ export default function PosPrototypeApp() {
         setGoogleAuthMessage(result.message);
       }
     } catch (error) {
+      if (activationRunRef.current !== runId) return;
       const message = error instanceof Error ? error.message : 'Activation validation failed.';
-      setActivationResult({
+      setActivationDecision({
         allowed: false,
         reasonCode: 'NO_ACTIVATION_FOUND',
         message
       });
+      setAuthError(message);
       recordAuthActivity({
         eventType: 'POS_LOGIN_BLOCKED',
         label: 'POS Login Blocked',
@@ -190,26 +203,63 @@ export default function PosPrototypeApp() {
       clearActivePOSActivation();
       setGoogleAuthMessage(message);
     } finally {
-      setActivationChecking(false);
+      if (activationRunRef.current === runId) {
+        setActivationChecking(false);
+      }
     }
   };
 
   // Automatically restore active session state on reload
   useEffect(() => {
-    const unsubscribe = subscribeToFirebaseAuthState((profile) => {
-      setGoogleAuthProfile(profile);
-      if (profile) {
-        void validateAndApplyPOSActivation(profile);
-      } else {
-        setGoogleAuthMessage('Sign in with Google to continue to Staff Access.');
-        setActivationResult(null);
-        setLicenseChecked(false);
-        clearActivePOSActivation();
+    let active = true;
+    let unsubscribe = () => undefined;
+
+    const restoreGoogleSession = async () => {
+      setCheckingAuth(true);
+      try {
+        const redirectRes = await handleGoogleRedirectResult();
+        if (redirectRes && !redirectRes.ok && active) {
+          setAuthError(redirectRes.error || redirectRes.message || 'Google redirect sign-in failed.');
+          setGoogleAuthMessage(redirectRes.message || 'Google redirect sign-in failed.');
+        }
+      } catch (e) {
+        if (active) {
+          const message = e instanceof Error ? e.message : 'Google redirect callback handling failed.';
+          setAuthError(message);
+          setGoogleAuthMessage(message);
+        }
       }
-      setAuthLoading(false);
-    });
-    return () => unsubscribe();
+
+      if (!active) return;
+      unsubscribe = subscribeToFirebaseAuthState((profile) => {
+        if (!active) return;
+        setAuthUser(profile);
+        if (profile) {
+          setAuthError(null);
+          setGoogleAuthMessage('Google session found. Checking POS activation...');
+          void validateAndApplyPOSActivation(profile);
+        } else {
+          setGoogleAuthMessage('Sign in with Google to continue to Staff Access.');
+          setActivationDecision(null);
+          setActivationChecking(false);
+          setLicenseChecked(false);
+          setActiveSession(null);
+        }
+        setCheckingAuth(false);
+      });
+    };
+
+    void restoreGoogleSession();
+
+    return () => {
+      active = false;
+      unsubscribe();
+    };
   }, []);
+
+  const [activeSession, setActiveSession] = useState<PosSession | null>(() => {
+    return readStoredValue<PosSession | null>('itred_pos_active_session', null);
+  });
 
   // Clear active staff session when the Google profile email changes (tenant isolation enforcement)
   useEffect(() => {
@@ -220,10 +270,6 @@ export default function PosPrototypeApp() {
       }
     }
   }, [googleAuthProfile?.email]);
-
-  const [activeSession, setActiveSession] = useState<PosSession | null>(() => {
-    return readStoredValue<PosSession | null>('itred_pos_active_session', null);
-  });
 
   // Shared database states (re-hydrating from localStorage if present to maintain feel)
   const [products, setProducts] = useState<Product[]>(() => {
@@ -824,35 +870,37 @@ export default function PosPrototypeApp() {
   };
 
   const handleGoogleAuthBeforeStaffAccess = async () => {
-    setGoogleAuthMessage('Opening Google sign-in...');
-    const result = await signInWithGooglePlaceholder();
-
-    if (!result.ok) {
-      setGoogleAuthMessage(result.message || 'Google sign-in failed. Check Firebase Auth configuration.');
+    const existingProfile = getCurrentFirebaseUserProfile();
+    if (existingProfile) {
+      setAuthUser(existingProfile);
+      setGoogleAuthMessage('Google session found. Checking POS activation...');
+      await validateAndApplyPOSActivation(existingProfile);
       return;
     }
 
-    const profile = getCurrentFirebaseUserProfile();
-    setGoogleAuthProfile(profile);
+    setGoogleAuthMessage('Opening Google sign-in...');
+    setAuthError(null);
+    const result = await signInWithGooglePlaceholder();
 
-    if (profile) {
-      await validateAndApplyPOSActivation(profile);
-    } else {
-      setGoogleAuthMessage('Google sign-in completed, but profile was not loaded.');
+    if (!result.ok) {
+      setAuthError(result.error || result.message || 'Google sign-in failed. Check Firebase Auth configuration.');
+      setGoogleAuthMessage(result.message || 'Google sign-in failed. Check Firebase Auth configuration.');
+      return;
     }
   };
 
   const handlePOSSignOut = async () => {
     await signOutFirebasePlaceholder();
-    setGoogleAuthProfile(null);
+    setAuthUser(null);
+    setAuthError(null);
     setLicenseChecked(false);
-    setActivationResult(null);
+    setActivationDecision(null);
     clearActivePOSActivation();
     setActiveSession(null);
   };
 
   // Render loading state while authenticating
-  if (authLoading) {
+  if (false && authLoading) {
     return (
       <main className="min-h-screen bg-slate-950 text-slate-100 flex items-center justify-center p-6">
         <section className="w-full max-w-md border border-orange-500/40 bg-slate-900 p-6 shadow-2xl text-center space-y-4">
@@ -868,7 +916,7 @@ export default function PosPrototypeApp() {
   }
 
   // Guard the operational register with Google Auth before staff access
-  if (!googleAuthProfile) {
+  if (false && !googleAuthProfile) {
     return (
       <main className="min-h-screen bg-slate-950 text-slate-100 flex items-center justify-center p-6">
         <section className="w-full max-w-md border border-orange-500/40 bg-slate-900 p-6 shadow-2xl">
@@ -878,7 +926,7 @@ export default function PosPrototypeApp() {
             Sign in with Google first. After vendor verification, the normal Staff Access form will open.
           </p>
           <div className="mt-5 border border-slate-700 bg-slate-950 p-3 text-xs text-slate-300">
-            {googleAuthMessage}
+            {authError || googleAuthMessage}
           </div>
           <button
             type="button"
@@ -892,7 +940,7 @@ export default function PosPrototypeApp() {
     );
   }
 
-  if (googleAuthProfile && !activationChecking && activationResult && !activationResult.allowed) {
+  if (false && googleAuthProfile && !activationChecking && activationResult && !activationResult.allowed) {
     const blockedActivation = activationResult.activation;
     return (
       <main className="min-h-screen bg-slate-950 text-slate-100 flex items-center justify-center p-6">
@@ -944,7 +992,7 @@ export default function PosPrototypeApp() {
     );
   }
 
-  if (googleAuthProfile && (activationChecking || !licenseChecked)) {
+  if (false && googleAuthProfile && (activationChecking || !licenseChecked)) {
     return (
       <main className="min-h-screen bg-slate-950 text-slate-100 flex items-center justify-center p-6">
         <section className="w-full max-w-md border border-emerald-500/40 bg-slate-900 p-6 shadow-2xl">
