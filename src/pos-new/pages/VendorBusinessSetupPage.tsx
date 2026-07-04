@@ -1,5 +1,10 @@
 import { useState } from "react";
 import {
+  readPosAuthContext,
+  resolveNextAuthStage,
+  savePosAuthContext
+} from "../auth/posVendorAuthState";
+import {
   VendorBootstrapProfile,
   createEmptyVendorBootstrap
 } from "../vendor/vendorBootstrapModel";
@@ -19,6 +24,54 @@ export default function VendorBusinessSetupPage() {
       ...previous,
       [field]: value
     }));
+  }
+
+
+  function handleSaveProfile() {
+    if (!profile.businessName.trim()) {
+      alert("Business Name is required.");
+      return;
+    }
+
+    if (!profile.ownerName.trim()) {
+      alert("Owner Name is required.");
+      return;
+    }
+
+    if (!profile.ownerPin.trim()) {
+      alert("Owner PIN is required.");
+      return;
+    }
+
+    const existing = readPosAuthContext();
+
+    const vendorId =
+      profile.vendorId ||
+      `vendor_${Date.now()}`;
+
+    const demoExpiresAt = new Date(
+      Date.now() + profile.trialDays * 24 * 60 * 60 * 1000
+    ).toISOString();
+
+    const nextContext = {
+      ...(existing || {}),
+      stage: "staffAccessRequired" as const,
+      googleUid: existing?.googleUid || `demo-google-${Date.now()}`,
+      googleEmail: existing?.googleEmail || profile.ownerEmail || "owner@example.com",
+      vendorId,
+      vendorName: profile.businessName,
+      branchId: "main-branch",
+      warehouseId: "main-warehouse",
+      licenseStatus: "Demo" as const,
+      demoExpiresAt,
+      message: "Business profile created. Continue with staff access."
+    };
+
+    nextContext.stage = resolveNextAuthStage(nextContext);
+
+    savePosAuthContext(nextContext);
+
+    window.location.reload();
   }
 
   return (
@@ -198,6 +251,8 @@ onChange={e=>update("ownerPin",e.target.value)}
 <div className="flex items-end">
 
 <button
+type="button"
+onClick={handleSaveProfile}
 className="bg-orange-500 text-white px-6 py-3 font-bold uppercase w-full"
 >
 
@@ -216,3 +271,4 @@ Continue ?
 );
 
 }
+
