@@ -6,7 +6,8 @@ import {
   createInitialPosAuthContext,
   readPosAuthContext,
   resolveNextAuthStage,
-  savePosAuthContext
+  savePosAuthContext,
+  clearPosAuthContext
 } from "./posVendorAuthState";
 
 type PosVendorAuthGateProps = {
@@ -42,6 +43,12 @@ export default function PosVendorAuthGate({ children }: PosVendorAuthGateProps) 
     setContext(firstRunContext);
     savePosAuthContext(firstRunContext);
   }, []);
+
+
+  const resetAuthFlow = () => {
+    clearPosAuthContext();
+    window.location.reload();
+  };
 
   if (context.stage === "checkingGoogleSession") {
     return (
@@ -89,6 +96,14 @@ export default function PosVendorAuthGate({ children }: PosVendorAuthGateProps) 
             Continue with Google
           </button>
 
+          <button
+            type="button"
+            onClick={resetAuthFlow}
+            className="mt-3 w-full bg-white hover:bg-slate-50 border border-[#b1b5c2] text-[#1e222b] font-black uppercase py-2 rounded-none"
+          >
+            Reset Demo Auth
+          </button>
+
           <div className="mt-4 text-xs uppercase font-bold text-slate-500">
             AUTH-04 foundation: Google button is currently a safe local demo action. Real Firebase Google sign-in will be wired in AUTH-05.
           </div>
@@ -120,6 +135,17 @@ export default function PosVendorAuthGate({ children }: PosVendorAuthGateProps) 
     );
   }
 
-  return <>{children}</>;
+  return (
+    <>
+      <button
+        type="button"
+        onClick={resetAuthFlow}
+        className="fixed bottom-3 right-3 z-[9999] bg-white border border-[#b1b5c2] px-3 py-1.5 text-[8px] uppercase font-black text-[#1e222b] shadow"
+      >
+        Reset Auth
+      </button>
+      {children}
+    </>
+  );
 }
 
