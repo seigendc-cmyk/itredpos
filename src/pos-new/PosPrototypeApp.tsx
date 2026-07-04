@@ -1,4 +1,5 @@
-import { lazy, Suspense, useState, useEffect, useRef } from 'react';
+
+import { readPosAuthContext } from './auth/posVendorAuthState';
 import { AlertTriangle } from 'lucide-react';
 import PosShell from './layout/PosShell';
 import PosDashboard from './pages/PosDashboard';
@@ -260,6 +261,36 @@ export default function PosPrototypeApp() {
   const [activeSession, setActiveSession] = useState<PosSession | null>(() => {
     return readStoredValue<PosSession | null>('itred_pos_active_session', null);
   });
+
+
+  useEffect(() => {
+    if (activeSession) return;
+
+    const vendorAuth = readPosAuthContext();
+
+    if (!vendorAuth || vendorAuth.stage !== 'posReady') return;
+
+    const bridgedSession: PosSession = {
+      staffId: vendorAuth.staffId || 'owner-staff',
+      staffName: 'Owner',
+      role: (vendorAuth.staffRole || 'Owner') as PosSession['role'],
+      branch: vendorAuth.branchId || 'main-branch',
+      terminal: 'TERM-MAIN-001',
+      vendorId: vendorAuth.vendorId || 'demo-vendor',
+      branchId: vendorAuth.branchId || 'main-branch',
+      terminalId: 'TERM-MAIN-001',
+      licenseId: 'DEMO-LICENSE',
+      planId: 'DEMO',
+      licenseMode: 'demo',
+      storageMode: 'local',
+      activationId: 'LOCAL-DEMO-ACTIVATION',
+      dashboardType: 'POS',
+      openedAt: new Date().toISOString(),
+      googleEmail: vendorAuth.googleEmail || ''
+    };
+
+    setActiveSession(bridgedSession);
+  }, [activeSession]);
 
   // Clear active staff session when the Google profile email changes (tenant isolation enforcement)
   useEffect(() => {
