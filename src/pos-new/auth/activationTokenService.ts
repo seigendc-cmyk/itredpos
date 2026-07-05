@@ -1,4 +1,4 @@
-import { collection, doc, getDocs, query, where, writeBatch } from 'firebase/firestore';
+import { collection, doc, getDocs, query, where, runTransaction } from 'firebase/firestore';
 import { db } from '../firebase/firebaseApp';
 
 export interface ActivationTokenRecord {
@@ -19,7 +19,7 @@ export interface ActivationTokenResult {
   planCode?: string;
 }
 
-const OFFLINE_MESSAGE = 'Activation requires internet connection. Please connect and try again.';
+const OFFLINE_MESSAGE = 'Internet connection is required to activate your subscription.';
 
 function text(value: unknown, fallback = ''): string {
   const clean = String(value ?? '').trim();
@@ -52,76 +52,165 @@ export async function validateActivationToken(tokenCode: string, vendorId: strin
 
   const cleanToken = normalizeTokenCode(tokenCode);
   const cleanVendorId = text(vendorId);
-  if (!cleanToken) return { ok: false, message: 'Enter an activation code.' };
-  if (!cleanVendorId) return { ok: false, message: 'Vendor identity is missing. Please sign in again.' };
+  if (!cleanToken) return { ok: false, message: 'Invalid activation code.' };
+  if (!cleanVendorId) return { ok: false, message: 'Vendor identity is missing.' };
 
   try {
     const snapshot = await getDocs(query(
       collection(db, 'activationTokens'),
-      where('tokenCode', '==', cleanToken),
-      where('vendorId', '==', cleanVendorId),
-      where('status', '==', 'Unused'),
-      where('expiresAt', '>=', nowIso())
+      where('tokenCode', '==', cleanToken)
     ));
 
-    const token = snapshot.docs
-      .map((item) => tokenFromDoc(item.data() as Record<string, unknown>, item.id))
-      .find((row) => row.expiresAt && Date.parse(row.expiresAt) >= Date.now());
+    if (snapshot.empty) {
+      return { ok: false, message: 'Invalid activation code.' };
+    }
 
-    if (!token) return { ok: false, message: 'Activation code is invalid, used, or expired.' };
+    const token = tokenFromDoc(snapshot.docs[0].data() as Record<string, unknown>, snapshot.docs[0].id);
+
+    if (token.status === 'Revoked') {
+      return { ok: false, message: 'Activation code has been revoked.' };
+    }
+    if (token.status === 'Used') {
+      return { ok: false, message: 'Activation code has already been used.' };
+    }
+    if (token.vendorId !== cleanVendorId) {
+      return { ok: false, message: 'Activation code belongs to another vendor.' };
+    }
+    if (token.expiresAt && Date.parse(token.expiresAt) < Date.now()) {
+      return { ok: false, message: 'Activation code has expired.' };
+    }
+    if (!token.planCode) {
+      return { ok: false, message: 'Invalid activation code.' };
+    }
+
     return { ok: true, message: `Activation code valid for ${token.planCode}.`, token, planCode: token.planCode };
   } catch {
-    return { ok: false, message: OFFLINE_MESSAGE };
+    return { ok: false, message: 'Activation could not be completed.\nPlease try again.' };
   }
 }
 
 export async function redeemActivationToken(tokenCode: string, vendorId: string): Promise<ActivationTokenResult> {
   if (!db) return { ok: false, message: OFFLINE_MESSAGE };
 
-  const validation = await validateActivationToken(tokenCode, vendorId);
-  if (!validation.ok || !validation.token) return validation;
+  const cleanToken = normalizeTokenCode(tokenCode);
+  const cleanVendorId = text(vendorId);
+  if (!cleanToken) return { ok: false, message: 'Invalid activation code.' };
+  if (!cleanVendorId) return { ok: false, message: 'Vendor identity is missing.' };
 
-  const usedAt = nowIso();
-  const token = validation.token;
-  const batch = writeBatch(db);
+  try {
+    // 1. Query token first to find doc reference
+    const snapshot = await getDocs(query(
+      collection(db, 'activationTokens'),
+      where('tokenCode', '==', cleanToken)
+    ));
 
-  batch.set(doc(db, 'activationTokens', token.tokenId), {
-    status: 'Used',
-    usedAt,
-    updatedAt: usedAt
-  }, { merge: true });
+    if (snapshot.empty) {
+      return { ok: false, message: 'Invalid activation code.' };
+    }
 
-  batch.set(doc(db, 'vendorLicenses', vendorId), {
-    vendorId,
-    planCode: token.planCode,
-    planId: token.planCode,
-    licenseStatus: 'Active',
-    activationStatus: 'Active',
-    activatedAt: usedAt,
-    source: 'ACTIVATION_TOKEN',
-    updatedAt: usedAt
-  }, { merge: true });
+    const tokenDocRef = snapshot.docs[0].ref;
 
-  batch.set(doc(db, 'vendorPlans', vendorId), {
-    vendorId,
-    planCode: token.planCode,
-    planId: token.planCode,
-    activatedAt: usedAt,
-    source: 'ACTIVATION_TOKEN',
-    updatedAt: usedAt
-  }, { merge: true });
+    // 2. Run transaction for atomic validation and updates
+    const transactionResult = await runTransaction(db, async (transaction) => {
+      const tokenSnap = await transaction.get(tokenDocRef);
+      if (!tokenSnap.exists()) {
+        return { ok: false, message: 'Invalid activation code.' };
+      }
 
-  batch.set(doc(db, 'vendors', vendorId), {
-    planCode: token.planCode,
-    accountStatus: 'Active',
-    updatedAt: usedAt
-  }, { merge: true });
+      const data = tokenSnap.data();
+      const status = text(data.status, 'Unused');
+      const tokenVendorId = text(data.vendorId);
+      const planCode = text(data.planCode, 'DEMO').toUpperCase();
+      const expiresAt = text(data.expiresAt);
 
-  await batch.commit();
-  return {
-    ok: true,
-    message: `Activation complete. ${token.planCode} plan is active.`,
-    token,
-    planCode: token.planCode
-  };
+      // Perform all validations in the transaction to prevent race conditions
+      if (status === 'Revoked') {
+        return { ok: false, message: 'Activation code has been revoked.' };
+      }
+      if (status === 'Used') {
+        return { ok: false, message: 'Activation code has already been used.' };
+      }
+      if (tokenVendorId !== cleanVendorId) {
+        return { ok: false, message: 'Activation code belongs to another vendor.' };
+      }
+      if (expiresAt && Date.parse(expiresAt) < Date.now()) {
+        return { ok: false, message: 'Activation code has expired.' };
+      }
+      if (!planCode) {
+        return { ok: false, message: 'Invalid activation code.' };
+      }
+
+      const usedAt = nowIso();
+
+      // Update Token
+      transaction.update(tokenDocRef, {
+        status: 'Used',
+        usedAt,
+        usedByVendor: cleanVendorId,
+        updatedAt: usedAt
+      });
+
+      // Update License
+      const licenseRef = doc(db, 'vendorLicenses', cleanVendorId);
+      transaction.set(licenseRef, {
+        planCode,
+        planId: planCode,
+        licenseStatus: 'Active',
+        activationStatus: 'Active',
+        activatedAt: usedAt,
+        updatedAt: usedAt
+      }, { merge: true });
+
+      // Update Plan
+      const planRef = doc(db, 'vendorPlans', cleanVendorId);
+      transaction.set(planRef, {
+        planCode,
+        planId: planCode,
+        activatedAt: usedAt,
+        updatedAt: usedAt
+      }, { merge: true });
+
+      // Update Vendor
+      const vendorRef = doc(db, 'vendors', cleanVendorId);
+      transaction.set(vendorRef, {
+        planCode,
+        accountStatus: 'Active',
+        updatedAt: usedAt
+      }, { merge: true });
+
+      // Create Audit Log
+      const auditLogRef = doc(collection(db, 'vendorAuditLogs'));
+      transaction.set(auditLogRef, {
+        auditLogId: auditLogRef.id,
+        vendorId: cleanVendorId,
+        planCode,
+        tokenCode: cleanToken,
+        eventType: 'ACTIVATION_CODE_REDEEMED',
+        performedBy: 'Vendor POS Client',
+        createdAt: usedAt,
+        updatedAt: usedAt
+      });
+
+      const tokenRecord: ActivationTokenRecord = {
+        tokenId: tokenSnap.id,
+        vendorId: tokenVendorId,
+        planCode,
+        tokenCode: cleanToken,
+        status: 'Used',
+        expiresAt
+      };
+
+      return {
+        ok: true,
+        message: 'Subscription Activated Successfully',
+        token: tokenRecord,
+        planCode
+      };
+    });
+
+    return transactionResult;
+  } catch (err) {
+    console.error('Redemption failed:', err);
+    return { ok: false, message: 'Activation could not be completed.\nPlease try again.' };
+  }
 }

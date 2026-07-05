@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { AlertTriangle, Download, Eye, RefreshCw, Search, Wifi, WifiOff } from 'lucide-react';
 import AuthPreviewPanel from '../components/AuthPreviewPanel';
-import FirebaseSandboxPanel from '../components/FirebaseSandboxPanel';
 import OfflineQueueItemForm from '../components/OfflineQueueItemForm';
 import SyncConflictForm from '../components/SyncConflictForm';
 import {
@@ -373,8 +372,6 @@ export default function PosSyncDesk({ session }: PosSyncDeskProps) {
       </section>
 
       {SHOW_DEV_BADGES && <AuthPreviewPanel />}
-
-      {SHOW_DEV_BADGES && <FirebaseSandboxPanel />}
 
       <section className="bg-white border-2 border-[#b1b5c2] p-3">
         <div className="grid grid-cols-2 md:grid-cols-5 xl:grid-cols-10 gap-2">

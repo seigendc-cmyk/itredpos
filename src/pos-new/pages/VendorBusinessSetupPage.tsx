@@ -99,6 +99,10 @@ function persistVendorRuntimeState(
   const taxNumber = clean(profile.taxNumber);
   const registrationNumber = clean(profile.registrationNumber);
 
+  const branchId = `${vendorId}_main_branch`;
+  const warehouseId = `${vendorId}_main_warehouse`;
+  const staffId = `${vendorId}_owner`;
+
   const businessProfile = {
     vendorId,
     businessName,
@@ -151,9 +155,9 @@ function persistVendorRuntimeState(
     regNo: registrationNumber,
     status: "Active",
     profileStatus: "Active",
-    businessStatus: "Demo",
-    licenseStatus: "Demo",
-    licenseMode: "demo",
+    businessStatus: "Trial",
+    licenseStatus: "Trial",
+    licenseMode: "trial",
     planId: "DEMO",
     planCode: "DEMO",
     firebaseWritesEnabled: false,
@@ -165,16 +169,16 @@ function persistVendorRuntimeState(
     consolePendingSince: syncStatus === "PendingSync" ? now : "",
     currency: "USD",
     profileLastUpdatedAt: now,
-    profileUpdatedBy: OWNER_STAFF_ID
+    profileUpdatedBy: staffId
   };
 
   const branches = [
     {
-      id: MAIN_BRANCH_ID,
+      id: branchId,
       name: branchName,
       location: branchAddress || [clean(profile.branchCity), clean(profile.branchSuburb)].filter(Boolean).join(", "),
       vendorId,
-      branchCode: MAIN_BRANCH_ID,
+      branchCode: branchId,
       branchType: "Main Branch",
       phone: clean(profile.branchPhone),
       branchPhone: clean(profile.branchPhone),
@@ -195,7 +199,7 @@ function persistVendorRuntimeState(
       physicalAddress: branchAddress,
       status: "Active",
       syncStatus,
-      createdByStaffId: OWNER_STAFF_ID,
+      createdByStaffId: staffId,
       createdAt: now,
       updatedAt: now
     }
@@ -203,11 +207,11 @@ function persistVendorRuntimeState(
 
   const warehouses = [
     {
-      id: MAIN_WAREHOUSE_ID,
+      id: warehouseId,
       name: warehouseName,
-      branchId: MAIN_BRANCH_ID,
+      branchId: branchId,
       vendorId,
-      warehouseCode: MAIN_WAREHOUSE_ID,
+      warehouseCode: warehouseId,
       warehouseType: "Main Warehouse",
       phone: clean(profile.warehousePhone),
       warehousePhone: clean(profile.warehousePhone),
@@ -227,7 +231,7 @@ function persistVendorRuntimeState(
       responsibleStaff: ownerName,
       status: "Active",
       syncStatus,
-      createdByStaffId: OWNER_STAFF_ID,
+      createdByStaffId: staffId,
       createdAt: now,
       updatedAt: now
     }
@@ -237,8 +241,8 @@ function persistVendorRuntimeState(
     {
       id: MAIN_TERMINAL_ID,
       name: "Main POS Terminal",
-      branchId: MAIN_BRANCH_ID,
-      warehouseId: MAIN_WAREHOUSE_ID,
+      branchId: branchId,
+      warehouseId: warehouseId,
       type: "POS",
       status: "Active",
       syncStatus
@@ -247,13 +251,13 @@ function persistVendorRuntimeState(
 
   const staff = [
     {
-      id: OWNER_STAFF_ID,
+      id: staffId,
       name: ownerName,
       email: clean(profile.ownerEmail),
       role: "Owner",
       pass: clean(profile.ownerPin),
       pin: clean(profile.ownerPin),
-      branchId: MAIN_BRANCH_ID,
+      branchId: branchId,
       syncStatus
     }
   ];
@@ -356,6 +360,10 @@ export default function VendorBusinessSetupPage() {
       Date.now() + profile.trialDays * 24 * 60 * 60 * 1000
     ).toISOString();
 
+    const branchId = `${vendorId}_main_branch`;
+    const warehouseId = `${vendorId}_main_warehouse`;
+    const staffId = `${vendorId}_owner`;
+
     const nextContext = {
       ...(existing || {}),
       stage: "staffAccessRequired" as const,
@@ -363,11 +371,11 @@ export default function VendorBusinessSetupPage() {
       googleEmail: profile.ownerEmail || existing?.googleEmail || "owner@example.com",
       vendorId,
       vendorName: clean(profile.businessName),
-      branchId: MAIN_BRANCH_ID,
-      warehouseId: MAIN_WAREHOUSE_ID,
-      staffId: OWNER_STAFF_ID,
+      branchId,
+      warehouseId,
+      staffId,
       staffRole: "Owner",
-      licenseStatus: "Demo" as const,
+      licenseStatus: "Trial" as const,
       demoExpiresAt,
       syncStatus: "PendingSync" as const,
       consoleProvisioningError: "",
@@ -407,6 +415,10 @@ export default function VendorBusinessSetupPage() {
 
     persistVendorRuntimeState(profile, provisioningResult.vendorId, provisioningResult.syncStatus, provisioningResult.error || "");
     savePosAuthContext(finalContext);
+
+    if (provisioningResult.syncStatus === "PendingSync") {
+      alert("Business setup saved. Console sync will retry when internet is available.");
+    }
 
     window.location.reload();
   }

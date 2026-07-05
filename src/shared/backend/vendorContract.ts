@@ -44,6 +44,8 @@ export interface VendorRecord {
   source: string;
   createdAt: string;
   updatedAt: string;
+  verifiedAt?: string;
+  verifiedBy?: string;
 }
 
 export interface VendorRegistrationRecord extends VendorRecord {
@@ -52,6 +54,7 @@ export interface VendorRegistrationRecord extends VendorRecord {
   reviewedAt?: string;
   reviewedBy?: string;
   reviewNotes?: string;
+  reviewReason?: string;
   syncStatus?: 'Synced' | 'PendingSync';
 }
 
@@ -112,6 +115,7 @@ export interface VendorAuditLogRecord {
   vendorId: string;
   eventType: string;
   message: string;
+  performedBy?: string;
   createdAt: string;
   updatedAt: string;
 }

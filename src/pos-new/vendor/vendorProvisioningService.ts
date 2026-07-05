@@ -1,15 +1,27 @@
-import { doc, writeBatch } from 'firebase/firestore';
+import { collection, doc, writeBatch } from 'firebase/firestore';
 import { db, firebaseReady } from '../firebase/firebaseApp';
 import { sanitizeDocId } from '../firebase/firestoreIds';
 import type { PosVendorAuthContext } from '../auth/posVendorAuthState';
 import type { VendorBootstrapProfile } from './vendorBootstrapModel';
+import {
+  FIRESTORE_COLLECTIONS,
+  createDefaultDemoLicense,
+  createDefaultDemoPlan,
+} from '../../shared/backend';
+import type {
+  VendorRecord,
+  VendorRegistrationRecord,
+  VendorBranchRecord,
+  VendorWarehouseRecord,
+  VendorStaffRecord,
+  VendorLicenseRecord,
+  VendorPlanRecord,
+  VendorAuditLogRecord
+} from '../../shared/backend';
 
 const SOURCE = 'POS_ONBOARDING';
 const PLAN_CODE = 'DEMO';
-const MAIN_BRANCH_ID = 'main-branch';
-const MAIN_WAREHOUSE_ID = 'main-warehouse';
 const MAIN_TERMINAL_ID = 'TERM-MAIN-001';
-const OWNER_STAFF_ID = 'owner-staff';
 
 export type VendorProvisioningSyncStatus = 'Synced' | 'PendingSync';
 
@@ -27,15 +39,16 @@ function clean(value: unknown, fallback = ''): string {
   return text || fallback;
 }
 
-function addDaysIso(base: Date, days: number): string {
-  return new Date(base.getTime() + days * 24 * 60 * 60 * 1000).toISOString();
-}
-
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : 'Unknown Firebase provisioning error.';
 }
 
-function createBusinessIdentity(profile: VendorBootstrapProfile, authContext: PosVendorAuthContext, vendorId: string, now: string) {
+function createBusinessIdentity(
+  profile: VendorBootstrapProfile,
+  authContext: PosVendorAuthContext,
+  vendorId: string,
+  now: string
+): VendorRecord {
   const businessName = clean(profile.businessName, clean(authContext.vendorName, 'Registered Business'));
   const tradingName = clean(profile.tradingName, businessName);
   const ownerName = clean(profile.ownerName, clean(profile.ownerStaffName, 'Owner'));
@@ -58,34 +71,34 @@ function createBusinessIdentity(profile: VendorBootstrapProfile, authContext: Po
     ownerName,
     ownerEmail,
     googleEmail: clean(authContext.googleEmail, ownerEmail),
-    googleUid: clean(authContext.googleUid),
+    googleUid: authContext.googleUid || undefined,
     phone,
     whatsapp,
-    alternatePhone: clean(profile.alternatePhone),
-    website: clean(profile.website),
-    businessType,
-    industry,
+    alternatePhone: clean(profile.alternatePhone) || undefined,
+    website: clean(profile.website) || undefined,
+    businessType: businessType || undefined,
+    industry: industry || undefined,
     country,
-    province,
+    province: province || undefined,
     city,
-    suburb,
-    postalCode: clean(profile.postalCode),
-    address,
-    physicalAddress: address,
+    suburb: suburb || undefined,
+    postalCode: clean(profile.postalCode) || undefined,
+    address: address || undefined,
+    physicalAddress: address || undefined,
     vatRegistered: Boolean(profile.vatRegistered),
-    vatNumber: clean(profile.vatNumber),
-    taxNumber: clean(profile.taxNumber),
-    registrationNumber: clean(profile.registrationNumber),
+    vatNumber: clean(profile.vatNumber) || undefined,
+    taxNumber: clean(profile.taxNumber) || undefined,
+    registrationNumber: clean(profile.registrationNumber) || undefined,
     verificationStatus: 'Pending',
     accountStatus: 'Trial',
     source: SOURCE,
     planCode: PLAN_CODE,
     licenseStatus: 'Trial',
     activationStatus: 'PendingConsoleVerification',
-    defaultBranchId: MAIN_BRANCH_ID,
-    defaultWarehouseId: MAIN_WAREHOUSE_ID,
+    defaultBranchId: `${vendorId}_main_branch`,
+    defaultWarehouseId: `${vendorId}_main_warehouse`,
     defaultTerminalId: MAIN_TERMINAL_ID,
-    ownerStaffId: OWNER_STAFF_ID,
+    ownerStaffId: `${vendorId}_owner`,
     createdAt: now,
     updatedAt: now
   };
@@ -98,11 +111,11 @@ export async function provisionVendorFromBusinessSetup(
   const vendorId = sanitizeDocId(clean(authContext.vendorId, clean(profile.vendorId, `vendor_${Date.now()}`)));
   const nowDate = new Date();
   const now = nowDate.toISOString();
-  const trialExpiresAt = addDaysIso(nowDate, 3);
   const business = createBusinessIdentity(profile, authContext, vendorId, now);
   const branchId = `${vendorId}_main_branch`;
   const warehouseId = `${vendorId}_main_warehouse`;
   const staffId = `${vendorId}_owner`;
+  
   const writtenCollections = [
     'vendors',
     'vendorRegistrations',
@@ -110,7 +123,8 @@ export async function provisionVendorFromBusinessSetup(
     'vendorWarehouses',
     'vendorStaff',
     'vendorLicenses',
-    'vendorPlans'
+    'vendorPlans',
+    'vendorAuditLogs'
   ];
 
   if (!firebaseReady || !db) {
@@ -128,127 +142,94 @@ export async function provisionVendorFromBusinessSetup(
   const warehouseName = clean(profile.defaultWarehouseName, clean(profile.warehouseName, 'Main Warehouse'));
   const ownerName = clean(profile.ownerName, clean(profile.ownerStaffName, 'Owner'));
 
-  const registrationDoc = {
+  const registrationDoc: VendorRegistrationRecord = {
     ...business,
     registrationStatus: 'PendingConsoleVerification',
     submittedAt: now,
     syncStatus: 'Synced'
   };
 
-  const branchDoc = {
+  const branchDoc: VendorBranchRecord = {
     vendorId,
-    branchId: MAIN_BRANCH_ID,
-    id: MAIN_BRANCH_ID,
-    name: branchName,
+    branchId,
     branchName,
-    phone: clean(profile.branchPhone),
-    whatsapp: clean(profile.branchWhatsapp),
-    email: clean(profile.branchEmail),
+    phone: clean(profile.branchPhone) || undefined,
+    whatsapp: clean(profile.branchWhatsapp) || undefined,
+    email: clean(profile.branchEmail) || undefined,
     country: clean(profile.branchCountry, business.country),
-    province: clean(profile.branchProvince),
-    city: clean(profile.branchCity),
-    suburb: clean(profile.branchSuburb),
-    address: clean(profile.branchAddress),
+    province: clean(profile.branchProvince) || undefined,
+    city: clean(profile.branchCity) || undefined,
+    suburb: clean(profile.branchSuburb) || undefined,
+    address: clean(profile.branchAddress) || undefined,
     status: 'Active',
     source: SOURCE,
     createdAt: now,
     updatedAt: now
   };
 
-  const warehouseDoc = {
+  const warehouseDoc: VendorWarehouseRecord = {
     vendorId,
-    warehouseId: MAIN_WAREHOUSE_ID,
-    id: MAIN_WAREHOUSE_ID,
-    branchId: MAIN_BRANCH_ID,
-    name: warehouseName,
+    warehouseId,
+    branchId,
     warehouseName,
-    phone: clean(profile.warehousePhone),
-    whatsapp: clean(profile.warehouseWhatsapp),
-    email: clean(profile.warehouseEmail),
+    phone: clean(profile.warehousePhone) || undefined,
+    whatsapp: clean(profile.warehouseWhatsapp) || undefined,
+    email: clean(profile.warehouseEmail) || undefined,
     country: clean(profile.warehouseCountry, business.country),
-    province: clean(profile.warehouseProvince),
-    city: clean(profile.warehouseCity),
-    suburb: clean(profile.warehouseSuburb),
-    address: clean(profile.warehouseAddress),
+    province: clean(profile.warehouseProvince) || undefined,
+    city: clean(profile.warehouseCity) || undefined,
+    suburb: clean(profile.warehouseSuburb) || undefined,
+    address: clean(profile.warehouseAddress) || undefined,
     status: 'Active',
     source: SOURCE,
     createdAt: now,
     updatedAt: now
   };
 
-  const staffDoc = {
+  const staffDoc: VendorStaffRecord = {
     vendorId,
-    staffId: OWNER_STAFF_ID,
-    id: OWNER_STAFF_ID,
+    staffId,
+    branchId,
     name: ownerName,
-    ownerName,
-    email: business.ownerEmail,
-    phone: business.phone,
-    whatsapp: business.whatsapp,
+    email: business.ownerEmail || undefined,
+    phone: business.phone || undefined,
+    whatsapp: business.whatsapp || undefined,
     role: 'Owner',
-    staffRole: 'Owner',
-    branchId: MAIN_BRANCH_ID,
     status: 'Active',
     source: SOURCE,
     createdAt: now,
     updatedAt: now
   };
 
-  const licenseDoc = {
-    vendorId,
-    vendorName: business.businessName,
-    ownerEmail: business.ownerEmail,
-    licenseId: vendorId,
-    activationId: vendorId,
-    planCode: PLAN_CODE,
-    planId: PLAN_CODE,
-    planName: 'Demo Trial',
-    licenseStatus: 'Trial',
-    licenseMode: 'demo',
-    storageMode: 'localOnly',
-    status: 'pending',
-    activationStatus: 'PendingConsoleVerification',
-    branchId: MAIN_BRANCH_ID,
-    branchName,
-    terminalId: MAIN_TERMINAL_ID,
-    terminalCode: MAIN_TERMINAL_ID,
-    terminalName: 'Main POS Terminal',
-    dashboardType: 'POS',
-    startsAt: now,
-    expiresAt: trialExpiresAt,
-    issuedBy: SOURCE,
-    issuedAt: now,
-    trialStartedAt: now,
-    trialExpiresAt,
-    source: SOURCE,
-    createdAt: now,
-    updatedAt: now
+  const licenseDoc: VendorLicenseRecord = {
+    ...createDefaultDemoLicense(vendorId, 3),
+    branchId,
+    licenseMode: 'trial'
   };
 
-  const planDoc = {
-    vendorId,
-    planId: PLAN_CODE,
-    planCode: PLAN_CODE,
-    planName: 'Demo Trial',
-    accountStatus: 'Trial',
-    licenseStatus: 'Trial',
-    activationStatus: 'PendingConsoleVerification',
-    trialStartedAt: now,
-    trialExpiresAt,
-    source: SOURCE,
-    createdAt: now,
-    updatedAt: now
-  };
+  const planDoc: VendorPlanRecord = createDefaultDemoPlan(vendorId);
 
   try {
     const batch = writeBatch(db);
-    batch.set(doc(db, 'vendors', vendorId), { ...business, syncStatus: 'Synced' }, { merge: true });
-    batch.set(doc(db, 'vendorRegistrations', vendorId), registrationDoc, { merge: true });
-    batch.set(doc(db, 'vendorBranches', sanitizeDocId(branchId)), branchDoc, { merge: true });
-    batch.set(doc(db, 'vendorWarehouses', sanitizeDocId(warehouseId)), warehouseDoc, { merge: true });
-    batch.set(doc(db, 'vendorStaff', sanitizeDocId(staffId)), staffDoc, { merge: true });
-    batch.set(doc(db, 'vendorLicenses', vendorId), licenseDoc, { merge: true });
-    batch.set(doc(db, 'vendorPlans', vendorId), planDoc, { merge: true });
+    batch.set(doc(db, FIRESTORE_COLLECTIONS.vendors, vendorId), business, { merge: true });
+    batch.set(doc(db, FIRESTORE_COLLECTIONS.vendorRegistrations, vendorId), registrationDoc, { merge: true });
+    batch.set(doc(db, FIRESTORE_COLLECTIONS.vendorBranches, branchId), branchDoc, { merge: true });
+    batch.set(doc(db, FIRESTORE_COLLECTIONS.vendorWarehouses, warehouseId), warehouseDoc, { merge: true });
+    batch.set(doc(db, FIRESTORE_COLLECTIONS.vendorStaff, staffId), staffDoc, { merge: true });
+    batch.set(doc(db, FIRESTORE_COLLECTIONS.vendorLicenses, vendorId), licenseDoc, { merge: true });
+    batch.set(doc(db, FIRESTORE_COLLECTIONS.vendorPlans, vendorId), planDoc, { merge: true });
+
+    const auditLogRef = doc(collection(db, FIRESTORE_COLLECTIONS.vendorAuditLogs));
+    const auditLogDoc: VendorAuditLogRecord = {
+      auditLogId: auditLogRef.id,
+      vendorId,
+      eventType: 'Onboarding',
+      message: 'Vendor POS business profile provisioned and registered.',
+      createdAt: now,
+      updatedAt: now
+    };
+    batch.set(auditLogRef, auditLogDoc);
+
     await batch.commit();
 
     return {
@@ -269,3 +250,4 @@ export async function provisionVendorFromBusinessSetup(
     };
   }
 }
+

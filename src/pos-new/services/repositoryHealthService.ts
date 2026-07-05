@@ -47,7 +47,7 @@ export function getRepositoryReadinessChecklist() {
     { label: 'Default Source Mode', status: summary.currentDefaultSourceMode },
     { label: 'Live Reads', status: summary.liveReadEnabledCount === 0 ? 'Disabled' : 'Enabled' },
     { label: 'Live Writes', status: summary.liveWriteEnabledCount === 0 ? 'Disabled' : 'Enabled' },
-    { label: 'Firestore Sandbox', status: summary.sandboxReadsEnabled && summary.sandboxWritesEnabled ? 'Enabled' : 'Disabled' },
+    { label: 'Cloud Readiness', status: summary.sandboxReadsEnabled && summary.sandboxWritesEnabled ? 'Enabled' : 'Disabled' },
     { label: 'Business Firestore', status: !summary.businessReadsEnabled && !summary.businessWritesEnabled ? 'Disabled' : 'Enabled' },
     { label: 'Mock / Local Active', status: summary.mockLocalRepositories > 0 ? 'Ready' : 'Missing' },
     { label: 'Offline Queue Boundary', status: summary.offlineQueueEnabledCount > 0 ? 'Ready' : 'Missing' }

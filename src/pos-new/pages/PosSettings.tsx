@@ -21,7 +21,8 @@ import {
   EyeOff,
   Sliders,
   ChevronRight,
-  Info
+  Info,
+  Layers
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
@@ -49,6 +50,8 @@ import { getCheckWriterSettings, previewNumber, updateCheckWriterSettings } from
 import { getActiveVendorId } from '../utils/vendorDataMode';
 import { getNextPlanCode, isLimitReached, type PlanFeatureAccess } from '../auth/planFeatureGate';
 import UpgradeRequiredPanel, { type UpgradeRequiredVendorContext } from '../components/UpgradeRequiredPanel';
+import PosSubscriptionPanel from '../components/PosSubscriptionPanel';
+import { readPosAuthContext } from '../auth/posVendorAuthState';
 
 interface PosSettingsProps {
   businessProfile: BusinessProfile;
@@ -82,6 +85,7 @@ interface PosSettingsProps {
 
 type SettingsSectionId = 
   | 'BUSINESS_PROFILE' 
+  | 'SUBSCRIPTION'
   | 'BRANCHES' 
   | 'WAREHOUSES' 
   | 'TERMINALS' 
@@ -515,6 +519,7 @@ export default function PosSettings({
   // Mapped sub-panels for clean execution selection
   const sidebarNavItems = [
     { id: 'BUSINESS_PROFILE' as const, label: 'Business Profile', icon: Building, color: 'text-indigo-400' },
+    { id: 'SUBSCRIPTION' as const, label: 'Subscription', icon: Layers, color: 'text-orange-500' },
     { id: 'BRANCHES' as const, label: 'Branches Registry', icon: MapPin, color: 'text-[#00f0ff]' },
     { id: 'WAREHOUSES' as const, label: 'Warehouses Hub', icon: Package, color: 'text-purple-400' },
     { id: 'TERMINALS' as const, label: 'Terminal Registry', icon: Terminal, color: 'text-amber-500' },
@@ -672,6 +677,15 @@ export default function PosSettings({
           
           {/* CONTENT SECTOR SWITCHER */}
           <div className="space-y-6 flex-1">
+
+            {activeSection === 'SUBSCRIPTION' && (
+              <PosSubscriptionPanel
+                businessProfile={businessProfile}
+                vendorAuth={readPosAuthContext()}
+                planAccess={planAccess}
+                onToast={triggerToast}
+              />
+            )}
 
             {/* TAB 1: BUSINESS PROFILE */}
             {activeSection === 'BUSINESS_PROFILE' && (

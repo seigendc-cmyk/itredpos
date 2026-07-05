@@ -80,7 +80,7 @@ const PosReports = lazy(() => import('./pages/PosReports'));
 const SHOW_DEV_BADGES = false;
 const FIREBASE_WRITE_MODE_KEY = 'itred_pos_firebase_write_mode';
 
-// Developer seed data is opt-in only. New vendors start with live empty stores.
+// Seed data is opt-in only. New vendors start with live empty stores.
 const INITIAL_PRODUCTS: Product[] = ENABLE_MOCK_SEED_DATA ? mockProducts : [];
 
 const INITIAL_TRANSACTIONS: Transaction[] = ENABLE_MOCK_SEED_DATA ? mockRecentSales : [];
@@ -237,7 +237,9 @@ function normalizeSessionForVendorRuntime(
 }
 
 function licenseBlockTitle(snapshot: VendorLicenseRuntimeSnapshot): string {
-  return snapshot.blockReason === 'AccountSuspended' ? 'Account Suspended' : 'License Required';
+  if (snapshot.blockReason === 'AccountSuspended') return 'Account Suspended';
+  if (snapshot.blockReason === 'VerificationRejected') return 'Vendor Registration Rejected';
+  return 'License Required';
 }
 
 function profileText(profile: Partial<BusinessProfile> | null | undefined, ...keys: string[]): string {

@@ -24,6 +24,7 @@ export interface VendorLicenseRecord {
   expiresAt: string;
   featureFlags: PlanFeatureFlags;
   limits: PlanLimits;
+  activatedAt?: string;
   createdAt: string;
   updatedAt: string;
 }

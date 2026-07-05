@@ -2,7 +2,12 @@ import { useState, useEffect } from 'react';
 import PosPrototypeApp from './pos-new/PosPrototypeApp';
 import PosVendorAuthGate from './pos-new/auth/PosVendorAuthGate';
 import FirebaseReadinessPage from './platform/FirebaseReadinessPage';
-import { Terminal, Cpu, HardDrive, ShieldCheck, Power, RefreshCw } from 'lucide-react';
+import VendorVerificationQueuePage from './platform/VendorVerificationQueuePage';
+import PricingPlansManagerPage from './platform/PricingPlansManagerPage';
+import ActivationTokenManagerPage from './platform/ActivationTokenManagerPage';
+import PaymentRenewalPage from './platform/PaymentRenewalPage';
+import VendorSyncMonitorPage from './platform/VendorSyncMonitorPage';
+import { Cpu, ShieldCheck, Power, RefreshCw } from 'lucide-react';
 
 export default function App() {
   const [currentPath, setCurrentPath] = useState(window.location.pathname);
@@ -23,7 +28,7 @@ export default function App() {
   useEffect(() => {
     if (currentPath !== '/pos-prototype') {
       const logs = [
-        "INITIALIZING CORE SYSTEM BOOT STRAPPER v4.18...",
+        "INITIALIZING CORE SYSTEM BOOT STRAPRAP v4.18...",
         "CPU INTEL CORE-OS HARDWARE: STATUS OK",
         "RAM DIAGNOSTIC MEMORY CHUNKS: 16384 MB SECTOR OK",
         "PCI SOLENOID ADAPTER INTERFACE ENERGIZED (12VDC/24VDC)",
@@ -55,11 +60,6 @@ export default function App() {
     setCurrentPath('/pos-prototype');
   };
 
-  const handleRouteToFirebaseReadiness = () => {
-    window.history.pushState({}, '', '/platform/firebase-readiness');
-    setCurrentPath('/platform/firebase-readiness');
-  };
-
   // If path is indeed /pos-prototype, mount our primary modern shell application
   if (currentPath === '/pos-prototype') {
     return (
@@ -71,6 +71,26 @@ export default function App() {
 
   if (currentPath === '/platform/firebase-readiness') {
     return <FirebaseReadinessPage />;
+  }
+
+  if (currentPath === '/platform/vendor-verification') {
+    return <VendorVerificationQueuePage />;
+  }
+
+  if (currentPath === '/platform/pricing-plans') {
+    return <PricingPlansManagerPage />;
+  }
+
+  if (currentPath === '/platform/activation-tokens') {
+    return <ActivationTokenManagerPage />;
+  }
+
+  if (currentPath === '/platform/payment-renewals') {
+    return <PaymentRenewalPage />;
+  }
+
+  if (currentPath === '/platform/vendor-sync-monitor') {
+    return <VendorSyncMonitorPage />;
   }
 
   // Otherwise, render an elegant mechanical industrial loader BIOS
@@ -104,7 +124,7 @@ export default function App() {
           {biosProgress === 100 && (
             <div className="text-amber-500 font-bold mt-4 flex items-center gap-2">
               <ShieldCheck className="w-4 h-4 text-emerald-400" />
-              <span>DIAGNOSTIC MEMORIES: SECURE. STANDBY_READY FOR OPERATIVE CONSOLE INTERACTION.</span>
+              <span>DIAGNOSTIC MEMORIES: SECURE. STANDBY_READY FOR POS TERMINAL INTERACTION.</span>
             </div>
           )}
         </div>
@@ -132,14 +152,7 @@ export default function App() {
         </div>
 
         {biosProgress === 100 ? (
-          <div className="flex flex-col gap-2 sm:flex-row">
-            <button
-              onClick={handleRouteToFirebaseReadiness}
-              className="bg-slate-950 hover:bg-slate-900 active:bg-slate-800 text-cyan-300 font-black tracking-widest uppercase px-5 py-4 border border-cyan-700 transition-colors rounded-none flex items-center gap-3 cursor-pointer"
-            >
-              <HardDrive className="w-5 h-5 text-cyan-300" />
-              Firebase Readiness
-            </button>
+          <div className="flex">
             <button
               onClick={handleRouteToPos}
               className="bg-amber-500 hover:bg-amber-600 active:bg-amber-700 text-slate-950 font-black tracking-widest uppercase px-8 py-4 border border-amber-400 transition-colors rounded-none flex items-center gap-3 animate-pulse cursor-pointer shadow-lg shadow-amber-500/10"
@@ -151,16 +164,10 @@ export default function App() {
         ) : (
           <div className="flex items-center gap-3">
             <button
-              onClick={handleRouteToFirebaseReadiness}
-              className="px-4 py-2 border border-slate-700 hover:border-cyan-500 text-slate-500 hover:text-cyan-400 bg-slate-950 hover:bg-slate-900 transition-all font-bold text-[10px] tracking-wide uppercase cursor-pointer"
-            >
-              Firebase Readiness
-            </button>
-            <button
               onClick={handleRouteToPos}
               className="px-4 py-2 border border-slate-700 hover:border-amber-500 text-slate-500 hover:text-amber-500 bg-slate-950 hover:bg-slate-900 transition-all font-bold text-[10px] tracking-wide uppercase cursor-pointer"
             >
-              Bypass and Boot
+              Boot Pos Terminal Gate
             </button>
             <div className="text-slate-500 uppercase tracking-widest font-bold text-[10px] py-4 flex items-center gap-2">
               <RefreshCw className="w-4 h-4 animate-spin" />
@@ -172,4 +179,3 @@ export default function App() {
     </div>
   );
 }
-

@@ -5,8 +5,14 @@ import {
   resolveNextAuthStage
 } from './posVendorAuthState';
 import type { PlanFeatureFlags } from './planFeatureGate';
+import {
+  FIRESTORE_COLLECTIONS,
+  DEFAULT_PLAN_LIMITS,
+  DEFAULT_PLAN_FEATURE_FLAGS
+} from '../../shared/backend';
+import type { PlanCode } from '../../shared/backend';
 
-export type VendorRuntimeLicenseMode = 'trial' | 'active' | 'demo';
+export type VendorRuntimeLicenseMode = 'trial' | 'active' | 'demo' | 'blocked';
 export type VendorRuntimeBlockReason = 'LicenseRequired' | 'AccountSuspended' | 'VerificationRejected';
 export type VendorRuntimeNoticeKind = 'trial' | 'pending' | 'offline' | 'blocked' | 'active';
 
@@ -15,13 +21,10 @@ export interface VendorLicenseRuntimeSnapshot {
   planCode: string;
   licenseStatus: string;
   activationStatus: string;
+  verificationStatus: string;
+  accountStatus: string;
   trialStartedAt: string;
   trialExpiresAt: string;
-  accountStatus: string;
-  verificationStatus: string;
-  activatedAt: string;
-  suspendedAt: string;
-  rejectedAt: string;
   featureFlags: Partial<PlanFeatureFlags>;
   maxBranches: number;
   maxWarehouses: number;
@@ -38,6 +41,7 @@ export interface VendorLicenseRuntimeSnapshot {
   source: 'firestore' | 'local';
   blockReason?: VendorRuntimeBlockReason;
   updatedAt: string;
+  message: string;
 }
 
 type Row = Record<string, unknown>;
@@ -112,7 +116,7 @@ function normalizeLicenseMode(licenseStatus: string, planCode: string): VendorRu
   return 'trial';
 }
 
-function makeNotice(snapshot: Omit<VendorLicenseRuntimeSnapshot, 'noticeKind' | 'noticeTitle' | 'noticeDetail'>): Pick<VendorLicenseRuntimeSnapshot, 'noticeKind' | 'noticeTitle' | 'noticeDetail'> {
+function makeNotice(snapshot: Omit<VendorLicenseRuntimeSnapshot, 'noticeKind' | 'noticeTitle' | 'noticeDetail' | 'message'>): Pick<VendorLicenseRuntimeSnapshot, 'noticeKind' | 'noticeTitle' | 'noticeDetail'> {
   if (snapshot.blockReason === 'AccountSuspended') {
     return {
       noticeKind: 'blocked',
@@ -120,7 +124,14 @@ function makeNotice(snapshot: Omit<VendorLicenseRuntimeSnapshot, 'noticeKind' | 
       noticeDetail: 'Contact SCI support to restore POS access.'
     };
   }
-  if (snapshot.blockReason === 'VerificationRejected' || snapshot.blockReason === 'LicenseRequired') {
+  if (snapshot.blockReason === 'VerificationRejected') {
+    return {
+      noticeKind: 'blocked',
+      noticeTitle: 'Vendor Registration Rejected',
+      noticeDetail: 'Contact SCI support for review details.'
+    };
+  }
+  if (snapshot.blockReason === 'LicenseRequired') {
     return {
       noticeKind: 'blocked',
       noticeTitle: 'License Required',
@@ -134,19 +145,23 @@ function makeNotice(snapshot: Omit<VendorLicenseRuntimeSnapshot, 'noticeKind' | 
       noticeDetail: 'License will sync when connection returns.'
     };
   }
-  if (compactStatus(snapshot.activationStatus) === 'pendingconsoleverification') {
+
+  const actStatus = compactStatus(snapshot.activationStatus);
+  const licStatus = compactStatus(snapshot.licenseStatus);
+
+  if (licStatus === 'trial' && actStatus === 'pendingconsoleverification') {
     return {
       noticeKind: 'pending',
       noticeTitle: 'Account Pending Verification',
-      noticeDetail: 'Trial access remains available while SCI reviews your registration.'
+      noticeDetail: ''
     };
   }
-  if (compactStatus(snapshot.licenseStatus) === 'trial' || snapshot.licenseMode === 'demo') {
+  if (licStatus === 'trial' && actStatus === 'active') {
     const days = snapshot.daysRemaining;
     return {
       noticeKind: 'trial',
       noticeTitle: 'Trial Plan Active',
-      noticeDetail: days === null ? 'Trial access enabled' : `${days} Days Remaining`
+      noticeDetail: days === null ? 'Trial access enabled' : `· ${days} Days Remaining`
     };
   }
   return {
@@ -156,29 +171,83 @@ function makeNotice(snapshot: Omit<VendorLicenseRuntimeSnapshot, 'noticeKind' | 
   };
 }
 
+function authContextMessage(snapshot: Omit<VendorLicenseRuntimeSnapshot, 'message'>): string {
+  if (snapshot.offline) {
+    return OFFLINE_NOTICE;
+  }
+  if (snapshot.blockReason === 'AccountSuspended') {
+    return 'Account Suspended';
+  }
+  if (snapshot.blockReason === 'VerificationRejected') {
+    return 'Vendor Registration Rejected';
+  }
+  if (snapshot.blockReason === 'LicenseRequired') {
+    return 'License Required';
+  }
+
+  const act = compactStatus(snapshot.activationStatus);
+  const lic = compactStatus(snapshot.licenseStatus);
+
+  if (lic === 'trial' && act === 'pendingconsoleverification') {
+    return 'Account Pending Verification';
+  }
+  if (lic === 'trial' && act === 'active') {
+    const days = snapshot.daysRemaining ?? 3;
+    return `Trial Plan Active · ${days} Days Remaining`;
+  }
+  return '';
+}
+
 function createRuntimeSnapshot(
   vendorId: string,
   license: Row,
   vendor: Row,
+  plan: Row,
   options: { offline: boolean; source: 'firestore' | 'local' }
 ): VendorLicenseRuntimeSnapshot {
-  const planCode = upper(license.planCode || vendor.planCode, DEFAULT_PLAN);
-  const licenseStatus = text(license.licenseStatus || vendor.licenseStatus, options.offline ? 'Trial' : 'Trial');
+  const planCode = upper(plan.planCode || license.planCode || vendor.planCode, DEFAULT_PLAN);
+  const licenseStatus = text(license.licenseStatus || vendor.licenseStatus, 'Trial');
   const activationStatus = text(license.activationStatus || vendor.activationStatus, 'PendingConsoleVerification');
   const accountStatus = text(vendor.accountStatus || license.accountStatus, 'Trial');
-  const verificationStatus = text(vendor.verificationStatus || license.verificationStatus, 'Pending');
-  const trialStartedAt = toIso(license.trialStartedAt || vendor.trialStartedAt);
-  const trialExpiresAt = toIso(license.trialExpiresAt || license.expiresAt || vendor.trialExpiresAt);
+  const verificationStatus = text(vendor.verificationStatus || license.verificationStatus || plan.verificationStatus, 'Pending');
+
+  const trialStartedAt = toIso(license.trialStartedAt || vendor.trialStartedAt || plan.trialStartedAt);
+  const trialExpiresAt = toIso(license.trialExpiresAt || license.expiresAt || vendor.trialExpiresAt || plan.trialExpiresAt);
+
+  const defaultFeatureFlags = DEFAULT_PLAN_FEATURE_FLAGS[planCode as PlanCode] || DEFAULT_PLAN_FEATURE_FLAGS[DEFAULT_PLAN as PlanCode];
+  const defaultLimits = DEFAULT_PLAN_LIMITS[planCode as PlanCode] || DEFAULT_PLAN_LIMITS[DEFAULT_PLAN as PlanCode];
+
   const featureFlags = {
+    ...defaultFeatureFlags,
     ...featureFlagsFrom(vendor.featureFlags),
+    ...featureFlagsFrom(plan.featureFlags),
     ...featureFlagsFrom(license.featureFlags)
   };
-  const suspended = [accountStatus, licenseStatus, activationStatus].some((value) => compactStatus(value) === 'suspended');
-  const rejected = [verificationStatus, accountStatus, licenseStatus, activationStatus].some((value) => compactStatus(value) === 'rejected');
-  const expired = compactStatus(licenseStatus) === 'expired' || isExpiredTrial(licenseStatus, trialExpiresAt);
-  const activeLicense = compactStatus(activationStatus) === 'active' && ['active', 'trial'].includes(compactStatus(licenseStatus));
-  const pendingTrial = compactStatus(activationStatus) === 'pendingconsoleverification';
+
+  const limits = {
+    maxBranches: numberValue(plan.maxBranches ?? license.maxBranches ?? vendor.maxBranches, defaultLimits.maxBranches),
+    maxWarehouses: numberValue(plan.maxWarehouses ?? license.maxWarehouses ?? vendor.maxWarehouses, defaultLimits.maxWarehouses),
+    maxTerminals: numberValue(plan.maxTerminals ?? license.maxTerminals ?? vendor.maxTerminals, defaultLimits.maxTerminals),
+    maxStaff: numberValue(plan.maxStaff ?? license.maxStaff ?? vendor.maxStaff, defaultLimits.maxStaff),
+    maxProducts: numberValue(plan.maxProducts ?? license.maxProducts ?? vendor.maxProducts, defaultLimits.maxProducts)
+  };
+
+  const actStatus = compactStatus(activationStatus);
+  const licStatus = compactStatus(licenseStatus);
+  const accStatus = compactStatus(accountStatus);
+  const verStatus = compactStatus(verificationStatus);
+
+  const suspended = [accStatus, licStatus, actStatus].includes('suspended');
+  const rejected = [verStatus, accStatus, licStatus, actStatus].includes('rejected');
+  const expired = licStatus === 'expired' || isExpiredTrial(licenseStatus, trialExpiresAt);
+
+  const activeLicense = actStatus === 'active' && ['active', 'trial'].includes(licStatus);
+  const pendingTrial = actStatus === 'pendingconsoleverification' && licStatus === 'trial';
+
+  const allowed = !suspended && !rejected && !expired && (activeLicense || pendingTrial || options.offline);
   const licenseMode = normalizeLicenseMode(licenseStatus, planCode);
+  const daysRem = daysRemaining(trialExpiresAt);
+
   const blockReason: VendorRuntimeBlockReason | undefined = suspended
     ? 'AccountSuspended'
     : rejected
@@ -192,31 +261,28 @@ function createRuntimeSnapshot(
     planCode,
     licenseStatus,
     activationStatus,
+    verificationStatus,
+    accountStatus,
     trialStartedAt,
     trialExpiresAt,
-    accountStatus,
-    verificationStatus,
-    activatedAt: toIso(license.activatedAt || vendor.activatedAt),
-    suspendedAt: toIso(license.suspendedAt || vendor.suspendedAt),
-    rejectedAt: toIso(license.rejectedAt || vendor.rejectedAt),
     featureFlags,
-    maxBranches: numberValue(license.maxBranches || vendor.maxBranches),
-    maxWarehouses: numberValue(license.maxWarehouses || vendor.maxWarehouses),
-    maxTerminals: numberValue(license.maxTerminals || vendor.maxTerminals),
-    maxStaff: numberValue(license.maxStaff || vendor.maxStaff),
-    maxProducts: numberValue(license.maxProducts || vendor.maxProducts),
-    allowed: !blockReason && (activeLicense || pendingTrial || options.offline),
+    ...limits, // maxBranches, maxWarehouses, maxTerminals, maxStaff, maxProducts
+    allowed,
     licenseMode,
-    daysRemaining: daysRemaining(trialExpiresAt),
+    daysRemaining: daysRem,
     offline: options.offline,
     source: options.source,
     blockReason,
     updatedAt: new Date().toISOString()
   };
 
+  const notice = makeNotice(base);
+  const tempSnapshot = { ...base, ...notice };
+  const message = authContextMessage(tempSnapshot);
+
   return {
-    ...base,
-    ...makeNotice(base)
+    ...tempSnapshot,
+    message
   };
 }
 
@@ -225,7 +291,7 @@ function saveRuntimeSnapshot(snapshot: VendorLicenseRuntimeSnapshot): void {
   try {
     localStorage.setItem(cacheKey(snapshot.vendorId), JSON.stringify(snapshot));
   } catch {
-    // License cache is best-effort for offline operation.
+    // Cache is best-effort.
   }
 }
 
@@ -242,17 +308,18 @@ export function readSavedVendorLicenseSnapshot(vendorId: string): VendorLicenseR
 function fallbackOfflineSnapshot(vendorId: string): VendorLicenseRuntimeSnapshot {
   const cached = readSavedVendorLicenseSnapshot(vendorId);
   if (cached) {
-    const offline = createRuntimeSnapshot(vendorId, cached as unknown as Row, cached as unknown as Row, { offline: true, source: 'local' });
+    const offline = createRuntimeSnapshot(vendorId, cached as unknown as Row, cached as unknown as Row, cached as unknown as Row, { offline: true, source: 'local' });
     return {
       ...offline,
       licenseMode: cached.licenseMode,
-      planCode: cached.planCode || offline.planCode
+      planCode: cached.planCode || offline.planCode,
+      message: OFFLINE_NOTICE
     };
   }
-  return createRuntimeSnapshot(vendorId, {}, {}, { offline: true, source: 'local' });
+  return createRuntimeSnapshot(vendorId, {}, {}, {}, { offline: true, source: 'local' });
 }
 
-export function subscribeToVendorLicense(
+export function subscribeToVendorRuntimeLicense(
   vendorId: string,
   callback: (snapshot: VendorLicenseRuntimeSnapshot) => void
 ): Unsubscribe {
@@ -269,17 +336,18 @@ export function subscribeToVendorLicense(
 
   let licenseData: Row = {};
   let vendorData: Row = {};
+  let planData: Row = {};
 
   const emit = (offline = false) => {
     const snapshot = offline
       ? fallbackOfflineSnapshot(cleanVendorId)
-      : createRuntimeSnapshot(cleanVendorId, licenseData, vendorData, { offline: false, source: 'firestore' });
+      : createRuntimeSnapshot(cleanVendorId, licenseData, vendorData, planData, { offline: false, source: 'firestore' });
     if (!offline) saveRuntimeSnapshot(snapshot);
     callback(snapshot);
   };
 
   const licenseUnsubscribe = onSnapshot(
-    doc(db, 'vendorLicenses', cleanVendorId),
+    doc(db, FIRESTORE_COLLECTIONS.vendorLicenses, cleanVendorId),
     (snapshot) => {
       licenseData = snapshot.exists() ? snapshot.data() as Row : {};
       emit(false);
@@ -288,9 +356,18 @@ export function subscribeToVendorLicense(
   );
 
   const vendorUnsubscribe = onSnapshot(
-    doc(db, 'vendors', cleanVendorId),
+    doc(db, FIRESTORE_COLLECTIONS.vendors, cleanVendorId),
     (snapshot) => {
       vendorData = snapshot.exists() ? snapshot.data() as Row : {};
+      emit(false);
+    },
+    () => emit(true)
+  );
+
+  const planUnsubscribe = onSnapshot(
+    doc(db, FIRESTORE_COLLECTIONS.vendorPlans, cleanVendorId),
+    (snapshot) => {
+      planData = snapshot.exists() ? snapshot.data() as Row : {};
       emit(false);
     },
     () => emit(true)
@@ -299,7 +376,15 @@ export function subscribeToVendorLicense(
   return () => {
     licenseUnsubscribe();
     vendorUnsubscribe();
+    planUnsubscribe();
   };
+}
+
+export function subscribeToVendorLicense(
+  vendorId: string,
+  callback: (snapshot: VendorLicenseRuntimeSnapshot) => void
+): Unsubscribe {
+  return subscribeToVendorRuntimeLicense(vendorId, callback);
 }
 
 function authLicenseStatus(snapshot: VendorLicenseRuntimeSnapshot): PosVendorAuthContext['licenseStatus'] {
@@ -315,8 +400,6 @@ export function mergeVendorLicenseIntoAuthContext(
   context: PosVendorAuthContext,
   snapshot: VendorLicenseRuntimeSnapshot
 ): PosVendorAuthContext {
-  const messageDetail = snapshot.noticeDetail ? ` - ${snapshot.noticeDetail}` : '';
-  const runtimeMessage = `${snapshot.noticeTitle}${messageDetail}`;
   const nextContext: PosVendorAuthContext = {
     ...context,
     vendorId: context.vendorId || snapshot.vendorId,
@@ -328,17 +411,14 @@ export function mergeVendorLicenseIntoAuthContext(
     verificationStatus: snapshot.verificationStatus,
     trialStartedAt: snapshot.trialStartedAt,
     trialExpiresAt: snapshot.trialExpiresAt,
-    activatedAt: snapshot.activatedAt,
-    suspendedAt: snapshot.suspendedAt,
-    rejectedAt: snapshot.rejectedAt,
-    featureFlags: snapshot.featureFlags,
+    featureFlags: snapshot.featureFlags as Record<string, boolean>,
     maxBranches: snapshot.maxBranches,
     maxWarehouses: snapshot.maxWarehouses,
     maxTerminals: snapshot.maxTerminals,
     maxStaff: snapshot.maxStaff,
     maxProducts: snapshot.maxProducts,
     demoExpiresAt: snapshot.trialExpiresAt || context.demoExpiresAt,
-    message: snapshot.noticeKind === 'offline' ? OFFLINE_NOTICE : runtimeMessage
+    message: snapshot.message
   };
 
   nextContext.stage = snapshot.allowed ? resolveNextAuthStage(nextContext) : 'licenseRequired';

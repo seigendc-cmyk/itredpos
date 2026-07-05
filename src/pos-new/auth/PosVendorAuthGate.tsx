@@ -166,7 +166,7 @@ export default function PosVendorAuthGate({ children }: PosVendorAuthGateProps) 
     return (
       <main className="min-h-screen bg-[#f7f5ef] p-6">
         <UpgradeRequiredPanel
-          featureName="POS License"
+          featureName={context.message || "POS License"}
           currentPlan={planCode}
           requiredPlan={String(getNextPlanCode(planCode))}
           vendor={{

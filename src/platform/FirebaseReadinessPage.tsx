@@ -128,22 +128,52 @@ export default function FirebaseReadinessPage() {
               <button
                 type="button"
                 onClick={() => {
+                  window.history.pushState({}, '', '/platform/vendor-verification');
+                  window.dispatchEvent(new PopStateEvent('popstate'));
+                }}
+                className="border border-orange-500 bg-orange-600 px-4 py-2 text-xs font-black uppercase text-white hover:bg-orange-700"
+              >
+                Open Vendor Verification Queue
+              </button>
+              <button
+                type="button"
+                onClick={() => {
                   window.history.pushState({}, '', '/platform/pricing-plans');
                   window.dispatchEvent(new PopStateEvent('popstate'));
                 }}
-                className="border border-emerald-600 bg-emerald-600 px-4 py-2 text-xs font-black uppercase text-white hover:bg-emerald-500"
+                className="border border-orange-550 bg-orange-700 px-4 py-2 text-xs font-black uppercase text-white hover:bg-orange-800"
               >
                 Open Pricing Plans Manager
               </button>
               <button
                 type="button"
                 onClick={() => {
-                  window.history.pushState({}, '', '/platform/vendor-verification');
+                  window.history.pushState({}, '', '/platform/activation-tokens');
                   window.dispatchEvent(new PopStateEvent('popstate'));
                 }}
-                className="border border-orange-600 bg-orange-600 px-4 py-2 text-xs font-black uppercase text-white hover:bg-orange-500"
+                className="border border-orange-550 bg-orange-700 px-4 py-2 text-xs font-black uppercase text-white hover:bg-orange-800"
               >
-                Open Vendor Verification Queue
+                Open Activation Token Manager
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  window.history.pushState({}, '', '/platform/payment-renewals');
+                  window.dispatchEvent(new PopStateEvent('popstate'));
+                }}
+                className="border border-emerald-600 bg-emerald-700 px-4 py-2 text-xs font-black uppercase text-white hover:bg-emerald-800"
+              >
+                Open Payment Renewals
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  window.history.pushState({}, '', '/platform/vendor-sync-monitor');
+                  window.dispatchEvent(new PopStateEvent('popstate'));
+                }}
+                className="border border-cyan-600 bg-cyan-700 px-4 py-2 text-xs font-black uppercase text-white hover:bg-cyan-800"
+              >
+                Open Vendor Sync Monitor
               </button>
               <button
                 type="button"

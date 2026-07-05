@@ -8,9 +8,12 @@ export const FIRESTORE_COLLECTIONS = {
   vendorPlans: 'vendorPlans',
   plans: 'plans',
   activationTokens: 'activationTokens',
+  vendorPayments: 'vendorPayments',
+  vendorInvoices: 'vendorInvoices',
+  vendorSyncStatus: 'vendorSyncStatus',
+  vendorSyncEvents: 'vendorSyncEvents',
   vendorAuditLogs: 'vendorAuditLogs'
 } as const;
 
 export type FirestoreCollectionKey = keyof typeof FIRESTORE_COLLECTIONS;
 export type FirestoreCollectionName = (typeof FIRESTORE_COLLECTIONS)[FirestoreCollectionKey];
-
