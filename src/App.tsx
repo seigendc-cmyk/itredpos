@@ -3,10 +3,6 @@ import PosPrototypeApp from './pos-new/PosPrototypeApp';
 import PosVendorAuthGate from './pos-new/auth/PosVendorAuthGate';
 import FirebaseReadinessPage from './platform/FirebaseReadinessPage';
 import VendorVerificationQueuePage from './platform/VendorVerificationQueuePage';
-import PricingPlansManagerPage from './platform/PricingPlansManagerPage';
-import ActivationTokenManagerPage from './platform/ActivationTokenManagerPage';
-import PaymentRenewalPage from './platform/PaymentRenewalPage';
-import VendorSyncMonitorPage from './platform/VendorSyncMonitorPage';
 import { Cpu, ShieldCheck, Power, RefreshCw } from 'lucide-react';
 
 export default function App() {
@@ -77,21 +73,9 @@ export default function App() {
     return <VendorVerificationQueuePage />;
   }
 
-  if (currentPath === '/platform/pricing-plans') {
-    return <PricingPlansManagerPage />;
-  }
 
-  if (currentPath === '/platform/activation-tokens') {
-    return <ActivationTokenManagerPage />;
-  }
 
-  if (currentPath === '/platform/payment-renewals') {
-    return <PaymentRenewalPage />;
-  }
 
-  if (currentPath === '/platform/vendor-sync-monitor') {
-    return <VendorSyncMonitorPage />;
-  }
 
   // Otherwise, render an elegant mechanical industrial loader BIOS
   return (
@@ -179,3 +163,4 @@ export default function App() {
     </div>
   );
 }
+
