@@ -74,6 +74,7 @@ import {
   type PlanFeatureAccess
 } from './auth/planFeatureGate';
 import UpgradeRequiredPanel, { type UpgradeRequiredVendorContext } from './components/UpgradeRequiredPanel';
+import { refreshPosVendorContext } from './auth/posVendorContextBridge';
 import './posNew.css';
 
 const PosReports = lazy(() => import('./pages/PosReports'));
@@ -1538,6 +1539,8 @@ export default function PosPrototypeApp() {
     </PosShell>
   );
 }
+
+
 
 
 
