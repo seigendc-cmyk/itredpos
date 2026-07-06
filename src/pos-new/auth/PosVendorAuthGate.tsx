@@ -13,8 +13,6 @@ import {
   mergeVendorLicenseIntoAuthContext,
   subscribeToVendorLicense
 } from "./vendorLicenseRuntimeService";
-import { getNextPlanCode } from "./planFeatureGate";
-import UpgradeRequiredPanel from "../components/UpgradeRequiredPanel";
 
 type PosVendorAuthGateProps = {
   children: React.ReactNode;
@@ -207,4 +205,5 @@ export default function PosVendorAuthGate({ children }: PosVendorAuthGateProps) 
     </>
   );
 }
+
 
