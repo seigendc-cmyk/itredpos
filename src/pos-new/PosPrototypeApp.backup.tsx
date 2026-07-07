@@ -1025,8 +1025,40 @@ export default function PosPrototypeApp() {
     setActivePage('DASHBOARD');
   };
 
-  // Activation is now controlled by PosVendorAuthGate.
-  // PosPrototypeApp only runs after Google Auth + Activation + Vendor Auth stages.
+  // Render loading state while checking activation
+  if (activationLoading) {
+    return (
+      <main className="min-h-screen bg-slate-950 text-slate-100 flex items-center justify-center p-6">
+        <section className="w-full max-w-md border border-amber-500/40 bg-slate-900 p-6 shadow-2xl text-center space-y-4">
+          <p className="text-[10px] font-black uppercase tracking-[0.3em] text-amber-400">iTred Commerce POS</p>
+          <div className="flex items-center justify-center gap-2">
+            <span className="w-2 h-2 rounded-full bg-amber-500 animate-ping"></span>
+            <h1 className="text-lg font-black uppercase text-white">Checking Activation...</h1>
+          </div>
+          <p className="text-xs text-slate-400">Verifying local activation state...</p>
+        </section>
+      </main>
+    );
+  }
+
+  // POS Activation Gate
+  if (!posActivated) {
+    return (
+      <ActivationLandingPage onActivated={handleActivationSuccess} />
+    );
+  }
+
+  if (activationSuccess && !activeSession) {
+    return (
+      <main className="min-h-screen bg-[#f7f5ef] flex items-center justify-center p-6">
+        <div className="w-full max-w-md bg-white border border-gray-300 p-6 text-center">
+          <p className="text-[10px] font-black uppercase tracking-[0.3em] text-emerald-500">POS Activation</p>
+          <h1 className="mt-3 text-2xl font-black uppercase text-[#1e222b]">Activation Successful</h1>
+          <p className="mt-3 text-sm text-slate-600">Open Staff Access to continue to the POS terminal.</p>
+        </div>
+      </main>
+    );
+  }
 
   // Guard the operational register with Staff Access
   if (!activeSession) {

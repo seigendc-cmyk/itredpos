@@ -1,6 +1,5 @@
 import { useEffect, useState } from "react";
 import VendorBusinessSetupPage from "../pages/VendorBusinessSetupPage";
-import ActivationLandingPage from "../pages/ActivationLandingPage";
 import PosStaffAccessPage from "../pages/PosStaffAccessPage";
 import {
   PosVendorAuthContext,
@@ -15,7 +14,6 @@ import {
   subscribeToVendorLicense
 } from "./vendorLicenseRuntimeService";
 import { getNextPlanCode } from "./planFeatureGate";
-import type { POSActivationSnapshotLocal } from "../shared/backend";
 import UpgradeRequiredPanel from "../components/UpgradeRequiredPanel";
 import {
   handleGoogleRedirectResult,
@@ -50,7 +48,6 @@ export default function PosVendorAuthGate({ children }: PosVendorAuthGateProps) 
   const [context, setContext] = useState<PosVendorAuthContext>(
     createInitialPosAuthContext()
   );
-  const [googleError, setGoogleError] = useState<string | null>(null);
 
   // Keep staff PIN / licensing logic unchanged; only drive googleUid/googleEmail population.
   const setContextSafe = (updater: (current: PosVendorAuthContext) => PosVendorAuthContext) => {
@@ -62,7 +59,6 @@ export default function PosVendorAuthGate({ children }: PosVendorAuthGateProps) 
   };
 
   useEffect(() => {
-
     const stored = readPosAuthContext();
 
     if (stored) {
@@ -152,26 +148,6 @@ export default function PosVendorAuthGate({ children }: PosVendorAuthGateProps) 
   }, [context.vendorId]);
 
 
-  const handleActivationSuccess = (snapshot: POSActivationSnapshotLocal) => {
-    setContextSafe((current) => {
-      const baseContext: PosVendorAuthContext = {
-        ...current,
-        vendorId: snapshot.vendorId,
-        vendorName: snapshot.vendorName,
-        planCode: snapshot.planCode,
-        licenseMode: snapshot.licenseMode,
-        licenseStatus: "Active",
-        activationStatus: "Active",
-        activatedAt: snapshot.activatedAt
-      };
-
-      return {
-        ...baseContext,
-        stage: resolveNextAuthStage(baseContext)
-      };
-    });
-  };
-
   const resetAuthFlow = () => {
     clearPosAuthContext();
     window.location.reload();
@@ -204,43 +180,16 @@ export default function PosVendorAuthGate({ children }: PosVendorAuthGateProps) 
             Use Google once to verify the business owner. Daily POS access will use staff PIN login after setup.
           </p>
 
-          {googleError && (
-            <div className="mt-4 text-sm text-red-700 bg-red-50 border border-red-200 p-3">
-              {googleError}
-            </div>
-          )}
-
           <button
             type="button"
-            onClick={async () => {
-              setGoogleError(null);
-              const result = await signInWithGooglePlaceholder();
-              if (!result.ok) {
-                setGoogleError(result.message || 'Google sign-in failed.');
-                return;
-              }
-
-              // If popup succeeded, Firebase onAuthStateChanged will fire.
-              // Still, ensure context resolution happens immediately.
-              if (result.profile?.uid && result.profile.email) {
-                setContextSafe((current) => {
-                  const googleUid = result.profile!.uid;
-                  const googleEmail = (result.profile!.email || '').trim();
-                  const merged: PosVendorAuthContext = {
-                    ...current,
-                    googleUid,
-                    googleEmail,
-                    stage: resolveNextAuthStage({ ...current, googleUid, googleEmail })
-                  };
-                  return merged;
-                });
-              }
+            onClick={() => {
+              // Keep routing/session gating intact; only initiate Firebase Google redirect.
+              void signInWithGooglePlaceholder();
             }}
             className="mt-6 w-full bg-orange-600 hover:bg-orange-700 border border-orange-700 text-white font-black uppercase py-3 rounded-none"
           >
             Continue with Google
           </button>
-
 
           {SHOW_DEV_BADGES && (
             <>
@@ -260,10 +209,6 @@ export default function PosVendorAuthGate({ children }: PosVendorAuthGateProps) 
         </div>
       </div>
     );
-  }
-
-  if (context.stage === "activationRequired") {
-    return <ActivationLandingPage onActivated={handleActivationSuccess} />;
   }
 
   if (context.stage === "businessProfileRequired") {

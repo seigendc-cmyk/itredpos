@@ -68,8 +68,7 @@ export function clearPosAuthContext(): void {
 
 export function resolveNextAuthStage(context: PosVendorAuthContext): PosAuthStage {
   if (!context.googleUid || !context.googleEmail) return 'googleSignInRequired';
-
-  if (!context.vendorId || !context.vendorName) return 'activationRequired';
+  if (!context.vendorId || !context.vendorName) return 'businessProfileRequired';
 
   const statusValues = [
     context.licenseStatus,
@@ -84,8 +83,6 @@ export function resolveNextAuthStage(context: PosVendorAuthContext): PosAuthStag
   ) {
     return 'licenseRequired';
   }
-
-  if (!context.branchId || !context.warehouseId) return 'businessProfileRequired';
 
   if (!context.staffId || !context.staffRole) return 'staffAccessRequired';
 
