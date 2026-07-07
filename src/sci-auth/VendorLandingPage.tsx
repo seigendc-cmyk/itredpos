@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import VendorOnboardingForm, { type VendorBusinessProfileDraft } from './VendorOnboardingForm';
 import { signInWithGooglePlaceholder } from '../pos-new/auth/firebaseAuthShell';
-import { findVendorByGoogleAccount, saveVendorSessionFromFirebase } from './VendorFirebaseService';
+import { findVendorByGoogleAccount, saveVendorSessionFromFirebase, createVendorAccount } from './VendorFirebaseService';
 type VendorLandingPageProps = {
   onSignIn?: () => void;
   onSignUp?: () => void;
@@ -83,36 +83,36 @@ export default function VendorLandingPage({
     }
   };
 
-  const handleComplete = (profile: VendorBusinessProfileDraft) => {
-    const businessProfile = {
-      legalName: profile.businessName,
-      tradingName: profile.tradingName || profile.businessName,
-      ownerName: profile.ownerName,
-      ownerEmail: profile.ownerEmail,
-      businessPhone: profile.phone,
-      businessWhatsapp: profile.whatsapp,
-      country: profile.country,
-      city: profile.city,
-      suburb: profile.suburb,
-      address: profile.physicalAddress,
-      physicalAddress: profile.physicalAddress,
-      currency: "USD"
-    };
+  const handleComplete = async (profile: VendorBusinessProfileDraft) => {
+    if (!googleProfile) {
+      setAuthError("Google profile is missing. Please start over.");
+      return;
+    }
 
-    localStorage.setItem("itred_pending_vendor_business_profile", JSON.stringify(profile));
-    localStorage.setItem("itred_pos_business_profile", JSON.stringify(businessProfile));
-    localStorage.setItem("itred_pos_start_page", "SETTINGS");
-    localStorage.setItem("sci_vendor_owner_session", JSON.stringify({
-      vendorId: "demo-vendor-001",
-      ownerName: profile.ownerName,
-      ownerEmail: profile.ownerEmail,
-      vendorName: profile.businessName,
-      role: "Owner",
-      mode: "DEMO"
-    }));
+    setAuthLoading(true);
+    setAuthError(null);
 
-    window.history.pushState({}, "", "/pos-prototype");
-    window.dispatchEvent(new PopStateEvent("popstate"));
+    try {
+      const vendor = await createVendorAccount(
+        {
+          uid: googleProfile.uid,
+          email: googleProfile.email,
+          displayName: googleProfile.displayName
+        },
+        profile
+      );
+
+      saveVendorSessionFromFirebase(vendor);
+
+      localStorage.setItem('itred_pos_start_page', 'SETTINGS');
+
+      window.history.pushState({}, '', '/pos-prototype');
+      window.dispatchEvent(new PopStateEvent('popstate'));
+    } catch (error) {
+      setAuthError(error instanceof Error ? error.message : 'Failed to create vendor account.');
+    } finally {
+      setAuthLoading(false);
+    }
   };
 
   if (mode === "signup") {

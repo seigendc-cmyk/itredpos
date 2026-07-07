@@ -1,6 +1,8 @@
 import { useState, useEffect } from 'react';
 import PosPrototypeApp from './pos-new/PosPrototypeApp';
-import PosVendorAuthGate from './pos-new/auth/PosVendorAuthGate';
+import VendorAuthGate from './sci-auth/VendorAuthGate';
+import VendorLandingPage from './sci-auth/VendorLandingPage';
+import SimpleAuthGate from './simple-auth/SimpleAuthGate';
 import FirebaseReadinessPage from './platform/FirebaseReadinessPage';
 import VendorVerificationQueuePage from './platform/VendorVerificationQueuePage';
 import ActivationTokenManagerPage from './platform/ActivationTokenManagerPage';
@@ -53,16 +55,20 @@ export default function App() {
 
   const handleRouteToPos = () => {
     // Coordinate HTML5 History state push
-    window.history.pushState({}, '', '/pos-prototype');
-    setCurrentPath('/pos-prototype');
+    window.history.pushState({}, '', '/sci-auth-test');
+    setCurrentPath('/sci-auth-test');
   };
+
+  if (currentPath === '/sci-auth-test') {
+    return <VendorLandingPage />;
+  }
 
   // If path is indeed /pos-prototype, mount our primary modern shell application
   if (currentPath === '/pos-prototype') {
     return (
-      <PosVendorAuthGate>
+      <VendorAuthGate>
         <PosPrototypeApp />
-      </PosVendorAuthGate>
+      </VendorAuthGate>
     );
   }
 
@@ -136,7 +142,7 @@ export default function App() {
       <div className="w-full max-w-3xl flex flex-col md:flex-row gap-4 items-center justify-between">
         <div className="text-slate-600 text-[10px] leading-tight text-center md:text-left">
           BYPASS REGISTER CORES • FORWARD ALL SOLENIOD TRAFFIC VIA LOOP GATE 24V<br />
-          MANUAL ENTRYPOINT: ACCELERATED IP-FRAME PATH /POS-PROTOTYPE
+          MANUAL ENTRYPOINT: ACCELERATED IP-FRAME PATH /SCI-AUTH-TEST
         </div>
 
         {biosProgress === 100 ? (

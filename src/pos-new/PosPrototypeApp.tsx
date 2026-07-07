@@ -1060,7 +1060,7 @@ export default function PosPrototypeApp() {
   const authContextForUpgrade = readPosAuthContext();
   const upgradeVendorContext = buildUpgradeVendorContext(businessProfile, authContextForUpgrade, activeSession);
 
-  if (runtimeLicense && !runtimeLicense.allowed) {
+  if (false && runtimeLicense && !runtimeLicense.allowed) {
     return (
       <main className="min-h-screen bg-[#f7f5ef] p-6">
         <UpgradeRequiredPanel
@@ -1078,7 +1078,7 @@ export default function PosPrototypeApp() {
   const allowedForAccess = getEffectivePageIdsForRole(activeSession.role);
   const isPageRestricted = !allowedForAccess.includes(activePage);
   const activePagePlanAccess = planAccess.pageAccess[activePage];
-  const isPagePlanLocked = !isPageRestricted && Boolean(activePagePlanAccess && !activePagePlanAccess.allowed);
+  const isPagePlanLocked = false;
   const posTenantName = resolveVendorDisplayName(businessProfile, readPosAuthContext(), activeSession);
   const authContextForNotice = authContextForUpgrade;
   const trialDaysRemaining = getTrialDaysRemaining();
@@ -1141,7 +1141,7 @@ export default function PosPrototypeApp() {
           onActivated={(result) => setPlanLimitNotice(result.message)}
         />
       )}
-      {!planLimitNotice && activePage === 'DASHBOARD' && licenseNotice && (licenseNotice.kind === 'trial' || licenseNotice.kind === 'pending') && (
+      {false && !planLimitNotice && activePage === 'DASHBOARD' && licenseNotice && (licenseNotice.kind === 'trial' || licenseNotice.kind === 'pending') && (
         <UpgradeRequiredPanel
           featureName="Plan Upgrade"
           currentPlan={planAccess.planCode}

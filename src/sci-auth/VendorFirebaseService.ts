@@ -3,9 +3,15 @@ import {
   getDocs,
   query,
   where,
-  limit
+  limit,
+  doc,
+  setDoc,
+  writeBatch
 } from 'firebase/firestore';
 import { db } from '../pos-new/firebase/firebaseApp';
+import { FIRESTORE_COLLECTIONS } from '../shared/backend';
+import type { VendorRecord } from './VendorFirebaseService';
+import { createVendorAuditLog } from '../shared/backend';
 
 export interface VendorRecord {
   vendorId: string;
@@ -22,6 +28,19 @@ export interface VendorRecord {
   physicalAddress?: string;
   status?: string;
   mode?: string;
+}
+
+export interface VendorOnboardingDraft {
+  businessName: string;
+  tradingName?: string;
+  ownerName: string;
+  ownerEmail: string;
+  phone: string;
+  whatsapp?: string;
+  country?: string;
+  city?: string;
+  suburb?: string;
+  physicalAddress?: string;
 }
 
 export async function findVendorByGoogleAccount(profile: { uid: string; email?: string }): Promise<VendorRecord | null> {
@@ -47,6 +66,118 @@ export async function findVendorByGoogleAccount(profile: { uid: string; email?: 
   }
 
   return null;
+}
+
+export async function createVendorAccount(
+  profile: { uid: string; email?: string; displayName?: string },
+  draft: VendorOnboardingDraft
+): Promise<VendorRecord> {
+  if (!db) {
+    throw new Error('Firestore is not available.');
+  }
+
+  const existing = await findVendorByGoogleAccount(profile);
+  if (existing) {
+    return existing;
+  }
+
+  const now = new Date().toISOString();
+  const vendorId = `vendor-${profile.uid.slice(0, 8)}`;
+  const businessName = draft.businessName.trim() || 'New Business';
+  const tradingName = draft.tradingName?.trim() || businessName;
+  const ownerName = draft.ownerName.trim() || profile.displayName || profile.email?.split('@')[0] || 'Owner';
+  const ownerEmail = draft.ownerEmail.trim() || profile.email || '';
+
+  const vendorRef = doc(db, FIRESTORE_COLLECTIONS.vendors, vendorId);
+  const branchId = `${vendorId}_main_branch`;
+  const warehouseId = `${vendorId}_main_warehouse`;
+  const staffId = `${vendorId}_owner`;
+
+  const vendor = {
+    vendorId,
+    businessName,
+    tradingName,
+    ownerUid: profile.uid,
+    ownerEmail,
+    ownerName,
+    phone: draft.phone || '',
+    whatsapp: draft.whatsapp || '',
+    country: draft.country || '',
+    city: draft.city || '',
+    suburb: draft.suburb || '',
+    physicalAddress: draft.physicalAddress || '',
+    status: 'Active',
+    mode: 'Demo',
+    createdAt: now,
+    updatedAt: now
+  };
+
+  const branch = {
+    vendorId,
+    branchId,
+    branchName: 'Main Branch',
+    phone: draft.phone || '',
+    whatsapp: draft.whatsapp || '',
+    email: ownerEmail,
+    country: draft.country || '',
+    city: draft.city || '',
+    suburb: draft.suburb || '',
+    address: draft.physicalAddress || '',
+    status: 'Active' as const,
+    source: 'simple-auth',
+    createdAt: now,
+    updatedAt: now
+  };
+
+  const warehouse = {
+    vendorId,
+    warehouseId,
+    branchId,
+    warehouseName: 'Main Warehouse',
+    phone: draft.phone || '',
+    whatsapp: draft.whatsapp || '',
+    email: ownerEmail,
+    country: draft.country || '',
+    city: draft.city || '',
+    suburb: draft.suburb || '',
+    address: draft.physicalAddress || '',
+    status: 'Active' as const,
+    source: 'simple-auth',
+    createdAt: now,
+    updatedAt: now
+  };
+
+  const staff = {
+    vendorId,
+    staffId,
+    branchId,
+    name: ownerName,
+    email: ownerEmail,
+    phone: draft.phone || '',
+    whatsapp: draft.whatsapp || '',
+    role: 'Owner' as const,
+    status: 'Active' as const,
+    source: 'simple-auth',
+    createdAt: now,
+    updatedAt: now
+  };
+
+  const auditLog = createVendorAuditLog(
+    vendorId,
+    'VENDOR_SIGN_UP',
+    `Vendor account created via simple auth. Business: ${businessName}.`
+  );
+
+  const batch = writeBatch(db);
+  batch.set(vendorRef, vendor);
+  batch.set(doc(db, FIRESTORE_COLLECTIONS.vendorBranches, branchId), branch);
+  batch.set(doc(db, FIRESTORE_COLLECTIONS.vendorWarehouses, warehouseId), warehouse);
+  batch.set(doc(db, FIRESTORE_COLLECTIONS.vendorStaff, staffId), staff);
+  batch.set(doc(db, FIRESTORE_COLLECTIONS.vendorAuditLogs, auditLog.auditLogId), auditLog);
+
+  await batch.commit();
+
+  return mapVendorData(vendorId, vendor);
 }
 
 export function saveVendorSessionFromFirebase(vendor: VendorRecord): void {
