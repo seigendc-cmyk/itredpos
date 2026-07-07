@@ -33,6 +33,7 @@ import type {
   TenantTerminalAccessContract
 } from './tenantResolutionTypes';
 import { createPOSSessionFromActivation, savePOSSession, type POSActivationRecord } from './posActivationService';
+import type { POSActivationSnapshotLocal } from './posActivationCodeService';
 
 const SESSION_KEY = 'itred_pos_tenant_session';
 const ACTIVITY_KEY = 'itred_pos_auth_activity';
@@ -271,6 +272,50 @@ export function createTenantSessionFromFirebaseUser(profile: FirebaseAuthUserPro
       : 'Unlicensed Google email. No tenant resolved.'
   };
   saveSession(session);
+  return session;
+}
+
+export function createTenantSessionFromPOSActivationSnapshot(snapshot: POSActivationSnapshotLocal): TenantSession {
+  const timestamp = nowIso();
+  const session: TenantSession = {
+    sessionId: makeId('SESSION'),
+    authProvider: 'Staff PIN',
+    status: 'Tenant Resolved',
+    vendorId: snapshot.vendorId,
+    vendorName: snapshot.vendorName,
+    membershipId: `MEM-${snapshot.vendorId}-POS`,
+    membershipRole: 'VendorOwner',
+    staffId: undefined,
+    staffName: undefined,
+    staffRole: undefined,
+    branchId: 'main-branch',
+    branchName: 'Main Branch',
+    terminalId: 'TERM-MAIN-001',
+    terminalName: 'Main POS Terminal',
+    licenseId: `${snapshot.vendorId}-license`,
+    planId: snapshot.planCode,
+    licenseMode: snapshot.licenseMode,
+    storageMode: snapshot.licenseMode === 'demo' ? 'localOnly' : 'cloud',
+    activationId: snapshot.activationCodeId,
+    permissions: getTenantPermissionsForRole('VendorOwner'),
+    isBuildDevelopmentSession: false,
+    authRequired: false,
+    tenantResolved: true,
+    staffAuthenticated: false,
+    createdAt: timestamp,
+    updatedAt: timestamp,
+    expiresAt: snapshot.expiresAt,
+    notes: 'POS activation code validated. Staff login still required.'
+  };
+  saveSession(session);
+  recordAuthActivity({
+    eventType: 'POS_ACTIVATION_VALIDATED',
+    label: 'POS Activation Validated',
+    message: `POS activated with code ${snapshot.activationCodeId} for vendor ${snapshot.vendorId}. Plan: ${snapshot.planCode}.`,
+    vendorId: snapshot.vendorId,
+    staffId: session.staffId
+  });
+  refreshTenantSessionClaims(session);
   return session;
 }
 

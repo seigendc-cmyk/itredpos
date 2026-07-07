@@ -15,6 +15,11 @@ import {
 } from "./vendorLicenseRuntimeService";
 import { getNextPlanCode } from "./planFeatureGate";
 import UpgradeRequiredPanel from "../components/UpgradeRequiredPanel";
+import {
+  handleGoogleRedirectResult,
+  signInWithGooglePlaceholder,
+  subscribeToFirebaseAuthState
+} from "./firebaseAuthShell";
 
 type PosVendorAuthGateProps = {
   children: React.ReactNode;
@@ -44,6 +49,15 @@ export default function PosVendorAuthGate({ children }: PosVendorAuthGateProps) 
     createInitialPosAuthContext()
   );
 
+  // Keep staff PIN / licensing logic unchanged; only drive googleUid/googleEmail population.
+  const setContextSafe = (updater: (current: PosVendorAuthContext) => PosVendorAuthContext) => {
+    setContext((current) => {
+      const next = updater(current);
+      savePosAuthContext(next);
+      return next;
+    });
+  };
+
   useEffect(() => {
     const stored = readPosAuthContext();
 
@@ -67,6 +81,59 @@ export default function PosVendorAuthGate({ children }: PosVendorAuthGateProps) 
 
     setContext(firstRunContext);
     savePosAuthContext(firstRunContext);
+  }, []);
+
+  // AUTH-GOOGLE-01: Populate sci_pos_vendor_auth_context from Firebase Google session.
+  useEffect(() => {
+    let active = true;
+
+    const syncFromProfile = (profile: { uid: string; email?: string } | null) => {
+      if (!active) return;
+      if (!profile) return;
+
+      const googleEmail = (profile.email || '').trim();
+      const googleUid = profile.uid;
+      if (!googleUid || !googleEmail) {
+      setContextSafe((current) => ({
+          ...current,
+          stage: "googleSignInRequired",
+          message: "Google email is required to continue."
+        }));
+        return;
+      }
+
+      setContextSafe((current) => {
+        const merged: PosVendorAuthContext = {
+          ...current,
+          googleUid,
+          googleEmail,
+          stage: resolveNextAuthStage({
+            ...current,
+            googleUid,
+            googleEmail
+          })
+        };
+        return merged;
+      });
+    };
+
+    const bootstrapRedirect = async () => {
+      try {
+        await handleGoogleRedirectResult();
+      } catch {
+        // Safe fallback: stay on current stage.
+      }
+    };
+
+    void bootstrapRedirect();
+    const unsubscribe = subscribeToFirebaseAuthState((profile) => {
+      syncFromProfile(profile);
+    });
+
+    return () => {
+      active = false;
+      unsubscribe?.();
+    };
   }, []);
 
   useEffect(() => {
@@ -116,16 +183,8 @@ export default function PosVendorAuthGate({ children }: PosVendorAuthGateProps) 
           <button
             type="button"
             onClick={() => {
-              const demoGoogleContext: PosVendorAuthContext = {
-                stage: "businessProfileRequired",
-                googleUid: `demo-google-${Date.now()}`,
-                googleEmail: "owner@example.com",
-                licenseStatus: "Demo",
-                message: "Business identity captured. Complete business setup."
-              };
-
-              setContext(demoGoogleContext);
-              savePosAuthContext(demoGoogleContext);
+              // Keep routing/session gating intact; only initiate Firebase Google redirect.
+              void signInWithGooglePlaceholder();
             }}
             className="mt-6 w-full bg-orange-600 hover:bg-orange-700 border border-orange-700 text-white font-black uppercase py-3 rounded-none"
           >

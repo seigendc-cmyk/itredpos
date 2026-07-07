@@ -54,9 +54,8 @@ import {
 } from './mock/mockPosData';
 import { getEffectivePageIdsForRole, normalizeRoleKey } from './auth/effectivePermissionService';
 import { recordSecurityMatrixEvent } from './auth/permissionMatrixService';
-import { getCurrentFirebaseUserProfile, signInWithGooglePlaceholder, subscribeToFirebaseAuthState, signOutFirebasePlaceholder, handleGoogleRedirectResult } from './auth/firebaseAuthShell';
-import { applyPOSActivationToTenantSession, createTenantSessionFromFirebaseUser, getCurrentTenantSession, recordAuthActivity } from './auth/tenantSessionService';
-import { clearActivePOSActivation, getSavedPOSSession, validatePOSActivationForEmail, type POSActivationValidationResult } from './auth/posActivationService';
+import { getCurrentTenantSession } from './auth/tenantSessionService';
+import { getSavedPOSSession } from './auth/posActivationService';
 import { loadLocalProducts, POS_PRODUCT_STORE_EVENT, saveLocalProducts, updateLocalProductStock } from './utils/localProductStore';
 import { ENABLE_MOCK_SEED_DATA, getVendorScopedStorageKey, initializeEmptyVendorOperationalStores } from './utils/vendorDataMode';
 import { firebaseReady } from './firebase/firebaseApp';
@@ -74,6 +73,16 @@ import {
   type PlanFeatureAccess
 } from './auth/planFeatureGate';
 import UpgradeRequiredPanel, { type UpgradeRequiredVendorContext } from './components/UpgradeRequiredPanel';
+import ActivationLandingPage from './pages/ActivationLandingPage';
+import {
+  getDeviceId,
+  readLocalActivation,
+  saveLocalActivation,
+  validateActivationCode,
+  consumeActivationCode,
+  hasValidPOSActivation,
+  clearLocalActivation
+} from './auth/posActivationCodeService';
 import './posNew.css';
 
 const PosReports = lazy(() => import('./pages/PosReports'));
@@ -270,132 +279,79 @@ function buildUpgradeVendorContext(
 export default function PosPrototypeApp() {
   const [activePage, setActivePage] = useState<PosPageId>('DASHBOARD');
 
-  // Client Session Identity Tracking
-  const [authUser, setAuthUser] = useState(getCurrentFirebaseUserProfile());
-  const [googleAuthMessage, setGoogleAuthMessage] = useState('Sign in with Google to continue to Staff Access.');
-  const [checkingAuth, setCheckingAuth] = useState(true);
-  const [authError, setAuthError] = useState<string | null>(null);
-  const [licenseChecked, setLicenseChecked] = useState(false);
-  const [activationChecking, setActivationChecking] = useState(false);
-  const [activationDecision, setActivationDecision] = useState<POSActivationValidationResult | null>(null);
-  const activationRunRef = useRef(0);
-  const googleAuthProfile = authUser;
-  const authLoading = checkingAuth;
-  const activationResult = activationDecision;
+  // POS Activation Layer
+  const [posActivated, setPosActivated] = useState<boolean | null>(null);
+  const [activationSnapshot, setActivationSnapshot] = useState<POSActivationSnapshotLocal | null>(null);
+  const [activationLoading, setActivationLoading] = useState(true);
+  const [activationError, setActivationError] = useState<string | null>(null);
+  const [activationSuccess, setActivationSuccess] = useState(false);
 
-  const validateAndApplyPOSActivation = async (profile: NonNullable<ReturnType<typeof getCurrentFirebaseUserProfile>>) => {
-    const runId = activationRunRef.current + 1;
-    activationRunRef.current = runId;
-    setActivationChecking(true);
-    setActivationDecision(null);
-    setLicenseChecked(false);
-    createTenantSessionFromFirebaseUser(profile);
-    try {
-      const result = await validatePOSActivationForEmail(profile.email || '');
-      if (activationRunRef.current !== runId) return;
-      setActivationDecision(result);
-      recordAuthActivity({
-        eventType: 'ACTIVATION_VALIDATED',
-        label: 'Activation Validated',
-        message: `${result.reasonCode}: ${result.message}`,
-        vendorId: result.activation?.vendorId,
-        staffId: profile.email
-      });
-      if (result.allowed && result.activation) {
-        applyPOSActivationToTenantSession(profile, result.activation);
-        recordAuthActivity({
-          eventType: 'POS_LOGIN_ALLOWED',
-          label: 'POS Login Allowed',
-          message: `POS login allowed for ${profile.email}.`,
-          vendorId: result.activation.vendorId,
-          staffId: profile.email
-        });
-        setLicenseChecked(true);
-        setAuthError(null);
-        setGoogleAuthMessage(`${result.message} Continue with Staff Access.`);
-      } else {
-        recordAuthActivity({
-          eventType: 'POS_LOGIN_BLOCKED',
-          label: 'POS Login Blocked',
-          message: `${profile.email || 'Unknown Google account'} blocked: ${result.reasonCode}.`,
-          vendorId: result.activation?.vendorId,
-          staffId: profile.email
-        });
-        setLicenseChecked(false);
-        setActiveSession(null);
-        setGoogleAuthMessage(result.message);
-      }
-    } catch (error) {
-      if (activationRunRef.current !== runId) return;
-      const message = error instanceof Error ? error.message : 'Activation validation failed.';
-      setActivationDecision({
-        allowed: false,
-        reasonCode: 'NO_ACTIVATION_FOUND',
-        message
-      });
-      setAuthError(message);
-      recordAuthActivity({
-        eventType: 'POS_LOGIN_BLOCKED',
-        label: 'POS Login Blocked',
-        message: `${profile.email || 'Unknown Google account'} blocked: ${message}`,
-        staffId: profile.email
-      });
-      setLicenseChecked(false);
-      setActiveSession(null);
-      clearActivePOSActivation();
-      setGoogleAuthMessage(message);
-    } finally {
-      if (activationRunRef.current === runId) {
-        setActivationChecking(false);
-      }
+  const handleActivationSuccess = (snapshot: POSActivationSnapshotLocal) => {
+    setPosActivated(true);
+    setActivationSnapshot(snapshot);
+    setActivationSuccess(true);
+    setActivationError(null);
+
+    let context = readPosAuthContext();
+    if (!context) {
+      context = {
+        stage: 'staffAccessRequired',
+        vendorId: snapshot.vendorId,
+        vendorName: snapshot.vendorName,
+        planCode: snapshot.planCode,
+        licenseMode: snapshot.licenseMode,
+        licenseStatus: 'Pending'
+      };
+      savePosAuthContext(context);
+    } else if (!context.vendorId) {
+      context = { ...context, vendorId: snapshot.vendorId, vendorName: snapshot.vendorName, planCode: snapshot.planCode, licenseMode: snapshot.licenseMode, stage: 'staffAccessRequired' };
+      savePosAuthContext(context);
+    }
+
+    createTenantSessionFromPOSActivationSnapshot(snapshot);
+
+    const cached = readSavedVendorLicenseSnapshot(snapshot.vendorId);
+    if (cached) {
+      setRuntimeLicense(cached);
     }
   };
 
-  // Automatically restore active session state on reload
   useEffect(() => {
     let active = true;
-    let unsubscribe = () => undefined;
-
-    const restoreGoogleSession = async () => {
-      setCheckingAuth(true);
-      try {
-        const redirectRes = await handleGoogleRedirectResult();
-        if (redirectRes && !redirectRes.ok && active) {
-          setAuthError(redirectRes.error || redirectRes.message || 'Google redirect sign-in failed.');
-          setGoogleAuthMessage(redirectRes.message || 'Google redirect sign-in failed.');
-        }
-      } catch (e) {
-        if (active) {
-          const message = e instanceof Error ? e.message : 'Google redirect callback handling failed.';
-          setAuthError(message);
-          setGoogleAuthMessage(message);
-        }
-      }
-
+    const checkActivation = async () => {
+      const hasActivation = await hasValidPOSActivation();
       if (!active) return;
-      unsubscribe = subscribeToFirebaseAuthState((profile) => {
-        if (!active) return;
-        setAuthUser(profile);
-        if (profile) {
-          setAuthError(null);
-          setGoogleAuthMessage('Google session found. Checking POS activation...');
-          void validateAndApplyPOSActivation(profile);
-        } else {
-          setGoogleAuthMessage('Sign in with Google to continue to Staff Access.');
-          setActivationDecision(null);
-          setActivationChecking(false);
-          setLicenseChecked(false);
-          setActiveSession(null);
+      if (hasActivation) {
+        const snapshot = readLocalActivation();
+        setActivationSnapshot(snapshot);
+        setPosActivated(true);
+        if (snapshot) {
+          createTenantSessionFromPOSActivationSnapshot(snapshot);
+          const cached = readSavedVendorLicenseSnapshot(snapshot.vendorId);
+          if (cached) {
+            setRuntimeLicense(cached);
+          }
+          let context = readPosAuthContext();
+          if (!context) {
+            context = {
+              stage: 'staffAccessRequired',
+              vendorId: snapshot.vendorId,
+              vendorName: snapshot.vendorName,
+              planCode: snapshot.planCode,
+              licenseMode: snapshot.licenseMode,
+              licenseStatus: 'Pending'
+            };
+            savePosAuthContext(context);
+          }
         }
-        setCheckingAuth(false);
-      });
+      } else {
+        setPosActivated(false);
+      }
+      setActivationLoading(false);
     };
-
-    void restoreGoogleSession();
-
+    void checkActivation();
     return () => {
       active = false;
-      unsubscribe();
     };
   }, []);
 
@@ -511,16 +467,6 @@ export default function PosPrototypeApp() {
       });
     });
   }, [activeSession?.vendorId, businessProfile]);
-
-  // Clear active staff session when the Google profile email changes (tenant isolation enforcement)
-  useEffect(() => {
-    if (googleAuthProfile) {
-      const session = getCurrentTenantSession();
-      if (activeSession && session.googleEmail !== googleAuthProfile.email) {
-        setActiveSession(null);
-      }
-    }
-  }, [googleAuthProfile?.email]);
 
   // Shared database states (re-hydrating from localStorage if present to maintain feel)
   const [products, setProducts] = useState<Product[]>(() => {
@@ -1064,147 +1010,57 @@ export default function PosPrototypeApp() {
     setActivePage('DASHBOARD');
   };
 
-  const handleGoogleAuthBeforeStaffAccess = async () => {
-    const existingProfile = getCurrentFirebaseUserProfile();
-    if (existingProfile) {
-      setAuthUser(existingProfile);
-      setGoogleAuthMessage('Google session found. Checking POS activation...');
-      await validateAndApplyPOSActivation(existingProfile);
-      return;
-    }
-
-    setGoogleAuthMessage('Opening Google sign-in...');
-    setAuthError(null);
-    const result = await signInWithGooglePlaceholder();
-
-    if (!result.ok) {
-      setAuthError(result.error || result.message || 'Google sign-in failed. Check Firebase Auth configuration.');
-      setGoogleAuthMessage(result.message || 'Google sign-in failed. Check Firebase Auth configuration.');
-      return;
-    }
-  };
-
-  const handlePOSSignOut = async () => {
-    await signOutFirebasePlaceholder();
-    setAuthUser(null);
-    setAuthError(null);
-    setLicenseChecked(false);
-    setActivationDecision(null);
-    clearActivePOSActivation();
+  const handlePOSSignOut = () => {
+    clearLocalActivation();
     setActiveSession(null);
+    setRuntimeLicense(null);
+    localStorage.removeItem('itred_pos_tenant_session');
+    localStorage.removeItem('itred_pos_tenant_session_claims');
+    localStorage.removeItem('itred_pos_active_session');
+    localStorage.removeItem('sci_pos_vendor_auth_context');
+    setPosActivated(null);
+    setActivationSnapshot(null);
+    setActivationError(null);
+    setActivationSuccess(false);
+    setActivePage('DASHBOARD');
   };
 
-  // Render loading state while authenticating
-  if (false && authLoading) {
+  // Render loading state while checking activation
+  if (activationLoading) {
     return (
       <main className="min-h-screen bg-slate-950 text-slate-100 flex items-center justify-center p-6">
-        <section className="w-full max-w-md border border-orange-500/40 bg-slate-900 p-6 shadow-2xl text-center space-y-4">
-          <p className="text-[10px] font-black uppercase tracking-[0.3em] text-orange-400">iTred Commerce POS</p>
+        <section className="w-full max-w-md border border-amber-500/40 bg-slate-900 p-6 shadow-2xl text-center space-y-4">
+          <p className="text-[10px] font-black uppercase tracking-[0.3em] text-amber-400">iTred Commerce POS</p>
           <div className="flex items-center justify-center gap-2">
-            <span className="w-2 h-2 rounded-full bg-orange-500 animate-ping"></span>
-            <h1 className="text-lg font-black uppercase text-white">Checking Google session...</h1>
+            <span className="w-2 h-2 rounded-full bg-amber-500 animate-ping"></span>
+            <h1 className="text-lg font-black uppercase text-white">Checking Activation...</h1>
           </div>
-          <p className="text-xs text-slate-400">Verifying authentication token and secure keys...</p>
+          <p className="text-xs text-slate-400">Verifying local activation state...</p>
         </section>
       </main>
     );
   }
 
-  // Guard the operational register with Google Auth before staff access
-  if (false && !googleAuthProfile) {
+  // POS Activation Gate
+  if (!posActivated) {
     return (
-      <main className="min-h-screen bg-slate-950 text-slate-100 flex items-center justify-center p-6">
-        <section className="w-full max-w-md border border-orange-500/40 bg-slate-900 p-6 shadow-2xl">
-          <p className="text-[10px] font-black uppercase tracking-[0.3em] text-orange-400">iTred Commerce POS</p>
-          <h1 className="mt-3 text-2xl font-black uppercase text-white">Vendor Sign In</h1>
-          <p className="mt-3 text-sm text-slate-300">
-            Sign in with Google first. After vendor verification, the normal Staff Access form will open.
-          </p>
-          <div className="mt-5 border border-slate-700 bg-slate-950 p-3 text-xs text-slate-300">
-            {authError || googleAuthMessage}
-          </div>
-          <button
-            type="button"
-            onClick={() => void handleGoogleAuthBeforeStaffAccess()}
-            className="mt-5 w-full border border-orange-500 bg-orange-500 px-4 py-3 text-sm font-black uppercase text-slate-950 hover:bg-orange-400"
-          >
-            Sign in with Google
-          </button>
-        </section>
-      </main>
+      <ActivationLandingPage onActivated={handleActivationSuccess} />
     );
   }
 
-  if (SHOW_DEV_BADGES && googleAuthProfile && !activationChecking && activationResult && !activationResult.allowed) {
-    const blockedActivation = activationResult.activation;
+  if (activationSuccess && !activeSession) {
     return (
-      <main className="min-h-screen bg-slate-950 text-slate-100 flex items-center justify-center p-6">
-        <section className="w-full max-w-lg border border-rose-500/40 bg-slate-900 p-6 shadow-2xl text-center space-y-4">
-          <p className="text-[10px] font-black uppercase tracking-[0.3em] text-rose-400">POS License Blocked</p>
-          <h1 className="text-xl font-black uppercase text-white">POS Access Denied</h1>
-          <div className="border border-rose-700 bg-slate-950 p-3 text-xs text-rose-300 font-bold">
-            {activationResult.message}
-          </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-left">
-            <div className="border border-slate-700 bg-slate-950 p-3 text-[10px] text-slate-300 font-black uppercase">
-              <span className="block text-slate-500">Authenticated Google Email</span>
-              <span className="text-slate-100 normal-case break-all">{googleAuthProfile.email || 'Unknown'}</span>
-            </div>
-            <div className="border border-slate-700 bg-slate-950 p-3 text-[10px] text-slate-300 font-black uppercase">
-              <span className="block text-slate-500">Reason</span>
-              <span className="text-rose-300">{activationResult.reasonCode}</span>
-            </div>
-            <div className="border border-slate-700 bg-slate-950 p-3 text-[10px] text-slate-300 font-black uppercase">
-              <span className="block text-slate-500">License Status</span>
-              <span className="text-slate-100">{blockedActivation?.status || 'Not available'}</span>
-            </div>
-            <div className="border border-slate-700 bg-slate-950 p-3 text-[10px] text-slate-300 font-black uppercase">
-              <span className="block text-slate-500">Expiry</span>
-              <span className="text-slate-100">{blockedActivation?.expiresAt || 'Not available'}</span>
-            </div>
-          </div>
-          <p className="text-xs text-slate-400">
-            Contact an administrator to link this Google account or correct the activation record.
-          </p>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-            <button
-              type="button"
-              onClick={() => void handlePOSSignOut()}
-              className="w-full border border-slate-600 bg-slate-800 hover:bg-slate-700 px-4 py-3 text-sm font-black uppercase text-white"
-            >
-              Sign Out
-            </button>
-            <button
-              type="button"
-              onClick={() => void handlePOSSignOut()}
-              className="w-full border border-rose-500 bg-rose-600 hover:bg-rose-500 px-4 py-3 text-sm font-black uppercase text-white"
-            >
-              Try Another Account
-            </button>
-          </div>
-        </section>
+      <main className="min-h-screen bg-[#f7f5ef] flex items-center justify-center p-6">
+        <div className="w-full max-w-md bg-white border border-gray-300 p-6 text-center">
+          <p className="text-[10px] font-black uppercase tracking-[0.3em] text-emerald-500">POS Activation</p>
+          <h1 className="mt-3 text-2xl font-black uppercase text-[#1e222b]">Activation Successful</h1>
+          <p className="mt-3 text-sm text-slate-600">Open Staff Access to continue to the POS terminal.</p>
+        </div>
       </main>
     );
   }
 
-  if (SHOW_DEV_BADGES && googleAuthProfile && (activationChecking || !licenseChecked)) {
-    return (
-      <main className="min-h-screen bg-slate-950 text-slate-100 flex items-center justify-center p-6">
-        <section className="w-full max-w-md border border-emerald-500/40 bg-slate-900 p-6 shadow-2xl">
-          <p className="text-[10px] font-black uppercase tracking-[0.3em] text-emerald-400">POS Activation</p>
-          <h1 className="mt-3 text-2xl font-black uppercase text-white">Checking Activation</h1>
-          <div className="mt-5 border border-emerald-700 bg-slate-950 p-3 text-xs text-emerald-300 font-bold text-center">
-            Reading sci_pos_activations for {googleAuthProfile.email}
-          </div>
-          <p className="mt-4 text-xs text-slate-400 leading-relaxed">
-            POS access opens only when the activation record is active, unexpired, and compatible with the requested storage mode.
-          </p>
-        </section>
-      </main>
-    );
-  }
-
-  // Guard the operational register with our heavy security staff access screen
+  // Guard the operational register with Staff Access
   if (!activeSession) {
     return (
       <PosStaffAccess 

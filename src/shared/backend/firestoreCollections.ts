@@ -8,6 +8,7 @@ export const FIRESTORE_COLLECTIONS = {
   vendorPlans: 'vendorPlans',
   plans: 'plans',
   activationTokens: 'activationTokens',
+  activationCodes: 'activationCodes',
   vendorPayments: 'vendorPayments',
   vendorInvoices: 'vendorInvoices',
   vendorSyncStatus: 'vendorSyncStatus',

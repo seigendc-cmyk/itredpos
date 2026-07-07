@@ -19,6 +19,8 @@ export type VendorRuntimeNoticeKind = 'trial' | 'pending' | 'offline' | 'blocked
 export interface VendorLicenseRuntimeSnapshot {
   vendorId: string;
   planCode: string;
+  planId?: string;
+  planName?: string;
   licenseStatus: string;
   activationStatus: string;
   verificationStatus: string;
@@ -32,6 +34,11 @@ export interface VendorLicenseRuntimeSnapshot {
   maxStaff: number;
   maxProducts: number;
   allowed: boolean;
+  /**
+   * When false, POS should not make a licensing decision yet (Firestore not fully populated).
+   * This prevents transient "Upgrade Required" after activation.
+   */
+  licenseStatusKnown: boolean;
   licenseMode: VendorRuntimeLicenseMode;
   noticeKind: VendorRuntimeNoticeKind;
   noticeTitle: string;
@@ -43,6 +50,7 @@ export interface VendorLicenseRuntimeSnapshot {
   updatedAt: string;
   message: string;
 }
+
 
 type Row = Record<string, unknown>;
 
@@ -237,6 +245,9 @@ function createRuntimeSnapshot(
   const accStatus = compactStatus(accountStatus);
   const verStatus = compactStatus(verificationStatus);
 
+  // If Firestore is partially hydrated (e.g. immediately after activation write), avoid making a decision.
+  const licenseStatusKnown = !!(license.licenseStatus || vendor.licenseStatus || plan.planCode);
+
   const suspended = [accStatus, licStatus, actStatus].includes('suspended');
   const rejected = [verStatus, accStatus, licStatus, actStatus].includes('rejected');
   const expired = licStatus === 'expired' || isExpiredTrial(licenseStatus, trialExpiresAt);
@@ -244,7 +255,13 @@ function createRuntimeSnapshot(
   const activeLicense = actStatus === 'active' && ['active', 'trial'].includes(licStatus);
   const pendingTrial = actStatus === 'pendingconsoleverification' && licStatus === 'trial';
 
-  const allowed = !suspended && !rejected && !expired && (activeLicense || pendingTrial || options.offline);
+  const allowed =
+    licenseStatusKnown &&
+    !suspended &&
+    !rejected &&
+    !expired &&
+    (activeLicense || pendingTrial || options.offline);
+
   const licenseMode = normalizeLicenseMode(licenseStatus, planCode);
   const daysRem = daysRemaining(trialExpiresAt);
 
@@ -268,6 +285,7 @@ function createRuntimeSnapshot(
     featureFlags,
     ...limits, // maxBranches, maxWarehouses, maxTerminals, maxStaff, maxProducts
     allowed,
+    licenseStatusKnown,
     licenseMode,
     daysRemaining: daysRem,
     offline: options.offline,
@@ -279,6 +297,17 @@ function createRuntimeSnapshot(
   const notice = makeNotice(base);
   const tempSnapshot = { ...base, ...notice };
   const message = authContextMessage(tempSnapshot);
+
+  // Development logs as requested
+  console.log('[vendorLicenseRuntimeService] Snapshot Evaluation:', {
+    vendorId,
+    verificationStatus: tempSnapshot.verificationStatus,
+    licenseStatus: tempSnapshot.licenseStatus,
+    planCode: tempSnapshot.planCode,
+    posAccess: tempSnapshot.allowed,
+    finalDecision: tempSnapshot.allowed ? 'allowed' : `blocked: ${tempSnapshot.blockReason || 'unknown reason'}`,
+    isKnown: licenseStatusKnown
+  });
 
   return {
     ...tempSnapshot,
@@ -308,15 +337,27 @@ export function readSavedVendorLicenseSnapshot(vendorId: string): VendorLicenseR
 function fallbackOfflineSnapshot(vendorId: string): VendorLicenseRuntimeSnapshot {
   const cached = readSavedVendorLicenseSnapshot(vendorId);
   if (cached) {
-    const offline = createRuntimeSnapshot(vendorId, cached as unknown as Row, cached as unknown as Row, cached as unknown as Row, { offline: true, source: 'local' });
+    const offline = createRuntimeSnapshot(
+      vendorId,
+      cached as unknown as Row,
+      cached as unknown as Row,
+      cached as unknown as Row,
+      { offline: true, source: 'local' }
+    );
+
     return {
       ...offline,
       licenseMode: cached.licenseMode,
       planCode: cached.planCode || offline.planCode,
+      licenseStatusKnown: cached.licenseStatusKnown,
       message: OFFLINE_NOTICE
     };
   }
-  return createRuntimeSnapshot(vendorId, {}, {}, {}, { offline: true, source: 'local' });
+
+  return {
+    ...createRuntimeSnapshot(vendorId, {}, {}, {}, { offline: true, source: 'local' }),
+    licenseStatusKnown: false
+  };
 }
 
 export function subscribeToVendorRuntimeLicense(
@@ -396,6 +437,26 @@ function authLicenseStatus(snapshot: VendorLicenseRuntimeSnapshot): PosVendorAut
   return 'Demo';
 }
 
+function posPrototypeStage(context: PosVendorAuthContext): PosAuthStage {
+  if (!context.vendorId || !context.vendorName) return 'staffAccessRequired';
+  const statusValues = [
+    context.licenseStatus,
+    context.activationStatus,
+    context.accountStatus,
+    context.verificationStatus
+  ].map((value) => String(value || '').toLowerCase());
+
+  if (
+    context.licenseStatus === 'Expired' ||
+    statusValues.some((value) => value === 'suspended' || value === 'rejected')
+  ) {
+    return 'licenseRequired';
+  }
+
+  if (!context.staffId || !context.staffRole) return 'staffAccessRequired';
+  return 'posReady';
+}
+
 export function mergeVendorLicenseIntoAuthContext(
   context: PosVendorAuthContext,
   snapshot: VendorLicenseRuntimeSnapshot
@@ -421,6 +482,8 @@ export function mergeVendorLicenseIntoAuthContext(
     message: snapshot.message
   };
 
-  nextContext.stage = snapshot.allowed ? resolveNextAuthStage(nextContext) : 'licenseRequired';
+  nextContext.stage = snapshot.allowed
+    ? (context.googleUid && context.googleEmail ? resolveNextAuthStage(nextContext) : posPrototypeStage(nextContext))
+    : 'licenseRequired';
   return nextContext;
 }

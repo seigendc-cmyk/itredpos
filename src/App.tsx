@@ -1,6 +1,5 @@
 import { useState, useEffect } from 'react';
 import PosPrototypeApp from './pos-new/PosPrototypeApp';
-import PosVendorAuthGate from './pos-new/auth/PosVendorAuthGate';
 import FirebaseReadinessPage from './platform/FirebaseReadinessPage';
 import VendorVerificationQueuePage from './platform/VendorVerificationQueuePage';
 import { Cpu, ShieldCheck, Power, RefreshCw } from 'lucide-react';
@@ -58,11 +57,7 @@ export default function App() {
 
   // If path is indeed /pos-prototype, mount our primary modern shell application
   if (currentPath === '/pos-prototype') {
-    return (
-      <PosVendorAuthGate>
-        <PosPrototypeApp />
-      </PosVendorAuthGate>
-    );
+    return <PosPrototypeApp />;
   }
 
   if (currentPath === '/platform/firebase-readiness') {

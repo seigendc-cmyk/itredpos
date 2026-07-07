@@ -251,3 +251,40 @@ export async function provisionVendorFromBusinessSetup(
   }
 }
 
+
+
+async function writeSharedVendorRelationshipRecords(profile: any, context: any, vendorId: string): Promise<string[]> {
+  const branchId = context.branchId || "main-branch";
+  const terminalId = context.terminalId || "TERM-MAIN-001";
+
+  const records = buildSharedVendorRecords({
+    vendorId,
+    businessName: profile.businessName,
+    tradingName: profile.tradingName || profile.businessName,
+    ownerEmail: profile.ownerEmail || context.googleEmail || "",
+    phone: profile.phone || "",
+    whatsapp: profile.whatsapp || "",
+    category: profile.businessType || profile.industry || "Retail",
+    country: profile.country || "Zimbabwe",
+    city: profile.city || "",
+    address: profile.physicalAddress || profile.branchAddress || "",
+    branchId,
+    branchName: profile.branchName || profile.defaultBranchName || "Main Branch",
+    branchPhone: profile.branchPhone || profile.phone || "",
+    branchWhatsapp: profile.branchWhatsapp || profile.whatsapp || "",
+    branchAddress: profile.branchAddress || profile.physicalAddress || "",
+    terminalId,
+    terminalName: "Main POS Terminal",
+    planId: context.planCode || "DEMO",
+    createdBy: context.googleEmail || "POS_ONBOARDING"
+  });
+
+  await upsertVendorRecord(records.vendor);
+  await upsertBranchRecord(records.branch);
+  await upsertTerminalRecord(records.terminal);
+  await upsertPosLicenseRecord(records.license);
+
+  return ["vendors", "branches", "terminals", "posLicenses"];
+}
+
+
