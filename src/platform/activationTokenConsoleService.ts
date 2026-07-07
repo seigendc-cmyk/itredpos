@@ -3,8 +3,6 @@ import {
   doc,
   getDoc,
   getDocs,
-  setDoc,
-  updateDoc,
   query,
   where,
   orderBy,
@@ -19,6 +17,8 @@ import type {
   VendorAuditLogRecord,
   PlanCode
 } from '../shared/backend';
+import { createLicenseActivationToken } from '../license-core';
+import type { LicensePlanCode } from '../license-core';
 
 function checkFirebaseReady(): void {
   if (!firebaseReady || !db) {
@@ -26,11 +26,21 @@ function checkFirebaseReady(): void {
   }
 }
 
-function generateTokenCode(): string {
-  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
-  const part1 = Array.from({ length: 4 }, () => chars[Math.floor(Math.random() * chars.length)]).join('');
-  const part2 = Array.from({ length: 4 }, () => chars[Math.floor(Math.random() * chars.length)]).join('');
-  return `POS-${part1}-${part2}`;
+function toLicensePlanCode(planCode: PlanCode): LicensePlanCode {
+  switch (planCode) {
+    case 'DEMO':
+      return 'DEMO';
+    case 'STARTER':
+      return 'STARTER';
+    case 'STANDARD':
+      return 'GROWTH';
+    case 'PRO':
+      return 'ENTERPRISE';
+    case 'ENTERPRISE':
+      return 'ENTERPRISE';
+    default:
+      return 'DEMO';
+  }
 }
 
 export async function listActivationTokens(): Promise<ActivationTokenRecord[]> {
@@ -89,30 +99,36 @@ export async function issueActivationToken(
     console.warn('Failed to load vendor details, falling back to ID:', err);
   }
 
-  // 3. Generate token details
-  const tokenId = doc(collection(db!, FIRESTORE_COLLECTIONS.activationTokens)).id;
-  const tokenCode = generateTokenCode();
-  const expiresAt = new Date(Date.now() + expiryDays * 24 * 60 * 60 * 1000).toISOString();
+  // 3. Generate token details via license-core
+  const licenseToken = createLicenseActivationToken({
+    vendorId,
+    planCode: toLicensePlanCode(planCode),
+    issuedBy,
+    expiryDays,
+    maxDevices: 1,
+    vendorName,
+    note
+  });
 
   const tokenDoc: ActivationTokenRecord = {
-    tokenId,
-    tokenCode,
-    vendorId,
+    tokenId: licenseToken.tokenId,
+    tokenCode: licenseToken.tokenCode,
+    vendorId: licenseToken.vendorId,
+    vendorName: licenseToken.vendorName,
     planCode,
-    status: 'Unused',
-    issuedAt: now,
-    expiresAt,
-    issuedBy,
-    createdAt: now,
-    updatedAt: now
+    status: licenseToken.status,
+    issuedAt: licenseToken.issuedAt,
+    expiresAt: licenseToken.expiresAt,
+    issuedBy: licenseToken.issuedBy,
+    features: licenseToken.features,
+    maxDevices: licenseToken.maxDevices,
+    activatedDevices: licenseToken.activatedDevices,
+    createdAt: licenseToken.createdAt,
+    updatedAt: licenseToken.updatedAt
   };
-  
-  if (note) {
-    (tokenDoc as any).note = note;
-  }
 
   const batch = writeBatch(db!);
-  batch.set(doc(db!, FIRESTORE_COLLECTIONS.activationTokens, tokenId), tokenDoc);
+  batch.set(doc(db!, FIRESTORE_COLLECTIONS.activationTokens, tokenDoc.tokenId), tokenDoc);
 
   // Write audit log
   const auditLogRef = doc(collection(db!, FIRESTORE_COLLECTIONS.vendorAuditLogs));
@@ -120,7 +136,7 @@ export async function issueActivationToken(
     auditLogId: auditLogRef.id,
     vendorId,
     eventType: 'IssueActivationToken',
-    message: `Activation code generated: ${tokenCode} (Expires: ${new Date(expiresAt).toLocaleDateString()})`,
+    message: `Activation code generated: ${tokenDoc.tokenCode} (Expires: ${new Date(tokenDoc.expiresAt).toLocaleDateString()})`,
     performedBy: issuedBy,
     createdAt: now,
     updatedAt: now
