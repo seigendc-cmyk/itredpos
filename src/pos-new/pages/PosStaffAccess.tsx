@@ -1,7 +1,8 @@
 import React, { useState, FormEvent, useEffect } from 'react';
 import { ShieldCheck, KeyRound, Server, Building2, Users, MonitorSmartphone, ArrowRight, ShieldAlert, Cpu } from 'lucide-react';
 import { PosSession } from '../types';
-import { getCurrentTenantSession, loadBranchesForCurrentTenant, loadStaffProfilesForCurrentTenant, loadTerminalsForCurrentBranch } from '../auth/tenantSessionService';
+import { getCurrentTenantSession, loadBranchesForCurrentTenant, loadTerminalsForCurrentBranch } from '../auth/tenantSessionService';
+import { loadStaffForCurrentVendor, authenticateStaffAccess, type StaffAuthInput } from '../../sci-auth/StaffAuthService';
 
 interface PosStaffAccessProps {
   onLoginSuccess: (session: PosSession) => void;
@@ -22,10 +23,10 @@ export default function PosStaffAccess({
   const vendors = [{ id: tenantSession.vendorId || 'current-vendor', name: vendorName }];
 
   // Load staff profiles and branch access list dynamically from the current resolved tenant session.
-  const staffProfiles = loadStaffProfilesForCurrentTenant();
+  const staffProfiles = loadStaffForCurrentVendor();
   const branchAccessRows = loadBranchesForCurrentTenant();
   const branches = branchAccessRows.map((branch) => ({ id: branch.branchId, name: branch.branchName, location: branch.branchName }));
-  const staffList = staffProfiles.map((staff) => ({ id: staff.staffId, name: staff.staffName, email: staff.staffEmail || tenantSession.vendorEmail || '', role: staff.role, pass: '', branchId: staff.defaultBranchId || branches[0]?.id || '' }));
+  const staffList = staffProfiles.map((staff) => ({ id: staff.staffId, name: staff.staffName, email: '', role: staff.role, pass: '', branchId: staff.branchId }));
 
   // Connection selections state
   const [selectedVendor, setSelectedVendor] = useState<string>(vendors[0].name);
@@ -68,10 +69,9 @@ export default function PosStaffAccess({
 
     setIsAuthenticating(true);
 
-    // Simulate standard crypto check latency
     setTimeout(() => {
       setIsAuthenticating(false);
-      
+
       const branchObj = branches.find(b => b.id === selectedBranchId);
       const terminalObj = terminals.find(t => t.id === selectedTerminalId);
       const staffObj = staffList.find(s => s.id === selectedStaffId);
@@ -81,22 +81,20 @@ export default function PosStaffAccess({
         return;
       }
 
-      // Successful login - passes back details
-      onLoginSuccess({
-        vendor: selectedVendor,
-        vendorId: tenantSession.vendorId,
-        branch: branchObj.name,
-        branchId: branchObj.id,
-        terminal: terminalObj.name,
-        terminalId: terminalObj.id,
-        staffName: staffObj.name,
-        role: staffObj.role,
-        licenseId: tenantSession.licenseId,
-        planId: tenantSession.planId,
-        licenseMode: tenantSession.licenseMode,
-        storageMode: tenantSession.storageMode,
-        activationId: tenantSession.activationId
-      });
+      const authInput: StaffAuthInput = {
+        vendorId: tenantSession.vendorId || '',
+        staffId: staffObj.id,
+        pin: password.trim()
+      };
+
+      const result = authenticateStaffAccess(authInput);
+
+      if (!result.ok || !result.session) {
+        setErrorMsg(result.message || 'ACCESS PERMISSION DENIED');
+        return;
+      }
+
+      onLoginSuccess(result.session);
     }, 600);
   };
 
