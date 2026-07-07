@@ -18,23 +18,26 @@ export default function PosStaffAccess({
   
   // Build-development tenant data source.
   // This is resolved after Google Authentication completes in the parent gate.
-  const tenantSession = getCurrentTenantSession();
-  const vendorName = tenantSession.vendorName || tenantSession.vendorEmail || 'Current Vendor';
-  const vendors = [{ id: tenantSession.vendorId || 'current-vendor', name: vendorName }];
-
-  // Load staff profiles and branch access list dynamically from the current resolved tenant session.
   const staffProfiles = loadStaffForCurrentVendor();
-  const branchAccessRows = loadBranchesForCurrentTenant();
-  const branches = branchAccessRows.map((branch) => ({ id: branch.branchId, name: branch.branchName, location: branch.branchName }));
-  const staffList = staffProfiles.map((staff) => ({ id: staff.staffId, name: staff.staffName, email: '', role: staff.role, pass: '', branchId: staff.branchId }));
+  const ownerStaff = staffProfiles[0];
 
-  // Connection selections state
+  const vendors = [{ id: ownerStaff?.vendorId || 'demo-vendor-001', name: ownerStaff?.vendorName || 'Demo Business' }];
+  const branches = [{ id: ownerStaff?.branchId || 'main-branch', name: 'Main Branch', location: 'Main Branch' }];
+  const terminals = [{ id: ownerStaff?.terminalId || 'TERM-MAIN-001', name: 'Main POS Terminal', branchId: ownerStaff?.branchId || 'main-branch', type: 'POS' }];
+  const staffList = staffProfiles.map((staff) => ({
+    id: staff.staffId,
+    name: staff.staffName,
+    email: staff.staffEmail || '',
+    role: staff.role,
+    pass: '',
+    branchId: staff.branchId
+  }));
+
   const [selectedVendor, setSelectedVendor] = useState<string>(vendors[0].name);
   const [selectedBranchId, setSelectedBranchId] = useState<string>(branches[0]?.id || '');
   const [selectedStaffId, setSelectedStaffId] = useState<string>(staffList[0]?.id || '');
 
-  const terminalAccessRows = loadTerminalsForCurrentBranch(selectedBranchId || branches[0]?.id || '', selectedStaffId);
-  const terminals = terminalAccessRows.map((terminal) => ({ id: terminal.terminalId, name: terminal.terminalName, branchId: terminal.branchId, type: terminal.terminalStatus || 'POS' }));
+  
 
   const [selectedTerminalId, setSelectedTerminalId] = useState<string>(terminals[0]?.id || '');
   const [password, setPassword] = useState<string>('');
@@ -72,30 +75,19 @@ export default function PosStaffAccess({
     setTimeout(() => {
       setIsAuthenticating(false);
 
-      const branchObj = branches.find(b => b.id === selectedBranchId);
-      const terminalObj = terminals.find(t => t.id === selectedTerminalId);
-      const staffObj = staffList.find(s => s.id === selectedStaffId);
+      const authResult = authenticateStaffAccess({
+        vendorId: vendors[0]?.id || 'demo-vendor-001',
+        staffId: selectedStaffId,
+        pin: password
+      });
 
-      if (!branchObj || !terminalObj || !staffObj) {
-        setErrorMsg('SYSTEM MALFUNCTION: INVALID SELECTIONS');
+      if (!authResult.ok || !authResult.session) {
+        setErrorMsg(authResult.message || 'INVALID PIN OR STAFF ACCESS DENIED');
         return;
       }
 
-      const authInput: StaffAuthInput = {
-        vendorId: tenantSession.vendorId || '',
-        staffId: staffObj.id,
-        pin: password.trim()
-      };
-
-      const result = authenticateStaffAccess(authInput);
-
-      if (!result.ok || !result.session) {
-        setErrorMsg(result.message || 'ACCESS PERMISSION DENIED');
-        return;
-      }
-
-      onLoginSuccess(result.session);
-    }, 600);
+      onLoginSuccess(authResult.session);
+    }, 300);
   };
 
   const handleQuickFill = () => {
