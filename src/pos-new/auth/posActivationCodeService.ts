@@ -9,11 +9,8 @@ import {
 } from 'firebase/firestore';
 import { db, firebaseReady } from '../firebase/firebaseApp';
 import { FIRESTORE_COLLECTIONS } from '../../shared/backend';
-import type {
-  ActivationCodeRecord,
-  POSActivationSnapshotLocal,
-  POSActivationCodeResult
-} from '../../shared/backend';
+import type { ActivationCodeRecord, POSActivationSnapshotLocal, POSActivationCodeResult } from '../../shared/backend';
+import { validateLicenseToken, type LicenseActivationToken, type LicenseValidationResult } from '../../license-core';
 
 const POS_ACTIVATION_STORAGE_KEY = 'itred_pos_activation_snapshot';
 const DEVICE_ID_STORAGE_KEY = 'itred_pos_device_id';
@@ -80,11 +77,75 @@ function normalizeCode(value: string): string {
   return value.trim().toUpperCase();
 }
 
-async function findActivationCode(code: string): Promise<{ codeId: string; data: Record<string, unknown> } | null> {
+function toLicenseStatus(status: string): LicenseActivationToken['status'] {
+  switch (status) {
+    case 'Unused':
+      return 'Unused';
+    case 'Used':
+      return 'Consumed';
+    case 'Expired':
+      return 'Expired';
+    case 'Revoked':
+      return 'Revoked';
+    default:
+      return 'Unused';
+  }
+}
+
+function toActivationTokenStatus(status: LicenseActivationToken['status']): string {
+  switch (status) {
+    case 'Unused':
+      return 'Unused';
+    case 'Active':
+      return 'Unused';
+    case 'Consumed':
+      return 'Used';
+    case 'Expired':
+      return 'Expired';
+    case 'Revoked':
+      return 'Revoked';
+    default:
+      return 'Unused';
+  }
+}
+
+function toPlanCode(licensePlanCode: string): string {
+  switch (licensePlanCode) {
+    case 'DEMO':
+      return 'DEMO';
+    case 'STARTER':
+      return 'STARTER';
+    case 'GROWTH':
+      return 'STANDARD';
+    case 'ENTERPRISE':
+      return 'ENTERPRISE';
+    default:
+      return 'DEMO';
+  }
+}
+
+function toLicensePlanCode(planCode: string): LicenseActivationToken['planCode'] {
+  switch (planCode) {
+    case 'DEMO':
+      return 'DEMO';
+    case 'STARTER':
+      return 'STARTER';
+    case 'STANDARD':
+      return 'GROWTH';
+    case 'PRO':
+      return 'ENTERPRISE';
+    case 'ENTERPRISE':
+      return 'ENTERPRISE';
+    default:
+      return 'DEMO';
+  }
+}
+
+async function findActivationToken(code: string): Promise<{ codeId: string; data: Record<string, unknown> } | null> {
   const cleanCode = normalizeCode(code);
   const snapshot = await getDocs(query(
-    collection(db!, FIRESTORE_COLLECTIONS.activationCodes),
-    where('code', '==', cleanCode)
+    collection(db!, FIRESTORE_COLLECTIONS.activationTokens),
+    where('tokenCode', '==', cleanCode)
   ));
 
   if (snapshot.empty) return null;
@@ -119,59 +180,57 @@ export async function validateActivationCode(code: string): Promise<POSActivatio
   }
 
   try {
-    const found = await findActivationCode(cleanCode);
+    const found = await findActivationToken(cleanCode);
     if (!found) {
       return { ok: false, message: 'Invalid activation code.' };
     }
 
     const data = found.data;
-    const status = text(data.status, 'unused').toLowerCase();
+    const status = text(data.status, 'Unused');
     const expiresAt = text(data.expiresAt);
     const vendorId = text(data.vendorId);
-    const planCode = text(data.planCode, 'DEMO').toUpperCase();
+    const planCode = toPlanCode(text(data.planCode, 'DEMO'));
     const licenseMode = text(data.licenseMode, 'trial').toLowerCase();
     const features = (data.features && typeof data.features === 'object') ? data.features as Record<string, boolean> : {};
     const maxDevices = typeof data.maxDevices === 'number' ? data.maxDevices : 1;
     const activatedDevices = typeof data.activatedDevices === 'number' ? data.activatedDevices : 0;
 
-    if (status === 'revoked') {
-      await createAuditLog(vendorId, 'POS_ACTIVATION_FAILED', `Revoked activation code rejected: ${cleanCode}`);
-      return { ok: false, message: 'Activation code has been revoked.' };
-    }
+    const licenseToken: LicenseActivationToken = {
+      tokenId: text(data.tokenId, found.codeId),
+      tokenCode: cleanCode,
+      vendorId,
+      vendorName: text(data.vendorName),
+      planCode: toLicensePlanCode(text(data.planCode, 'DEMO')),
+      status: toLicenseStatus(status),
+      features: {
+        posAccess: Boolean(features.posAccess),
+        inventory: Boolean(features.inventory),
+        sales: Boolean(features.sales),
+        reports: Boolean(features.reports)
+      },
+      maxDevices,
+      activatedDevices,
+      issuedAt: text(data.issuedAt, nowIso()),
+      expiresAt,
+      issuedBy: text(data.issuedBy, 'system'),
+      createdAt: text(data.createdAt, nowIso()),
+      updatedAt: text(data.updatedAt, nowIso())
+    };
 
-    if (status === 'expired') {
-      await createAuditLog(vendorId, 'POS_ACTIVATION_FAILED', `Expired activation code rejected: ${cleanCode}`);
-      return { ok: false, message: 'Activation code has expired.' };
-    }
-
-    if (status === 'consumed') {
-      await createAuditLog(vendorId, 'POS_ACTIVATION_FAILED', `Consumed activation code rejected: ${cleanCode}`);
-      return { ok: false, message: 'Activation code has already been fully consumed.' };
-    }
-
-    if (expiresAt && Date.parse(expiresAt) < Date.now()) {
-      await createAuditLog(vendorId, 'POS_ACTIVATION_FAILED', `Expired activation code rejected: ${cleanCode}`);
-      return { ok: false, message: 'Activation code has expired.' };
-    }
-
-    if (!features.posAccess) {
-      await createAuditLog(vendorId, 'POS_ACTIVATION_FAILED', `POS access not enabled for code: ${cleanCode}`);
-      return { ok: false, message: 'This activation code does not enable POS access.' };
-    }
-
-    if (activatedDevices >= maxDevices) {
-      await createAuditLog(vendorId, 'POS_ACTIVATION_FAILED', `Device limit reached for code: ${cleanCode}`);
-      return { ok: false, message: 'Activation code device limit reached.' };
+    const validation = validateLicenseToken(licenseToken, '');
+    if (!validation.ok) {
+      await createAuditLog(vendorId, 'POS_ACTIVATION_FAILED', `${validation.message}: ${cleanCode}`);
+      return { ok: false, message: validation.message };
     }
 
     const codeRecord: ActivationCodeRecord = {
-      codeId: found.codeId,
-      code: cleanCode,
+      codeId: licenseToken.tokenId,
+      code: licenseToken.tokenCode,
       vendorId,
-      vendorName: text(data.vendorName, vendorId),
+      vendorName: licenseToken.vendorName || vendorId,
       planCode: planCode as ActivationCodeRecord['planCode'],
       licenseMode: licenseMode as ActivationCodeRecord['licenseMode'],
-      status: status as ActivationCodeRecord['status'],
+      status: status.toLowerCase() as ActivationCodeRecord['status'],
       features: {
         posAccess: Boolean(features.posAccess),
         inventory: Boolean(features.inventory),
@@ -182,7 +241,7 @@ export async function validateActivationCode(code: string): Promise<POSActivatio
       activatedDevices,
       expiresAt,
       createdAt: text(data.createdAt, nowIso()),
-      createdBy: text(data.createdBy, 'system'),
+      createdBy: text(data.issuedBy, 'system'),
       consumedAt: data.consumedAt ? text(data.consumedAt) : undefined,
       consumedByDeviceId: data.consumedByDeviceId ? text(data.consumedByDeviceId) : undefined,
       metadata: data.metadata && typeof data.metadata === 'object' ? (data.metadata as Record<string, unknown>) : undefined
@@ -217,21 +276,31 @@ export async function consumeActivationCode(
     const now = nowIso();
     const newActivatedDevices = codeRecord.activatedDevices + 1;
     const isFullyConsumed = newActivatedDevices >= codeRecord.maxDevices;
-    const newStatus: ActivationCodeRecord['status'] = isFullyConsumed ? 'consumed' : 'active';
+    const newStatus = isFullyConsumed ? 'Used' : 'Unused';
 
-    const codeRef = doc(db!, FIRESTORE_COLLECTIONS.activationCodes, codeRecord.codeId);
+    const found = await findActivationToken(cleanCode);
+    if (!found) {
+      return { ok: false, message: 'Activation code no longer exists.' };
+    }
+
+    const tokenRef = doc(db!, FIRESTORE_COLLECTIONS.activationTokens, found.codeId);
     const licenseRef = doc(db!, FIRESTORE_COLLECTIONS.vendorLicenses, codeRecord.vendorId);
     const planRef = doc(db!, FIRESTORE_COLLECTIONS.vendorPlans, codeRecord.vendorId);
     const vendorRef = doc(db!, FIRESTORE_COLLECTIONS.vendors, codeRecord.vendorId);
 
     const batch = writeBatch(db!);
 
-    batch.update(codeRef, {
+    batch.update(tokenRef, {
       activatedDevices: newActivatedDevices,
       status: newStatus,
-      consumedAt: isFullyConsumed ? now : codeRecord.consumedAt,
-      consumedByDeviceId: isFullyConsumed ? deviceId : codeRecord.consumedByDeviceId,
-      updatedAt: now
+      updatedAt: now,
+      ...(isFullyConsumed
+        ? {
+            consumedAt: now,
+            consumedByDeviceId: deviceId,
+            usedAt: now
+          }
+        : {})
     });
 
     batch.set(licenseRef, {

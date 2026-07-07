@@ -22,6 +22,8 @@ export interface ActivationTokenRecord {
   features: ActivationTokenFeatures;
   maxDevices: number;
   activatedDevices: number;
+  consumedAt?: string;
+  consumedByDeviceId?: string;
   usedAt?: string;
   revokedAt?: string;
   createdAt: string;
