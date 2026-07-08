@@ -48,9 +48,8 @@ import { saveBusinessProfile, validateBusinessProfile } from '../services/busine
 import { getFinancialControlAccounts } from '../services/financialControlService';
 import { getCheckWriterSettings, previewNumber, updateCheckWriterSettings } from '../services/checkWriterService';
 import { getActiveVendorId } from '../utils/vendorDataMode';
-import { getNextPlanCode, isLimitReached, type PlanFeatureAccess } from '../auth/planFeatureGate';
-import UpgradeRequiredPanel, { type UpgradeRequiredVendorContext } from '../components/UpgradeRequiredPanel';
-import PosSubscriptionPanel from '../components/PosSubscriptionPanel';
+import { isLimitReached, type PlanFeatureAccess } from '../auth/planFeatureGate';
+import SubscriptionCommercePage from '../build08072026-subs/pages/SubscriptionCommercePage';
 import { readPosAuthContext } from '../auth/posVendorAuthState';
 
 interface PosSettingsProps {
@@ -108,18 +107,6 @@ function profileText(profile: BusinessProfile, ...keys: string[]): string {
     if (value) return value;
   }
   return '';
-}
-
-function buildSettingsUpgradeVendorContext(profile: BusinessProfile): UpgradeRequiredVendorContext {
-  return {
-    vendorName: profile.legalName || profile.tradingName || profile.businessName || 'Business',
-    vendorId: profileText(profile, 'vendorId') || getActiveVendorId(),
-    ownerName: profileText(profile, 'ownerName', 'contactPerson', 'administratorName'),
-    ownerPhone: profileText(profile, 'ownerContact', 'ownerPhone', 'businessPhone', 'phone', 'phoneNumber1'),
-    ownerWhatsapp: profileText(profile, 'businessWhatsapp', 'whatsapp', 'ownerWhatsApp', 'whatsAppNumber1'),
-    city: profileText(profile, 'city', 'cityTown'),
-    suburb: profileText(profile, 'suburb', 'districtSuburb', 'district')
-  };
 }
 
 export default function PosSettings({
@@ -585,19 +572,6 @@ export default function PosSettings({
         )}
       </AnimatePresence>
 
-      {planAccess && (
-        <section className="border border-slate-300 bg-white p-1">
-          <UpgradeRequiredPanel
-            featureName="Subscription and Plan Limits"
-            currentPlan={String(planAccess.planCode)}
-            requiredPlan={String(getNextPlanCode(planAccess.planCode))}
-            vendor={buildSettingsUpgradeVendorContext(businessProfile)}
-            detail="Manage your POS plan, request an upgrade, or enter an activation code issued by SCI."
-            onActivated={(result) => triggerToast(result.message)}
-          />
-        </section>
-      )}
-
       {/* MAIN NESTED LAYOUT BOX */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
         
@@ -679,7 +653,7 @@ export default function PosSettings({
           <div className="space-y-6 flex-1">
 
             {activeSection === 'SUBSCRIPTION' && (
-              <PosSubscriptionPanel
+              <SubscriptionCommercePage
                 businessProfile={businessProfile}
                 vendorAuth={readPosAuthContext()}
                 planAccess={planAccess}

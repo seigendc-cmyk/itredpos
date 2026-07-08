@@ -1,8 +1,22 @@
-export default function FeatureCard() {
+import type { Key } from 'react';
+
+interface FeatureCardProps {
+  key?: Key;
+  label: string;
+  enabled?: boolean;
+}
+
+export default function FeatureCard({ label, enabled = true }: FeatureCardProps) {
   return (
-    <div className="border border-slate-200 bg-white p-4">
-      <h2 className="text-sm font-black uppercase text-[#1e222b]">Feature Card</h2>
-      <p className="mt-1 text-xs text-slate-600">Placeholder — subscription feature card (build 08072026-subs).</p>
+    <div
+      className={`flex items-center justify-between gap-2 border px-2 py-1.5 text-[11px] font-semibold ${
+        enabled
+          ? 'border-emerald-200 bg-emerald-50 text-emerald-800'
+          : 'border-slate-200 bg-slate-50 text-slate-500 line-through opacity-70'
+      }`}
+    >
+      <span>{label}</span>
+      <span className="text-[9px] font-black uppercase px-1">{enabled ? 'Included' : 'Locked'}</span>
     </div>
   );
 }
