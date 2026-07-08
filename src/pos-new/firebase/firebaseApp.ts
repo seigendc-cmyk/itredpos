@@ -1,4 +1,4 @@
-import { getApp, getApps, initializeApp, type FirebaseApp } from 'firebase/app';
+﻿import { getApp, getApps, initializeApp, type FirebaseApp } from 'firebase/app';
 import { getAuth, type Auth } from 'firebase/auth';
 import { getFirestore, type Firestore } from 'firebase/firestore';
 import { getStorage, type FirebaseStorage } from 'firebase/storage';
@@ -23,7 +23,10 @@ const warnings: string[] = [];
 if (isFirebaseConfigured) {
   try {
     initializedApp = getApps().length > 0 ? getApp() : initializeApp(firebaseConfig);
-    initializedDb = getFirestore(initializedApp);
+    initializedDb = getFirestore(
+  initializedApp,
+  import.meta.env.VITE_FIREBASE_DATABASE_ID || undefined
+);
     initializedAuth = getAuth(initializedApp);
     initializedStorage = getStorage(initializedApp);
   } catch {
@@ -54,3 +57,4 @@ export const firebaseInitStatus: FirebaseInitStatus = {
   missingKeys: configStatus.missingKeys,
   warningMessages: warnings
 };
+

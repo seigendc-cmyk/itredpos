@@ -54,7 +54,7 @@ import {
 } from './mock/mockPosData';
 import { getEffectivePageIdsForRole, normalizeRoleKey } from './auth/effectivePermissionService';
 import { recordSecurityMatrixEvent } from './auth/permissionMatrixService';
-import { getCurrentTenantSession } from './auth/tenantSessionService';
+
 import { getSavedPOSSession } from './auth/posActivationService';
 import { loadLocalProducts, POS_PRODUCT_STORE_EVENT, saveLocalProducts, updateLocalProductStock } from './utils/localProductStore';
 import { ENABLE_MOCK_SEED_DATA, getVendorScopedStorageKey, initializeEmptyVendorOperationalStores } from './utils/vendorDataMode';
@@ -1033,21 +1033,9 @@ export default function PosPrototypeApp() {
     return (
       <PosStaffAccess 
         onLoginSuccess={(session) => {
-          const tenant = getCurrentTenantSession();
-          const posSession = getSavedPOSSession();
-          setActiveSession(normalizeSessionForVendorRuntime({
-            ...session,
-            vendorId: tenant.vendorId,
-            branchId: tenant.branchId,
-            terminalId: tenant.terminalId,
-            licenseId: tenant.licenseId,
-            planId: tenant.planId,
-            licenseMode: tenant.licenseMode,
-            storageMode: tenant.storageMode,
-            activationId: tenant.activationId,
-            dashboardType: posSession?.dashboardType || 'POS',
-            openedAt: posSession?.openedAt || new Date().toISOString()
-          }, businessProfile, readPosAuthContext()));
+          // SCI session is canonical auth authority for Staff Access.
+          // Open POS immediately after correct PIN.
+          setActiveSession(normalizeSessionForVendorRuntime(session, businessProfile, readPosAuthContext()));
         }}
         onBackToBios={() => {
           window.history.pushState({}, '', '/');
@@ -1056,6 +1044,7 @@ export default function PosPrototypeApp() {
       />
     );
   }
+
 
   const authContextForUpgrade = readPosAuthContext();
   const upgradeVendorContext = buildUpgradeVendorContext(businessProfile, authContextForUpgrade, activeSession);

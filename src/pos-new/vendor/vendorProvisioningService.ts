@@ -72,6 +72,7 @@ function createBusinessIdentity(
     ownerEmail,
     googleEmail: clean(authContext.googleEmail, ownerEmail),
     googleUid: authContext.googleUid || undefined,
+    ownerUid: authContext.googleUid || undefined,
     phone,
     whatsapp,
     alternatePhone: clean(profile.alternatePhone) || undefined,

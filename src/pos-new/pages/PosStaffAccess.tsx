@@ -1,8 +1,8 @@
 import React, { useState, FormEvent, useEffect } from 'react';
 import { ShieldCheck, KeyRound, Server, Building2, Users, MonitorSmartphone, ArrowRight, ShieldAlert, Cpu } from 'lucide-react';
 import { PosSession } from '../types';
-import { getCurrentTenantSession, loadBranchesForCurrentTenant, loadTerminalsForCurrentBranch } from '../auth/tenantSessionService';
-import { loadStaffForCurrentVendor, authenticateStaffAccess, type StaffAuthInput } from '../../sci-auth/StaffAuthService';
+import { loadStaffForCurrentVendor, authenticateStaffAccess, readSciVendorOwnerSession } from '../../sci-auth/StaffAuthService';
+
 
 interface PosStaffAccessProps {
   onLoginSuccess: (session: PosSession) => void;
@@ -21,17 +21,22 @@ export default function PosStaffAccess({
   const staffProfiles = loadStaffForCurrentVendor();
   const ownerStaff = staffProfiles[0];
 
-  const vendors = [{ id: ownerStaff?.vendorId || 'demo-vendor-001', name: ownerStaff?.vendorName || 'Demo Business' }];
-  const branches = [{ id: ownerStaff?.branchId || 'main-branch', name: 'Main Branch', location: 'Main Branch' }];
-  const terminals = [{ id: ownerStaff?.terminalId || 'TERM-MAIN-001', name: 'Main POS Terminal', branchId: ownerStaff?.branchId || 'main-branch', type: 'POS' }];
-  const staffList = staffProfiles.map((staff) => ({
-    id: staff.staffId,
-    name: staff.staffName,
-    email: staff.staffEmail || '',
-    role: staff.role,
-    pass: '',
-    branchId: staff.branchId
-  }));
+  // SCI owner-session is the single canonical authority for Staff Access.
+  // We intentionally present a single owner staff identity and disable selectors.
+  const vendors = [{ id: 'demo-vendor-001', name: ownerStaff?.staffName || 'Demo Business' }];
+  const branches = [{ id: 'main-branch', name: 'Main Branch', location: 'Main Branch' }];
+  const terminals = [{ id: 'TERM-MAIN-001', name: 'Main POS Terminal', branchId: 'main-branch', type: 'POS' }];
+  const staffList = [
+    {
+      id: ownerStaff?.staffId || 'owner-staff',
+      name: ownerStaff?.staffName || 'Owner',
+      email: '',
+      role: ownerStaff?.role || 'Owner',
+      pass: '',
+      branchId: 'main-branch'
+    }
+  ];
+
 
   const [selectedVendor, setSelectedVendor] = useState<string>(vendors[0].name);
   const [selectedBranchId, setSelectedBranchId] = useState<string>(branches[0]?.id || '');
@@ -42,16 +47,14 @@ export default function PosStaffAccess({
   const [selectedTerminalId, setSelectedTerminalId] = useState<string>(terminals[0]?.id || '');
   const [password, setPassword] = useState<string>('');
 
-  // Synchronize selection states with the current resolved tenant session
+  // Initialize selections once from the single owner session.
   useEffect(() => {
     setSelectedVendor(vendors[0]?.name || 'Current Vendor');
-    setSelectedBranchId(branches[0]?.id || '');
-    setSelectedStaffId(staffList[0]?.id || '');
-  }, [tenantSession.vendorId]);
+    setSelectedBranchId(branches[0]?.id || 'main-branch');
+    setSelectedStaffId(staffList[0]?.id || 'owner-staff');
+    setSelectedTerminalId(terminals[0]?.id || 'TERM-MAIN-001');
+  }, []);
 
-  useEffect(() => {
-    setSelectedTerminalId(terminals[0]?.id || '');
-  }, [selectedBranchId, selectedStaffId, terminals.length]);
   
   const [errorMsg, setErrorMsg] = useState<string>('');
   const [isAuthenticating, setIsAuthenticating] = useState<boolean>(false);
@@ -76,10 +79,11 @@ export default function PosStaffAccess({
       setIsAuthenticating(false);
 
       const authResult = authenticateStaffAccess({
-        vendorId: vendors[0]?.id || 'demo-vendor-001',
+        vendorId: readSciVendorOwnerSession()?.vendorId || vendors[0]?.id || "demo-vendor-001",
         staffId: selectedStaffId,
         pin: password
       });
+
 
       if (!authResult.ok || !authResult.session) {
         setErrorMsg(authResult.message || 'INVALID PIN OR STAFF ACCESS DENIED');
@@ -131,7 +135,8 @@ export default function PosStaffAccess({
             <select
               value={selectedVendor}
               onChange={(e) => setSelectedVendor(e.target.value)}
-              disabled={isAuthenticating}
+              disabled={true}
+
               className="w-full bg-slate-950 text-emerald-400 border border-slate-800 focus:border-[#00f0ff] px-3 py-2 outline-none rounded-none text-xs font-bold transition-colors cursor-pointer"
             >
               {vendors.map((v) => (
@@ -154,7 +159,8 @@ export default function PosStaffAccess({
                 setSelectedBranchId(e.target.value);
                 setErrorMsg('');
               }}
-              disabled={isAuthenticating}
+              disabled={true}
+
               className="w-full bg-slate-950 text-slate-200 border border-slate-800 focus:border-[#00f0ff] px-3 py-2 outline-none rounded-none text-xs transition-colors cursor-pointer"
             >
               {branches.map((b) => (
@@ -178,7 +184,8 @@ export default function PosStaffAccess({
                   setSelectedTerminalId(e.target.value);
                   setErrorMsg('');
                 }}
-                disabled={isAuthenticating}
+                disabled={true}
+
                 className="w-full bg-slate-950 text-slate-200 border border-slate-800 focus:border-[#00f0ff] px-3 py-2 outline-none rounded-none text-xs transition-colors cursor-pointer"
               >
                 {terminals.map((t) => (
@@ -201,7 +208,8 @@ export default function PosStaffAccess({
                   setSelectedStaffId(e.target.value);
                   setErrorMsg('');
                 }}
-                disabled={isAuthenticating}
+                disabled={true}
+
                 className="w-full bg-slate-950 text-slate-200 border border-slate-800 focus:border-[#00f0ff] px-3 py-2 outline-none rounded-none text-xs transition-colors cursor-pointer"
               >
                 {staffList.map((s) => (

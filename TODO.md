@@ -1,20 +1,17 @@
-# TODO - Google Auth activation flow fix
+# TODO - SCI-AUTH-05
 
-- [ ] AUTH root cause: Google button currently calls placeholder that uses signInWithRedirect, while gate expects redirect result on mount; also missing UI error state.
-- [ ] Update src/pos-new/auth/firebaseAuthShell.ts:
-  - [ ] Replace signInWithGooglePlaceholder with real signInWithGoogle (use signInWithPopup on localhost; signInWithPopup preferred per requirements)
-  - [ ] Ensure disabled/not configured Firebase returns explicit error messages
-  - [ ] Keep handleGoogleRedirectResult subscription logic compatible (do not change routing)
-- [ ] Update src/pos-new/auth/PosVendorAuthGate.tsx:
-  - [ ] Add googleError state and render error message on the same page
-  - [ ] On Continue with Google click, call sign-in shell and show errors if sign-in fails
-  - [ ] Ensure on successful sign-in we immediately update context with googleUid/googleEmail and stage: resolveNextAuthStage(updatedContext)
-  - [ ] Ensure subscribeToFirebaseAuthState updates context when a Google session already exists
-- [ ] Run npm run build
-- [ ] Manual test steps:
-  - [ ] Clear localStorage sci_pos_vendor_auth_context
-  - [ ] Reload /pos-prototype
-  - [ ] Click Continue with Google
-  - [ ] Choose Google account
-  - [ ] Verify activation landing page appears
+- [ ] Update `src/App.tsx` to ensure only `VendorAuthGate` wraps `/pos-prototype` and remove unused old-gate imports.
+- [x] Update `src/App.tsx` to ensure only `VendorAuthGate` wraps `/pos-prototype` and remove unused old-gate imports.
+- [ ] Update `src/pos-new/pages/PosStaffAccess.tsx`:
+
+  - [x] Remove `tenantSessionService` dependency.
+  - [x] Use only `sci_vendor_owner_session` + `authenticateStaffAccess` (PIN `040369`).
+  - [x] Ensure wrong PIN blocks POS open.
+- [ ] Update `src/pos-new/PosPrototypeApp.tsx`:
+  - [x] Remove tenantSessionService usage in `PosStaffAccess` success path.
+  - [ ] Ensure POS opens immediately after successful Staff Access.
+  - [ ] Remove/avoid any blocking Upgrade/license auth UI on entry.
+
+- [ ] Run `npm run build`.
+- [ ] Report changed files + runtime flow + build result.
 

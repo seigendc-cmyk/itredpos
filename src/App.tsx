@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import PosPrototypeApp from './pos-new/PosPrototypeApp';
 import VendorAuthGate from './sci-auth/VendorAuthGate';
 import VendorLandingPage from './sci-auth/VendorLandingPage';
-import SimpleAuthGate from './simple-auth/SimpleAuthGate';
+
 import FirebaseReadinessPage from './platform/FirebaseReadinessPage';
 import VendorVerificationQueuePage from './platform/VendorVerificationQueuePage';
 import ActivationTokenManagerPage from './platform/ActivationTokenManagerPage';
