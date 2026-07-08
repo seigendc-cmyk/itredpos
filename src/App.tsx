@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import PosPrototypeApp from './pos-new/PosPrototypeApp';
+import PosVendorAuthGate from './pos-new/auth/PosVendorAuthGate';
 
 import FirebaseReadinessPage from './platform/FirebaseReadinessPage';
 import VendorVerificationQueuePage from './platform/VendorVerificationQueuePage';
@@ -58,7 +59,11 @@ export default function App() {
   };
 
   if (currentPath === '/sci-auth-test' || currentPath === '/pos-prototype') {
-    return <PosPrototypeApp />;
+    return (
+      <PosVendorAuthGate>
+        <PosPrototypeApp />
+      </PosVendorAuthGate>
+    );
   }
 
   if (currentPath === '/platform/firebase-readiness') {
@@ -162,6 +167,7 @@ export default function App() {
     </div>
   );
 }
+
 
 
 
