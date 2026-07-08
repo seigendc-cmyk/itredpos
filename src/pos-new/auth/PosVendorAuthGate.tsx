@@ -275,37 +275,8 @@ export default function PosVendorAuthGate({ children }: PosVendorAuthGateProps) 
   }
 
   if (context.stage === "licenseRequired") {
-    const profile = readBusinessProfileForUpgrade();
-    const planCode = context.planCode || 'DEMO';
-    return (
-      <main className="min-h-screen bg-[#f7f5ef] p-6">
-        <UpgradeRequiredPanel
-          featureName={context.message || "POS License"}
-          currentPlan={planCode}
-          requiredPlan={String(getNextPlanCode(planCode))}
-          vendor={{
-            vendorName: context.vendorName || profileText(profile, 'legalName', 'tradingName', 'businessName') || 'Business',
-            vendorId: context.vendorId || profileText(profile, 'vendorId') || 'unassigned-vendor',
-            ownerName: profileText(profile, 'ownerName', 'contactPerson'),
-            ownerPhone: profileText(profile, 'ownerContact', 'ownerPhone', 'businessPhone', 'phone', 'phoneNumber1'),
-            ownerWhatsapp: profileText(profile, 'businessWhatsapp', 'whatsapp', 'ownerWhatsApp', 'whatsAppNumber1'),
-            city: profileText(profile, 'city', 'cityTown'),
-            suburb: profileText(profile, 'suburb', 'districtSuburb', 'district')
-          }}
-          detail={context.message || "Contact SCI support to activate POS access."}
-          onActivated={(result) => {
-            const nextContext = {
-              ...context,
-              message: result.message
-            };
-            setContext(nextContext);
-            savePosAuthContext(nextContext);
-          }}
-        />
-      </main>
-    );
+    return <>{children}</>;
   }
-
   return (
     <>
       {SHOW_DEV_BADGES && (
@@ -321,4 +292,7 @@ export default function PosVendorAuthGate({ children }: PosVendorAuthGateProps) 
     </>
   );
 }
+
+
+
 
