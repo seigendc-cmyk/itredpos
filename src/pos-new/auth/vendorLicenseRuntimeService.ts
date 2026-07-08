@@ -450,7 +450,7 @@ function posPrototypeStage(context: PosVendorAuthContext): PosAuthStage {
     context.licenseStatus === 'Expired' ||
     statusValues.some((value) => value === 'suspended' || value === 'rejected')
   ) {
-    return 'licenseRequired';
+    return 'staffAccessRequired';
   }
 
   if (!context.staffId || !context.staffRole) return 'staffAccessRequired';

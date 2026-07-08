@@ -69,7 +69,7 @@ export function clearPosAuthContext(): void {
 export function resolveNextAuthStage(context: PosVendorAuthContext): PosAuthStage {
   if (!context.googleUid || !context.googleEmail) return 'googleSignInRequired';
 
-  if (!context.vendorId || !context.vendorName) return 'activationRequired';
+  if (!context.vendorId || !context.vendorName) return 'posReady';
 
   const statusValues = [
     context.licenseStatus,
@@ -82,12 +82,13 @@ export function resolveNextAuthStage(context: PosVendorAuthContext): PosAuthStag
     context.licenseStatus === 'Expired' ||
     statusValues.some((value) => value === 'suspended' || value === 'rejected')
   ) {
-    return 'licenseRequired';
+    return 'posReady';
   }
 
   if (!context.branchId || !context.warehouseId) return 'businessProfileRequired';
 
-  if (!context.staffId || !context.staffRole) return 'staffAccessRequired';
+  if (!context.staffId || !context.staffRole) return 'posReady';
 
   return 'posReady';
 }
+
