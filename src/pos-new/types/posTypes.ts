@@ -2690,6 +2690,8 @@ export interface StaffSetting {
   pass: string;
   pin?: string;
   branchId: string;
+  /** Firebase auth uid when the staff member is linked to a Firebase account. Optional: staff may be local-only. */
+  uid?: string;
 }
 
 export interface HardwareSetting {

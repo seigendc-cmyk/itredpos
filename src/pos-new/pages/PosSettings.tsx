@@ -42,12 +42,18 @@ import A5FloatingForm from '../components/A5FloatingForm';
 import StaffSessionGatePanel from '../components/StaffSessionGatePanel';
 import RoleMenuReadinessPanel from '../components/RoleMenuReadinessPanel';
 import SecurityRightsMatrix from '../components/SecurityRightsMatrix';
+import VendorStaffMirrorDiagnosticsPanel from '../components/VendorStaffMirrorDiagnosticsPanel';
 import { getCurrentStaffGateSession, getStaffSessionGateReadiness } from '../auth/staffSessionGateService';
 import { recordSecurityMatrixEvent } from '../auth/permissionMatrixService';
 import { saveBusinessProfile, validateBusinessProfile } from '../services/businessProfileService';
 import { getFinancialControlAccounts } from '../services/financialControlService';
 import { getCheckWriterSettings, previewNumber, updateCheckWriterSettings } from '../services/checkWriterService';
 import { getActiveVendorId } from '../utils/vendorDataMode';
+import {
+  upsertVendorBusinessUserMirror,
+  removeVendorBusinessUserMirror,
+  type VendorBusinessUserRole
+} from '../services/vendorStaffMirrorService';
 import { isLimitReached, type PlanFeatureAccess } from '../auth/planFeatureGate';
 import SubscriptionCommercePage from '../build08072026-subs/pages/SubscriptionCommercePage';
 import { readPosAuthContext } from '../auth/posVendorAuthState';
@@ -96,6 +102,7 @@ type SettingsSectionId =
   | 'CHECK_WRITER_SETTINGS'
   | 'BUILD_STATUS'
   | 'STAFF_ACCESS_RIGHTS'
+  | 'STAFF_MIRROR_DIAGNOSTICS'
   | 'RESET';
 
 const SHOW_DEV_BADGES = false;
@@ -107,6 +114,93 @@ function profileText(profile: BusinessProfile, ...keys: string[]): string {
     if (value) return value;
   }
   return '';
+}
+
+function mapRoleToMirrorRole(role: Role): VendorBusinessUserRole {
+  switch (role) {
+    case 'Owner':
+      return 'Owner';
+    case 'SysAdmin':
+      return 'VendorAdmin';
+    case 'Manager':
+      return 'Manager';
+    case 'Cashier':
+      return 'Cashier';
+    case 'Stock Controller':
+      return 'StockController';
+    case 'Supervisor':
+      return 'Supervisor';
+    case 'Delivery Staff':
+      return 'DeliveryStaff';
+    case 'Accountant':
+      return 'Accountant';
+    case 'Viewer':
+      return 'Viewer';
+    default:
+      return 'Viewer';
+  }
+}
+
+/**
+ * Best-effort staff membership mirror write to vendors/{vendorId}/businessUsers/{uid}.
+ * The vendor-rooted Firestore rules require this record for staff membership checks.
+ *
+ * UID dependency: local staff have no Firebase auth uid. If `staff.uid` is missing we
+ * must NOT invent one — the staff record is left unchanged and the mirror is skipped
+ * with a non-blocking warning. No PIN, PIN hash, password, or local unlock secret is
+ * ever written to the mirror.
+ */
+async function syncStaffBusinessUserMirror(
+  staff: StaffSetting,
+  vendorId: string,
+  updatedBy: string
+): Promise<void> {
+  if (!staff.uid) {
+    console.warn('[posSettings] Staff mirror skipped because uid is missing.');
+    return;
+  }
+  try {
+    await upsertVendorBusinessUserMirror({
+      uid: staff.uid,
+      vendorId,
+      staffId: staff.id,
+      displayName: staff.name,
+      email: staff.email,
+      role: mapRoleToMirrorRole(staff.role),
+      permissions: [],
+      status: 'active',
+      branchIds: staff.branchId ? [staff.branchId] : [],
+      terminalIds: [],
+      warehouseIds: [],
+      source: 'staff-management',
+      createdBy: updatedBy,
+      updatedBy
+    });
+  } catch (mirrorError) {
+    console.warn(
+      `[posSettings] Staff business-user mirror write failed (best-effort, staff ${staff.id} still saved): ` +
+        (mirrorError instanceof Error ? mirrorError.message : 'Unknown mirror error.')
+    );
+  }
+}
+
+async function removeStaffBusinessUserMirror(
+  staff: StaffSetting,
+  vendorId: string,
+  updatedBy: string
+): Promise<void> {
+  if (!staff.uid) {
+    console.warn('[posSettings] Staff mirror removal skipped because uid is missing.');
+    return;
+  }
+  try {
+    await removeVendorBusinessUserMirror(vendorId, staff.uid, updatedBy);
+  } catch (mirrorError) {
+    console.warn(
+      `[posSettings] Staff business-user mirror removal failed (best-effort, staff ${staff.id} still removed locally): ` +
+        (mirrorError instanceof Error ? mirrorError.message : 'Unknown mirror error.')
+    );
+  }
 }
 
 export default function PosSettings({
@@ -152,6 +246,8 @@ export default function PosSettings({
     return planAccess ? isLimitReached(count, planAccess.limits[limitKey]) : false;
   };
   const limitMessage = (label: string) => `${label} limit reached for your current plan.`;
+  const activeVendorId = businessProfile.vendorId || getActiveVendorId() || '';
+  const mirrorUpdatedBy = activeOperatorName || activeVendorId || 'SETTINGS';
 
   // --- SUB-FORM 1: BUSINESS PROFILE STATES ---
   const [profileForm, setProfileForm] = useState<BusinessProfile>({ ...businessProfile });
@@ -374,6 +470,7 @@ export default function PosSettings({
       onUpdateStaff([...staff, staffForm]);
       triggerToast(`CLERK ${staffForm.name} INDUCTED.`);
     }
+    void syncStaffBusinessUserMirror(staffForm, activeVendorId, mirrorUpdatedBy);
     setStaffForm({ id: '', name: '', email: '', role: 'Cashier', pass: '', branchId: '' });
   };
   const handleEditStaffClick = (s: StaffSetting) => {
@@ -382,7 +479,11 @@ export default function PosSettings({
   };
   const handleDeleteStaff = (id: string) => {
     if (confirm(`REMOVE STAFF CLERK ${id} FROM ALL GATEWAY PROTOCOLS?`)) {
+      const removed = staff.find(s => s.id === id);
       onUpdateStaff(staff.filter(s => s.id !== id));
+      if (removed) {
+        void removeStaffBusinessUserMirror(removed, activeVendorId, mirrorUpdatedBy);
+      }
       triggerToast(`CLERK ID ${id} EXPELLED.`);
     }
   };
@@ -518,6 +619,7 @@ export default function PosSettings({
     { id: 'CHECK_WRITER_SETTINGS' as const, label: 'Check Writer Settings', icon: Receipt, color: 'text-orange-500' },
     { id: 'STAFF_ACCESS_RIGHTS' as const, label: 'Staff Access Rights', icon: ShieldCheck, color: 'text-orange-500' },
     { id: 'BUILD_STATUS' as const, label: 'Build Status', icon: Info, color: 'text-orange-500' },
+    { id: 'STAFF_MIRROR_DIAGNOSTICS' as const, label: 'Staff Mirror Diagnostics', icon: Cpu, color: 'text-orange-500' },
     { id: 'RESET' as const, label: 'System Maintenance', icon: AlertTriangle, color: 'text-red-500 font-extrabold' },
   ].filter((item) => SHOW_DEV_BADGES || (item.id !== 'BUILD_STATUS' && item.id !== 'RESET'));
 
@@ -1914,6 +2016,11 @@ export default function PosSettings({
                 </div>
                 <SecurityRightsMatrix />
               </div>
+            )}
+
+            {/* TAB 10b: STAFF MIRROR DIAGNOSTICS (DEV / ADMIN ONLY) */}
+            {activeSection === 'STAFF_MIRROR_DIAGNOSTICS' && (
+              <VendorStaffMirrorDiagnosticsPanel />
             )}
 
             {/* TAB 11: WARNING: RESET */}

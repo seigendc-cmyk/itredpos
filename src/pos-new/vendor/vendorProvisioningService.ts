@@ -18,6 +18,7 @@ import type {
   VendorPlanRecord,
   VendorAuditLogRecord
 } from '../../shared/backend';
+import { mirrorOwnerAsBusinessUser } from '../services/vendorStaffMirrorService';
 
 const SOURCE = 'POS_ONBOARDING';
 const PLAN_CODE = 'DEMO';
@@ -41,6 +42,39 @@ function clean(value: unknown, fallback = ''): string {
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : 'Unknown Firebase provisioning error.';
+}
+
+/**
+ * Best-effort owner mirror write to vendors/{vendorId}/businessUsers/{ownerUid}.
+ * This is the vendor-rooted Firestore rules membership record. It must never
+ * throw or block the vendor creation flow. If ownerUid is missing we skip
+ * silently with a warning. Mirror write failures are surfaced but swallowed.
+ */
+async function ensureOwnerBusinessUserMirror(
+  vendorId: string,
+  authContext: PosVendorAuthContext,
+  business: VendorRecord
+): Promise<void> {
+  const ownerUid = authContext.googleUid || '';
+  if (!ownerUid) {
+    console.warn(
+      '[vendorProvisioning] Skipping owner business-user mirror: no ownerUid in auth context. ' +
+        'Vendor creation still succeeded.'
+    );
+    return;
+  }
+
+  const ownerName = business.ownerName || 'Owner';
+  const ownerEmail = business.ownerEmail || '';
+
+  try {
+    await mirrorOwnerAsBusinessUser(vendorId, ownerUid, ownerEmail, ownerName);
+  } catch (mirrorError) {
+    console.warn(
+      `[vendorProvisioning] Owner business-user mirror write failed (best-effort, vendor ${vendorId} still created): ` +
+        errorMessage(mirrorError)
+    );
+  }
 }
 
 function createBusinessIdentity(
@@ -232,6 +266,8 @@ export async function provisionVendorFromBusinessSetup(
     batch.set(auditLogRef, auditLogDoc);
 
     await batch.commit();
+
+    await ensureOwnerBusinessUserMirror(vendorId, authContext, business);
 
     return {
       vendorId,
