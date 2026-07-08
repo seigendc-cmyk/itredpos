@@ -64,8 +64,8 @@ service cloud.firestore {
     function isVendorStaffMember(vendorId) {
       return isSignedIn()
         && isValidId(vendorId)
-        && exists(vendorStaffPath(vendorId)/$(request.auth.uid))
-        && get(vendorStaffPath(vendorId)/$(request.auth.uid)).vendorId == vendorId;
+        && exists(/databases/$(database)/documents/vendors/$(vendorId)/businessUsers/$(request.auth.uid))
+        && get(/databases/$(database)/documents/vendors/$(vendorId)/businessUsers/$(request.auth.uid)).vendorId == vendorId;
     }
 
     function isVendorMember(vendorId) {
@@ -75,7 +75,7 @@ service cloud.firestore {
     function getVendorRole(vendorId) {
       return isVendorOwner(vendorId) ? 'Owner'
         : (isVendorStaffMember(vendorId)
-            ? get(vendorStaffPath(vendorId)/$(request.auth.uid)).role
+            ? get(/databases/$(database)/documents/vendors/$(vendorId)/businessUsers/$(request.auth.uid)).role
             : '');
     }
 
@@ -305,3 +305,4 @@ service cloud.firestore {
     }
   }
 }
+

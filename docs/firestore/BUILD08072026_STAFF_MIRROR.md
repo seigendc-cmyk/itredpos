@@ -1,123 +1,220 @@
-# Vendor Staff Membership Mirror — BUILD 08072026-STAFF-MIRROR (STEP 1)
+# BUILD08072026-STAFF-MIRROR — Step 2
 
-**Date:** 2026-07-08
-**Service:** `src/pos-new/services/vendorStaffMirrorService.ts`
-**Status:** Service + types + validation + docs created. Not yet wired into staff workflows. Rules NOT deployed/modified.
+## Owner Mirror During Vendor Provisioning
 
----
-
-## 1. Why the mirror is needed
-
-The vendor-rooted Firestore rules (`firestore.vendor-rooted.rules`) use `vendorId` as the
-tenant boundary and resolve **non-owner staff membership** from a uid-keyed mirror:
-
-```
-vendors/{vendorId}/businessUsers/{uid}
-```
-
-The app currently stores staff in the **top-level** `vendorStaff/{staffId}` collection, keyed by
-`staffId` (e.g. `${vendorId}_owner`), **not** by Firebase auth uid, and there is no uid-indexed
-staff path. Browser rules cannot `get()` a document by an unknown id, so without this mirror
-`isVendorStaffMember()` is always false and only the vendor **owner** passes membership checks.
-
-This service maintains the mirror so the rules can recognise vendor staff.
+**Branch:** `build08072026-subs`
+**Scope:** Wire `vendorStaffMirrorService.mirrorOwnerAsBusinessUser` into vendor **owner** provisioning only.
+**Status:** Implementation complete. `npm run build` passes.
 
 ---
 
-## 2. Firestore path
+## 1. Owner Provisioning Integration Point (chosen)
 
-```
-vendors/{vendorId}/businessUsers/{uid}
+**File:** `src/pos-new/vendor/vendorProvisioningService.ts`
+**Function:** `provisionVendorFromBusinessSetup(...)`
+**Wired at:** immediately after `await batch.commit()` succeeds (the vendor + owner staff
+record are durably committed), via a new best-effort helper `ensureOwnerBusinessUserMirror(...)`.
+
+The call made:
+
+```ts
+await mirrorOwnerAsBusinessUser(vendorId, ownerUid, ownerEmail, ownerName);
 ```
 
-Writes use `setDoc(ref, data, { merge: true })`. `createdAt`/`createdBy` are preserved on update.
+which writes:
 
-> Note: per the rules, writing a staff mirror requires owner/admin (the member is not yet in
-> `businessUsers` when first created). The owner record itself is writable because the owner is
-> recognised via `vendors/{vendorId}.ownerUid`. In practice this service is called from an
-> owner/admin context (or seeded via Admin SDK in the emulator).
+```
+vendors/{vendorId}/businessUsers/{ownerUid}
+```
 
----
+with role `Owner`, status `active`, permissions `['*']`, source `owner-provisioning`,
+`createdAt`/`updatedAt`, `createdBy`/`updatedBy`.
 
-## 3. Mirror fields (`VendorBusinessUserMirror`)
+### Why this point
 
-| Field | Type | Notes |
-|---|---|---|
-| `uid` | string | Firebase auth uid (required) |
-| `vendorId` | string | Tenant id (required) |
-| `staffId` | string | App staff record id (optional) |
-| `displayName` | string | Normalized display name |
-| `email` | string | Normalized (trim + lowercase), optional |
-| `role` | `VendorBusinessUserRole` | `TenantUserRole` ∪ `'Owner'` |
-| `permissions` | string[] | Default `[]`; owner uses `['*']` |
-| `status` | `VendorBusinessUserStatus` | `active` \| `inactive` \| `suspended` \| `removed` (default `active`) |
-| `branchIds` | string[] | Default `[]` |
-| `terminalIds` | string[] | Default `[]` |
-| `warehouseIds` | string[] | Default `[]` |
-| `createdAt` | string (ISO) | Preserved on update |
-| `updatedAt` | string (ISO) | Set on every write |
-| `createdBy` | string | Defaults to `uid` |
-| `updatedBy` | string | Defaults to `uid` |
-| `source` | `VendorBusinessUserSource` | `pos-settings` \| `owner-provisioning` \| `staff-management` \| `migration` \| `test-seed` |
-| `removedAt?` | string (ISO) | Set only by `removeVendorBusinessUserMirror` |
+- It is the canonical POS onboarding path in `pos-new` and is the function that
+  **creates** the `vendors/{vendorId}` document and the owner `vendorStaff` record.
+- It already has all required owner identity available: `authContext.googleUid`
+  (owner uid), `business.ownerName`, `business.ownerEmail`.
+- Placing the mirror write **after** `batch.commit()` guarantees it is the point
+  *closest to successful vendor creation* — the vendor document provably exists
+  before the mirror is attempted.
+- The mirror write is isolated in its own `try/catch`, so even if it fails the
+  vendor provisioning result is unchanged and the flow returns success.
 
 ---
 
-## 4. Service functions
+## 2. Why Only Owner Is Wired in Step 2
 
-| Function | Purpose |
-|---|---|
-| `buildVendorBusinessUserMirror(input)` | **Pure.** Validates + normalizes the payload into a complete mirror. Throws on missing `uid`/`vendorId` or invalid `status`/`source`. |
-| `upsertVendorBusinessUserMirror(input)` | Writes `vendors/{vendorId}/businessUsers/{uid}` (`merge:true`), preserves `createdAt`/`createdBy`, writes `BUSINESS_USER_MIRROR_UPSERTED` audit event. |
-| `disableVendorBusinessUserMirror(vendorId, uid, updatedBy?)` | Soft disable → `status: inactive`, `updatedAt`, `updatedBy`. Writes `BUSINESS_USER_MIRROR_DISABLED`. |
-| `removeVendorBusinessUserMirror(vendorId, uid, updatedBy?)` | Soft remove (no physical delete) → `status: removed`, `removedAt`, `updatedAt`, `updatedBy`. Writes `BUSINESS_USER_MIRROR_REMOVED`. |
-| `getVendorBusinessUserMirror(vendorId, uid)` | Reads the mirror or returns `null`. |
-| `mirrorOwnerAsBusinessUser(vendorId, ownerUid, ownerEmail?, ownerName?)` | Owner record: `role: 'Owner'`, `permissions: ['*']`, `status: 'active'`, `source: 'owner-provisioning'`. |
+This step exists only to satisfy the vendor-rooted Firestore rules requirement that
+`vendors/{vendorId}/businessUsers/{uid}` exist for **owner-level** membership checks
+(`isVendorMember()` / `isVendorStaffMember()`). The owner must always have a mirror so
+owner reads/writes pass once rules are deployed. Staff membership mirroring is a
+separate concern (normal staff management, POS settings) and is intentionally deferred
+to a later step to keep the change minimal and isolated.
 
 ---
 
-## 5. Security notes
+## 3. How To Test The Owner Mirror
 
-- **No auth secrets.** The mirror stores only non-sensitive identity/authorization metadata
-  (uid, vendorId, displayName, email, role, permissions, scoped ids). It does **not** store PINs,
-  passwords, password/PIN hashes, refresh tokens, or any authentication secrets.
-- PIN hashes remain exclusively in `staffPinService` and are never copied into this mirror.
-- `db` may be `null` in the offline workspace; every writer guards on `!db` and degrades
-  gracefully (logs a warning, returns the normalized object / no-ops) instead of throwing.
-- Audit writes go through the existing `writeAuditLog` utility, which self-guards
-  `firebaseReady` / `isPOSFirebaseWritesAllowed` and falls back to `console.info` locally. Audit
-  failures are caught so they never block mirror writes.
+1. Run the app locally (`npm run dev`) and complete vendor onboarding via the
+   business-setup / owner signup flow that calls `provisionVendorFromBusinessSetup`.
+2. After provisioning succeeds, open **Firestore** and confirm the document exists:
 
----
+   ```
+   vendors/{vendorId}/businessUsers/{ownerUid}
+   ```
 
-## 6. How it supports the rules
-
-- `isVendorStaffMember(vendorId)` in the rules does
-  `exists(vendors/{vendorId}/businessUsers/{uid}) && get(...).vendorId == vendorId`.
-  This service is what populates that document, so once a member's mirror exists, the rules treat
-  them as a vendor member (read branch/warehouse/product records, create invoices/payments/audit
-  logs, etc.).
-- Owner is recognised directly via `vendors/{vendorId}.ownerUid`, independent of the mirror.
-
-**Role mapping gap (track for wiring step):** the app uses `TenantUserRole`
-(`VendorOwner`, `VendorAdmin`, `Manager`, …) while the rules currently recognise
-`'Owner'` / `'Admin'` / `'Manager'` / `'Staff'`. This service stores the app role (with `'Owner'`
-for the owner record). When wiring into staff workflows, apply a normalization map
-(`VendorOwner`→`Owner`, `VendorAdmin`→`Admin`, …) or update the rules' `getVendorRole()` to the
-app vocabulary. Not done in this step (rules are not modified yet).
+3. Verify the fields:
+   - `role` === `Owner`
+   - `status` === `active`
+   - `permissions` === `['*']`
+   - `source` === `owner-provisioning`
+   - `uid` === `ownerUid`, `vendorId` === `vendorId`
+   - `createdAt` / `updatedAt` present and ISO strings
+   - `createdBy` / `updatedBy` present
+4. Confirm **no** `pin`, `password`, `passwordHash`, `pinHash`, or secret fields exist
+   in the mirror document.
+5. Negative test: simulate a mirror-write failure (e.g. offline / rules reject). The
+   vendor provisioning result must still return `firestoreWritten: true` and a console
+   warning must be logged; the owner creation flow must not crash.
 
 ---
 
-## 7. What still needs to be wired later
+## 4. Step 3 — Staff Management Integration Point
 
-- Call `mirrorOwnerAsBusinessUser` from owner provisioning (`vendorProvisioningService`) so the
-  owner mirror exists on onboarding.
-- Call `upsertVendorBusinessUserMirror` from staff creation/management (`PosStaffAccessPage`,
-  `PosSettings` staff section) for each staff member.
-- Call `disableVendorBusinessUserMirror` / `removeVendorBusinessUserMirror` from staff
-  deactivation/removal flows.
-- Add the `businessUsers` subcollection (and the mirror writes) to the emulator test plan in
-  `docs/firestore/FIRESTORE_RULES_EMULATOR_TEST_08072026.md` so member scenarios are exercised.
-- Resolve the role-mapping gap above (rules vs app vocabulary).
+**File:** `src/pos-new/pages/PosSettings.tsx`
+**Workflow:** Settings → Staff Database (`STAFF` tab)
 
-No UI was added and no POS workflow was changed in this step.
+Wired into the two staff lifecycle mutations that exist in Settings:
+
+| Action | Handler | Mirror call |
+|--------|---------|-------------|
+| Create / Update | `handleAddOrEditStaff` | `upsertVendorBusinessUserMirror(...)` (best-effort, fire-and-forget `void`) |
+| Remove / Delete | `handleDeleteStaff` | `removeVendorBusinessUserMirror(vendorId, uid, updatedBy)` (best-effort) |
+
+Disable is **not** wired: the Settings Staff workflow has no staff-disable / status
+toggle control (staff are only created, updated, or removed). `disableVendorBusinessUserMirror`
+remains available for a future staff-disable UI / status control and is documented as a
+follow-up.
+
+### UID dependency
+
+`StaffSetting` (local POS staff record) had **no Firebase auth uid** — only `id`,
+`name`, `email`, `role`, `pass`, `pin?`, `branchId`. Staff in this app are local (the
+`pin` is a demo PIN, not a Firebase credential).
+
+- Added optional `uid?: string` to `StaffSetting` (type-only change; no logic change).
+- In both handlers, if `staff.uid` is **missing**, the mirror is **skipped** and a
+  non-blocking warning is logged:
+  ```
+  [posSettings] Staff mirror skipped because uid is missing.
+  ```
+  The `uid` is **never invented**; the staff record is left unchanged.
+
+### Fields mapped from the staff record
+
+| Mirror field | Source |
+|--------------|--------|
+| `uid` | `staff.uid` (skipped if absent) |
+| `vendorId` | `businessProfile.vendorId \|\| getActiveVendorId()` |
+| `staffId` | `staff.id` |
+| `displayName` | `staff.name` |
+| `email` | `staff.email` |
+| `role` | `staff.role` via `mapRoleToMirrorRole` (`'Stock Controller'` → `'StockController'`, etc.) |
+| `permissions` | `[]` (effective permissions not available in this local flow) |
+| `status` | `active` (create/update) / `removed` (delete) |
+| `branchIds` | `[staff.branchId]` if present |
+| `terminalIds` / `warehouseIds` | `[]` (not present on the local staff record) |
+| `source` | `staff-management` |
+| `createdBy` / `updatedBy` | `activeOperatorName \|\| vendorId` |
+
+### Security
+
+- The mirror write **never** reads `staff.pass` or `staff.pin`. No PIN, PIN hash,
+  password, or local unlock secret is ever written to `businessUsers/{uid}`.
+- Mirror writes are best-effort: each is wrapped in its own `try/catch`; failures log a
+  console warning and do **not** block or crash the staff save/delete.
+
+### How to test the staff mirror
+
+1. `npm run build` passes (verified: `✓ built in 18.59s`).
+2. In Settings → Staff Database, add a staff member.
+   - With **no** `uid` (current local staff): confirm the app does not crash and the
+     console shows `Staff mirror skipped because uid is missing.`
+   - With a `uid` present (Firebase-linked staff): confirm
+     `vendors/{vendorId}/businessUsers/{uid}` exists, `role`/`status` correct, and no
+     `pin`/`password` fields are written.
+3. Update the staff role → confirm the mirror `role` updates (upsert).
+4. Delete the staff → confirm mirror `status` === `removed`.
+5. Simulate a mirror failure (offline / rejected) → confirm the staff save/delete still
+   succeeds with a console warning.
+
+### Remaining for staff
+
+- **Disable**: add `disableVendorBusinessUserMirror` when a staff-disable / status
+  control is introduced (none exists in Settings today).
+- **Effective permissions**: replace the `[]` placeholder with computed effective
+  permissions when a permission-resolution function is available in this flow.
+- **Secondary owner provisioning point not wired** (follow-up):
+  `src/sci-auth/VendorFirebaseService.ts` → `createVendorAccount(...)`.
+
+---
+
+## 5. Files Changed
+
+- `src/pos-new/vendor/vendorProvisioningService.ts` (Step 2)
+  - Added import of `mirrorOwnerAsBusinessUser` from `../services/vendorStaffMirrorService`.
+  - Added `ensureOwnerBusinessUserMirror(...)` best-effort helper.
+  - Called it after `batch.commit()` in `provisionVendorFromBusinessSetup(...)`.
+- `src/pos-new/pages/PosSettings.tsx` (Step 3)
+  - Imported `upsertVendorBusinessUserMirror`, `removeVendorBusinessUserMirror`, and
+    `VendorBusinessUserRole` from `../services/vendorStaffMirrorService`.
+  - Added `mapRoleToMirrorRole`, `syncStaffBusinessUserMirror`, `removeStaffBusinessUserMirror`
+    helpers (best-effort, UID-aware).
+  - Wired `syncStaffBusinessUserMirror` into `handleAddOrEditStaff` (create + update).
+  - Wired `removeStaffBusinessUserMirror` into `handleDeleteStaff` (remove).
+- `src/pos-new/types/posTypes.ts` (Step 3)
+  - Added optional `uid?: string` to `StaffSetting` (type-only; enables Firebase-linked
+    staff to receive a mirror without changing existing local-staff behavior).
+
+## 6. Step 4 — Staff Mirror Diagnostic Panel
+
+**New file:** `src/pos-new/components/VendorStaffMirrorDiagnosticsPanel.tsx`
+**Wired in:** `src/pos-new/pages/PosSettings.tsx` (dev/admin-only section)
+
+A read-only-ish diagnostic panel that verifies the vendor-rooted membership mirror at
+`vendors/{vendorId}/businessUsers/{uid}` and can create/repair the **owner** mirror.
+
+- Reads `vendorId` / `uid` from `readPosAuthContext()` (falls back to
+  `getActiveVendorId()`). Shows: vendorId, Firebase uid, whether the owner mirror exists,
+  mirror role, status, permissions count, and updatedAt.
+- **Refresh Mirror Status** → `getVendorBusinessUserMirror(vendorId, uid)`.
+- **Create / Repair Owner Mirror** → `mirrorOwnerAsBusinessUser(vendorId, uid, ownerEmail)`
+  (writes `role: Owner`, `permissions: ['*']`, `status: active`).
+- Safe empty state when `vendorId` or `uid` is missing (never crashes).
+- No PIN, PIN hash, password, or auth secret is read or displayed.
+- Gated behind `SHOW_DEV_BADGES` (same convention as `BUILD_STATUS`), so it is a
+  developer/admin section only and not a main user-facing feature.
+
+---
+
+## 5. Files Changed
+
+- `src/pos-new/vendor/vendorProvisioningService.ts` (Step 2)
+  - Added import of `mirrorOwnerAsBusinessUser` from `../services/vendorStaffMirrorService`.
+  - Added `ensureOwnerBusinessUserMirror(...)` best-effort helper.
+  - Called it after `batch.commit()` in `provisionVendorFromBusinessSetup(...)`.
+- `src/pos-new/pages/PosSettings.tsx` (Step 3 + Step 4)
+  - (Step 3) Imported `upsertVendorBusinessUserMirror`, `removeVendorBusinessUserMirror`,
+    and `VendorBusinessUserRole`; added `mapRoleToMirrorRole`, `syncStaffBusinessUserMirror`,
+    `removeStaffBusinessUserMirror`; wired into `handleAddOrEditStaff` and `handleDeleteStaff`.
+  - (Step 4) Imported `VendorStaffMirrorDiagnosticsPanel`; added `STAFF_MIRROR_DIAGNOSTICS`
+    section (dev/admin only) and rendered the panel gated behind `SHOW_DEV_BADGES`.
+- `src/pos-new/types/posTypes.ts` (Step 3)
+  - Added optional `uid?: string` to `StaffSetting` (type-only).
+- `src/pos-new/components/VendorStaffMirrorDiagnosticsPanel.tsx` (Step 4, new)
+  - Diagnostic panel component (see section 6).
+
+No application logic, sales, inventory, subscription, or invoice code was changed.
+`_archive`, `recovered-*`, and `*backup*` files untouched.

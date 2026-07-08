@@ -218,4 +218,83 @@ Or point `rules-unit-testing` at the emulator with `FIREBASE_EMULATOR_HOST`.
 - **Two audit collections** (`vendorAuditLogs`, `auditLogs`) behave identically; reconcile later.
 - **`get()` quota:** role chains use a few `get()` calls per evaluation, within Firestore limits.
 
+---
+
+## 7. Automated Test File — tests/firestore/vendorStaffMirror.rules.test.ts
+
+**Exact path:** `tests/firestore/vendorStaffMirror.rules.test.ts`
+
+This is the dedicated, emulator-ready test for the staff membership mirror path
+(`vendors/{vendorId}/businessUsers/{uid}`), added in BUILD 08072026-STAFF-MIRROR Step 5.
+It covers the 10 required scenarios using the fixed identities:
+
+| Key | Value |
+|---|---|
+| vendorId | `vendor-test-001` |
+| otherVendorId | `vendor-other-001` |
+| ownerUid | `owner-001` |
+| staffUid | `staff-001` |
+| outsiderUid | `outsider-001` |
+
+### 7.1 Required dev dependency (NOT yet installed)
+
+The repo currently has **no test tooling** in `package.json` and neither
+`@firebase/rules-unit-testing` nor `vitest` is installed. Per the build constraints,
+dependencies were **not** installed automatically. Add them as devDependencies:
+
+```bash
+npm install -D @firebase/rules-unit-testing vitest firebase
+```
+
+(Firebase is already a runtime dependency; `vitest` and `@firebase/rules-unit-testing`
+are dev-only.) `vitest` types are needed so the test file type-checks.
+
+### 7.2 How to run the emulator tests
+
+The Firestore emulator must be running and pointed at the draft rules. We avoid editing
+`firebase.json` by passing the rules file explicitly to `emulators:start`:
+
+```bash
+# Terminal 1 — start emulator with the DRAFT rules (no deploy)
+firebase emulators:start --only firestore --rules firestore.vendor-rooted.rules
+
+# Terminal 2 — run the tests against the emulator
+$env:FIREBASE_EMULATOR_HOST="127.0.0.1:8080"
+npx vitest run tests/firestore
+```
+
+(Equivalent one-shot form: `firebase emulators:exec --only firestore "npx vitest run tests/firestore"`.)
+
+### 7.3 Suggested npm script (add AFTER installing vitest)
+
+Only add this once `vitest` is installed, so `npm run build` and the script stay safe:
+
+```json
+"test:firestore-rules": "vitest run tests/firestore"
+```
+
+### 7.4 Expected results (10 scenarios)
+
+| # | Scenario | Expected vs current DRAFT rules |
+|---|---|---|
+| 1 | Owner creates vendor document | PASS (L98–100) |
+| 2 | Owner creates own mirror (`businessUsers/{ownerUid}`) | PASS (nested create, L111–117; owner is member) |
+| 3 | Owner reads own mirror | PASS (L102 / `isVendorMember`) |
+| 4 | Non-member reads vendor | PASS — DENY (no mirror) |
+| 5 | Non-member reads mirror | PASS — DENY |
+| 6 | Staff (active mirror) reads branch | PASS — ALLOW (member) |
+| 7 | Staff (inactive mirror) reads branch | **EXPECTED FAIL** — current rules ignore `status`, so read SUCCEEDS. Rules gap; needs `status == 'active'` enforcement. |
+| 8 | Vendor member reads another vendor branch | PASS — DENY (cross-tenant) |
+| 9 | Audit log create allowed / update+delete denied | PASS (L237–244) |
+| 10 | Default deny unknown path | PASS (L302–305) |
+
+### 7.5 Rules gap surfaced by scenario 7
+
+The mirror service writes `status` (`active`/`inactive`/`suspended`/`removed`), but the
+draft `isVendorStaffMember` helper (L64–69) only checks `exists(...)` and `vendorId`,
+not `status`. Until the rules enforce `status == 'active'`, a disabled/suspended staff
+mirror still grants membership. Recommended fix: add `&& get(...).status == 'active'`
+inside `isVendorStaffMember`. This is intentionally left for a follow-up rules change;
+Step 5 only adds tests and does not modify the rules or runtime.
+
 No runtime code was modified. Rules were not deployed.
