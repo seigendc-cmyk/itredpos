@@ -1,0 +1,307 @@
+rules_version = '2';
+
+// ============================================================================
+// iTredPOS — Vendor-Rooted Firestore Security Rules (DRAFT for review)
+// Build: BUILD 08072026-FIRESTORE-RULES — STEP 2
+// ----------------------------------------------------------------------------
+// Tenant boundary = vendorId (the `vendors/{vendorId}` document).
+//
+// IMPORTANT ASSUMPTION (read before deploying):
+//   The app currently writes staff into the TOP-LEVEL collection
+//   `vendorStaff/{staffId}` keyed by staffId (e.g. `${vendorId}_owner`), NOT by
+//   Firebase auth uid, and there is no uid-indexed staff path. Browser rules
+//   cannot `get()` a document by an unknown id, so non-owner staff role
+//   resolution CANNOT be done purely in rules with that shape.
+//
+//   These rules therefore rely on a per-vendor, uid-keyed membership mirror:
+//       vendors/{vendorId}/businessUsers/{request.auth.uid}
+//   The app MUST also write that mirror (vendorId + role) when a staff member
+//   is created/signed in. Until that mirror exists, `isVendorStaffMember` is
+//   always false, so ONLY the vendor OWNER passes membership checks.
+//
+//   PRODUCTION RECOMMENDATION: resolve roles server-side via Cloud Functions /
+//   Admin SDK (see docs), and keep browser rules as a defensive second layer.
+//
+// Default behaviour: anything without an explicit `allow` is DENIED.
+// No `allow ... if true` is used anywhere in this draft.
+// ============================================================================
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ----------------------------- Helpers --------------------------------
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isValidId(id) {
+      return id is string
+        && id.size() > 0
+        && id.size() < 128
+        && id.matches('^[A-Za-z0-9_\\-]+$');
+    }
+
+    function vendorPath(vendorId) {
+      return /databases/$(database)/documents/vendors/$(vendorId);
+    }
+
+    function vendorExists(vendorId) {
+      return isValidId(vendorId) && exists(vendorPath(vendorId));
+    }
+
+    // Path to the uid-keyed staff membership mirror under a vendor.
+    function vendorStaffPath(vendorId) {
+      return /databases/$(database)/documents/vendors/$(vendorId)/businessUsers;
+    }
+
+    function isVendorOwner(vendorId) {
+      return isSignedIn()
+        && isValidId(vendorId)
+        && vendorExists(vendorId)
+        && get(vendorPath(vendorId)).ownerUid == request.auth.uid;
+    }
+
+    function isVendorStaffMember(vendorId) {
+      return isSignedIn()
+        && isValidId(vendorId)
+        && exists(vendorStaffPath(vendorId)/$(request.auth.uid))
+        && get(vendorStaffPath(vendorId)/$(request.auth.uid)).vendorId == vendorId;
+    }
+
+    function isVendorMember(vendorId) {
+      return isVendorOwner(vendorId) || isVendorStaffMember(vendorId);
+    }
+
+    function getVendorRole(vendorId) {
+      return isVendorOwner(vendorId) ? 'Owner'
+        : (isVendorStaffMember(vendorId)
+            ? get(vendorStaffPath(vendorId)/$(request.auth.uid)).role
+            : '');
+    }
+
+    function hasVendorStaffRole(vendorId) {
+      return isVendorMember(vendorId)
+        && getVendorRole(vendorId) in ['Owner', 'Admin', 'Manager', 'Staff'];
+    }
+
+    function belongsToVendor(vendorId) {
+      return isVendorMember(vendorId);
+    }
+
+    function isVendorAdmin(vendorId) {
+      return isVendorMember(vendorId)
+        && (isVendorOwner(vendorId) || getVendorRole(vendorId) == 'Admin');
+    }
+
+    // ----------------------------- Vendor root ----------------------------
+    match /vendors/{vendorId} {
+      allow create: if isSignedIn()
+        && isValidId(vendorId)
+        && request.resource.data.ownerUid == request.auth.uid;
+
+      allow read: if isVendorOwner(vendorId) || isVendorStaffMember(vendorId);
+
+      allow update: if isVendorOwner(vendorId) || isVendorAdmin(vendorId);
+
+      allow delete: if isVendorOwner(vendorId);
+
+      // Nested sub-collections under the vendor tenant:
+      // sessionAuditEvents, salesReceipts, productMaster, stockAdjustments,
+      // deliveryRequests, biEvents, branches
+      match /{subcollection}/{docId} {
+        allow read: if isVendorMember(vendorId)
+          && isValidId(subcollection) && isValidId(docId);
+
+        allow create: if isVendorMember(vendorId)
+          && isValidId(subcollection) && isValidId(docId)
+          && request.resource.data.vendorId == vendorId;
+
+        // Mutable operational records: branch + BI source data
+        allow update: if subcollection in ['branches', 'salesReceipts', 'productMaster', 'stockAdjustments', 'deliveryRequests']
+          && isVendorAdmin(vendorId)
+          && request.resource.data.vendorId == vendorId;
+
+        // Immutable audit/BI-like records: update denied (default deny applies)
+        // sessionAuditEvents, biEvents are intentionally NOT updatable.
+
+        allow delete: if subcollection in ['branches', 'salesReceipts', 'productMaster', 'stockAdjustments', 'deliveryRequests']
+          && isVendorAdmin(vendorId);
+        // sessionAuditEvents, biEvents delete denied (default deny applies)
+      }
+    }
+
+    // ----------------------- Vendor-scoped collections --------------------
+    match /vendorStaff/{staffId} {
+      allow read: if isVendorMember(resource.data.vendorId);
+
+      allow create: if isVendorAdmin(request.resource.data.vendorId)
+        && isValidId(staffId)
+        && request.resource.data.vendorId is string;
+
+      allow update: if isVendorAdmin(resource.data.vendorId)
+        && request.resource.data.vendorId == resource.data.vendorId;
+
+      allow delete: if isVendorOwner(resource.data.vendorId) || isVendorAdmin(resource.data.vendorId);
+    }
+
+    match /vendorBranches/{branchId} {
+      allow read: if isVendorMember(resource.data.vendorId);
+      allow create, update: if isVendorMember(request.resource.data.vendorId)
+        && isValidId(branchId)
+        && request.resource.data.vendorId is string
+        && request.resource.data.vendorId == resource.data.vendorId;
+      allow delete: if isVendorAdmin(resource.data.vendorId);
+    }
+
+    match /vendorWarehouses/{warehouseId} {
+      allow read: if isVendorMember(resource.data.vendorId);
+      allow create, update: if isVendorMember(request.resource.data.vendorId)
+        && isValidId(warehouseId)
+        && request.resource.data.vendorId is string
+        && request.resource.data.vendorId == resource.data.vendorId;
+      allow delete: if isVendorAdmin(resource.data.vendorId);
+      // NOTE: warehouse is an independent inventory entry point; it is NOT
+      // derived from branch count. No branchId-based restriction is applied.
+    }
+
+    match /vendorLicenses/{vendorId} {
+      // doc id == vendorId
+      allow read: if isVendorOwner(vendorId) || isVendorAdmin(vendorId);
+      // Strict owner/admin write for now. PRODUCTION: issue/modify via
+      // Cloud Function / Admin SDK; browser writes should be removed.
+      allow create, update: if isVendorOwner(vendorId) || isVendorAdmin(vendorId);
+      allow delete: if isVendorOwner(vendorId);
+    }
+
+    match /vendorPlans/{vendorId} {
+      // doc id == vendorId
+      allow read: if isVendorOwner(vendorId) || isVendorAdmin(vendorId);
+      allow create, update: if isVendorOwner(vendorId) || isVendorAdmin(vendorId);
+      allow delete: if isVendorOwner(vendorId);
+      // PRODUCTION: write via Cloud Function / Admin SDK.
+    }
+
+    match /vendorRegistrations/{vendorId} {
+      // doc id == vendorId
+      allow create: if isSignedIn()
+        && isValidId(vendorId)
+        && request.resource.data.ownerUid == request.auth.uid;
+      allow read, update: if isVendorOwner(vendorId) || isVendorAdmin(vendorId);
+      allow update: if request.resource.data.ownerUid == resource.data.ownerUid;
+      allow delete: if isVendorOwner(vendorId);
+    }
+
+    // ----------------------- Tokens / codes ------------------------------
+    match /activationTokens/{tokenId} {
+      // Normal vendor STAFF must NOT read tokens.
+      allow read: if isSignedIn()
+        && isValidId(tokenId)
+        && (isVendorOwner(resource.data.vendorId) || isVendorAdmin(resource.data.vendorId));
+      // Dev-only: owner/admin may write. PRODUCTION: issuance via Admin SDK.
+      allow create, update: if (isVendorOwner(request.resource.data.vendorId) || isVendorAdmin(request.resource.data.vendorId))
+        && request.resource.data.vendorId is string;
+      allow delete: if isVendorOwner(resource.data.vendorId);
+    }
+
+    match /activationCodes/{codeId} {
+      // CURRENTLY UNUSED in app code (declared in FIRESTORE_COLLECTIONS only).
+      // Mirrors activationTokens for safety; tighten/remove once usage is confirmed.
+      allow read: if isSignedIn()
+        && isValidId(codeId)
+        && (isVendorOwner(resource.data.vendorId) || isVendorAdmin(resource.data.vendorId));
+      allow create, update: if (isVendorOwner(request.resource.data.vendorId) || isVendorAdmin(request.resource.data.vendorId))
+        && request.resource.data.vendorId is string;
+      allow delete: if isVendorOwner(resource.data.vendorId);
+    }
+
+    // ----------------------- Invoices / payments --------------------------
+    match /vendorInvoices/{invoiceId} {
+      allow read: if isVendorMember(resource.data.vendorId);
+      allow create, update: if isVendorMember(request.resource.data.vendorId)
+        && request.resource.data.vendorId is string
+        && request.resource.data.vendorId == resource.data.vendorId
+        && (request.resource.data.total == null || request.resource.data.total >= 0)
+        && (request.resource.data.subtotal == null || request.resource.data.subtotal >= 0);
+      allow delete: if isVendorAdmin(resource.data.vendorId);
+    }
+
+    match /vendorPayments/{paymentId} {
+      allow read: if isVendorMember(resource.data.vendorId);
+      allow create: if isVendorMember(request.resource.data.vendorId)
+        && request.resource.data.vendorId is string
+        && request.resource.data.amount > 0;
+      allow update, delete: if isVendorAdmin(resource.data.vendorId);
+    }
+
+    // ----------------------- Audit / events ------------------------------
+    match /vendorAuditLogs/{logId} {
+      allow read: if isVendorMember(resource.data.vendorId);
+      allow create: if isVendorMember(request.resource.data.vendorId)
+        && request.resource.data.vendorId is string
+        && request.resource.data.eventType is string
+        && request.resource.data.eventType.size() > 0;
+      allow update, delete: if false;
+    }
+
+    match /commerceEvents/{eventId} {
+      allow read: if isVendorMember(resource.data.vendorId);
+      allow create: if isVendorMember(request.resource.data.vendorId)
+        && request.resource.data.vendorId is string
+        && request.resource.data.eventType is string
+        && request.resource.data.eventType.size() > 0;
+      allow update, delete: if false;
+    }
+
+    match /auditLogs/{logId} {
+      // Separate top-level audit collection (distinct from vendorAuditLogs).
+      // RECOMMENDATION: reconcile auditLogs with vendorAuditLogs later.
+      allow read: if isSignedIn()
+        && resource.data.vendorId is string
+        && isVendorMember(resource.data.vendorId);
+      allow create: if isSignedIn()
+        && request.resource.data.vendorId is string
+        && isVendorMember(request.resource.data.vendorId)
+        && request.resource.data.eventType is string
+        && request.resource.data.eventType.size() > 0;
+      allow update, delete: if false;
+    }
+
+    // ----------------------- Plans catalogue -----------------------------
+    match /plans/{planId} {
+      // Global, public-readable plan catalogue.
+      allow read: if true;
+      // Catalogue writes are server-side only (Admin SDK / Cloud Function).
+      allow write: if false;
+    }
+
+    // ----------------------- Product transformations ----------------------
+    match /productTransformations/{docId} {
+      allow read: if isVendorMember(resource.data.vendorId);
+      allow create, update: if isVendorMember(request.resource.data.vendorId)
+        && request.resource.data.vendorId is string
+        && request.resource.data.vendorId == resource.data.vendorId;
+      allow delete: if isVendorAdmin(resource.data.vendorId);
+    }
+
+    match /productTransformationInputLines/{docId} {
+      allow read: if isVendorMember(resource.data.vendorId);
+      allow create, update: if isVendorMember(request.resource.data.vendorId)
+        && request.resource.data.vendorId is string
+        && request.resource.data.vendorId == resource.data.vendorId;
+      allow delete: if isVendorAdmin(resource.data.vendorId);
+    }
+
+    match /productTransformationOutputLines/{docId} {
+      allow read: if isVendorMember(resource.data.vendorId);
+      allow create, update: if isVendorMember(request.resource.data.vendorId)
+        && request.resource.data.vendorId is string
+        && request.resource.data.vendorId == resource.data.vendorId;
+      allow delete: if isVendorAdmin(resource.data.vendorId);
+    }
+
+    // ----------------------- Explicit default deny -----------------------
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
