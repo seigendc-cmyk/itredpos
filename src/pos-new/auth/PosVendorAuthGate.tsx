@@ -262,21 +262,13 @@ export default function PosVendorAuthGate({ children }: PosVendorAuthGateProps) 
     );
   }
 
-  if (context.stage === "activationRequired") {
-    return <ActivationLandingPage onActivated={handleActivationSuccess} />;
-  }
+  if (context.stage === "activationRequired") { return <>{children}</>; }
 
-  if (context.stage === "businessProfileRequired") {
-    return <VendorBusinessSetupPage />;
-  }
+  if (context.stage === "businessProfileRequired") { return <>{children}</>; }
 
-  if (context.stage === "staffAccessRequired") {
-    return <PosStaffAccessPage />;
-  }
+  if (context.stage === "staffAccessRequired") { return <>{children}</>; }
 
-  if (context.stage === "licenseRequired") {
-    return <>{children}</>;
-  }
+  if (context.stage === "licenseRequired") { return <>{children}</>; }
   return (
     <>
       {SHOW_DEV_BADGES && (
@@ -292,6 +284,7 @@ export default function PosVendorAuthGate({ children }: PosVendorAuthGateProps) 
     </>
   );
 }
+
 
 
 
