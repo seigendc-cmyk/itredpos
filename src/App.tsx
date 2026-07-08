@@ -1,7 +1,5 @@
 import { useState, useEffect } from 'react';
 import PosPrototypeApp from './pos-new/PosPrototypeApp';
-import VendorAuthGate from './sci-auth/VendorAuthGate';
-import VendorLandingPage from './sci-auth/VendorLandingPage';
 
 import FirebaseReadinessPage from './platform/FirebaseReadinessPage';
 import VendorVerificationQueuePage from './platform/VendorVerificationQueuePage';
@@ -55,21 +53,12 @@ export default function App() {
 
   const handleRouteToPos = () => {
     // Coordinate HTML5 History state push
-    window.history.pushState({}, '', '/sci-auth-test');
-    setCurrentPath('/sci-auth-test');
+    window.history.pushState({}, '', '/pos-prototype');
+    setCurrentPath('/pos-prototype');
   };
 
-  if (currentPath === '/sci-auth-test') {
-    return <VendorLandingPage />;
-  }
-
-  // If path is indeed /pos-prototype, mount our primary modern shell application
-  if (currentPath === '/pos-prototype') {
-    return (
-      <VendorAuthGate>
-        <PosPrototypeApp />
-      </VendorAuthGate>
-    );
+  if (currentPath === '/sci-auth-test' || currentPath === '/pos-prototype') {
+    return <PosPrototypeApp />;
   }
 
   if (currentPath === '/platform/firebase-readiness') {
@@ -173,5 +162,6 @@ export default function App() {
     </div>
   );
 }
+
 
 
