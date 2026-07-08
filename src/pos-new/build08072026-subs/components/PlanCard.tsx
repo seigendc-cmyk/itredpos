@@ -1,7 +1,6 @@
 import type { Key } from 'react';
 import type { SubscriptionPlan, LimitValue } from '../models/subscriptionModels';
 import { formatLimitValue } from '../models/subscriptionModels';
-import FeatureCard from './FeatureCard';
 
 interface PlanCardProps {
   key?: Key;
@@ -73,7 +72,13 @@ export default function PlanCard({ plan, selected = false, onSelect }: PlanCardP
 
         <div className="mt-3 grid grid-cols-1 gap-1">
           {plan.features.map((feature) => (
-            <FeatureCard key={feature} label={feature} enabled />
+            <div
+              key={feature}
+              className="flex items-center justify-between border border-emerald-200 bg-emerald-50 px-2 py-1 text-[11px] font-semibold text-emerald-800"
+            >
+              <span>{feature}</span>
+              <span className="text-[9px] font-black uppercase px-1">Included</span>
+            </div>
           ))}
         </div>
       </div>

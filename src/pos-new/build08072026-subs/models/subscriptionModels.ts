@@ -4,6 +4,10 @@ export type PriceSource = 'backend' | 'demo-fallback';
 
 export type SubscriptionPlanCode = 'TRIAL' | 'STARTER' | 'GROWTH' | 'ENTERPRISE';
 
+export type SubscriptionProductType = 'PLAN' | 'FEATURE';
+
+export type SubscriptionInvoiceStatus = 'PENDING_TOKEN_REQUEST' | 'TOKEN_ISSUED' | 'ACTIVATED';
+
 export interface SubscriptionPlanLimits {
   products: LimitValue;
   branches: LimitValue;
@@ -29,27 +33,78 @@ export interface SubscriptionPlan {
 
 export interface SubscriptionFeature {
   id: string;
-  label: string;
+  code: string;
+  name: string;
   description: string;
+  /** Fallback/demo price only. Real prices must come from the Backend Console. */
+  priceMonthlyUsd: number | null;
+  priceSource: PriceSource;
+  type: SubscriptionProductType;
+  category?: string;
 }
 
-export interface SubscriptionCartLine {
-  planId: string;
+export interface SubscriptionCartItem {
+  itemId: string;
+  refId: string;
+  name: string;
+  type: SubscriptionProductType;
   quantity: number;
   unitPriceUsd: number;
+  priceSource: PriceSource;
 }
 
 export interface SubscriptionCart {
   vendorId: string;
-  lines: SubscriptionCartLine[];
+  items: SubscriptionCartItem[];
   currency: string;
 }
 
+export interface SubscriptionPricingConfig {
+  currency: string;
+  /** Placeholder tax rate. Real tax logic connects with the Backend Console. */
+  taxRate: number;
+  taxLabel: string;
+}
+
+export interface SubscriptionCartSummary {
+  currency: string;
+  subtotalUsd: number;
+  taxRate: number;
+  taxAmountUsd: number;
+  grandTotalUsd: number;
+}
+
+export interface SubscriptionInvoiceLine {
+  refId: string;
+  name: string;
+  type: SubscriptionProductType;
+  quantity: number;
+  unitPriceUsd: number;
+  lineSubtotalUsd: number;
+}
+
 export interface SubscriptionInvoice {
-  invoiceId: string;
+  invoiceNumber: string;
+  invoiceDate: string;
+  vendorName: string;
   vendorId: string;
-  lines: SubscriptionCartLine[];
-  totalUsd: number;
+  currentPlan: string;
+  requestedPlan: string;
+  currency: string;
+  lines: SubscriptionInvoiceLine[];
+  subtotalUsd: number;
+  taxRate: number;
+  taxAmountUsd: number;
+  grandTotalUsd: number;
+  status: SubscriptionInvoiceStatus;
+}
+
+export interface SubscriptionWhatsAppRequestConfig {
+  currency: string;
+  taxRate: number;
+  /** Fallback/demo WhatsApp number. Real number connects from the Backend Console. */
+  whatsappPhone: string;
+  fallback: boolean;
 }
 
 export interface LicenseActivation {
