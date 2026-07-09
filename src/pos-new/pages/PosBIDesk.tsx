@@ -72,7 +72,7 @@ import type {
   BIShelfStocktakeAssignment,
   SalesProfitSnapshotPayload,
 } from "../types";
-import { mockBIEvents, mockBranches, mockStaff } from "../mock/mockPosData";
+import { mockBIEvents, mockBranches } from "../mock/mockPosData";
 import { canPerformAction } from "../utils/posPermissions";
 import { matchesFreeOrderSearch } from "../utils/searchUtils";
 import { biService } from "../../services/biService";
@@ -1873,11 +1873,6 @@ export default function PosBIDesk({
                 }}
               >
                 <option value="">All Staff</option>
-                {mockStaff.map((s) => (
-                  <option key={s.id} value={s.name}>
-                    {s.name} ({s.role})
-                  </option>
-                ))}
               </select>
             </div>
 

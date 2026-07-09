@@ -1,10 +1,13 @@
 export type PosAuthStage =
   | 'checkingGoogleSession'
   | 'googleSignInRequired'
+  | 'vendorSelectionRequired'
   | 'businessProfileRequired'
   | 'staffAccessRequired'
   | 'licenseRequired'
   | 'posReady';
+
+import type { ResolvedVendorSummary } from './tenantResolutionTypes';
 
 export type PosVendorAuthContext = {
   stage: PosAuthStage;
@@ -12,6 +15,14 @@ export type PosVendorAuthContext = {
   googleEmail?: string;
   vendorId?: string;
   vendorName?: string;
+  /** Candidates resolved from the ownerUid query when more than one vendor exists. */
+  candidateVendors?: ResolvedVendorSummary[];
+  /** True when the owner must pick a tenant from candidateVendors. */
+  selectedVendorRequired?: boolean;
+  /** ISO timestamp when the owner selected a tenant. */
+  selectedAt?: string;
+  /** Firebase uid of the owner who selected the tenant. */
+  selectedByUid?: string;
   branchId?: string;
   warehouseId?: string;
   staffId?: string;
@@ -68,6 +79,11 @@ export function clearPosAuthContext(): void {
 
 export function resolveNextAuthStage(context: PosVendorAuthContext): PosAuthStage {
   if (!context.googleUid || !context.googleEmail) return 'googleSignInRequired';
+
+  // Keep the owner on the tenant selector until a specific vendor is chosen.
+  if (context.stage === 'vendorSelectionRequired' && !context.vendorId) {
+    return 'vendorSelectionRequired';
+  }
 
   if (!context.vendorId || !context.vendorName) return 'posReady';
 

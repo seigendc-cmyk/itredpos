@@ -42,6 +42,8 @@ export function readSciVendorOwnerSession(): SciVendorOwnerSession | null {
   }
 }
 
+import { validateStaffPin } from '../pos-new/services/staffFirestoreService';
+
 export function loadStaffForCurrentVendor(): { staffId: string; staffName: string; role: string; pin: string; branchId: string; terminalId: string }[] {
   const session = readSciVendorOwnerSession();
   const ownerName = session?.ownerName || 'Owner';
@@ -54,14 +56,14 @@ export function loadStaffForCurrentVendor(): { staffId: string; staffName: strin
       staffId,
       staffName: ownerName,
       role: 'Owner',
-      pin: DEFAULT_PIN,
+      pin: '040369',
       branchId,
       terminalId
     }
   ];
 }
 
-export function authenticateStaffAccess(input: StaffAuthInput): StaffAuthResult {
+export async function authenticateStaffAccess(input: StaffAuthInput): Promise<StaffAuthResult> {
   const session = readSciVendorOwnerSession();
 
   if (!session) {
@@ -72,11 +74,8 @@ export function authenticateStaffAccess(input: StaffAuthInput): StaffAuthResult 
     return { ok: false, message: 'Staff does not belong to the current vendor.' };
   }
 
-  if (input.staffId !== 'owner-staff') {
-    return { ok: false, message: 'ACCESS PERMISSION DENIED' };
-  }
-
-  if (input.pin !== DEFAULT_PIN) {
+  const record = await validateStaffPin(input.staffId, input.pin);
+  if (!record) {
     return { ok: false, message: 'ACCESS PERMISSION DENIED' };
   }
 
@@ -95,10 +94,12 @@ export function createOwnerPosSession() {
   return {
     vendor: vendorName,
     vendorId: session?.vendorId || 'demo-vendor',
-    branch: 'Main Branch',
-    branchId: 'main-branch',
+    branch: 'Demo Branch',
+    branchId: 'demo-branch',
     terminal: 'Main POS Terminal',
     terminalId: 'TERM-MAIN-001',
+    warehouse: 'Demo Warehouse',
+    warehouseId: 'demo-warehouse',
     staffName: ownerName,
     role: 'Owner',
     licenseId: 'demo-license',

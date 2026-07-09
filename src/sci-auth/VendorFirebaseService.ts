@@ -49,6 +49,15 @@ export async function findVendorByGoogleAccount(profile: { uid: string; email?: 
   const uid = profile.uid;
   const email = profile.email?.toLowerCase() || '';
 
+  console.log('[VendorFirebaseService] Firestore READ', 'vendors', {
+    operation: 'query',
+    path: 'vendors',
+    uid,
+    email,
+    vendorId: 'unknown',
+    filter: { ownerUid: uid }
+  });
+
   const q1 = query(collection(db, 'vendors'), where('ownerUid', '==', uid), limit(1));
   const snap1 = await getDocs(q1);
   if (!snap1.empty) {
@@ -57,6 +66,15 @@ export async function findVendorByGoogleAccount(profile: { uid: string; email?: 
   }
 
   if (email) {
+    console.log('[VendorFirebaseService] Firestore READ', 'vendors', {
+      operation: 'query',
+      path: 'vendors',
+      uid,
+      email,
+      vendorId: 'unknown',
+      filter: { ownerEmail: email }
+    });
+
     const q2 = query(collection(db, 'vendors'), where('ownerEmail', '==', email), limit(1));
     const snap2 = await getDocs(q2);
     if (!snap2.empty) {

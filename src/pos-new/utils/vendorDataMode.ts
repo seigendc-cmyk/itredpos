@@ -123,6 +123,74 @@ export function getActiveVendorId(fallback = 'unassigned-vendor'): string {
   return storageSafeId(vendorId) || fallback;
 }
 
+/**
+ * Vendor IDs that must never be used as a real diagnostic tenant. These are
+ * placeholder / build-development / test values and must not receive a mirror
+ * write. The Staff Mirror Diagnostics panel treats them as "no vendorId resolved".
+ */
+const NON_TENANT_VENDOR_IDS: ReadonlySet<string> = new Set([
+  'DEMO-VENDOR',
+  'demo-vendor',
+  'demo-vendor-001',
+  'test-vendor-001',
+  'unassigned-vendor'
+]);
+
+const ACTIVE_POS_SESSION_KEY = 'itred_pos_active_session';
+const TENANT_SESSION_KEY = 'itred_pos_tenant_session';
+const ACTIVATION_SNAPSHOT_KEY = 'itred_pos_activation_snapshot';
+
+function isRealVendorId(value: string): boolean {
+  const candidate = asText(value);
+  const safe = storageSafeId(candidate);
+  if (!safe) return false;
+  if (NON_TENANT_VENDOR_IDS.has(safe)) return false;
+  if (NON_TENANT_VENDOR_IDS.has(candidate)) return false;
+  return true;
+}
+
+/**
+ * Resolves the real tenant vendorId for the Staff Mirror Diagnostics panel using a
+ * strict precedence. Unlike `getActiveVendorId`, this function NEVER falls back to a
+ * placeholder or demo vendor — if no real tenant is resolved it returns ''.
+ *
+ * Tenant lookup priority:
+ *   1. POS auth context vendorId (`sci_pos_vendor_auth_context`)
+ *   2. Active POS session vendorId (`itred_pos_active_session`)
+ *   3. Tenant session vendorId (`itred_pos_tenant_session`, excluding build-dev sessions)
+ *   4. Business profile vendorId (`itred_pos_business_profile`)
+ *   5. Local activation snapshot vendorId (`itred_pos_activation_snapshot`)
+ *
+ * Known demo/test vendor IDs (DEMO-VENDOR, demo-vendor, demo-vendor-001,
+ * test-vendor-001, unassigned-vendor) are rejected at every step so the panel never
+ * creates or reads a mirror under a non-tenant vendor.
+ */
+export function resolveDiagnosticVendorId(): string {
+  const auth = readObject(AUTH_CONTEXT_KEY);
+  const authVendorId = asText(auth?.vendorId);
+  if (isRealVendorId(authVendorId)) return storageSafeId(authVendorId);
+
+  const activeSession = readObject(ACTIVE_POS_SESSION_KEY);
+  const sessionVendorId = asText(activeSession?.vendorId);
+  if (isRealVendorId(sessionVendorId)) return storageSafeId(sessionVendorId);
+
+  const tenantSession = readObject(TENANT_SESSION_KEY);
+  if (tenantSession && !tenantSession.isBuildDevelopmentSession) {
+    const tenantVendorId = asText(tenantSession.vendorId);
+    if (isRealVendorId(tenantVendorId)) return storageSafeId(tenantVendorId);
+  }
+
+  const profile = readObject(BUSINESS_PROFILE_KEY);
+  const profileVendorId = asText(profile?.vendorId);
+  if (isRealVendorId(profileVendorId)) return storageSafeId(profileVendorId);
+
+  const activation = readObject(ACTIVATION_SNAPSHOT_KEY);
+  const activationVendorId = asText(activation?.vendorId);
+  if (isRealVendorId(activationVendorId)) return storageSafeId(activationVendorId);
+
+  return '';
+}
+
 export function getVendorScopedStorageKey(baseKey: string, vendorId?: string): string {
   return `${baseKey}_${storageSafeId(vendorId || getActiveVendorId()) || 'unassigned-vendor'}`;
 }

@@ -57,6 +57,17 @@ import {
 import { isLimitReached, type PlanFeatureAccess } from '../auth/planFeatureGate';
 import SubscriptionCommercePage from '../build08072026-subs/pages/SubscriptionCommercePage';
 import { readPosAuthContext } from '../auth/posVendorAuthState';
+import {
+  createStaff,
+  updateStaff,
+  suspendStaff,
+  getStaffByVendor,
+  ensureDefaultOwnerStaff,
+  mapStaffSettingToStaffRecord,
+  canStaffManageStaff
+} from '../services/staffFirestoreService';
+import { recordStaffAuditEvent } from '../services/staffAuditService';
+import type { StaffRecordStatus } from '../types';
 
 interface PosSettingsProps {
   businessProfile: BusinessProfile;
@@ -164,9 +175,9 @@ async function syncStaffBusinessUserMirror(
       uid: staff.uid,
       vendorId,
       staffId: staff.id,
-      displayName: staff.name,
+      displayName: staff.displayName,
       email: staff.email,
-      role: mapRoleToMirrorRole(staff.role),
+      role: mapRoleToMirrorRole(staff.roleName),
       permissions: [],
       status: 'active',
       branchIds: staff.branchId ? [staff.branchId] : [],
@@ -248,6 +259,31 @@ export default function PosSettings({
   const limitMessage = (label: string) => `${label} limit reached for your current plan.`;
   const activeVendorId = businessProfile.vendorId || getActiveVendorId() || '';
   const mirrorUpdatedBy = activeOperatorName || activeVendorId || 'SETTINGS';
+  const canManageStaff = activeRole ? canStaffManageStaff(activeRole) : false;
+
+  const [staffDbList, setStaffDbList] = useState<StaffSetting[]>([]);
+  const [staffDbLoading, setStaffDbLoading] = useState<boolean>(false);
+  const [staffDbError, setStaffDbError] = useState<string>('');
+
+  const loadStaffFromDb = async () => {
+    if (!activeVendorId) return;
+    setStaffDbLoading(true);
+    setStaffDbError('');
+    try {
+      const records = await getStaffByVendor(activeVendorId);
+      let list = records;
+      if (list.length === 0 && activeVendorId) {
+        const defaultOwner = await ensureDefaultOwnerStaff(activeVendorId, activeOperatorName || 'Owner');
+        list = [defaultOwner];
+      }
+      setStaffDbList(list);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to load staff from database.';
+      setStaffDbError(message);
+    } finally {
+      setStaffDbLoading(false);
+    }
+  };
 
   // --- SUB-FORM 1: BUSINESS PROFILE STATES ---
   const [profileForm, setProfileForm] = useState<BusinessProfile>({ ...businessProfile });
@@ -444,47 +480,100 @@ export default function PosSettings({
   };
 
   // --- SUB-FORM 5: STAFF STATES ---
-  const [staffForm, setStaffForm] = useState<StaffSetting>({ id: '', name: '', email: '', role: 'Cashier', pass: '', branchId: '' });
+  const [staffForm, setStaffForm] = useState<StaffSetting>({ id: '', vendorId: '', branchId: '', staffCode: '', displayName: '', email: '', roleId: 'cashier', roleName: 'Cashier', pinHash: '', pinCode: '', status: 'active', assignedTerminalIds: [], createdAt: '', updatedAt: '', createdBy: '', updatedBy: '' });
   const [isEditingStaff, setIsEditingStaff] = useState(false);
   const [revealPassId, setRevealPassId] = useState<string | null>(null);
-  const handleAddOrEditStaff = (e: React.FormEvent) => {
+  const handleAddOrEditStaff = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!staffForm.id || !staffForm.name || !staffForm.email || !staffForm.pass || !staffForm.branchId) {
+    if (!canManageStaff) {
+      triggerToast('You do not have permission to manage staff.');
+      return;
+    }
+    if (!staffForm.id || !staffForm.displayName || !staffForm.email || !staffForm.branchId) {
       alert("ENSURE ALL CLERK ATTRIBUTES, KEYWAY PASSWORDS, AND WORK LOCATION ARE REGISTERED.");
       return;
     }
-    const existsIdx = staff.findIndex(s => s.id.toUpperCase() === staffForm.id.toUpperCase());
-    if (isEditingStaff) {
-      onUpdateStaff(staff.map(s => s.id.toUpperCase() === staffForm.id.toUpperCase() ? staffForm : s));
-      triggerToast(`STAFF PROFILE FOR ${staffForm.name} COMMITTED.`);
-      setIsEditingStaff(false);
-    } else {
-      if (existsIdx !== -1) {
-        alert("CRITICAL CONFLICT: EMPLOYEE CLERK REGISTER CARD ALREADY ACTIVE.");
-        return;
+    const record = mapStaffSettingToStaffRecord(staffForm, { vendorId: activeVendorId });
+    try {
+      if (isEditingStaff) {
+        await updateStaff(staffForm.id, {
+          staffCode: record.staffCode,
+          displayName: record.displayName,
+          email: record.email,
+          roleId: record.roleId,
+          roleName: record.roleName,
+          pinCode: record.pinCode,
+          pinHash: record.pinHash,
+          status: record.status,
+          branchId: record.branchId,
+          assignedTerminalIds: record.assignedTerminalIds,
+          updatedBy: mirrorUpdatedBy
+        }, mirrorUpdatedBy);
+        await recordStaffAuditEvent({
+          vendorId: activeVendorId,
+          branchId: staffForm.branchId,
+          staffId: staffForm.id,
+          roleId: staffForm.roleId,
+          eventType: 'STAFF_UPDATED',
+          timestamp: new Date().toISOString(),
+          metadata: { displayName: staffForm.displayName, roleName: staffForm.roleName }
+        });
+        triggerToast(`STAFF PROFILE FOR ${staffForm.displayName} COMMITTED.`);
+        setIsEditingStaff(false);
+      } else {
+        await createStaff(record, mirrorUpdatedBy);
+        await recordStaffAuditEvent({
+          vendorId: activeVendorId,
+          branchId: staffForm.branchId,
+          staffId: record.id,
+          roleId: record.roleId,
+          eventType: 'STAFF_CREATED',
+          timestamp: new Date().toISOString(),
+          metadata: { displayName: record.displayName, roleName: record.roleName }
+        });
+        triggerToast(`CLERK ${staffForm.displayName} INDUCTED.`);
       }
-      if (limitReached(staff.length, 'maxStaff')) {
-        triggerToast(limitMessage('Staff'));
-        return;
-      }
-      onUpdateStaff([...staff, staffForm]);
-      triggerToast(`CLERK ${staffForm.name} INDUCTED.`);
+      void syncStaffBusinessUserMirror(staffForm, activeVendorId, mirrorUpdatedBy);
+      setStaffForm({ id: '', vendorId: '', branchId: '', staffCode: '', displayName: '', email: '', roleId: 'cashier', roleName: 'Cashier', pinHash: '', pinCode: '', status: 'active', assignedTerminalIds: [], createdAt: '', updatedAt: '', createdBy: '', updatedBy: '' });
+      void loadStaffFromDb();
+      void onUpdateStaff([...staff, { ...staffForm, id: record.id }]);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to save staff record.';
+      triggerToast(message);
     }
-    void syncStaffBusinessUserMirror(staffForm, activeVendorId, mirrorUpdatedBy);
-    setStaffForm({ id: '', name: '', email: '', role: 'Cashier', pass: '', branchId: '' });
   };
   const handleEditStaffClick = (s: StaffSetting) => {
     setStaffForm(s);
     setIsEditingStaff(true);
   };
-  const handleDeleteStaff = (id: string) => {
+  const handleDeleteStaff = async (id: string) => {
+    if (!canManageStaff) {
+      triggerToast('You do not have permission to manage staff.');
+      return;
+    }
     if (confirm(`REMOVE STAFF CLERK ${id} FROM ALL GATEWAY PROTOCOLS?`)) {
-      const removed = staff.find(s => s.id === id);
-      onUpdateStaff(staff.filter(s => s.id !== id));
-      if (removed) {
-        void removeStaffBusinessUserMirror(removed, activeVendorId, mirrorUpdatedBy);
+      try {
+        await suspendStaff(id, mirrorUpdatedBy);
+        const removed = staff.find(s => s.id === id);
+        await recordStaffAuditEvent({
+          vendorId: activeVendorId,
+          branchId: removed?.branchId || '',
+          staffId: id,
+          roleId: removed?.roleId || '',
+          eventType: 'STAFF_SUSPENDED',
+          timestamp: new Date().toISOString(),
+          metadata: { displayName: removed?.displayName || id }
+        });
+        if (removed) {
+          void removeStaffBusinessUserMirror(removed, activeVendorId, mirrorUpdatedBy);
+        }
+        triggerToast(`CLERK ID ${id} SUSPENDED.`);
+        void loadStaffFromDb();
+        onUpdateStaff(staff.filter(s => s.id !== id));
+      } catch (err) {
+        const message = err instanceof Error ? err.message : 'Failed to suspend staff.';
+        triggerToast(message);
       }
-      triggerToast(`CLERK ID ${id} EXPELLED.`);
     }
   };
 
@@ -558,6 +647,12 @@ export default function PosSettings({
       setNextCheckPreview(previewNumber(settings));
     });
   }, []);
+
+  useEffect(() => {
+    if (activeSection === 'STAFF' && activeVendorId) {
+      void loadStaffFromDb();
+    }
+  }, [activeSection, activeVendorId]);
 
   const saveCheckSettings = () => {
     if (!checkSettings) return;
@@ -1363,21 +1458,27 @@ export default function PosSettings({
                 <div className="border-b border-slate-800 pb-2 flex items-center justify-between">
                   <span className="text-xs font-bold text-white uppercase tracking-wider flex items-center gap-2">
                     <Users className="w-4 h-4 text-emerald-400" />
-                    STAFF CLERK DIRECTORY ENGINE [{staff.length} ID CARDS]
+                    STAFF CLERK DIRECTORY ENGINE [{staffDbList.length} ID CARDS]
                   </span>
                   <span className="text-[9px] bg-slate-950 px-1 py-0.2 text-[#00f0ff]">LOCKOUT SAFEGUARD ON</span>
                 </div>
 
+                {!canManageStaff && (
+                  <div className="bg-rose-950/40 border border-rose-800 p-3 text-rose-400 text-[10px] uppercase tracking-wider">
+                    ACCESS RESTRICTED: Only Owner, SysAdmin, Manager, or Supervisor may induct or edit staff.
+                  </div>
+                )}
+
                 {/* Staff register form */}
-                <form onSubmit={handleAddOrEditStaff} className="p-4 bg-slate-950 border border-slate-900 space-y-3">
+                <form onSubmit={handleAddOrEditStaff} className={`p-4 bg-slate-950 border border-slate-900 space-y-3 ${!canManageStaff ? 'opacity-50 pointer-events-none' : ''}`}>
                   <div className="text-[10px] font-bold text-emerald-400 uppercase tracking-wider font-mono">
                     {isEditingStaff ? '🔧 EDIT ASSIGNED USER PERMISSION METRICS' : '👥 INDUCT SECURITY ENVELOPE OPERATOR'}
                   </div>
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                     <div>
                       <label className="block text-slate-500 mb-1 text-[9px]">CLERK ID/RFID SLOT</label>
-                      <input 
-                        type="text" 
+                      <input
+                        type="text"
                         value={staffForm.id}
                         onChange={e => setStaffForm({ ...staffForm, id: e.target.value.toUpperCase() })}
                         disabled={isEditingStaff}
@@ -1387,11 +1488,22 @@ export default function PosSettings({
                       />
                     </div>
                     <div>
+                      <label className="block text-slate-500 mb-1 text-[9px]">STAFF CODE</label>
+                      <input
+                        type="text"
+                        value={staffForm.staffCode}
+                        onChange={e => setStaffForm({ ...staffForm, staffCode: e.target.value.toUpperCase() })}
+                        placeholder="e.g. OP-001"
+                        className="w-full bg-slate-900 border border-slate-800 p-2 text-xs outline-none text-white focus:border-[#00f0ff]"
+                        required
+                      />
+                    </div>
+                    <div>
                       <label className="block text-slate-500 mb-1 text-[9px]">LEGAL FULL NAME</label>
-                      <input 
-                        type="text" 
-                        value={staffForm.name}
-                        onChange={e => setStaffForm({ ...staffForm, name: e.target.value })}
+                      <input
+                        type="text"
+                        value={staffForm.displayName}
+                        onChange={e => setStaffForm({ ...staffForm, displayName: e.target.value })}
                         placeholder="e.g. Donald Vance"
                         className="w-full bg-slate-900 border border-slate-800 p-2 text-xs outline-none text-white focus:border-[#00f0ff]"
                         required
@@ -1399,8 +1511,8 @@ export default function PosSettings({
                     </div>
                     <div>
                       <label className="block text-slate-500 mb-1 text-[9px]">System Correspondence Email</label>
-                      <input 
-                        type="email" 
+                      <input
+                        type="email"
                         value={staffForm.email}
                         onChange={e => setStaffForm({ ...staffForm, email: e.target.value })}
                         placeholder="clerk@enterprise.com"
@@ -1411,8 +1523,8 @@ export default function PosSettings({
                     <div>
                       <label className="block text-slate-500 mb-1 text-[9px]">ASSIGNED ENTERPRISE ROLE</label>
                       <select
-                        value={staffForm.role}
-                        onChange={e => setStaffForm({ ...staffForm, role: e.target.value as any })}
+                        value={staffForm.roleName}
+                        onChange={e => setStaffForm({ ...staffForm, roleName: e.target.value as any, roleId: e.target.value.toLowerCase().replace(/ /g, '_') as any })}
                         className="w-full bg-slate-900 border border-slate-800 p-2 text-xs outline-none text-white"
                         required
                       >
@@ -1440,10 +1552,10 @@ export default function PosSettings({
                     </div>
                     <div>
                       <label className="block text-slate-500 mb-1 text-[9px]">ENCRYPTED PIN / PASSWORD CREDS</label>
-                      <input 
-                        type="text" 
-                        value={staffForm.pass}
-                        onChange={e => setStaffForm({ ...staffForm, pass: e.target.value })}
+                      <input
+                        type="text"
+                        value={staffForm.pinCode}
+                        onChange={e => setStaffForm({ ...staffForm, pinCode: e.target.value })}
                         placeholder="Enter secure password"
                         className="w-full bg-slate-900 border border-slate-800 p-2 text-xs outline-none text-amber-500 focus:border-amber-500 font-bold tracking-widest"
                         required
@@ -1453,7 +1565,8 @@ export default function PosSettings({
                   <div className="flex gap-2">
                     <button
                       type="submit"
-                      className="bg-emerald-600 hover:bg-emerald-700 text-slate-950 font-black uppercase tracking-wider px-4 py-2 text-[10px] rounded-none cursor-pointer flex items-center gap-1.5"
+                      disabled={!canManageStaff}
+                      className="bg-emerald-600 hover:bg-emerald-700 text-slate-950 font-black uppercase tracking-wider px-4 py-2 text-[10px] rounded-none cursor-pointer flex items-center gap-1.5 disabled:bg-slate-800 disabled:text-slate-500 disabled:cursor-not-allowed"
                     >
                       {isEditingStaff ? <Save className="w-3 h-3 text-slate-950" /> : <Plus className="w-3 h-3 text-slate-950" />}
                       <span>{isEditingStaff ? 'UPDATE USER CARD' : 'INDUCT OPERATOR'}</span>
@@ -1463,7 +1576,7 @@ export default function PosSettings({
                         type="button"
                         onClick={() => {
                           setIsEditingStaff(false);
-                          setStaffForm({ id: '', name: '', email: '', role: 'Cashier', pass: '', branchId: '' });
+                          setStaffForm({ id: '', vendorId: '', branchId: '', staffCode: '', displayName: '', email: '', roleId: 'cashier', roleName: 'Cashier', pinHash: '', pinCode: '', status: 'active', assignedTerminalIds: [], createdAt: '', updatedAt: '', createdBy: '', updatedBy: '' });
                         }}
                         className="bg-slate-800 text-slate-400 py-2 px-4 hover:bg-slate-700 uppercase font-bold text-[10px]"
                       >
@@ -1473,11 +1586,32 @@ export default function PosSettings({
                   </div>
                 </form>
 
+                {/* Staff error state */}
+                {staffDbError && (
+                  <div className="bg-rose-950/40 border border-rose-800 p-3 text-rose-400 text-[10px] uppercase tracking-wider">
+                    {staffDbError}
+                  </div>
+                )}
+
+                {/* Staff loading state */}
+                {staffDbLoading && (
+                  <div className="bg-slate-950 border border-slate-800 p-4 text-slate-400 text-[10px] uppercase tracking-wider text-center">
+                    Loading staff records from database...
+                  </div>
+                )}
+
+                {/* Staff empty state */}
+                {!staffDbLoading && staffDbList.length === 0 && !staffDbError && (
+                  <div className="bg-slate-950 border border-slate-800 p-4 text-slate-400 text-[10px] uppercase tracking-wider text-center">
+                    No active staff found for this branch. Induct staff before terminal access.
+                  </div>
+                )}
+
                 {/* Staff List Table */}
                 <div className="space-y-2 font-mono">
                   <div className="text-[10px] font-bold text-slate-400 uppercase">ACTIVE OPERATOR CREWMEMBERS IN CONGRUENCY</div>
                   <div className="border border-slate-800 divide-y divide-slate-950 font-mono">
-                    {staff.map(s => {
+                    {staffDbList.map(s => {
                       const branchAssoc = branches.find(b => b.id === s.branchId)?.name || 'HEAD_BASE';
                       const isRevealed = revealPassId === s.id;
                       return (
@@ -1485,22 +1619,22 @@ export default function PosSettings({
                           <div>
                             <div className="flex items-center gap-2">
                               <span className="text-[#00f0ff] font-bold">{s.id}</span>
-                              <span className="text-white font-bold">{s.name}</span>
-                              <span className="text-[9px] bg-slate-900 border border-slate-800 text-amber-500/80 px-1.5 font-bold uppercase">{s.role}</span>
+                              <span className="text-white font-bold">{s.displayName}</span>
+                              <span className="text-[9px] bg-slate-900 border border-slate-800 text-amber-500/80 px-1.5 font-bold uppercase">{s.roleName}</span>
                             </div>
                             <div className="text-[10px] text-slate-500 uppercase mt-0.5">
-                              {s.email} • BRCH: {branchAssoc}
+                              {s.email} • BRCH: {branchAssoc} • CODE: {s.staffCode}
                             </div>
                           </div>
-                          
+
                           <div className="flex items-center gap-3 self-end md:self-auto">
                             {/* Password Reveal Indicator */}
                             <div className="flex items-center gap-1 bg-slate-900 py-1 px-2 border border-slate-850 rounded-none text-[10px]">
                               <span className="text-slate-500 mr-1 uppercase">PIN COGN:</span>
                               <span className="text-amber-500 font-extrabold tracking-widest text-[11px] whitespace-nowrap">
-                                {isRevealed ? s.pass : '••••••'}
+                                {isRevealed ? (s.pinCode || '') : '••••••'}
                               </span>
-                              <button 
+                              <button
                                 type="button"
                                 onClick={() => setRevealPassId(isRevealed ? null : s.id)}
                                 className="text-slate-400 hover:text-white ml-1.5 cursor-pointer"
@@ -1512,13 +1646,15 @@ export default function PosSettings({
                             <div className="flex gap-1.5 shrink-0">
                               <button
                                 onClick={() => handleEditStaffClick(s)}
-                                className="p-1 px-2 bg-slate-900 border border-slate-800 text-slate-400 hover:text-[#00f0ff] hover:bg-slate-950 cursor-pointer text-[10px]"
+                                disabled={!canManageStaff}
+                                className="p-1 px-2 bg-slate-900 border border-slate-800 text-slate-400 hover:text-[#00f0ff] hover:bg-slate-950 cursor-pointer text-[10px] disabled:opacity-50 disabled:cursor-not-allowed"
                               >
                                 <Edit size={11} />
                               </button>
                               <button
                                 onClick={() => handleDeleteStaff(s.id)}
-                                className="p-1 px-2 bg-slate-900 border border-slate-800 text-rose-500 hover:text-white hover:bg-rose-950 cursor-pointer text-[10px]"
+                                disabled={!canManageStaff}
+                                className="p-1 px-2 bg-slate-900 border border-slate-800 text-rose-500 hover:text-white hover:bg-rose-950 cursor-pointer text-[10px] disabled:opacity-50 disabled:cursor-not-allowed"
                               >
                                 <Trash2 size={11} />
                               </button>

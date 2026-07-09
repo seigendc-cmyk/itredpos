@@ -186,20 +186,6 @@ export const mockTerminals: Terminal[] = [
   { id: 'POS-02', name: 'POS-02 Bulawayo Counter', branchId: 'BR-BYO', type: 'STANDARD' }
 ];
 
-export const mockStaff: StaffMember[] = [
-  { id: 'ST-001', name: 'Marcus Vance', email: 'marcus@apex.com', role: 'Supervisor', pass: 'lead123', branchId: 'BR-DET-3' },
-  { id: 'ST-002', name: 'Sarah Connor', email: 'sarah@apex.com', role: 'Cashier', pass: 'op123', branchId: 'BR-DET-3' },
-  { id: 'ST-003', name: 'John Connor', email: 'john@apex.com', role: 'Manager', pass: 'mngr123', branchId: 'BR-CHI-B' },
-  { id: 'ST-004', name: 'Elena Rostova', email: 'elena@apex.com', role: 'Stock Controller', pass: 'op456', branchId: 'BR-CHI-B' },
-  { id: 'ST-005', name: 'Cassie Reilly', email: 'cassie@apex.com', role: 'Owner', pass: 'owner123', branchId: 'BR-GARY-4' },
-  { id: 'ST-006', name: 'James Cole', email: 'james@apex.com', role: 'SysAdmin', pass: 'admin123', branchId: 'BR-GARY-4' },
-  { id: 'ST-007', name: 'Admin User', email: 'admin@sci.com', role: 'Manager', pass: 'admin123', branchId: 'BR-HARARE' },
-  { id: 'ST-ADMIN', name: 'Admin User', email: 'admin.user@sci.com', role: 'SysAdmin', pass: 'admin123', branchId: 'BR-HARARE' },
-  { id: 'ST-MARY', name: 'Mary Cashier', email: 'mary.cashier@sci.com', role: 'Cashier', pass: 'cashier123', branchId: 'BR-HARARE' },
-  { id: 'ST-TAWANDA', name: 'Tawanda Supervisor', email: 'tawanda.supervisor@sci.com', role: 'Supervisor', pass: 'lead123', branchId: 'BR-BYO' },
-  { id: 'ST-BLESSING', name: 'Blessing Stock', email: 'blessing.stock@sci.com', role: 'Stock Controller', pass: 'stock123', branchId: 'BR-HARARE' }
-];
-
 export const mockTerminalLifecycleRecords: TerminalLifecycleRecord[] = [
   {
     id: 'TLC-POS-01',

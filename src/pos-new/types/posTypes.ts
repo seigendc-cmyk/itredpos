@@ -145,6 +145,7 @@ export interface TerminalControlEvent {
 }
 
 export type Role = 'Owner' | 'SysAdmin' | 'Manager' | 'Cashier' | 'Stock Controller' | 'Supervisor' | 'Delivery Staff' | 'Accountant' | 'Viewer';
+export type StaffRecordStatus = 'active' | 'suspended' | 'archived';
 
 export type Permission = string;
 
@@ -1791,6 +1792,9 @@ export interface POSSession {
   branchId?: string;
   terminal: string;
   terminalId?: string;
+  warehouse?: string;
+  warehouseId?: string;
+  staffId?: string;
   staffName: string;
   role: string;
   licenseId?: string;
@@ -2684,13 +2688,21 @@ export interface TerminalSetting {
 
 export interface StaffSetting {
   id: string;
-  name: string;
-  email: string;
-  role: Role;
-  pass: string;
-  pin?: string;
+  vendorId: string;
   branchId: string;
-  /** Firebase auth uid when the staff member is linked to a Firebase account. Optional: staff may be local-only. */
+  staffCode: string;
+  displayName: string;
+  email: string;
+  roleId: string;
+  roleName: Role;
+  pinHash?: string;
+  pinCode?: string;
+  status: StaffRecordStatus;
+  assignedTerminalIds?: string[];
+  createdAt: string;
+  updatedAt: string;
+  createdBy: string;
+  updatedBy: string;
   uid?: string;
 }
 

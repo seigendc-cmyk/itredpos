@@ -11,10 +11,107 @@ import type {
   TenantResolutionReadinessRow,
   TenantResolutionResult,
   TenantStaffProfileContract,
-  TenantTerminalAccessContract
+  TenantTerminalAccessContract,
+  VendorByOwnerUidResult
 } from './tenantResolutionTypes';
+import { collection, getDocs, query, where } from 'firebase/firestore';
+import { db } from '../firebase/firebaseApp';
+import { FIRESTORE_COLLECTIONS } from '../../shared/backend';
 
 const fallbackEmail = 'owner@build.local';
+
+/**
+ * Resolves the real vendor document from Firestore by the authenticated owner's
+ * Firebase UID, so the POS stops depending on local/demo vendor IDs.
+ *
+ * Query:
+ *   collection(db, "vendors") where ownerUid == ownerUid
+ *
+ * Behaviour:
+ *   - exactly one vendor  -> ok true, vendorId + vendorName
+ *   - none found          -> ok false, message "No vendor found for this Google account."
+ *   - more than one       -> ok true, first only, warning about vendor selector
+ *
+ * Safety:
+ *   - Only queries by the authenticated owner's UID (no other vendor data exposed).
+ *   - Never writes. Never invents a vendorId. Never falls back to DEMO-VENDOR.
+ *   - Returns ok false with a message when Firebase is offline or the query fails,
+ *     so the app does not crash.
+ */
+function mapVendorSummary(docId: string, data: Record<string, unknown>): ResolvedVendorSummary {
+  const vendorId = (data.vendorId as string) || docId;
+  return {
+    vendorId,
+    vendorName: (data.businessName as string) || (data.tradingName as string) || vendorId,
+    accountStatus: (data.accountStatus as string) || undefined,
+    verificationStatus: (data.verificationStatus as string) || undefined,
+    planCode: (data.planCode as string) || undefined,
+    city: (data.city as string) || undefined,
+    suburb: (data.suburb as string) || undefined
+  };
+}
+
+export async function resolveVendorByOwnerUid(ownerUid: string): Promise<VendorByOwnerUidResult> {
+  const base: VendorByOwnerUidResult = {
+    ok: false,
+    vendorId: '',
+    vendorName: '',
+    ownerUid,
+    vendors: [],
+    selectedVendorRequired: false,
+    message: 'Vendor resolution did not complete.'
+  };
+
+  if (!ownerUid) {
+    return { ...base, message: 'Owner UID is required to resolve a vendor.' };
+  }
+
+  if (!db) {
+    return { ...base, message: 'Firestore is unavailable. Vendor resolution skipped (offline).' };
+  }
+
+  try {
+    const q = query(
+      collection(db, FIRESTORE_COLLECTIONS.vendors),
+      where('ownerUid', '==', ownerUid)
+    );
+    const snap = await getDocs(q);
+
+    if (snap.empty) {
+      return { ...base, message: 'No vendor found for this Google account.' };
+    }
+
+    const docs = snap.docs;
+    const vendors = docs.map((d) => mapVendorSummary(d.id, d.data() as Record<string, unknown>));
+    const first = vendors[0];
+    const selectedVendorRequired = docs.length > 1;
+
+    const result: VendorByOwnerUidResult = {
+      ok: true,
+      vendorId: first.vendorId,
+      vendorName: first.vendorName,
+      ownerUid,
+      ownerEmail: (docs[0].data() as Record<string, unknown>).ownerEmail as string | undefined,
+      status: (docs[0].data() as Record<string, unknown>).status as string | undefined,
+      accountStatus: first.accountStatus,
+      vendors,
+      selectedVendorRequired,
+      message: selectedVendorRequired
+        ? 'Multiple vendors found for this owner. Select a business tenant to continue.'
+        : 'Vendor resolved from Firebase owner UID.'
+    };
+
+    if (selectedVendorRequired) {
+      result.warning =
+        'Multiple vendors found for this owner. Vendor selector required to continue.';
+    }
+
+    return result;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Vendor resolution failed.';
+    return { ...base, message };
+  }
+}
 
 export function resolveTenantFromMockDirectory(profile?: FirebaseAuthUserProfile | null): TenantResolutionResult {
   const signedInEmail = (profile?.email || fallbackEmail).toLowerCase();

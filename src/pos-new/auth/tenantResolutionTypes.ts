@@ -84,3 +84,37 @@ export interface TenantResolutionReadinessRow {
   contractPath: string;
   notes: string;
 }
+
+/**
+ * Safe summary of a single vendor resolved from the ownerUid query. Only fields
+ * required by the selector are exposed — no unrelated vendor data.
+ */
+export interface ResolvedVendorSummary {
+  vendorId: string;
+  vendorName: string;
+  accountStatus?: string;
+  verificationStatus?: string;
+  planCode?: string;
+  city?: string;
+  suburb?: string;
+}
+
+/**
+ * Result of resolving a real vendor document from Firestore by the authenticated
+ * owner's Firebase UID. Never invents a vendorId and never falls back to demo IDs.
+ */
+export interface VendorByOwnerUidResult {
+  ok: boolean;
+  vendorId: string;
+  vendorName: string;
+  ownerUid: string;
+  ownerEmail?: string;
+  status?: string;
+  accountStatus?: string;
+  message: string;
+  warning?: string;
+  /** Every vendor resolved for this owner (one or many). */
+  vendors: ResolvedVendorSummary[];
+  /** True when more than one vendor was found and the owner must choose. */
+  selectedVendorRequired: boolean;
+}

@@ -1,7 +1,18 @@
 import React, { useState, FormEvent, useEffect } from 'react';
+import {
+  collection,
+  getDocs,
+  query,
+  where
+} from 'firebase/firestore';
 import { ShieldCheck, KeyRound, Server, Building2, Users, MonitorSmartphone, ArrowRight, ShieldAlert, Cpu } from 'lucide-react';
 import { PosSession } from '../types';
-import { loadStaffForCurrentVendor, authenticateStaffAccess, readSciVendorOwnerSession } from '../../sci-auth/StaffAuthService';
+import { db } from '../firebase/firebaseApp';
+import { createOwnerPosSession, readSciVendorOwnerSession } from '../../sci-auth/StaffAuthService';
+import { getActiveStaffByVendorAndBranch, validateStaffPin, ensureDefaultOwnerStaff } from '../services/staffFirestoreService';
+import { recordStaffAuditEvent } from '../services/staffAuditService';
+import { mapStaffRecordToStaffSetting } from '../services/staffFirestoreService';
+import type { StaffSetting } from '../types';
 
 
 interface PosStaffAccessProps {
@@ -11,60 +22,90 @@ interface PosStaffAccessProps {
 
 const SHOW_DEV_BADGES = false;
 
-export default function PosStaffAccess({ 
-  onLoginSuccess, 
+export default function PosStaffAccess({
+  onLoginSuccess,
   onBackToBios
 }: PosStaffAccessProps) {
-  
-  // Build-development tenant data source.
-  // This is resolved after Google Authentication completes in the parent gate.
-  const staffProfiles = loadStaffForCurrentVendor();
-  const ownerStaff = staffProfiles[0];
 
-  // SCI owner-session is the single canonical authority for Staff Access.
-  // We intentionally present a single owner staff identity and disable selectors.
-  const vendors = [{ id: 'demo-vendor-001', name: ownerStaff?.staffName || 'Demo Business' }];
-  const branches = [{ id: 'main-branch', name: 'Main Branch', location: 'Main Branch' }];
-  const terminals = [{ id: 'TERM-MAIN-001', name: 'Main POS Terminal', branchId: 'main-branch', type: 'POS' }];
-  const staffList = [
-    {
-      id: ownerStaff?.staffId || 'owner-staff',
-      name: ownerStaff?.staffName || 'Owner',
-      email: '',
-      role: ownerStaff?.role || 'Owner',
-      pass: '',
-      branchId: 'main-branch'
-    }
-  ];
+  const session = readSciVendorOwnerSession();
+  const vendorId = session?.vendorId || '';
 
+  const [staffList, setStaffList] = useState<StaffSetting[]>([]);
+  const [staffLoading, setStaffLoading] = useState<boolean>(true);
+  const [staffError, setStaffError] = useState<string>('');
 
-  const [selectedVendor, setSelectedVendor] = useState<string>(vendors[0].name);
+  const vendors = vendorId ? [{ id: vendorId, name: session?.vendorName || 'Current Vendor' }] : [];
+  const branches = [{ id: 'demo-branch', name: 'Demo Branch', location: 'Demo Branch' }];
+  const terminals = [{ id: 'TERM-MAIN-001', name: 'Main POS Terminal', branchId: 'demo-branch', type: 'POS' }];
+
+  const [selectedVendor, setSelectedVendor] = useState<string>(vendors[0]?.name || '');
   const [selectedBranchId, setSelectedBranchId] = useState<string>(branches[0]?.id || '');
-  const [selectedStaffId, setSelectedStaffId] = useState<string>(staffList[0]?.id || '');
-
-  
-
+  const [selectedStaffId, setSelectedStaffId] = useState<string>('');
   const [selectedTerminalId, setSelectedTerminalId] = useState<string>(terminals[0]?.id || '');
   const [password, setPassword] = useState<string>('');
 
-  // Initialize selections once from the single owner session.
   useEffect(() => {
-    setSelectedVendor(vendors[0]?.name || 'Current Vendor');
-    setSelectedBranchId(branches[0]?.id || 'main-branch');
-    setSelectedStaffId(staffList[0]?.id || 'owner-staff');
-    setSelectedTerminalId(terminals[0]?.id || 'TERM-MAIN-001');
-  }, []);
+    let active = true;
+    setStaffLoading(true);
+    setStaffError('');
 
-  
+    const loadStaff = async () => {
+      if (!db || !vendorId) {
+        if (active) {
+          setStaffList([]);
+          setSelectedStaffId('');
+          setStaffLoading(false);
+        }
+        return;
+      }
+      try {
+        const records = await getActiveStaffByVendorAndBranch(vendorId, selectedBranchId || branches[0]?.id || '');
+        let list = records.map(mapStaffRecordToStaffSetting);
+        if (list.length === 0 && vendorId) {
+          const defaultOwner = await ensureDefaultOwnerStaff(vendorId, session?.ownerName || 'Owner');
+          list = [mapStaffRecordToStaffSetting(defaultOwner)];
+        }
+        if (active) {
+          setStaffList(list);
+          setSelectedStaffId(list.length > 0 ? list[0].id : '');
+        }
+      } catch (err) {
+        const message = err instanceof Error ? err.message : 'Failed to load staff from database.';
+        if (active) {
+          setStaffError(message);
+          setStaffList([]);
+          setSelectedStaffId('');
+        }
+      } finally {
+        if (active) setStaffLoading(false);
+      }
+    };
+
+    void loadStaff();
+    return () => {
+      active = false;
+    };
+  }, [vendorId]);
+
   const [errorMsg, setErrorMsg] = useState<string>('');
   const [isAuthenticating, setIsAuthenticating] = useState<boolean>(false);
 
-  const handleSubmit = (e: FormEvent) => {
+  const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
     setErrorMsg('');
 
-    if (branches.length === 0 || terminals.length === 0 || staffList.length === 0) {
-      setErrorMsg('AUTHENTICATION BLOCKED: No staff access records were loaded for this tenant.');
+    if (staffLoading) {
+      setErrorMsg('AUTHENTICATION BLOCKED: Staff records are still loading.');
+      return;
+    }
+
+    if (staffList.length === 0) {
+      setErrorMsg('No active staff found for this branch. Induct staff before terminal access.');
+      return;
+    }
+
+    if (!selectedStaffId) {
+      setErrorMsg('AUTHENTICATION BLOCKED: Select a staff member to continue.');
       return;
     }
 
@@ -75,28 +116,53 @@ export default function PosStaffAccess({
 
     setIsAuthenticating(true);
 
-    setTimeout(() => {
-      setIsAuthenticating(false);
-
-      const authResult = authenticateStaffAccess({
-        vendorId: readSciVendorOwnerSession()?.vendorId || vendors[0]?.id || "demo-vendor-001",
-        staffId: selectedStaffId,
-        pin: password
-      });
-
-
-      if (!authResult.ok || !authResult.session) {
-        setErrorMsg(authResult.message || 'INVALID PIN OR STAFF ACCESS DENIED');
+    try {
+      const matched = await validateStaffPin(selectedStaffId, password.trim());
+      if (!matched) {
+        setErrorMsg('ACCESS PERMISSION DENIED: Incorrect PIN or staff record is suspended.');
+        setIsAuthenticating(false);
         return;
       }
 
-      onLoginSuccess(authResult.session);
-    }, 300);
-  };
+      const staffSession = createOwnerPosSession();
+      const enrichedSession: PosSession = {
+        ...staffSession,
+        staffId: matched.id,
+        staffName: matched.displayName,
+        role: matched.roleName,
+        branchId: matched.branchId,
+        branch: branches.find(b => b.id === matched.branchId)?.name || matched.branchId,
+        terminalId: selectedTerminalId,
+        terminal: terminals.find(t => t.id === selectedTerminalId)?.name || selectedTerminalId,
+      };
 
-  const handleQuickFill = () => {
-    setPassword('op-bypass-992');
-    setErrorMsg('');
+      await recordStaffAuditEvent({
+        vendorId: matched.vendorId,
+        branchId: matched.branchId,
+        terminalId: selectedTerminalId,
+        staffId: matched.id,
+        roleId: matched.roleId,
+        eventType: 'STAFF_LOGIN_SUCCESS',
+        timestamp: new Date().toISOString(),
+        metadata: { displayName: matched.displayName, roleName: matched.roleName }
+      });
+
+      onLoginSuccess(enrichedSession);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Authentication failed.';
+      setErrorMsg(message);
+      await recordStaffAuditEvent({
+        vendorId: '',
+        branchId: '',
+        staffId: selectedStaffId,
+        roleId: '',
+        eventType: 'STAFF_LOGIN_FAILED',
+        timestamp: new Date().toISOString(),
+        metadata: { reason: message }
+      });
+    } finally {
+      setIsAuthenticating(false);
+    }
   };
 
   return (
@@ -124,8 +190,18 @@ export default function PosStaffAccess({
         <div className="absolute bottom-0 left-0 w-2 h-2 border-b border-l border-amber-400"></div>
         <div className="absolute bottom-0 right-0 w-2 h-2 border-b border-r border-amber-500"></div>
 
+        {staffError && (
+          <div className="mb-4 bg-rose-950/40 border border-rose-800 p-3 text-rose-400 flex items-start gap-2.5">
+            <ShieldAlert className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
+            <div className="leading-tight text-[10px]">
+              <span className="font-bold block text-rose-300 uppercase">LOAD FAILURE</span>
+              {staffError}
+            </div>
+          </div>
+        )}
+
         <form onSubmit={handleSubmit} className="space-y-4">
-          
+
           {/* Vendor Selector */}
           <div className="space-y-1.5">
             <label className="flex items-center gap-2 text-[10px] text-slate-500 font-bold uppercase tracking-wider">
@@ -208,18 +284,31 @@ export default function PosStaffAccess({
                   setSelectedStaffId(e.target.value);
                   setErrorMsg('');
                 }}
-                disabled={true}
+                disabled={staffLoading || staffList.length === 0}
 
                 className="w-full bg-slate-950 text-slate-200 border border-slate-800 focus:border-[#00f0ff] px-3 py-2 outline-none rounded-none text-xs transition-colors cursor-pointer"
               >
-                {staffList.map((s) => (
-                  <option key={s.id} value={s.id}>
-                    {s.name} ({s.role})
-                  </option>
-                ))}
+                {staffLoading ? (
+                  <option value="">Loading...</option>
+                ) : staffList.length === 0 ? (
+                  <option value="">No active staff found</option>
+                ) : (
+                  staffList.map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {s.displayName} ({s.roleName})
+                    </option>
+                  ))
+                )}
               </select>
             </div>
           </div>
+
+          {/* Empty state */}
+          {!staffLoading && staffList.length === 0 && (
+            <div className="bg-slate-950 border border-slate-800 p-4 text-slate-400 text-[10px] uppercase tracking-wider text-center">
+              No active staff found for this branch. Induct staff before terminal access.
+            </div>
+          )}
 
           {/* Password field */}
           <div className="space-y-1.5 pt-1">
@@ -228,15 +317,6 @@ export default function PosStaffAccess({
                 <KeyRound className="w-3.5 h-3.5 text-amber-500" />
                 5. Authentication Password / PIN
               </label>
-              {SHOW_DEV_BADGES && (
-                <button
-                  type="button"
-                  onClick={handleQuickFill}
-                  className="text-[#00f0ff] hover:text-[#4df5ff] transition-all underline cursor-pointer"
-                >
-                  [Auto-Fill PIN]
-                </button>
-              )}
             </div>
             <input
               type="password"
@@ -265,7 +345,7 @@ export default function PosStaffAccess({
           {/* Open POS Submission */}
           <button
             type="submit"
-            disabled={isAuthenticating}
+            disabled={isAuthenticating || staffLoading || staffList.length === 0}
             className="w-full py-3 bg-amber-500 hover:bg-amber-600 active:bg-amber-700 disabled:bg-slate-800 text-slate-950 disabled:text-slate-500 font-extrabold tracking-widest uppercase transition-all duration-150 rounded-none cursor-pointer flex items-center justify-center gap-2 text-center shadow-lg hover:shadow-amber-500/10 border border-amber-400 disabled:border-slate-800"
           >
             {isAuthenticating ? (
@@ -303,4 +383,3 @@ export default function PosStaffAccess({
     </div>
   );
 }
-

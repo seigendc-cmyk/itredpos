@@ -2,7 +2,6 @@ import { initializeSCIFirebase, getFirestoreModeStatus, type FirestoreMode } fro
 import { firestoreDataContracts } from '../pos-new/firebase/firestoreDataRegistry';
 import { moduleRepositoryDescriptors } from '../pos-new/repositories/moduleRepositoryRegistry';
 import {
-  mockStaff,
   mockVendors,
   mockVendorPOSLicense,
   mockVendorPOSSubscription,
@@ -142,7 +141,7 @@ export function runFirestoreReadinessDiagnostics(mode?: FirestoreMode): Firestor
     {
       name: 'Internal Staff Repository',
       status: readiness.configured ? (modeStatus.readsAllowed ? 'READY' : 'LOCAL_ONLY') : 'NOT_CONFIGURED',
-      message: `${mockStaff.length} local staff seed record(s). ${modeStatus.readsAllowed ? 'Firestore reads are allowed.' : 'Local prototype remains authoritative.'}`
+      message: `Local staff records loaded from Firestore. ${modeStatus.readsAllowed ? 'Firestore reads are allowed.' : 'Local prototype remains authoritative.'}`
     },
     {
       name: 'Licensing Repository',
@@ -169,7 +168,7 @@ export function exportFirestoreSeedPreview(mode?: FirestoreMode): FirestoreSeedP
     },
     {
       collectionName: 'staff',
-      recordCount: mockStaff.length,
+      recordCount: 0,
       writeProtected,
       message: writeProtected ? 'Internal staff seed is preview-only in the current mode.' : 'Internal staff seed is warning-gated for write mode.'
     },

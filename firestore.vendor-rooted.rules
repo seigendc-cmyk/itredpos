@@ -99,7 +99,12 @@ service cloud.firestore {
         && isValidId(vendorId)
         && request.resource.data.ownerUid == request.auth.uid;
 
-      allow read: if isVendorOwner(vendorId) || isVendorStaffMember(vendorId);
+      allow get: if isVendorOwner(vendorId) || isVendorStaffMember(vendorId);
+
+      allow list: if isSignedIn()
+        && (request.query.where('ownerUid', '==', request.auth.uid)
+            || (request.auth.token.email is string
+                && request.query.where('ownerEmail', '==', request.auth.token.email)));
 
       allow update: if isVendorOwner(vendorId) || isVendorAdmin(vendorId);
 
@@ -297,6 +302,20 @@ service cloud.firestore {
         && request.resource.data.vendorId is string
         && request.resource.data.vendorId == resource.data.vendorId;
       allow delete: if isVendorAdmin(resource.data.vendorId);
+    }
+
+    match /staff/{staffId} {
+      allow get: if isSignedIn() && resource.data.vendorId is string && isVendorOwner(resource.data.vendorId);
+
+      allow list: if isSignedIn() && request.query.limit <= 100;
+
+      allow create: if isSignedIn()
+        && request.resource.data.ownerUid == request.auth.uid
+        && request.resource.data.vendorId is string;
+
+      allow update: if isSignedIn() && resource.data.vendorId is string && isVendorOwner(resource.data.vendorId);
+
+      allow delete: if isSignedIn() && resource.data.vendorId is string && isVendorOwner(resource.data.vendorId);
     }
 
     // ----------------------- Explicit default deny -----------------------

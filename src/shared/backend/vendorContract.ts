@@ -5,6 +5,8 @@ export type VendorVerificationStatus = 'Pending' | 'Verified' | 'Rejected';
 export type VendorAccountStatus = 'Trial' | 'Active' | 'Suspended' | 'Rejected' | 'Closed';
 export type VendorChildRecordStatus = 'Active' | 'Inactive' | 'Suspended';
 export type VendorStaffRole = 'Owner' | 'Manager' | 'Supervisor' | 'Cashier' | 'Stock Controller' | 'Admin';
+export type StaffRecordStatus = 'active' | 'suspended' | 'archived';
+export type StaffRoleId = 'owner' | 'sysadmin' | 'manager' | 'supervisor' | 'cashier' | 'stock_controller' | 'delivery_staff' | 'accountant' | 'viewer';
 
 export interface VendorRecord {
   vendorId: string;
@@ -108,6 +110,26 @@ export interface VendorStaffRecord {
   source: string;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface StaffRecord {
+  id: string;
+  vendorId: string;
+  branchId: string;
+  staffCode: string;
+  displayName: string;
+  email: string;
+  roleId: StaffRoleId;
+  roleName: string;
+  pinHash?: string;
+  pinCode?: string;
+  status: StaffRecordStatus;
+  assignedTerminalIds?: string[];
+  createdAt: string;
+  updatedAt: string;
+  createdBy: string;
+  updatedBy: string;
+  uid?: string;
 }
 
 export interface VendorAuditLogRecord {

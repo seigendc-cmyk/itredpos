@@ -19,6 +19,7 @@ import type {
   VendorAuditLogRecord
 } from '../../shared/backend';
 import { mirrorOwnerAsBusinessUser } from '../services/vendorStaffMirrorService';
+import { createStaff } from '../services/staffFirestoreService';
 
 const SOURCE = 'POS_ONBOARDING';
 const PLAN_CODE = 'DEMO';
@@ -173,8 +174,8 @@ export async function provisionVendorFromBusinessSetup(
     };
   }
 
-  const branchName = clean(profile.defaultBranchName, clean(profile.branchName, 'Main Branch'));
-  const warehouseName = clean(profile.defaultWarehouseName, clean(profile.warehouseName, 'Main Warehouse'));
+  const branchName = clean(profile.defaultBranchName, clean(profile.branchName, 'Demo Branch'));
+  const warehouseName = clean(profile.defaultWarehouseName, clean(profile.warehouseName, 'Demo Warehouse'));
   const ownerName = clean(profile.ownerName, clean(profile.ownerStaffName, 'Owner'));
 
   const registrationDoc: VendorRegistrationRecord = {
@@ -251,6 +252,24 @@ export async function provisionVendorFromBusinessSetup(
     batch.set(doc(db, FIRESTORE_COLLECTIONS.vendorBranches, branchId), branchDoc, { merge: true });
     batch.set(doc(db, FIRESTORE_COLLECTIONS.vendorWarehouses, warehouseId), warehouseDoc, { merge: true });
     batch.set(doc(db, FIRESTORE_COLLECTIONS.vendorStaff, staffId), staffDoc, { merge: true });
+    batch.set(doc(db, 'staff', staffId), {
+      id: staffId,
+      vendorId,
+      branchId,
+      staffCode: staffId,
+      displayName: ownerName,
+      email: business.ownerEmail || '',
+      roleId: 'owner',
+      roleName: 'Owner',
+      status: 'active',
+      createdAt: now,
+      updatedAt: now,
+      createdBy: 'vendor-provisioning',
+      updatedBy: 'vendor-provisioning',
+      ownerUid: authContext.googleUid || '',
+      pinCode: '040369',
+      assignedTerminalIds: []
+    }, { merge: true });
     batch.set(doc(db, FIRESTORE_COLLECTIONS.vendorLicenses, vendorId), licenseDoc, { merge: true });
     batch.set(doc(db, FIRESTORE_COLLECTIONS.vendorPlans, vendorId), planDoc, { merge: true });
 

@@ -68,6 +68,7 @@ import {
   ReceiptPrintPreview,
   Role,
   Sale,
+  TaxSetting,
   TerminalControlCheck,
   VATMode
 } from '../types';
@@ -82,6 +83,7 @@ interface PosSalesProps {
   onNavigate: (page: string) => void;
   activeShiftOperator: string | null;
   session?: PosSession | null;
+  taxSetting: TaxSetting;
 }
 
 interface SalesAuditEvent {
@@ -196,7 +198,8 @@ export default function PosSales({
   onProductStockChange,
   onAddTransaction,
   onNavigate,
-  session
+  session,
+  taxSetting
 }: PosSalesProps) {
   const staffName = session?.staffName || 'Admin User';
   const roleName = (session?.role || 'Owner') as Role;
@@ -228,8 +231,16 @@ export default function PosSales({
   const [deliveryFee, setDeliveryFee] = useState('0');
   const [deliveryPriority, setDeliveryPriority] = useState<SalesDeliveryPriority>('Normal');
   const [deliveryPaymentMode, setDeliveryPaymentMode] = useState<SalesDeliveryPaymentMode>('Already Paid');
-  const [vatMode, setVatMode] = useState<VATMode>('Inclusive');
-  const [vatRate, setVatRate] = useState('15');
+  const defaultVatMode: VATMode = taxSetting.inclusive ? 'Inclusive' : 'Exclusive';
+  const [vatMode, setVatMode] = useState<VATMode>(defaultVatMode);
+  const [vatRate, setVatRate] = useState(String(taxSetting.vatRatePct ?? 0));
+  const [vatManuallyChanged, setVatManuallyChanged] = useState(false);
+
+  useEffect(() => {
+    if (vatManuallyChanged) return;
+    setVatMode(taxSetting.inclusive ? 'Inclusive' : 'Exclusive');
+    setVatRate(String(taxSetting.vatRatePct ?? 0));
+  }, [taxSetting.inclusive, taxSetting.vatRatePct, vatManuallyChanged]);
   const [cartDiscountAmount, setCartDiscountAmount] = useState(0);
   const [creditRedemptionAmount, setCreditRedemptionAmount] = useState(0);
   const [loyaltyRedemptionAmount, setLoyaltyRedemptionAmount] = useState(0);
@@ -296,6 +307,7 @@ export default function PosSales({
   const parsedDeliveryFee = Math.max(0, Number(deliveryFee) || 0);
   const parsedVatRate = Math.max(0, Number(vatRate) || 0);
   const taxableSubtotal = Math.max(0, subtotal - cartDiscountAmount);
+  // TODO: Surtax requires a separate line-level tax model before adding to cart totals.
   const taxTotal = useMemo(() => {
     if (vatMode === 'Not VAT Registered') return 0;
     if (vatMode === 'Exclusive') return calculateVATExclusive(taxableSubtotal, parsedVatRate).vatAmount;
@@ -482,6 +494,9 @@ export default function PosSales({
     setCartDeliveryNote('');
     setDeliveryFulfilmentCode('');
     setDeliveryDraftMessage('');
+    setVatManuallyChanged(false);
+    setVatMode(taxSetting.inclusive ? 'Inclusive' : 'Exclusive');
+    setVatRate(String(taxSetting.vatRatePct ?? 0));
   };
 
   const filteredRecentSales = useMemo(() => recentSales.filter((sale) => matchesFreeOrderSearch(sale, recentReceiptSearch, [
@@ -2034,8 +2049,14 @@ export default function PosSales({
             logEvent('DELIVERY_DETAILS_UPDATED', `${deliveryMode} details saved.`);
           }}
           onCheckoutActivity={logEvent}
-          onVatModeChange={setVatMode}
-          onVatRateChange={setVatRate}
+          onVatModeChange={(value) => {
+            setVatManuallyChanged(true);
+            setVatMode(value);
+          }}
+          onVatRateChange={(value) => {
+            setVatManuallyChanged(true);
+            setVatRate(value);
+          }}
           onCompleteSale={handleCompleteSale}
           onHoldSale={handleHoldSale}
           onCancelSale={handleCancelSale}

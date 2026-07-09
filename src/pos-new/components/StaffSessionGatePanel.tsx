@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   activateStaffGateSession,
   clearStaffGateSession,
@@ -10,38 +10,83 @@ import {
   verifyStaffGatePin
 } from '../auth/staffSessionGateService';
 import { createBuildDevelopmentSession } from '../auth/tenantSessionService';
-import { mockBranchAccess, mockStaffProfiles, mockTerminalAccess } from '../auth/mockTenantDirectory';
+import { getStaffByVendor, getActiveStaffByVendorAndBranch } from '../services/staffFirestoreService';
+import { mapStaffRecordToStaffSetting } from '../services/staffFirestoreService';
+import { readPosAuthContext } from '../auth/posVendorAuthState';
 import type { StaffDeskType, StaffGateSession } from '../auth/staffPinTypes';
+import type { StaffSetting } from '../types';
 
 const deskTypes: StaffDeskType[] = ['Sales Terminal', 'Stock Desk', 'Delivery Desk', 'Owner Desk', 'Manager Desk', 'Accounting Desk', 'Sync Desk', 'Reports Desk', 'General POS'];
 
 export default function StaffSessionGatePanel() {
   const [session, setSession] = useState<StaffGateSession>(() => getCurrentStaffGateSession());
-  const staffOptions = mockStaffProfiles;
+  const [staffOptions, setStaffOptions] = useState<StaffSetting[]>([]);
+  const [staffLoading, setStaffLoading] = useState<boolean>(true);
+  const [staffError, setStaffError] = useState<string>('');
   const [staffId, setStaffId] = useState(session.staffId);
-  const selectedStaff = useMemo(() => staffOptions.find((row) => row.staffId === staffId) || staffOptions[0], [staffId, staffOptions]);
-  const branchOptions = useMemo(() => mockBranchAccess.filter((row) => row.staffId === selectedStaff?.staffId), [selectedStaff]);
   const [branchId, setBranchId] = useState(session.branchId);
-  const selectedBranch = branchOptions.find((row) => row.branchId === branchId) || branchOptions[0];
-  const terminalOptions = useMemo(() => mockTerminalAccess.filter((row) => row.staffId === selectedStaff?.staffId && row.branchId === selectedBranch?.branchId), [selectedStaff, selectedBranch]);
   const [terminalId, setTerminalId] = useState(session.terminalId);
-  const selectedTerminal = terminalOptions.find((row) => row.terminalId === terminalId) || terminalOptions[0];
   const [deskType, setDeskType] = useState<StaffDeskType>(session.deskType);
   const [pin, setPin] = useState('');
   const [expiresAt, setExpiresAt] = useState('');
 
+  const vendorId = readPosAuthContext()?.vendorId || '';
+
+  useEffect(() => {
+    let active = true;
+    setStaffLoading(true);
+    setStaffError('');
+
+    const load = async () => {
+      if (!vendorId) {
+        if (active) {
+          setStaffOptions([]);
+          setStaffLoading(false);
+        }
+        return;
+      }
+      try {
+        const records = await getStaffByVendor(vendorId);
+        const mapped = records.map(mapStaffRecordToStaffSetting);
+        if (active) {
+          setStaffOptions(mapped);
+          if (mapped.length > 0 && !mapped.find(s => s.id === staffId)) {
+            setStaffId(mapped[0].id);
+            setBranchId(mapped[0].branchId);
+          }
+        }
+      } catch (err) {
+        if (active) {
+          setStaffError(err instanceof Error ? err.message : 'Failed to load staff.');
+        }
+      } finally {
+        if (active) setStaffLoading(false);
+      }
+    };
+
+    void load();
+    return () => { active = false; };
+  }, [vendorId]);
+
+  const selectedStaff = useMemo(() => staffOptions.find((row) => row.id === staffId) || staffOptions[0], [staffId, staffOptions]);
+  const branchOptions = useMemo(() => selectedStaff ? [{ branchId: selectedStaff.branchId, branchName: selectedStaff.branchId }] : [], [selectedStaff]);
+  const selectedBranch = branchOptions.find((row) => row.branchId === branchId) || branchOptions[0];
+  const terminalOptions = useMemo(() => selectedStaff?.assignedTerminalIds?.map(tid => ({ terminalId: tid, terminalName: tid })) || [], [selectedStaff]);
+  const selectedTerminal = terminalOptions.find((row) => row.terminalId === terminalId) || terminalOptions[0];
+
   const apply = (next: StaffGateSession) => setSession(next);
 
   const start = () => {
+    if (!selectedStaff) return;
     apply(startStaffGateSession({
-      vendorId: selectedStaff?.vendorId || 'demo-vendor-001',
-      staffId: selectedStaff?.staffId || 'ST-OWNER',
-      staffName: selectedStaff?.staffName || 'Owner',
-      staffRole: selectedStaff?.role || 'VendorOwner',
-      branchId: selectedBranch?.branchId || 'main-branch',
-      branchName: selectedBranch?.branchName || 'Main Branch',
-      terminalId: selectedTerminal?.terminalId || 'POS-01',
-      terminalName: selectedTerminal?.terminalName || 'POS-01 Main Terminal',
+      vendorId: selectedStaff.vendorId || vendorId,
+      staffId: selectedStaff.id,
+      staffName: selectedStaff.displayName,
+      staffRole: selectedStaff.roleName,
+      branchId: selectedStaff.branchId,
+      branchName: selectedStaff.branchId,
+      terminalId: selectedTerminal?.terminalId || '',
+      terminalName: selectedTerminal?.terminalName || '',
       deskType,
       expiresAt: expiresAt || undefined
     }));
@@ -60,6 +105,11 @@ export default function StaffSessionGatePanel() {
         <p className="text-[10px] text-slate-200 font-bold uppercase">Select staff, branch, terminal, and desk before activating a POS session.</p>
       </div>
       <div className="p-3 space-y-3">
+        {staffError && (
+          <div className="border border-rose-200 bg-rose-50 p-2 text-[10px] text-rose-950 font-bold uppercase">
+            {staffError}
+          </div>
+        )}
         <div className="border border-orange-200 bg-orange-50 p-2 text-[10px] text-orange-950 font-bold uppercase">
           Staff gate is in preview mode. It does not lock the app until production gate enforcement is enabled.
         </div>
@@ -68,8 +118,8 @@ export default function StaffSessionGatePanel() {
         </div>
         <div className="grid grid-cols-1 md:grid-cols-3 xl:grid-cols-6 gap-3">
           <Metric label="Vendor" value={selectedStaff?.vendorId || session.vendorId} />
-          <Select label="Staff Member" value={staffId} onChange={(value) => { setStaffId(value); const branch = mockBranchAccess.find((row) => row.staffId === value); setBranchId(branch?.branchId || ''); const terminal = mockTerminalAccess.find((row) => row.staffId === value && row.branchId === branch?.branchId); setTerminalId(terminal?.terminalId || ''); }} options={staffOptions.map((row) => [row.staffId, `${row.staffName} (${row.role})`])} />
-          <Select label="Branch" value={branchId} onChange={(value) => { setBranchId(value); const terminal = mockTerminalAccess.find((row) => row.staffId === staffId && row.branchId === value); setTerminalId(terminal?.terminalId || ''); }} options={branchOptions.map((row) => [row.branchId, row.branchName])} />
+          <Select label="Staff Member" value={staffId} onChange={(value) => { setStaffId(value); const s = staffOptions.find(row => row.id === value); if (s) setBranchId(s.branchId); }} options={staffOptions.map((row) => [row.id, `${row.displayName} (${row.roleName})`])} />
+          <Select label="Branch" value={branchId} onChange={(value) => setBranchId(value)} options={branchOptions.map((row) => [row.branchId, row.branchName])} />
           <Select label="Terminal / Desk" value={terminalId} onChange={setTerminalId} options={terminalOptions.map((row) => [row.terminalId, row.terminalName])} />
           <Select label="Desk Type" value={deskType} onChange={(value) => setDeskType(value as StaffDeskType)} options={deskTypes.map((row) => [row, row])} />
           <Input label="Session Expiry Placeholder" value={expiresAt} onChange={setExpiresAt} type="datetime-local" />

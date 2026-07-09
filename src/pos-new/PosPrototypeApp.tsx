@@ -39,23 +39,24 @@ import {
   TaxSetting,
   ReceiptSetting
 } from './types';
-import { 
-  mockProducts, 
-  mockBranches, 
-  mockWarehouses, 
-  mockTerminals, 
-  mockStaff, 
-  mockRecentSales, 
-  mockHeldTransactions, 
-  mockShift, 
-  mockCashMovements, 
-  mockBIEvents, 
-  mockSettings 
+import {
+  mockProducts,
+  mockBranches,
+  mockWarehouses,
+  mockTerminals,
+  mockRecentSales,
+  mockHeldTransactions,
+  mockShift,
+  mockCashMovements,
+  mockBIEvents,
+  mockSettings
 } from './mock/mockPosData';
 import { getEffectivePageIdsForRole, normalizeRoleKey } from './auth/effectivePermissionService';
 import { recordSecurityMatrixEvent } from './auth/permissionMatrixService';
 
 import { getSavedPOSSession } from './auth/posActivationService';
+
+
 import { loadLocalProducts, POS_PRODUCT_STORE_EVENT, saveLocalProducts, updateLocalProductStock } from './utils/localProductStore';
 import { ENABLE_MOCK_SEED_DATA, getVendorScopedStorageKey, initializeEmptyVendorOperationalStores } from './utils/vendorDataMode';
 import { firebaseReady } from './firebase/firebaseApp';
@@ -73,7 +74,6 @@ import {
   type PlanFeatureAccess
 } from './auth/planFeatureGate';
 import UpgradeRequiredPanel, { type UpgradeRequiredVendorContext } from './components/UpgradeRequiredPanel';
-import ActivationLandingPage from './pages/ActivationLandingPage';
 import {
   getDeviceId,
   readLocalActivation,
@@ -218,14 +218,22 @@ function resolveStoredTerminalName(terminalId?: string, fallback?: string): stri
   return terminals.find((terminal) => terminal.id === id)?.name || displayText(fallback) || id;
 }
 
+function resolveStoredWarehouseName(warehouseId?: string, fallback?: string): string {
+  const id = displayText(warehouseId);
+  if (!id) return displayText(fallback) || 'demo-warehouse';
+  const warehouses = readStoredValue<WarehouseSetting[]>('itred_pos_warehouses', []);
+  return warehouses.find((warehouse) => warehouse.id === id)?.name || displayText(fallback) || id;
+}
+
 function normalizeSessionForVendorRuntime(
   session: PosSession,
   businessProfile?: Partial<BusinessProfile> | null,
   vendorAuth?: ReturnType<typeof readPosAuthContext>
 ): PosSession {
   const isOnboardedVendorSession = Boolean(vendorAuth?.vendorId && vendorAuth?.vendorName);
-  const branchId = vendorAuth?.branchId || session.branchId || 'main-branch';
+  const branchId = vendorAuth?.branchId || session.branchId || 'demo-branch';
   const terminalId = session.terminalId || (isOnboardedVendorSession ? 'TERM-MAIN-001' : undefined);
+  const warehouseId = session.warehouseId || (isOnboardedVendorSession ? 'demo-warehouse' : undefined);
   const planId = vendorAuth?.planCode || session.planId || (isOnboardedVendorSession ? 'DEMO' : undefined);
   const licenseMode = vendorAuth?.licenseMode || session.licenseMode || (isOnboardedVendorSession ? 'demo' : undefined);
 
@@ -237,6 +245,8 @@ function normalizeSessionForVendorRuntime(
     branch: resolveStoredBranchName(branchId, session.branch),
     terminalId,
     terminal: resolveStoredTerminalName(terminalId, session.terminal),
+    warehouseId,
+    warehouse: resolveStoredWarehouseName(warehouseId, session.warehouse),
     planId,
     licenseMode,
     storageMode: resolveRuntimeStorageMode(),
@@ -361,8 +371,9 @@ export default function PosPrototypeApp() {
       return null;
     }
     const storedBusinessProfile = readStoredValue<BusinessProfile | null>('itred_pos_business_profile', null);
-    const branchId = vendorAuth.branchId || 'main-branch';
+    const branchId = vendorAuth.branchId || 'demo-branch';
     const terminalId = 'TERM-MAIN-001';
+    const warehouseId = 'demo-warehouse';
     return normalizeSessionForVendorRuntime({
       staffId: vendorAuth.staffId || 'owner-staff',
       staffName: 'Owner',
@@ -370,9 +381,11 @@ export default function PosPrototypeApp() {
       vendor: resolveVendorDisplayName(storedBusinessProfile, vendorAuth),
       branch: resolveStoredBranchName(branchId),
       terminal: resolveStoredTerminalName(terminalId),
+      warehouse: resolveStoredWarehouseName(warehouseId),
       vendorId: vendorAuth.vendorId || 'demo-vendor',
       branchId,
       terminalId,
+      warehouseId,
       licenseId: `${vendorAuth.vendorId || 'vendor'}-license`,
       planId: vendorAuth.planCode || 'DEMO',
       licenseMode: vendorAuth.licenseMode || 'demo',
@@ -543,7 +556,7 @@ export default function PosPrototypeApp() {
   });
 
   const [staffSetting, setStaffSetting] = useState<StaffSetting[]>(() => {
-    return readStoredValue<StaffSetting[]>('itred_pos_staff', mockStaff);
+    return readStoredValue<StaffSetting[]>('itred_pos_staff', []);
   });
 
   const [hardwareSetting, setHardwareSetting] = useState<HardwareSetting>(() => {
@@ -993,7 +1006,7 @@ export default function PosPrototypeApp() {
     setBranches(ENABLE_MOCK_SEED_DATA ? mockBranches : branches);
     setWarehouses(ENABLE_MOCK_SEED_DATA ? mockWarehouses : warehouses);
     setTerminalsSetting(ENABLE_MOCK_SEED_DATA ? mockTerminals : terminalsSetting);
-    setStaffSetting(ENABLE_MOCK_SEED_DATA ? mockStaff : staffSetting);
+    setStaffSetting([]);
     setHardwareSetting({
       laserFocus: 'LASER_FOCUS: INTENSE_RED',
       drawerSignal: '12VDC_ELECTRO_M_PULSE'
@@ -1120,6 +1133,9 @@ export default function PosPrototypeApp() {
           </div>
         )
       )}
+      {activeSession.licenseMode === 'demo' && (
+        <div className="pos-demo-watermark" aria-hidden="true">DEMO VERSION</div>
+      )}
       {planLimitNotice && (
         <UpgradeRequiredPanel
           featureName="Plan Limit"
@@ -1200,6 +1216,7 @@ export default function PosPrototypeApp() {
           onNavigate={(page) => setActivePage(page as PosPageId)}
           activeShiftOperator={activeShift ? activeShift.operator : null}
           session={activeSession}
+          taxSetting={taxSetting}
         />
       )}
 
