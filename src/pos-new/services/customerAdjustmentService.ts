@@ -120,7 +120,7 @@ export async function requestCustomerWriteOff(input: {
       idempotencyKey: `${writeOff.writeOffId}_LEDGER`
     }, context);
     await createAccountingPostingPlaceholder({
-      source: 'Manual Entry',
+      source: 'Manual Adjustment',
       sourceReference: writeOff.writeOffId,
       branch: context.branchId,
       amount

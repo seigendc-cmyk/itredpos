@@ -152,8 +152,8 @@ export default function DebtorsControlDeskPanel({
     { label: 'Print Statement', icon: <FileText size={15} />, onClick: () => onPrintStatement(row.customerId) },
     { label: 'Send WhatsApp Reminder', icon: <MessageCircle size={15} />, onClick: () => void sendReminder(row) },
     { label: 'Open Customer Profile', icon: <FileText size={15} />, onClick: () => onOpenCustomerProfile(row.customerId) },
-    { label: 'Create Follow-up Task', icon: <FileText size={15} />, onClick: () => { createDebtorsControlTask({ title: `Follow up ${row.customerName}`, customer: row.customerName, debtReference: row.receiptNumber, dueDate: new Date(Date.now() + 86400000).toISOString().slice(0, 10), assignedTo: 'Manager' }); onNotice('Payment follow-up task created locally.'); } },
-    { label: 'Escalate to Manager', icon: <FileText size={15} />, onClick: () => { createDebtorsControlTask({ title: `Manager escalation - ${row.customerName}`, customer: row.customerName, debtReference: row.receiptNumber, dueDate: new Date().toISOString().slice(0, 10), assignedTo: 'Manager' }); onNotice('Manager escalation task created locally.'); } },
+    { label: 'Create Follow-up Task', icon: <FileText size={15} />, onClick: () => { createDebtorsControlTask({ title: `Follow up ${row.customerName}`, customer: row.customerName, debtReference: row.receiptNumber, dueDate: new Date(Date.now() + 86400000).toISOString().slice(0, 10), assignedTo: 'Manager', source: 'Debtors Control Desk' }); onNotice('Payment follow-up task created locally.'); } },
+    { label: 'Escalate to Manager', icon: <FileText size={15} />, onClick: () => { createDebtorsControlTask({ title: `Manager escalation - ${row.customerName}`, customer: row.customerName, debtReference: row.receiptNumber, dueDate: new Date().toISOString().slice(0, 10), assignedTo: 'Manager', source: 'Debtors Control Desk' }); onNotice('Manager escalation task created locally.'); } },
     { label: 'Mark Disputed', icon: <FileText size={15} />, onClick: () => onCreateDispute ? onCreateDispute(row) : onNotice(`${row.receiptNumber} dispute placeholder logged locally.`) },
     { label: 'Request Write-Off', icon: <FileText size={15} />, onClick: () => void requestDebtWriteOff(row, staffName, roleName).then(() => { onNotice('Debt write-off approval request created locally.'); void load(); }), disabled: !canWriteOff, danger: true },
     { label: 'Export Row', icon: <FileText size={15} />, onClick: () => exportRow(row) }
@@ -264,7 +264,7 @@ export default function DebtorsControlDeskPanel({
         onRecordPayment={() => { if (ledgerCustomer) onRecordPayment(ledgerCustomer); }}
         onPrintStatement={() => { if (ledgerCustomer) onPrintStatement(ledgerCustomer.customerId); }}
         onSendReminder={() => { if (ledgerCustomer) void sendReminder(ledgerCustomer); }}
-        onCreateTask={() => { if (ledgerCustomer) { createDebtorsControlTask({ title: `Statement delivery - ${ledgerCustomer.customerName}`, customer: ledgerCustomer.customerName, debtReference: ledgerCustomer.receiptNumber, dueDate: new Date(Date.now() + 86400000).toISOString().slice(0, 10), assignedTo: 'Customer Centre' }); onNotice('Statement delivery task created locally.'); } }}
+        onCreateTask={() => { if (ledgerCustomer) { createDebtorsControlTask({ title: `Statement delivery - ${ledgerCustomer.customerName}`, customer: ledgerCustomer.customerName, debtReference: ledgerCustomer.receiptNumber, dueDate: new Date(Date.now() + 86400000).toISOString().slice(0, 10), assignedTo: 'Customer Centre', source: 'Debtors Control Desk' }); onNotice('Statement delivery task created locally.'); } }}
         onClose={() => setLedgerOpen(false)}
       />
     </div>

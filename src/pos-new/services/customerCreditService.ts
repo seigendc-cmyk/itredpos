@@ -759,6 +759,39 @@ export async function calculateCustomerOutstandingBalance(customerId: string): P
   return getCustomerDebtByCustomer(customerId).then((rows) => rows.reduce((sum, debt) => sum + debt.outstandingAmount, 0));
 }
 
+function legacyCustomerName(profile: unknown): string {
+  if (typeof profile !== 'object' || profile === null) return '';
+  for (const field of ['customerName', 'name', 'displayName']) {
+    if (field in profile && typeof profile[field] === 'string' && profile[field].trim()) {
+      return profile[field].trim();
+    }
+  }
+  return '';
+}
+
+function legacyCustomerAccountReference(profile: unknown): string {
+  if (typeof profile !== 'object' || profile === null) return '';
+  if ('accountReference' in profile && typeof profile.accountReference === 'string') {
+    return profile.accountReference.trim();
+  }
+  return '';
+}
+
+/** Resolves display identity without adding identity fields to the credit-balance profile. */
+async function resolveCustomerDisplayName(
+  profile: CustomerCreditProfile,
+  canonicalCustomer?: CustomerRecord | null
+): Promise<string> {
+  const customer = canonicalCustomer === undefined
+    ? await getCustomerById(profile.customerId)
+    : canonicalCustomer;
+  return customer?.customerName?.trim()
+    || legacyCustomerName(profile)
+    || customer?.customerCode?.trim()
+    || legacyCustomerAccountReference(profile)
+    || 'Unnamed Customer';
+}
+
 export async function calculateCustomerAvailableCredit(customerId: string): Promise<number> {
   const profile = await getCustomerCreditProfile(customerId);
   const balance = await calculateCustomerOutstandingBalance(customerId);
@@ -814,6 +847,7 @@ export async function calculateCustomerCreditWorthiness(customerId: string): Pro
 
 export async function canCustomerBuyOnCredit(customerId: string, saleTotal: number): Promise<CreditDecision> {
   const [customer, profile] = await Promise.all([getCustomerById(customerId), getCustomerCreditProfile(customerId)]);
+  const customerDisplayName = await resolveCustomerDisplayName(profile, customer);
   const policy = getCustomerCreditPolicy();
   const worthiness = await calculateCustomerCreditWorthiness(customerId);
   const balance = await calculateCustomerOutstandingBalance(customerId);
@@ -893,26 +927,26 @@ export async function canCustomerBuyOnCredit(customerId: string, saleTotal: numb
   if (reasonList.length === 0) reasonList.push('Customer is within credit rules.');
   if (saleTotal > 0 && customerId && customerId !== 'CUST-WALKIN') {
     if (overdueBalance > 0) {
-      await createCustomerCreditBIAdvice('OVERDUE_CUSTOMER_TRYING_TO_BUY', profile.customerName, `${profile.customerName} has ${money(overdueBalance)} overdue before a new account sale.`, 'High');
+      await createCustomerCreditBIAdvice('OVERDUE_CUSTOMER_TRYING_TO_BUY', customerDisplayName, `${customerDisplayName} has ${money(overdueBalance)} overdue before a new account sale.`, 'High');
     }
     if (controlStatus === 'CreditBlocked') {
-      await createCustomerCreditBIAdvice('BLOCKED_CUSTOMER_ATTEMPTED_CREDIT_SALE', profile.customerName, `${profile.customerName} attempted a credit sale while blocked.`, 'Critical');
-      await createCustomerCreditApprovalRequest({ approvalType: 'BLOCKED_CUSTOMER_CREDIT_OVERRIDE', customerName: profile.customerName, requestedBy: 'Sales Terminal', requestedByRole: 'Manager', branchId: 'main-branch', branch: 'Main Branch', relatedRecord: customerId, amountOrValue: money(saleTotal), risk: 'Critical', reason: 'Blocked customer attempted credit sale.', context: 'Blocked customer override review.' });
+      await createCustomerCreditBIAdvice('BLOCKED_CUSTOMER_ATTEMPTED_CREDIT_SALE', customerDisplayName, `${customerDisplayName} attempted a credit sale while blocked.`, 'Critical');
+      await createCustomerCreditApprovalRequest({ approvalType: 'BLOCKED_CUSTOMER_CREDIT_OVERRIDE', customerName: customerDisplayName, requestedBy: 'Sales Terminal', requestedByRole: 'Manager', branchId: 'main-branch', branch: 'Main Branch', relatedRecord: customerId, amountOrValue: money(saleTotal), risk: 'Critical', reason: 'Blocked customer attempted credit sale.', context: 'Blocked customer override review.' });
     }
     if (brokenPromiseStats.brokenCount >= 2) {
-      await createCustomerCreditBIAdvice('REPEATED_BROKEN_PROMISES', profile.customerName, `${profile.customerName} has repeated broken promises before new credit sale.`, 'High');
+      await createCustomerCreditBIAdvice('REPEATED_BROKEN_PROMISES', customerDisplayName, `${customerDisplayName} has repeated broken promises before new credit sale.`, 'High');
     }
     if (maxOverdueDays > 120) {
-      await createCustomerCreditBIAdvice('SEVERE_OVERDUE_CUSTOMER', profile.customerName, `${profile.customerName} has debt ${maxOverdueDays} day(s) overdue.`, 'Critical');
+      await createCustomerCreditBIAdvice('SEVERE_OVERDUE_CUSTOMER', customerDisplayName, `${customerDisplayName} has debt ${maxOverdueDays} day(s) overdue.`, 'Critical');
     }
     if (newBalance > profile.creditLimit) {
-      await createCustomerCreditBIAdvice('CREDIT_LIMIT_EXCEEDED', profile.customerName, `${profile.customerName} would exceed the credit limit by ${money(newBalance - profile.creditLimit)}.`, 'High');
+      await createCustomerCreditBIAdvice('CREDIT_LIMIT_EXCEEDED', customerDisplayName, `${customerDisplayName} would exceed the credit limit by ${money(newBalance - profile.creditLimit)}.`, 'High');
     }
     if (worthiness.latePaymentCount >= 2) {
-      await createCustomerCreditBIAdvice('REPEAT_LATE_PAYER', profile.customerName, `${profile.customerName} has ${worthiness.latePaymentCount} late credit payments.`, 'Medium');
+      await createCustomerCreditBIAdvice('REPEAT_LATE_PAYER', customerDisplayName, `${customerDisplayName} has ${worthiness.latePaymentCount} late credit payments.`, 'Medium');
     }
     if ((worthiness.grade === 'Excellent' || worthiness.grade === 'Good') && worthiness.recommendedAction === 'Increase Limit') {
-      await createCustomerCreditBIAdvice('GOOD_PAYER_LIMIT_REVIEW', profile.customerName, `${profile.customerName} qualifies for a credit limit review.`, 'Low');
+      await createCustomerCreditBIAdvice('GOOD_PAYER_LIMIT_REVIEW', customerDisplayName, `${customerDisplayName} qualifies for a credit limit review.`, 'Low');
     }
   }
   return {
@@ -1468,7 +1502,7 @@ export async function requestDebtWriteOff(debt: CustomerDebtRecord, requestedBy:
   await createCustomerCreditBIAdvice('WRITE_OFF_REQUESTED', debt.customerName, `${debt.receiptNumber} write-off requested for ${money(debt.outstandingAmount)}.`, 'High');
 }
 
-export function createDebtorsControlTask(input: Omit<CustomerCreditTask, 'taskId' | 'status' | 'createdAt'> & { source?: CustomerCreditTask['source'] }): CustomerCreditTask {
+export function createDebtorsControlTask(input: Omit<CustomerCreditTask, 'taskId' | 'status' | 'createdAt' | 'source'> & { source?: CustomerCreditTask['source'] }): CustomerCreditTask {
   const task: CustomerCreditTask = {
     ...input,
     taskId: makeId('DEBT-TASK'),
@@ -1593,9 +1627,10 @@ export async function rejectCreditApplication(applicationId: string, reason: str
 
 export async function markCreditReviewDue(customerId: string, reviewDate: string): Promise<void> {
   const profile = await getCustomerCreditProfile(customerId);
+  const customerDisplayName = await resolveCustomerDisplayName(profile);
   await createOrUpdateCustomerCreditProfile(customerId, { creditStatus: 'Review', creditNotes: `${profile.creditNotes || ''} Credit review due ${reviewDate}.`.trim() });
-  await createCollectionDiaryItem({ customerId, customerName: profile.customerName, type: 'CreditReview', priority: 'Medium', dueDate: reviewDate, assignedTo: 'Manager', status: isSameDate(reviewDate) ? 'DueToday' : 'Pending', notes: 'Credit review due.', createdBy: 'Customer Centre' });
-  await createCustomerCreditBIAdvice('CREDIT_REVIEW_DUE', profile.customerName, `${profile.customerName} has a credit review due on ${reviewDate}.`, 'Medium');
+  await createCollectionDiaryItem({ customerId, customerName: customerDisplayName, type: 'CreditReview', priority: 'Medium', dueDate: reviewDate, assignedTo: 'Manager', status: isSameDate(reviewDate) ? 'DueToday' : 'Pending', notes: 'Credit review due.', createdBy: 'Customer Centre' });
+  await createCustomerCreditBIAdvice('CREDIT_REVIEW_DUE', customerDisplayName, `${customerDisplayName} has a credit review due on ${reviewDate}.`, 'Medium');
 }
 
 export function getPromisesToPay(filters: { customerId?: string; status?: PromiseToPayStatus | 'All'; date?: string; search?: string } = {}): PromiseToPayRecord[] {
@@ -1671,7 +1706,8 @@ export function getCreditBlockHistory(customerId?: string): CustomerCreditBlockR
 
 async function createCreditBlockRecord(customerId: string, reason: string, staffId: string, newStatus: CustomerCreditBlockRecord['newStatus'], eventType: CustomerCreditActivityEvent['eventType']): Promise<CustomerCreditBlockRecord> {
   const profile = await getCustomerCreditProfile(customerId);
-  const block: CustomerCreditBlockRecord = { blockId: makeId('CBLOCK'), customerId, customerName: profile.customerName, previousStatus: profile.creditStatus, newStatus, reason, blockedBy: staffId, blockedAt: nowIso(), active: newStatus !== 'CreditAllowed' };
+  const customerDisplayName = await resolveCustomerDisplayName(profile);
+  const block: CustomerCreditBlockRecord = { blockId: makeId('CBLOCK'), customerId, customerName: customerDisplayName, previousStatus: profile.creditStatus, newStatus, reason, blockedBy: staffId, blockedAt: nowIso(), active: newStatus !== 'CreditAllowed' };
   saveList(CREDIT_BLOCK_KEY, [block, ...readList<CustomerCreditBlockRecord>(CREDIT_BLOCK_KEY, seedCreditBlocks())]);
   const status: CustomerCreditStatus = newStatus === 'CreditBlocked' ? 'Blocked' : newStatus === 'DepositRequired' ? 'Review' : newStatus === 'CashOnly' ? 'Cash Only' : newStatus === 'Suspended' ? 'Suspended' : 'Approved';
   await createOrUpdateCustomerCreditProfile(customerId, { creditStatus: status, blockedReason: reason });
@@ -1687,9 +1723,10 @@ export async function blockCustomerCredit(customerId: string, reason: string, st
 
 export async function releaseCustomerCredit(customerId: string, reason: string, staffId: string): Promise<CustomerCreditBlockRecord> {
   const profile = await getCustomerCreditProfile(customerId);
+  const customerDisplayName = await resolveCustomerDisplayName(profile);
   const rows = getCreditBlockHistory().map((block) => block.customerId === customerId && block.active ? { ...block, active: false, releaseRequestedBy: staffId, releasedBy: staffId, releasedAt: nowIso(), releaseReason: reason } : block);
   saveList(CREDIT_BLOCK_KEY, rows);
-  await createCustomerCreditApprovalRequest({ approvalType: 'CREDIT_BLOCK_RELEASE', customerName: profile.customerName, requestedBy: staffId, requestedByRole: 'Manager', branchId: 'main-branch', branch: 'Main Branch', relatedRecord: customerId, amountOrValue: profile.creditStatus, risk: 'Medium', reason, context: 'Credit block release requested.' });
+  await createCustomerCreditApprovalRequest({ approvalType: 'CREDIT_BLOCK_RELEASE', customerName: customerDisplayName, requestedBy: staffId, requestedByRole: 'Manager', branchId: 'main-branch', branch: 'Main Branch', relatedRecord: customerId, amountOrValue: profile.creditStatus, risk: 'Medium', reason, context: 'Credit block release requested.' });
   const block = await createCreditBlockRecord(customerId, reason, staffId, 'CreditAllowed', 'CUSTOMER_CREDIT_RELEASED');
   return { ...block, active: false, releasedBy: staffId, releasedAt: nowIso(), releaseReason: reason };
 }
@@ -1915,7 +1952,7 @@ export async function postDebtorOpeningBalance(openingBalanceId: string): Promis
   saveList(OPENING_BALANCE_KEY, getDebtorOpeningBalances().map((row) => row.openingBalanceId === openingBalanceId ? { ...row, status: 'Posted', postedAt: nowIso() } : row));
   await createOrUpdateCustomerCreditProfile(opening.customerId, { currentBalance: (await calculateCustomerOutstandingBalance(opening.customerId)) + opening.outstandingAmount });
   logCreditEvent({ customerId: opening.customerId, eventType: 'DEBTOR_OPENING_BALANCE_POSTED', user: opening.importedBy, notes: 'Opening balance posted to debtor ledger.', relatedRecord: openingBalanceId });
-  await createAccountingPostingPlaceholder({ source: 'Manual Entry', sourceReference: opening.openingReference, branch: 'Main Branch', amount: opening.outstandingAmount });
+  await createAccountingPostingPlaceholder({ source: 'Manual Adjustment', sourceReference: opening.openingReference, branch: 'Main Branch', amount: opening.outstandingAmount });
   await createCustomerCreditBIAdvice('OPENING_BALANCE_POSTED', opening.customerName, `Opening balance ${opening.openingReference} posted for ${money(opening.outstandingAmount)}.`, 'Medium');
   return debt;
 }
@@ -1980,7 +2017,7 @@ export async function receiveCustomerDeposit(payload: Omit<CustomerDepositRecord
   const deposit: CustomerDepositRecord = { ...payload, depositId: makeId('DEP'), depositNumber: `DEP-${Date.now().toString().slice(-6)}`, amountApplied: 0, balance: payload.amountReceived, status: 'Received', receivedAt: payload.receivedAt || nowIso() };
   saveList(CUSTOMER_DEPOSIT_KEY, [deposit, ...getCustomerDeposits()]);
   logCreditEvent({ customerId: deposit.customerId, eventType: 'CUSTOMER_DEPOSIT_RECEIVED', user: deposit.receivedBy, notes: `${money(deposit.amountReceived)} deposit received.`, relatedRecord: deposit.depositNumber });
-  await createAccountingPostingPlaceholder({ source: 'Manual Entry', sourceReference: deposit.depositNumber, branch: 'Main Branch', amount: deposit.amountReceived });
+  await createAccountingPostingPlaceholder({ source: 'Manual Adjustment', sourceReference: deposit.depositNumber, branch: 'Main Branch', amount: deposit.amountReceived });
   return deposit;
 }
 
@@ -1999,7 +2036,7 @@ function updateDepositApplication(depositId: string, amount: number, eventType: 
 
 export async function applyCustomerDepositToSale(depositId: string, saleId: string, amount: number): Promise<CustomerDepositRecord | null> {
   const updated = updateDepositApplication(depositId, amount, 'CUSTOMER_DEPOSIT_APPLIED_TO_SALE', saleId);
-  if (updated) await createAccountingPostingPlaceholder({ source: 'Manual Entry', sourceReference: `${updated.depositNumber}-${saleId}`, branch: 'Main Branch', amount });
+  if (updated) await createAccountingPostingPlaceholder({ source: 'Manual Adjustment', sourceReference: `${updated.depositNumber}-${saleId}`, branch: 'Main Branch', amount });
   return updated;
 }
 
@@ -2065,7 +2102,7 @@ export async function applyCreditNoteToDebt(creditNoteId: string, debtId: string
   }));
   if (updated) {
     logCreditEvent({ customerId: updated.customerId, eventType: 'CUSTOMER_CREDIT_NOTE_APPLIED', user: updated.approvedBy || updated.createdBy, notes: `${money(applied)} applied to ${debt.receiptNumber}.`, relatedRecord: updated.creditNoteNumber });
-    await createAccountingPostingPlaceholder({ source: 'Manual Entry', sourceReference: `${updated.creditNoteNumber}-${debt.receiptNumber}`, branch: debt.branchName, amount: applied });
+    await createAccountingPostingPlaceholder({ source: 'Manual Adjustment', sourceReference: `${updated.creditNoteNumber}-${debt.receiptNumber}`, branch: debt.branchName, amount: applied });
     if (debt.outstandingAmount >= 500) await createCustomerCreditBIAdvice('CREDIT_NOTE_USED_TO_CLEAR_HIGH_DEBT', debt.customerName, `${updated.creditNoteNumber} used against high debt ${debt.receiptNumber}.`, 'Medium');
   }
   return updated;
@@ -2105,6 +2142,7 @@ export const exportDebtorsList = (filters: DebtorsControlFilters, generatedBy = 
 
 export async function calculateDebtorRiskHeatMapItem(customerId: string): Promise<DebtorRiskHeatMapItem> {
   const [profile, debts] = await Promise.all([getCustomerCreditProfile(customerId), getCustomerDebtByCustomer(customerId)]);
+  const customerDisplayName = await resolveCustomerDisplayName(profile);
   const outstandingAmount = debts.reduce((sum, debt) => sum + debt.outstandingAmount, 0);
   const overdueAmount = debts.filter((debt) => debt.overdueDays > 0).reduce((sum, debt) => sum + debt.outstandingAmount, 0);
   const maxDebt = debts.sort((left, right) => right.overdueDays - left.overdueDays)[0];
@@ -2114,10 +2152,10 @@ export async function calculateDebtorRiskHeatMapItem(customerId: string): Promis
   const creditLimitUsagePercent = profile.creditLimit > 0 ? (outstandingAmount / profile.creditLimit) * 100 : 0;
   const riskLevel: RiskLevel = overdueAmount > 500 || brokenPromiseCount >= 2 || daysSinceLastPayment >= 90 ? 'Critical' : overdueAmount > 0 || creditLimitUsagePercent >= 80 || daysSinceLastPayment >= 60 ? 'High' : outstandingAmount > 0 ? 'Medium' : 'Low';
   const recommendedAction = riskLevel === 'Critical' ? 'Manager review and block credit if needed.' : riskLevel === 'High' ? 'Create collection task and send reminder.' : riskLevel === 'Medium' ? 'Monitor payment behaviour.' : 'No immediate action.';
-  if (creditLimitUsagePercent >= 80) await createCustomerCreditBIAdvice('CUSTOMER_ABOVE_80_PERCENT_LIMIT', profile.customerName, `${profile.customerName} is above 80% credit limit usage.`, 'High');
-  if (daysSinceLastPayment >= 90) await createCustomerCreditBIAdvice('CUSTOMER_NO_PAYMENT_90_DAYS', profile.customerName, `${profile.customerName} has no payment in 90 days.`, 'Critical');
-  else if (daysSinceLastPayment >= 60) await createCustomerCreditBIAdvice('CUSTOMER_NO_PAYMENT_60_DAYS', profile.customerName, `${profile.customerName} has no payment in 60 days.`, 'High');
-  return { customerId, customerName: profile.customerName, outstandingAmount, overdueAmount, ageingBucket: maxDebt?.ageingBucket || 'Current', creditLimitUsagePercent, brokenPromiseCount, disputedAmount, daysSinceLastPayment, riskLevel, recommendedAction };
+  if (creditLimitUsagePercent >= 80) await createCustomerCreditBIAdvice('CUSTOMER_ABOVE_80_PERCENT_LIMIT', customerDisplayName, `${customerDisplayName} is above 80% credit limit usage.`, 'High');
+  if (daysSinceLastPayment >= 90) await createCustomerCreditBIAdvice('CUSTOMER_NO_PAYMENT_90_DAYS', customerDisplayName, `${customerDisplayName} has no payment in 90 days.`, 'Critical');
+  else if (daysSinceLastPayment >= 60) await createCustomerCreditBIAdvice('CUSTOMER_NO_PAYMENT_60_DAYS', customerDisplayName, `${customerDisplayName} has no payment in 60 days.`, 'High');
+  return { customerId, customerName: customerDisplayName, outstandingAmount, overdueAmount, ageingBucket: maxDebt?.ageingBucket || 'Current', creditLimitUsagePercent, brokenPromiseCount, disputedAmount, daysSinceLastPayment, riskLevel, recommendedAction };
 }
 
 export async function getDebtorRiskHeatMap(filters: { customerId?: string } = {}): Promise<DebtorRiskHeatMapItem[]> {
@@ -2180,7 +2218,7 @@ export async function createDebtorPeriodAdjustment(payload: Omit<DebtorPeriodAdj
   saveList(DEBTOR_PERIOD_ADJUSTMENT_KEY, [adjustment, ...readList<DebtorPeriodAdjustment>(DEBTOR_PERIOD_ADJUSTMENT_KEY)]);
   logCreditEvent({ customerId: adjustment.customerId, eventType: 'DEBTOR_PERIOD_ADJUSTMENT_CREATED', user: adjustment.createdBy, notes: adjustment.reason, relatedRecord: adjustment.adjustmentId });
   await createCustomerCreditApprovalRequest({ approvalType: 'DEBTOR_PERIOD_ADJUSTMENT', customerName: adjustment.customerId, requestedBy: adjustment.createdBy, requestedByRole: 'Accountant', branchId: 'main-branch', branch: 'Main Branch', relatedRecord: adjustment.adjustmentId, amountOrValue: money(adjustment.amount), risk: 'High', reason: adjustment.reason, context: `Adjustment type ${adjustment.adjustmentType}.` });
-  await createAccountingPostingPlaceholder({ source: 'Manual Entry', sourceReference: adjustment.adjustmentId, branch: 'Main Branch', amount: adjustment.amount });
+  await createAccountingPostingPlaceholder({ source: 'Manual Adjustment', sourceReference: adjustment.adjustmentId, branch: 'Main Branch', amount: adjustment.amount });
   await createCustomerCreditBIAdvice('DEBTOR_ADJUSTMENT_AFTER_LOCK', adjustment.customerId, `Debtor period adjustment created for ${money(adjustment.amount)}.`, 'High');
   return adjustment;
 }

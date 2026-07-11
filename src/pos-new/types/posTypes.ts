@@ -6384,7 +6384,25 @@ export type AccountingSource =
   | 'Cash Movement'
   | 'Inventory Movement'
   | 'EOD'
+  | 'Manual Adjustment'
   | 'Manual Placeholder';
+
+const ACCOUNTING_SOURCES: readonly AccountingSource[] = [
+  'Sale',
+  'Refund',
+  'Void',
+  'Cash Movement',
+  'Inventory Movement',
+  'EOD',
+  'Manual Adjustment',
+  'Manual Placeholder'
+];
+
+/** Maps supported persisted source values without reclassifying unknown activity. */
+export function normalizeAccountingSource(value: unknown): AccountingSource | undefined {
+  if (value === 'Manual Entry') return 'Manual Adjustment';
+  return ACCOUNTING_SOURCES.find((source) => source === value);
+}
 
 export interface COAAccount {
   id: string;
