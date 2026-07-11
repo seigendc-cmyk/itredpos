@@ -595,7 +595,7 @@ export async function submitGRNForApproval(grnId: string): Promise<GoodsReceivin
     branch: note.branchId,
     category: 'Goods Receiving',
     requestedBy: session.staffName,
-    requestedByRole: session.role,
+    requestedByRole: normalizeOperationalRole(session.role),
     relatedRecord: note.grnNumber,
     amountOrValue: `${note.supplierInvoiceAmount.toFixed(2)} invoice reference`,
     risk: 'High',
@@ -905,3 +905,4 @@ export async function getGoodsReceivingActivityEvents(filters: GoodsReceivingFil
       && (!filters.poNumber || (event.poNumber || '').toLowerCase().includes(filters.poNumber.toLowerCase()));
   });
 }
+import { normalizeOperationalRole } from '../auth/roleNormalization';

@@ -218,7 +218,7 @@ export async function recordSupplierPayment(input: {
       branch: context.branchId,
       category: 'Supplier Payment',
       requestedBy: context.staffName,
-      requestedByRole: context.role,
+      requestedByRole: normalizeOperationalRole(context.role),
       relatedRecord: supplier.supplierName,
       amountOrValue: amount.toFixed(2),
       risk: amount > 5000 ? 'High' : 'Medium',
@@ -316,3 +316,4 @@ export async function recordSupplierPayment(input: {
   await queueSupplierPayment(payment, context);
   return { payment, allocations };
 }
+import { normalizeOperationalRole } from '../auth/roleNormalization';

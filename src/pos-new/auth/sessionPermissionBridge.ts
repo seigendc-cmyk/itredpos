@@ -1,6 +1,6 @@
 import { getCurrentTenantSession } from './tenantSessionService';
 import type { TenantUserRole } from './authTypes';
-import { type PermissionKey, type PosAction } from '../utils/posPermissions';
+import { isPermissionKey, type PermissionKey, type PosAction, validatePermissionKeys } from '../utils/posPermissions';
 import {
   canCurrentSessionPerformAction,
   getEffectivePermissionsForRole,
@@ -33,17 +33,18 @@ const actionPermissionMap: Partial<Record<PosAction, string>> = {
 };
 
 export function getPermissionsForTenantRole(role?: TenantUserRole): PermissionKey[] {
-  return getEffectivePermissionsForRole(normalizeRoleKey(role || 'Viewer')) as PermissionKey[];
+  return getEffectivePermissionsForRole(normalizeRoleKey(role || 'Viewer'));
 }
 
 export function getCurrentSessionPermissions(): PermissionKey[] {
   const session = getCurrentTenantSession();
-  if (isOwnerBypassSession(session)) return getEffectivePermissionsForRole('Owner') as PermissionKey[];
-  return (session.permissions?.length ? session.permissions : getEffectivePermissionsForSession(session)) as PermissionKey[];
+  if (isOwnerBypassSession(session)) return getEffectivePermissionsForRole('Owner');
+  const persisted = validatePermissionKeys(session.permissions);
+  return persisted.length ? persisted : getEffectivePermissionsForSession(session);
 }
 
-export function hasSessionPermission(permission: PermissionKey): boolean {
-  return getCurrentSessionPermissions().includes(permission) || getCurrentSessionPermissions().includes(permission as PermissionKey);
+export function hasSessionPermission(permission: string): boolean {
+  return isPermissionKey(permission) && getCurrentSessionPermissions().includes(permission);
 }
 
 export function isBuildDevelopmentOwnerSession(): boolean {

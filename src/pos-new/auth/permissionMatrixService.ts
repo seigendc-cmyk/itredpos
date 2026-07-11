@@ -14,6 +14,7 @@ import type {
   SecurityRoleDefinition,
   SecurityRoleKey
 } from './permissionMatrixTypes';
+import { normalizePermissionRole } from './roleNormalization';
 
 const OVERRIDES_KEY = 'itred_pos_security_permission_overrides';
 const ACTIVITY_KEY = 'itred_pos_security_permission_activity';
@@ -73,7 +74,7 @@ export function calculatePermissionCell(permissionKey: string, roleKey: Security
     return { permissionKey, roleKey, allowed: false, inheritanceMode: 'Not Applicable', locked: false, reason: 'Permission is not in catalog.' };
   }
   if (ownerLocked) {
-    return { permissionKey, roleKey, allowed: true, inheritanceMode: 'Locked', locked: true, reason: 'Owner full access is protected during build-development.' };
+    return { permissionKey, roleKey, allowed: true, inheritanceMode: 'Locked', locked: permission.systemLocked && roleKey === 'Owner', reason: 'Owner full access is protected during build-development.' };
   }
   if (roleKey === 'SysAdmin' && !override) {
     return { permissionKey, roleKey, allowed: true, inheritanceMode: 'Direct', locked: false, reason: 'SysAdmin has full POS rights. Internal console access is not included.' };
@@ -84,7 +85,7 @@ export function calculatePermissionCell(permissionKey: string, roleKey: Security
       roleKey,
       allowed: override.allowed,
       inheritanceMode: override.allowed ? 'Direct' : 'Denied',
-      locked: permission.systemLocked && roleKey === 'Owner',
+      locked: false,
       reason: override.reason,
       changedByStaffId: override.changedByStaffId,
       changedAt: override.changedAt
@@ -120,7 +121,6 @@ export function getPermissionMatrix(): SecurityPermissionMatrix {
 export function setPermissionOverride(permissionKey: string, roleKey: SecurityRoleKey, allowed: boolean, staffId: string, reason: string): SecurityPermissionMatrixCell {
   const permission = securityRightsCatalog.find((right) => right.permissionKey === permissionKey);
   if (roleKey === 'Owner') return calculatePermissionCell(permissionKey, roleKey);
-  if (permission?.systemLocked && roleKey === 'Owner') return calculatePermissionCell(permissionKey, roleKey);
   const finalReason = reason || (permission?.requiresApproval ? 'High-risk permission changed in build-development preview.' : 'Local matrix override.');
   const overrides = getOverrides();
   overrides[overrideKey(permissionKey, roleKey)] = {
@@ -202,20 +202,5 @@ export function recordSecurityMatrixEvent(event: Omit<SecurityPermissionActivity
 }
 
 export function normalizeSecurityRole(role: string): SecurityRoleKey {
-  const map: Record<string, SecurityRoleKey> = {
-    Owner: 'Owner',
-    SysAdmin: 'SysAdmin',
-    VendorOwner: 'Owner',
-    VendorAdmin: 'Manager',
-    Manager: 'Manager',
-    Supervisor: 'Supervisor',
-    Accountant: 'Accountant',
-    StockController: 'StockController',
-    'Stock Controller': 'StockController',
-    Cashier: 'Cashier',
-    DeliveryStaff: 'DeliveryStaff',
-    'Delivery Staff': 'DeliveryStaff',
-    Viewer: 'Viewer'
-  };
-  return map[role] || 'Viewer';
+  return normalizePermissionRole(role);
 }

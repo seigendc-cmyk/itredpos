@@ -10,6 +10,7 @@ import {
 import { db, firebaseReady } from '../firebase/firebaseApp';
 import { FIRESTORE_COLLECTIONS } from '../../shared/backend';
 import type { ActivationCodeRecord, POSActivationSnapshotLocal, POSActivationCodeResult } from '../../shared/backend';
+export type { ActivationCodeRecord, POSActivationSnapshotLocal, POSActivationCodeResult } from '../../shared/backend';
 import { validateLicenseToken, type LicenseActivationToken, type LicenseValidationResult } from '../../license-core';
 
 const POS_ACTIVATION_STORAGE_KEY = 'itred_pos_activation_snapshot';

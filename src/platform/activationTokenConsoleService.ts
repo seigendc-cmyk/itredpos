@@ -19,6 +19,8 @@ import type {
 } from '../shared/backend';
 import { createLicenseActivationToken } from '../license-core';
 import type { LicensePlanCode } from '../license-core';
+import type { LicenseStatus } from '../license-core';
+import type { ActivationTokenStatus } from '../shared/backend';
 
 function checkFirebaseReady(): void {
   if (!firebaseReady || !db) {
@@ -40,6 +42,17 @@ function toLicensePlanCode(planCode: PlanCode): LicensePlanCode {
       return 'ENTERPRISE';
     default:
       return 'DEMO';
+  }
+}
+
+/** Maps generator lifecycle states to the persisted activation-token lifecycle. */
+function toActivationTokenStatus(status: LicenseStatus): ActivationTokenStatus {
+  switch (status) {
+    case 'Unused': return 'Unused';
+    case 'Active':
+    case 'Consumed': return 'Used';
+    case 'Expired': return 'Expired';
+    case 'Revoked': return 'Revoked';
   }
 }
 
@@ -116,7 +129,7 @@ export async function issueActivationToken(
     vendorId: licenseToken.vendorId,
     vendorName: licenseToken.vendorName,
     planCode,
-    status: licenseToken.status,
+    status: toActivationTokenStatus(licenseToken.status),
     issuedAt: licenseToken.issuedAt,
     expiresAt: licenseToken.expiresAt,
     issuedBy: licenseToken.issuedBy,

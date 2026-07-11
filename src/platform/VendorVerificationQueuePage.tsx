@@ -295,7 +295,7 @@ export default function VendorVerificationQueuePage() {
               const displayLicenseStatus = license ? license.licenseStatus : reg.licenseStatus;
               const displayAccountStatus = license ? license.licenseStatus : reg.accountStatus;
               const displayPlan = license ? license.planCode : reg.planCode;
-              const displayExpires = license ? license.trialExpiresAt : reg.trialExpiresAt;
+              const displayExpires = license?.expiresAt || '';
 
               return (
                 <div key={reg.vendorId} className="bg-white rounded-2xl border border-gray-150 shadow-[0_4px_20px_rgb(0,0,0,0.015)] hover:shadow-[0_8px_30px_rgb(0,0,0,0.03)] transition-all overflow-hidden flex flex-col justify-between">

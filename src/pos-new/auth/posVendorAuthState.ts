@@ -65,8 +65,12 @@ export function createInitialPosAuthContext(): PosVendorAuthContext {
   };
 }
 
-export function savePosAuthContext(context: PosVendorAuthContext): void {
-  localStorage.setItem(POS_AUTH_STORAGE_KEY, JSON.stringify(context));
+export function savePosAuthContext(context: Partial<PosVendorAuthContext>): void {
+  const completeContext: PosVendorAuthContext = {
+    ...context,
+    stage: context.stage || 'checkingGoogleSession'
+  };
+  localStorage.setItem(POS_AUTH_STORAGE_KEY, JSON.stringify(completeContext));
 }
 
 export function readPosAuthContext(): PosVendorAuthContext | null {
@@ -82,7 +86,7 @@ export function clearPosAuthContext(): void {
   localStorage.removeItem(POS_AUTH_STORAGE_KEY);
 }
 
-export function resolveNextAuthStage(context: PosVendorAuthContext): PosAuthStage {
+export function resolveNextAuthStage(context: Partial<PosVendorAuthContext>): PosAuthStage {
   if (!context.googleUid || !context.googleEmail) return 'googleSignInRequired';
 
   // Keep the owner on the tenant selector until a specific vendor is chosen.
@@ -90,7 +94,7 @@ export function resolveNextAuthStage(context: PosVendorAuthContext): PosAuthStag
     return 'vendorSelectionRequired';
   }
 
-  if (!context.vendorId || !context.vendorName) return 'posReady';
+  if (!context.vendorId || !context.vendorName) return 'businessProfileRequired';
 
   const statusValues = [
     context.licenseStatus,
@@ -99,16 +103,14 @@ export function resolveNextAuthStage(context: PosVendorAuthContext): PosAuthStag
     context.verificationStatus
   ].map((value) => String(value || '').toLowerCase());
 
-  if (
-    context.licenseStatus === 'Expired' ||
-    statusValues.some((value) => value === 'suspended' || value === 'rejected')
-  ) {
-    return 'posReady';
-  }
+  if (context.licenseStatus === 'Expired' || statusValues.some((value) => value === 'suspended' || value === 'rejected')) return 'licenseRequired';
+
+  const licenseAllowed = context.licenseStatus === 'Active' || context.licenseStatus === 'Trial' || context.licenseStatus === 'Demo';
+  if (!licenseAllowed) return 'licenseRequired';
 
   if (!context.branchId || !context.warehouseId) return 'businessProfileRequired';
 
-  if (!context.staffId || !context.staffRole) return 'posReady';
+  if (!context.staffId || !context.staffRole) return 'staffAccessRequired';
 
   return 'posReady';
 }

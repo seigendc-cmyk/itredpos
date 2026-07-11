@@ -21,7 +21,15 @@ export function validateLicenseToken(token: LicenseActivationToken | undefined, 
     return { ok: false, message: 'Activation code has expired.' };
   }
 
-  const features: LicenseFeatureFlags = token.features || {};
+  const secureFeatureDefaults: LicenseFeatureFlags = {
+    posAccess: false,
+    inventory: false,
+    sales: false,
+    reports: false
+  };
+  const features: LicenseFeatureFlags = token.features
+    ? { ...secureFeatureDefaults, ...token.features }
+    : secureFeatureDefaults;
   if (!features.posAccess) {
     return { ok: false, message: 'This activation code does not enable POS access.' };
   }

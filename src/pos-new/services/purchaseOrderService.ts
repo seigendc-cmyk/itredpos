@@ -433,7 +433,7 @@ export async function submitPurchaseOrderForApproval(poId: string): Promise<Purc
     branch: order.branchId,
     category: 'Purchase Order',
     requestedBy: session.staffName,
-    requestedByRole: session.role,
+    requestedByRole: normalizeOperationalRole(session.role),
     relatedRecord: order.poNumber,
     amountOrValue: `${order.currency} ${order.grandTotalEstimate.toFixed(2)}`,
     risk: order.priority === 'Urgent' ? 'High' : 'Medium',
@@ -565,3 +565,4 @@ export async function getPurchaseOrderActivityEvents(poId?: string, includeAll =
   if (includeAll || !poId) return events;
   return events.filter((event) => event.poId === poId);
 }
+import { normalizeOperationalRole } from '../auth/roleNormalization';

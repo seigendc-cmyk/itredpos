@@ -1,7 +1,10 @@
 import { doc, onSnapshot, type Unsubscribe } from 'firebase/firestore';
 import { db } from '../firebase/firebaseApp';
+import type {
+  PosAuthStage,
+  PosVendorAuthContext
+} from './posVendorAuthState';
 import {
-  PosVendorAuthContext,
   resolveNextAuthStage
 } from './posVendorAuthState';
 import type { PlanFeatureFlags } from './planFeatureGate';

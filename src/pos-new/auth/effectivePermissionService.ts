@@ -1,6 +1,7 @@
 import { getCurrentTenantSession } from './tenantSessionService';
-import type { TenantSession } from './authTypes';
 import type { PosPageId, PosSession } from '../types';
+import type { PermissionKey } from '../utils/posPermissions';
+import { isPermissionKey, validatePermissionKeys } from '../utils/posPermissions';
 import {
   getEffectivePermissionsForRole as getMatrixPermissionsForRole,
   normalizeSecurityRole,
@@ -8,9 +9,11 @@ import {
 } from './permissionMatrixService';
 import type { SecurityRoleKey } from './permissionMatrixTypes';
 
-export type PermissionSessionLike = Partial<TenantSession> & Partial<PosSession> & {
+export type PermissionSessionLike = {
   role?: string;
   staffRole?: string;
+  permissions?: readonly unknown[];
+  isBuildDevelopmentSession?: boolean;
   isBuildDevelopmentOwnerSession?: boolean;
 };
 
@@ -24,14 +27,15 @@ export function isOwnerBypassSession(session?: PermissionSessionLike | null): bo
   return Boolean(role === 'Owner' && (session.isBuildDevelopmentOwnerSession || session.isBuildDevelopmentSession || session.staffRole === 'VendorOwner' || session.role === 'Owner'));
 }
 
-export function getEffectivePermissionsForRole(roleKey: string): string[] {
+export function getEffectivePermissionsForRole(roleKey: string): PermissionKey[] {
   const normalized = normalizeRoleKey(roleKey);
-  return getMatrixPermissionsForRole(normalized);
+  return validatePermissionKeys(getMatrixPermissionsForRole(normalized));
 }
 
-export function getEffectivePermissionsForSession(session?: PermissionSessionLike | null): string[] {
-  if (isOwnerBypassSession(session)) return getMatrixPermissionsForRole('Owner');
-  return getEffectivePermissionsForRole(session?.role || session?.staffRole || 'Viewer');
+export function getEffectivePermissionsForSession(session?: PermissionSessionLike | null): PermissionKey[] {
+  if (isOwnerBypassSession(session)) return validatePermissionKeys(getMatrixPermissionsForRole('Owner'));
+  const persisted = validatePermissionKeys(session?.permissions);
+  return persisted.length > 0 ? persisted : getEffectivePermissionsForRole(session?.role || session?.staffRole || 'Viewer');
 }
 
 export function roleHasEffectivePermission(roleKey: string, permissionKey: string): boolean {
@@ -39,6 +43,7 @@ export function roleHasEffectivePermission(roleKey: string, permissionKey: strin
 }
 
 export function sessionHasEffectivePermission(session: PermissionSessionLike | null | undefined, permissionKey: string): boolean {
+  if (!isPermissionKey(permissionKey)) return false;
   if (isOwnerBypassSession(session)) return true;
   return getEffectivePermissionsForSession(session).includes(permissionKey);
 }
@@ -77,7 +82,7 @@ const menuPermissionMap: Array<{ menuKey: string; pageId: PosPageId; permissions
 
 export function getEffectiveMenuKeysForRole(roleKey: string): string[] {
   const permissions = new Set(getEffectivePermissionsForRole(roleKey));
-  return menuPermissionMap.filter((menu) => menu.permissions.some((permission) => permissions.has(permission))).map((menu) => menu.menuKey);
+  return menuPermissionMap.filter((menu) => menu.permissions.some((permission) => isPermissionKey(permission) && permissions.has(permission))).map((menu) => menu.menuKey);
 }
 
 export function getEffectiveMenuKeysForSession(session?: PermissionSessionLike | null): string[] {

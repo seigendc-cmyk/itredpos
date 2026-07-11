@@ -978,7 +978,7 @@ export async function completeSale(input: CompleteSaleInput): Promise<CompleteSa
       await createCustomerCreditApprovalRequest({
         customerName,
         requestedBy: text(session.staffName, session.staffId),
-        requestedByRole: input.permissions.role || session.role,
+        requestedByRole: normalizeOperationalRole(input.permissions.role || session.role),
         approvalType: input.customer.creditDecision.reasonList.some((reason) => reason.toLowerCase().includes('overdue')) ? 'OVERDUE_CUSTOMER_OVERRIDE' : 'CREDIT_SALE_OVERRIDE',
         branchId: session.branchId,
         branch: text(session.branch, session.branchId),
@@ -1137,3 +1137,4 @@ export async function createSaleReturn(input: SaleReturnInput): Promise<{ return
   }], 'returnId');
   return { returnId, restoredMovements, cashRefund };
 }
+import { normalizeOperationalRole } from '../auth/roleNormalization';

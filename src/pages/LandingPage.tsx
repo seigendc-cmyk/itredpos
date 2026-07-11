@@ -1,7 +1,6 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { signInWithGooglePlaceholder } from '../pos-new/auth/firebaseAuthShell';
-import { createUserIfNotExists } from '../services/userService';
 
 export default function LandingPage() {
   const navigate = useNavigate();
@@ -15,13 +14,10 @@ export default function LandingPage() {
       return;
     }
     const { uid, email } = result.profile;
-    // Create user doc with appropriate role
-    const role = await createUserIfNotExists(uid, email ?? '', isSignUp);
-    if (role === 'owner') {
-      navigate('/owner');
-    } else {
-      navigate('/staff');
-    }
+    void uid;
+    void email;
+    void isSignUp;
+    navigate('/pos-prototype');
   };
 
   return (

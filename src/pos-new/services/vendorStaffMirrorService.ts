@@ -142,7 +142,7 @@ async function writeBusinessUserAudit(
   vendorId: string,
   uid: string,
   action: string,
-  role: VendorBusinessUserRole
+  details: { role?: VendorBusinessUserRole; status?: VendorBusinessUserStatus }
 ): Promise<void> {
   try {
     await writeAuditLog({
@@ -152,7 +152,7 @@ async function writeBusinessUserAudit(
       action,
       entityType: 'businessUser',
       entityId: `${vendorId}/${uid}`,
-      after: { role }
+      after: details
     });
   } catch {
     // Audit is best-effort; mirror writes must not fail because of audit issues.
@@ -185,7 +185,7 @@ export async function upsertVendorBusinessUserMirror(
   });
 
   await setDoc(ref, normalized, { merge: true });
-  await writeBusinessUserAudit(input.vendorId, input.uid, 'BUSINESS_USER_MIRROR_UPSERTED', normalized.role);
+  await writeBusinessUserAudit(input.vendorId, input.uid, 'BUSINESS_USER_MIRROR_UPSERTED', { role: normalized.role, status: normalized.status });
   return normalized;
 }
 
@@ -202,7 +202,7 @@ export async function disableVendorBusinessUserMirror(
   const ref = doc(db, 'vendors', vendorId, 'businessUsers', uid);
   const now = new Date().toISOString();
   await setDoc(ref, { status: 'inactive', updatedAt: now, updatedBy: updatedBy ?? uid }, { merge: true });
-  await writeBusinessUserAudit(vendorId, uid, 'BUSINESS_USER_MIRROR_DISABLED', 'inactive');
+  await writeBusinessUserAudit(vendorId, uid, 'BUSINESS_USER_MIRROR_DISABLED', { status: 'inactive' });
 }
 
 /** Soft remove: status: removed + removedAt. No physical delete (per spec). */
@@ -222,7 +222,7 @@ export async function removeVendorBusinessUserMirror(
     { status: 'removed', removedAt: now, updatedAt: now, updatedBy: updatedBy ?? uid },
     { merge: true }
   );
-  await writeBusinessUserAudit(vendorId, uid, 'BUSINESS_USER_MIRROR_REMOVED', 'removed');
+  await writeBusinessUserAudit(vendorId, uid, 'BUSINESS_USER_MIRROR_REMOVED', { status: 'removed' });
 }
 
 /** Reads the mirror document, or null if it does not exist. */

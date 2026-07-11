@@ -541,7 +541,17 @@ export type PosAction =
   | 'STOCKTAKE'
   | 'OWNER_FINANCIAL_EXPORT';
 
-const ALL_PERMISSIONS: PermissionKey[] = securityRightsCatalog.map(right => right.permissionKey as PermissionKey);
+const canonicalPermissionKeys = new Set(securityRightsCatalog.map((right) => right.permissionKey));
+
+export function isPermissionKey(value: unknown): value is PermissionKey {
+  return typeof value === 'string' && canonicalPermissionKeys.has(value);
+}
+
+export function validatePermissionKeys(values: readonly unknown[] | null | undefined): PermissionKey[] {
+  return (values || []).filter(isPermissionKey);
+}
+
+const ALL_PERMISSIONS: PermissionKey[] = validatePermissionKeys(securityRightsCatalog.map((right) => right.permissionKey));
 
 const ROLE_MENUS: Record<Role, PosPageId[]> = {
   Owner: ['DASHBOARD', 'OWNER_DESK', 'SALES', 'SALES_HISTORY', 'CUSTOMER_CENTRE', 'DELIVERY', 'STOCK', 'PURCHASE_DISCIPLINE', 'CREDITORS', 'TASK_DESK', 'APPROVALS', 'SHIFT', 'CASH', 'FINANCIAL_CONTROL', 'REPORTS', 'BI_DESK', 'SYNC_DESK', 'HELP_DESK', 'SETTINGS'],

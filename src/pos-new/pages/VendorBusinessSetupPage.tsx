@@ -1,8 +1,8 @@
 import { useState } from "react";
 import {
   readPosAuthContext,
-  resolveNextAuthStage,
-  savePosAuthContext
+  savePosAuthContext,
+  type PosVendorAuthContext
 } from "../auth/posVendorAuthState";
 import {
   VendorBootstrapProfile,
@@ -289,11 +289,18 @@ function persistVendorRuntimeState(
 }
 
 export default function VendorBusinessSetupPage() {
+  const authenticatedGoogleContext = readPosAuthContext();
+  const hasAuthenticatedGoogleContext = Boolean(
+    authenticatedGoogleContext?.googleUid && authenticatedGoogleContext.googleEmail
+  );
+  const googleContextError = hasAuthenticatedGoogleContext
+    ? null
+    : "Your authenticated Google session is required before business setup.";
+
   const [profile, setProfile] = useState<VendorBootstrapProfile>(() => {
     const defaultProfile = createEmptyVendorBootstrap();
-    const existing = readPosAuthContext();
-    if (existing?.googleEmail) {
-      defaultProfile.ownerEmail = existing.googleEmail;
+    if (authenticatedGoogleContext?.googleEmail) {
+      defaultProfile.ownerEmail = authenticatedGoogleContext.googleEmail;
     }
     return defaultProfile;
   });
@@ -313,6 +320,9 @@ export default function VendorBusinessSetupPage() {
 
   async function handleSaveProfile() {
     if (isSaving) return;
+    const existing = readPosAuthContext();
+    if (!existing?.googleUid || !existing.googleEmail) return;
+
     const missing: string[] = [];
 
     // Business Details
@@ -347,8 +357,6 @@ export default function VendorBusinessSetupPage() {
       return;
     }
 
-    const existing = readPosAuthContext();
-
     setIsSaving(true);
 
     const vendorId = sanitizeDocId(
@@ -364,11 +372,11 @@ export default function VendorBusinessSetupPage() {
     const warehouseId = `${vendorId}_main_warehouse`;
     const staffId = `${vendorId}_owner`;
 
-    const nextContext = {
-      ...(existing || {}),
+    const nextContext: PosVendorAuthContext = {
+      ...existing,
       stage: "staffAccessRequired" as const,
-      googleUid: existing?.googleUid || `demo-google-${Date.now()}`,
-      googleEmail: profile.ownerEmail || existing?.googleEmail || "owner@example.com",
+      googleUid: existing.googleUid,
+      googleEmail: existing.googleEmail,
       vendorId,
       vendorName: clean(profile.businessName),
       branchId,
@@ -381,8 +389,6 @@ export default function VendorBusinessSetupPage() {
       consoleProvisioningError: "",
       message: "Business profile created. POS workspace is ready."
     };
-
-    nextContext.stage = resolveNextAuthStage(nextContext);
 
     persistVendorRuntimeState(profile, vendorId, "PendingSync");
     savePosAuthContext(nextContext);
@@ -401,7 +407,7 @@ export default function VendorBusinessSetupPage() {
       };
     }
 
-    const finalContext = {
+    const finalContext: PosVendorAuthContext = {
       ...nextContext,
       vendorId: provisioningResult.vendorId,
       syncStatus: provisioningResult.syncStatus,
@@ -411,8 +417,6 @@ export default function VendorBusinessSetupPage() {
         ? "Business profile created. Registration submitted for review."
         : "Business profile created. POS is ready; registration sync is pending."
     };
-    finalContext.stage = resolveNextAuthStage(finalContext);
-
     persistVendorRuntimeState(profile, provisioningResult.vendorId, provisioningResult.syncStatus, provisioningResult.error || "");
     savePosAuthContext(finalContext);
 
@@ -505,6 +509,12 @@ export default function VendorBusinessSetupPage() {
             <div className="h-4" />
           </div>
         </div>
+
+        {googleContextError && (
+          <div role="alert" className="mb-6 border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700">
+            {googleContextError}
+          </div>
+        )}
 
         {/* Section 1: Business Details */}
         <div className="mb-8">

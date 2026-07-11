@@ -147,7 +147,7 @@ export async function createPurchaseRequest(input: PurchaseRequestCreateInput): 
       branch: session.branchName,
       category: 'Purchase Order',
       requestedBy: session.staffName,
-      requestedByRole: session.role,
+      requestedByRole: normalizeOperationalRole(session.role),
       relatedRecord: request.requestId,
       amountOrValue: `USD ${validation.total.toFixed(2)}`,
       risk: input.priority === 'Urgent' ? 'High' : 'Medium',
@@ -184,3 +184,4 @@ export function markPurchaseRequestConverted(requestId: string, purchaseOrderId:
   }), currentSession.vendorId);
   return updated;
 }
+import { normalizeOperationalRole } from '../auth/roleNormalization';

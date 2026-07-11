@@ -34,6 +34,7 @@ import type {
 } from './tenantResolutionTypes';
 import { createPOSSessionFromActivation, savePOSSession, type POSActivationRecord } from './posActivationService';
 import type { POSActivationSnapshotLocal } from './posActivationCodeService';
+import { readLegacyStaffPinCredential } from './staffCredentialCompatibility';
 
 const SESSION_KEY = 'itred_pos_tenant_session';
 const ACTIVITY_KEY = 'itred_pos_auth_activity';
@@ -528,7 +529,7 @@ export function verifyStaffPinForMappedStaff(staffId: string, pin?: string): boo
   }
 
   const enteredPin = String(pin || '').trim();
-  const expectedPin = String(staff.pin || staff.defaultPin || '').trim();
+  const expectedPin = readLegacyStaffPinCredential(staff)?.pin || '';
   const verified = expectedPin.length > 0 && enteredPin === expectedPin;
 
   recordAuthActivity({
