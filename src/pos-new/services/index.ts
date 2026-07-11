@@ -26,7 +26,17 @@ export * from './supplierAccountService';
 export * from './supplierAgeingService';
 export * from './creditorPositionService';
 export * from './supplierPaymentScheduleService';
-export * from './supplierPaymentService';
+export {
+  SUPPLIER_PAYMENTS_COLLECTION,
+  type SupplierCanonicalPaymentMethod,
+  type SupplierPaymentAllocationMode,
+  type SupplierPaymentApprovalStatus,
+  type SupplierCanonicalPayment,
+  type SupplierBankbookPaymentEntry,
+  getCanonicalSupplierPayments,
+  recordSupplierPayment
+} from './supplierPaymentService';
+export { BANKBOOK_ENTRIES_COLLECTION as BANKBOOK_ENTRIES_COLLECTION_PAYMENT_SERVICE } from './supplierPaymentService';
 export * from './supplierStatementService';
 export * from './supplierReconciliationService';
 export * from './supplierDisputeService';
@@ -62,9 +72,87 @@ export {
   postLedgerMovement,
   validateInventoryLedgerMovement
 } from './inventoryLedgerService';
-export * from './stockBalanceService';
-export * from './stockHealthService';
-export * from './inventoryReportService';
+export {
+  calculateAvailableQty,
+  getStockBalances,
+  getStockBalanceByProduct,
+  getStockBalanceByLocation,
+  calculateTotalProductStock,
+  getProductStockBalanceSummary,
+  adjustStockBalancePlaceholder,
+  reserveStock,
+  releaseReservedStock,
+  moveToDamagedHolding,
+  moveToReturnHolding,
+  updateStockBalanceFromMovement,
+  transferStockBalancePlaceholder,
+  exportStockBalancesPlaceholder,
+  getLowStockBalances,
+  getOutOfStockBalances,
+  getReorderRequiredBalances
+} from './stockBalanceService';
+export { getProductStockBalances as getStockBalanceRows, getProductTotalAvailableStock as getTotalAvailableStock } from './stockBalanceService';
+export { classifyMovementSpeed, getRecommendedStockAction, getStockHealthRows as getStockHealthRowsFromService, getStockHealthSummary, evaluateStockHealth } from './stockHealthService';
+export {
+  getStockValuationReport,
+  getMovementSummaryReport,
+  getMovementSummaryReportTotals,
+  getShelfLocationReport,
+  getCOAInventoryReport,
+  getSupplierStockReport,
+  getInventoryReportSummary,
+  getStockHealthRowsForReports,
+  getLowStockReport,
+  getOutOfStockReport,
+  getDeadStockReport,
+  getSlowMovingReport,
+  getFastMovingReport,
+  getOverstockReport,
+  getStockValueReport,
+  getVarianceRiskReport,
+  getReorderRecommendations,
+  getSupplierPerformanceReport,
+  getGRNDelayReport,
+  getTransferDelayReport,
+  getDamagedHoldingReport,
+  getReturnHoldingReport,
+  getStockMovementAuditReport,
+  getInventoryRecommendations,
+  createPORecommendationPlaceholder,
+  createStocktakeRecommendationPlaceholder,
+  createTransferRecommendationPlaceholder,
+  markRecommendationReviewed,
+  getInventoryReportActivityEvents,
+  exportInventoryReportPlaceholder,
+  getInventoryReportDefinitions,
+  getInventoryReportDefinition,
+  getInventoryReportDefaultFilters,
+  generateInventoryReport,
+  generateStockOnHandReport,
+  generateLowStockReport,
+  generateOutOfStockReport,
+  generateDeadStockReport,
+  generateSlowMovingReport,
+  generateFastMovingReport,
+  generateStockValuationReport,
+  generateInventoryMovementReport,
+  generateProductLedgerReport,
+  generateStockAdjustmentReport,
+  generateStocktakeVarianceReport,
+  generateGoodsReceivedReport,
+  generateSupplierReturnsReport,
+  generateStockTransferReport,
+  generateDamagedHoldingReport,
+  generateReorderReport,
+  generateInventoryRiskReport,
+  generateProductMasterExportReport,
+  prepareInventoryReportPrintPayload,
+  recordInventoryReportSelected,
+  markInventoryReportPrintedPlaceholder,
+  prepareInventoryReportPdfPlaceholder,
+  exportInventoryReportCsvPlaceholder
+} from './inventoryReportService';
+export { getStockHealthRows as getInventoryReportStockHealthRows } from './inventoryReportService';
 export * from './inventoryAccountingService';
 export * from './stockReservationService';
 export * from './stockLossService';

@@ -851,7 +851,7 @@ export default function PurchaseOrderForm({
                   <FormInput label="PO Date" type="date" value={poDate} onChange={setPoDate} />
                   <FormSelect label="Priority" value={priority} options={priorities} onChange={(value) => setPriority(value as PurchaseOrderPriority)} />
                   <FormSelect label="Source" value={source} options={sources} onChange={(value) => setSource(value as PurchaseOrderSource)} />
-                  <FormInput label="Status" value={status} readOnly onChange={setStatus} />
+                  <FormInput label="Status" value={status} readOnly onChange={() => undefined} />
                   <FormInput label="Requested By" value={staffName} readOnly onChange={() => undefined} />
                   <FormInput label="Expected Delivery Date" type="date" value={expectedDeliveryDate} onChange={setExpectedDeliveryDate} />
                   <FormInput label="Currency" value={currency} onChange={(value) => setCurrency(value.toUpperCase())} />

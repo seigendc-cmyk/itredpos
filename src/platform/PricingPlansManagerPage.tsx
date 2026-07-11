@@ -8,7 +8,8 @@ import {
 } from './pricingPlansService';
 import type {
   PricingPlanRecord,
-  PlanCode
+  PlanCode,
+  PlanLimits
 } from '../shared/backend';
 import {
   Layers,
@@ -223,7 +224,7 @@ export default function PricingPlansManagerPage() {
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {plans.map(plan => {
               const features = plan.featureFlags || {};
-              const limits = plan.limits || {};
+              const limits: PlanLimits = plan.limits || { maxBranches: 0, maxWarehouses: 0, maxTerminals: 0, maxStaff: 0, maxProducts: 0 };
 
               return (
                 <div key={plan.planCode} className="bg-white rounded-2xl border border-gray-150 shadow-[0_4px_20px_rgb(0,0,0,0.015)] hover:shadow-[0_8px_30px_rgb(0,0,0,0.03)] transition-all overflow-hidden flex flex-col justify-between">

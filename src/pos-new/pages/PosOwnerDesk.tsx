@@ -1361,7 +1361,7 @@ export default function PosOwnerDesk({ session }: PosOwnerDeskProps) {
 
       {activeTab === 'EOD Reconciliation' && (
         <div className="space-y-5">
-          <Filters branch={branch} setBranch={setBranch} dateFrom={dateFrom} setDateFrom={setDateFrom} dateTo={dateTo} setDateTo={setDateTo} />
+          <Filters branch={branch} setBranch={setBranch} dateFrom={dateFrom} setDateFrom={setDateFrom} dateTo={dateTo} setDateTo={setDateTo} vendorName={vendorName} />
           <MetricGrid metrics={eodMetrics} />
           <Panel title="EOD Readiness Checklist" icon={<ClipboardCheck className="w-4 h-4 text-orange-500" />}>
             <OwnerDeskFilterBar
@@ -1419,7 +1419,7 @@ export default function PosOwnerDesk({ session }: PosOwnerDeskProps) {
 
       {activeTab === 'Payment Summary' && (
         <div className="space-y-5">
-          <PaymentFilters branch={branch} setBranch={setBranch} terminal={terminal} setTerminal={setTerminal} cashier={cashier} setCashier={setCashier} dateFrom={dateFrom} setDateFrom={setDateFrom} dateTo={dateTo} setDateTo={setDateTo} paymentMode={paymentMode} setPaymentMode={setPaymentMode} />
+          <PaymentFilters branch={branch} setBranch={setBranch} terminal={terminal} setTerminal={setTerminal} cashier={cashier} setCashier={setCashier} dateFrom={dateFrom} setDateFrom={setDateFrom} dateTo={dateTo} setDateTo={setDateTo} paymentMode={paymentMode} setPaymentMode={setPaymentMode} vendorName={vendorName} />
           <MetricGrid metrics={[
             ['Cash', money(750)], ['EcoCash', money(320)], ['Swipe', money(215)], ['Bank Transfer', money(460)], ['Split Payment', money(200)], ['Credit Sale', money(90)], ['Store Credit', money(42)], ['Refunds', money(10)], ['Net Receipts', money(1227)]
           ]} />
@@ -1690,18 +1690,18 @@ export default function PosOwnerDesk({ session }: PosOwnerDeskProps) {
 
           {activeAccountingTab === 'Sales Posting' && (
             <div className="space-y-5">
-              <AccountingFilters branch={branch} setBranch={setBranch} terminal={terminal} setTerminal={setTerminal} cashier={cashier} setCashier={setCashier} dateFrom={dateFrom} setDateFrom={setDateFrom} dateTo={dateTo} setDateTo={setDateTo} />
+              <AccountingFilters branch={branch} setBranch={setBranch} terminal={terminal} setTerminal={setTerminal} cashier={cashier} setCashier={setCashier} dateFrom={dateFrom} setDateFrom={setDateFrom} dateTo={dateTo} setDateTo={setDateTo} vendorName={vendorName} />
               <div className="grid grid-cols-1 md:grid-cols-4 gap-2">
                 <Select label="Sales Account" value={salesAccount} onChange={setSalesAccount} options={['All Sales Accounts', '4000', '4010', '4020', '9000']} />
                 <ActionButton icon={<Download className="w-4 h-4" />} onClick={() => handleAccountingExport('Sales Posting')}>Export Sales Posting</ActionButton>
               </div>
               <MetricGrid metrics={[
-                ['Gross Sales', money(sum(salesAccountingRows, 'grossSale'))],
-                ['Discounts', money(sum(salesAccountingRows, 'discount'))],
+                ['Gross Sales', money(sum(salesAccountingRows, (row) => row.grossSale))],
+                ['Discounts', money(sum(salesAccountingRows, (row) => row.discount))],
                 ['Refunds', money(10)],
                 ['Voids', '1'],
-                ['Net Sales', money(sum(salesAccountingRows, 'netSale'))],
-                ['VAT Output Control', money(sum(salesAccountingRows, 'vat'))],
+                ['Net Sales', money(sum(salesAccountingRows, (row) => row.netSale))],
+                ['VAT Output Control', money(sum(salesAccountingRows, (row) => row.vat))],
                 ['COGS Readiness', money(164.5)],
                 ['Gross Profit Preview', money(1062.5)]
               ]} />
@@ -1819,11 +1819,11 @@ export default function PosOwnerDesk({ session }: PosOwnerDeskProps) {
                 <Select label="VAT Mode" value={vatMode} onChange={setVATMode} options={vatModes} />
               </div>
               <MetricGrid metrics={[
-                ['Gross VATable Sales', money(sum(vatRows, 'vatableAmount'))],
-                ['VAT Output Control', money(sum(vatRows, 'vatAmount'))],
+                ['Gross VATable Sales', money(sum(vatRows, (row) => row.vatableAmount))],
+                ['VAT Output Control', money(sum(vatRows, (row) => row.vatAmount))],
                 ['Non-VAT Sales', money(0)],
                 ['Refund VAT Impact', money(10.5)],
-                ['Net VAT Output Preview', money(Math.max(sum(vatRows, 'vatAmount') - 10.5, 0))],
+                ['Net VAT Output Preview', money(Math.max(sum(vatRows, (row) => row.vatAmount) - 10.5, 0))],
                 ['VAT Registration Status', 'Tax-ready preview']
               ]} />
               <Panel title="VAT Summary" icon={<ShieldAlert className="w-4 h-4 text-orange-500" />}>
@@ -1848,11 +1848,11 @@ export default function PosOwnerDesk({ session }: PosOwnerDeskProps) {
             <div className="space-y-5">
               <MetricGrid metrics={[
                 ['Net Sales', money(1227)],
-                ['Estimated COGS', money(sum(cogsRows, 'estimatedCOGS'))],
-                ['Suggested COGS Reserve', money(sum(cogsRows, 'suggestedReserve'))],
+                ['Estimated COGS', money(sum(cogsRows, (row) => row.estimatedCOGS))],
+                ['Suggested COGS Reserve', money(sum(cogsRows, (row) => row.suggestedReserve))],
                 ['Reserve Used Preview', money(0)],
                 ['Reserve Misuse Risk', cogsRows.filter((row) => row.reserveStatus === 'Misuse Risk').length.toString()],
-                ['Available Reserve Preview', money(sum(cogsRows, 'suggestedReserve'))]
+                ['Available Reserve Preview', money(sum(cogsRows, (row) => row.suggestedReserve))]
               ]} />
               <Panel title="COGS Reserve Control" icon={<PackageCheck className="w-4 h-4 text-orange-500" />}>
                 <Table>
@@ -2144,7 +2144,7 @@ export default function PosOwnerDesk({ session }: PosOwnerDeskProps) {
   );
 }
 
-function Filters({ branch, setBranch, dateFrom, setDateFrom, dateTo, setDateTo }: { branch: string; setBranch: (value: string) => void; dateFrom: string; setDateFrom: (value: string) => void; dateTo: string; setDateTo: (value: string) => void }) {
+function Filters({ branch, setBranch, dateFrom, setDateFrom, dateTo, setDateTo, vendorName }: { branch: string; setBranch: (value: string) => void; dateFrom: string; setDateFrom: (value: string) => void; dateTo: string; setDateTo: (value: string) => void; vendorName: string }) {
   return (
     <div className="bg-white border-2 border-[#b1b5c2] p-3 grid grid-cols-1 md:grid-cols-4 gap-2">
       <InfoBox label="Business / Vendor" value={vendorName} />
@@ -2158,10 +2158,11 @@ function Filters({ branch, setBranch, dateFrom, setDateFrom, dateTo, setDateTo }
 function PaymentFilters(props: {
   branch: string; setBranch: (value: string) => void; terminal: string; setTerminal: (value: string) => void; cashier: string; setCashier: (value: string) => void;
   dateFrom: string; setDateFrom: (value: string) => void; dateTo: string; setDateTo: (value: string) => void; paymentMode: PaymentMode | 'All'; setPaymentMode: (value: PaymentMode | 'All') => void;
+  vendorName: string;
 }) {
   return (
     <div className="bg-white border-2 border-[#b1b5c2] p-3 grid grid-cols-1 md:grid-cols-4 xl:grid-cols-7 gap-2">
-      <InfoBox label="Business / Vendor" value={vendorName} />
+      <InfoBox label="Business / Vendor" value={props.vendorName} />
       <Select label="Branch" value={props.branch} onChange={props.setBranch} options={branches} />
       <Select label="Terminal" value={props.terminal} onChange={props.setTerminal} options={terminals} />
       <Select label="Cashier" value={props.cashier} onChange={props.setCashier} options={cashiers} />
@@ -2187,10 +2188,11 @@ function CashFilters({ branch, setBranch, terminal, setTerminal, cashier, setCas
 function AccountingFilters(props: {
   branch: string; setBranch: (value: string) => void; terminal: string; setTerminal: (value: string) => void; cashier: string; setCashier: (value: string) => void;
   dateFrom: string; setDateFrom: (value: string) => void; dateTo: string; setDateTo: (value: string) => void;
+  vendorName: string;
 }) {
   return (
     <div className="bg-white border-2 border-[#b1b5c2] p-3 grid grid-cols-1 md:grid-cols-4 xl:grid-cols-6 gap-2">
-      <InfoBox label="Business / Vendor" value={vendorName} />
+      <InfoBox label="Business / Vendor" value={props.vendorName} />
       <Select label="Branch" value={props.branch} onChange={props.setBranch} options={branches} />
       <Select label="Terminal" value={props.terminal} onChange={props.setTerminal} options={terminals} />
       <Select label="Cashier" value={props.cashier} onChange={props.setCashier} options={cashiers} />
@@ -3634,6 +3636,6 @@ function toOwnerDeskRole(value?: string): Role {
   return validRoles.find(r => r === value) || 'Viewer';
 }
 
-function sum<T extends Record<string, unknown>>(rows: T[], key: keyof T): number {
-  return rows.reduce((total, row) => total + (typeof row[key] === 'number' ? row[key] : 0), 0);
+function sum<T>(rows: T[], getValue: (row: T) => number): number {
+  return rows.reduce((total, row) => total + getValue(row), 0);
 }

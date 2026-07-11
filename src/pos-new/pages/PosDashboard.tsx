@@ -308,7 +308,15 @@ export default function PosDashboard({
 
   const scopedCashLogs = useMemo(() => cashLogs.filter((log) => inRange(log.timestamp, dateRange.from, dateRange.to)), [cashLogs, dateRange.from, dateRange.to]);
 
-  const productById = useMemo(() => new Map(scopedProducts.flatMap((product) => [[product.id, product], [product.code, product], [product.sku || '', product]]).filter(([key]) => key)), [scopedProducts]);
+  const productById = useMemo(() => {
+    const entries: [string, Product][] = scopedProducts.flatMap((product) => {
+      const key1: [string, Product] = [product.id, product];
+      const key2: [string, Product] = [product.code, product];
+      const key3: [string, Product] = [product.sku || '', product];
+      return [key1, key2, key3];
+    }).filter(([key]) => key);
+    return new Map<string, Product>(entries);
+  }, [scopedProducts]);
 
   const trading = useMemo(() => summarizeTrading(scopedTransactions, productById), [productById, scopedTransactions]);
   const priorTrading = useMemo(() => summarizeTrading(priorTransactions, productById), [priorTransactions, productById]);
@@ -563,7 +571,12 @@ function summarizeTrading(rows: Transaction[], productById: Map<string, Product>
 }
 
 function summarizePerformance(rows: Transaction[], products: Product[]) {
-  const productMap = new Map(products.flatMap((product) => [[product.id, product], [product.code, product], [product.sku || '', product]]).filter(([key]) => key));
+  const productMap = new Map<string, Product>(products.flatMap((product) => {
+    const key1: [string, Product] = [product.id, product];
+    const key2: [string, Product] = [product.code, product];
+    const key3: [string, Product] = [product.sku || '', product];
+    return [key1, key2, key3];
+  }).filter(([key]) => key));
   const productSales = new Map<string, { name: string; qty: number; value: number }>();
   const categorySales = new Map<string, number>();
 
@@ -600,7 +613,7 @@ function summarizePerformance(rows: Transaction[], products: Product[]) {
 
 function summarizeCustomers(customers: CustomerRecord[], summary: CustomerSummary | null, debts: CustomerDebtRecord[], transactions: Transaction[], range: { from: Date; to: Date }) {
   const newToday = customers.filter((customer) => inRange(customer.createdAt, range.from, range.to)).length;
-  const creditCustomers = customers.filter((customer) => customer.creditStatus !== 'Cash Only' && customer.creditStatus !== 'Credit Blocked').length;
+  const creditCustomers = customers.filter((customer) => customer.creditStatus !== 'Cash Only' && customer.creditStatus !== 'Blocked').length;
   const outstandingBalance = debts.reduce((sum, debt) => sum + Math.max(0, debt.outstandingAmount || 0), 0);
   const overdueAccounts = new Set(debts.filter((debt) => debt.overdueDays > 0 && debt.outstandingAmount > 0).map((debt) => debt.customerId)).size;
   const returning = summary?.repeatCustomers ?? new Set(transactions.map((row) => row.customerId).filter(Boolean)).size;

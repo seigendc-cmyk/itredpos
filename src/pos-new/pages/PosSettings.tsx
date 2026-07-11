@@ -319,7 +319,7 @@ export default function PosSettings({
   activeRole,
   planAccess
 }: PosSettingsProps) {
-  const activeVendorId = businessProfile.vendorId || getActiveVendorId() || '';
+  const activeVendorId = getActiveVendorId();
   const [activeSection, setActiveSection] = useState<SettingsSectionId>('BUSINESS_INFORMATION');
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [profileForm, setProfileForm] = useState<BusinessProfile>({ ...businessProfile });
@@ -1083,13 +1083,13 @@ export default function PosSettings({
               <SectionHeader icon={Cpu} title="Hardware" badge="Equipment" />
               <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
                 {[
-                  ['Receipt Printer', 'Not Connected', Printer],
-                  ['Barcode Scanner', hardwareForm.laserFocus ? 'Connected' : 'Needs Setup', Cpu],
-                  ['Cash Drawer', hardwareForm.drawerSignal ? 'Connected' : 'Needs Setup', HardDrive],
-                  ['Scale', 'Needs Setup', Package]
-                ].map(([name, status, Icon]) => (
+                  { name: 'Receipt Printer', status: 'Not Connected', Icon: Printer },
+                  { name: 'Barcode Scanner', status: hardwareForm.laserFocus ? 'Connected' : 'Needs Setup', Icon: Cpu },
+                  { name: 'Cash Drawer', status: hardwareForm.drawerSignal ? 'Connected' : 'Needs Setup', Icon: HardDrive },
+                  { name: 'Scale', status: 'Needs Setup', Icon: Package }
+                ].map(({ name, status, Icon }: { name: string; status: string; Icon: React.ElementType }) => (
                   <div key={String(name)} className="settings-panel">
-                    {React.createElement(Icon as React.ElementType, { className: 'h-5 w-5 text-orange-600' })}
+                    <Icon className="h-5 w-5 text-orange-600" />
                     <h3 className="mt-3 text-sm font-black uppercase">{name}</h3>
                     <div className="mt-2"><StatusBadge value={String(status)} /></div>
                     <div className="mt-3 flex flex-wrap gap-2">

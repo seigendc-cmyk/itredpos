@@ -122,6 +122,7 @@ import {
   getDeadStockReport,
   getFastMovingReport,
   getGRNDelayReport,
+  getTransferDelayReport,
   getInventoryRecommendations,
   getInventoryReportSummary,
   getLowStockReport,
@@ -223,6 +224,26 @@ const INVENTORY_GROUPS: Array<{ group: InventoryGroup; tabs: StockTab[] }> = [
 const INDUSTRIAL_SECTORS = ['General Stock', 'Mining Supplies', 'Retail FMCG', 'Agriculture', 'Hardware'] as const;
 const PRODUCT_SUB_CATEGORIES = ['Suspension', 'Braking', 'Cooling', 'Electrical', 'Lubricants', 'Fasteners'] as const;
 
+// Narrow role resolver: verifies the session role against the allowed Role union,
+// maps known equivalent role names, and falls back conservatively for the Stock desk.
+const ALLOWED_ROLES: Role[] = ['Owner', 'SysAdmin', 'Manager', 'Cashier', 'Stock Controller', 'Supervisor', 'Delivery Staff', 'Accountant', 'Viewer'];
+const FALLBACK_ROLE: Role = 'Stock Controller';
+const ROLE_EQUIVALENTS: Record<string, Role> = {
+  StockController: 'Stock Controller',
+  DeliveryStaff: 'Delivery Staff',
+  VendorOwner: 'Owner',
+  VendorAdmin: 'Manager',
+  Accountant: 'Accountant'
+};
+
+function resolveSessionRole(role?: Role | string | null): Role {
+  if (!role) return FALLBACK_ROLE;
+  if ((ALLOWED_ROLES as string[]).includes(role)) return role as Role;
+  const mapped = ROLE_EQUIVALENTS[role];
+  if (mapped) return mapped;
+  return FALLBACK_ROLE;
+}
+
 const DEFAULT_STOCK_ITEMS: StockProduct[] = ENABLE_MOCK_SEED_DATA ? mockProducts.map((p, index) => {
   let stockStatus: 'In Stock' | 'Low Stock' | 'Out of Stock' | 'Dead Stock' | 'Variance Risk' | 'Fast Moving' | 'Slow Moving' = 'In Stock';
   let riskLevel: 'Low' | 'Medium' | 'High' | 'Critical' = 'Low';
@@ -317,7 +338,7 @@ export default function PosStock({
   const [openRowActionMenuId, setOpenRowActionMenuId] = useState<string | null>(null);
   
   // Simulated access role clearance override
-  const [simulatedRole, setSimulatedRole] = useState<Role>(session?.role || 'Stock Controller');
+  const [simulatedRole, setSimulatedRole] = useState<Role>(resolveSessionRole(session?.role));
   const [productImportBatches, setProductImportBatches] = useState<ProductImportBatch[]>([]);
   const [productImportRows, setProductImportRows] = useState<ProductImportRow[]>([]);
   const [productImportMappings, setProductImportMappings] = useState<ProductImportColumnMapping[]>([]);
@@ -383,7 +404,7 @@ export default function PosStock({
           prepareImportPreview(activeBatchId),
           getOpeningBalanceDrafts(activeBatchId)
         ])
-      : [[], [], null, []] as const;
+      : [ [] as ProductImportRow[], [] as ProductImportColumnMapping[], null, [] as OpeningBalanceDraftFromImport[] ];
     setProductImportBatches(batchRows);
     setProductImportTemplates(templates);
     setProductImportActivity(activityRows);
@@ -700,7 +721,7 @@ export default function PosStock({
   }, [localStock]);
 
   const suppliers = useMemo(() => {
-    const list = new Set(localStock.map(p => p.supplierName || p.supplier).filter(Boolean));
+    const list = new Set(localStock.map(p => p.supplierName).filter(Boolean));
     return ['ALL', ...Array.from(list)] as string[];
   }, [localStock]);
 
@@ -744,7 +765,7 @@ export default function PosStock({
         const matchesCategory = selectedCategory === 'ALL' || (item.productCategory || item.category) === selectedCategory;
         const matchesSector = selectedSector === 'ALL' || item.industrialSector === selectedSector;
         const matchesShelf = selectedShelf === 'ALL' || item.shelfLocation === selectedShelf;
-        const matchesSupplier = selectedSupplier === 'ALL' || (item.supplierName || item.supplier) === selectedSupplier;
+        const matchesSupplier = selectedSupplier === 'ALL' || (item.supplierName || '') === selectedSupplier;
         const matchesStatus = selectedStatus === 'ALL' || item.stockStatus === selectedStatus;
 
         return matchesSearch && matchesBranch && matchesWarehouse && matchesCategory && matchesSector && matchesShelf && matchesSupplier && matchesStatus;
@@ -948,7 +969,7 @@ export default function PosStock({
   };
 
   const getProductListActionItems = (product: StockProduct): RowActionMenuItem[] => {
-    const role = simulatedRole || (session?.role as Role) || 'Owner';
+    const role = simulatedRole || resolveSessionRole(session?.role);
     const blocked = 'You do not have permission to perform this action.';
     const canUse = (permissionKey: string) => roleHasEffectivePermission(String(role), permissionKey);
     const items: RowActionMenuItem[] = [
@@ -979,7 +1000,7 @@ export default function PosStock({
   };
 
   const getStockListActionItems = (product: StockProduct): RowActionMenuItem[] => {
-    const role = simulatedRole || (session?.role as Role) || 'Owner';
+    const role = simulatedRole || resolveSessionRole(session?.role);
     const canUse = (permissionKey: string) => roleHasEffectivePermission(String(role), permissionKey);
     const items: RowActionMenuItem[] = [
       { label: 'View Item Detail', icon: <Package className="w-3.5 h-3.5" />, onClick: () => openPartSpectralPopup(product) },
@@ -1079,7 +1100,7 @@ export default function PosStock({
   };
 
   const handleInventoryMovementExport = async () => {
-    if (!canPerformAction((session?.role as Role) || 'Owner', 'inventoryMovements.export')) {
+    if (!canPerformAction(resolveSessionRole(session?.role), 'inventoryMovements.export')) {
       setReportNotice('You do not have permission to perform this action.');
       return;
     }
@@ -1088,7 +1109,7 @@ export default function PosStock({
   };
 
   const handleInventoryMovementRowExport = async (movement: InventoryMovement) => {
-    if (!canPerformAction((session?.role as Role) || 'Owner', 'inventoryMovements.export')) {
+    if (!canPerformAction(resolveSessionRole(session?.role), 'inventoryMovements.export')) {
       setReportNotice('You do not have permission to perform this action.');
       return;
     }
@@ -1243,16 +1264,6 @@ export default function PosStock({
   }, [activeTab, allInventoryMovements, localStock, stockHealthFilters]);
 
   useEffect(() => {
-    const getTransferDelayReport = async () => {
-    return {
-      status: "READY",
-      source: "Inventory report",
-      buildCode: "Runtime Repair Patch",
-      delayedTransfers: [],
-      summary: "Transfer delay report active.",
-    };
-  };
-
   const loadReports = async () => {
       setValuationRows(await getStockValuationReport(localStock, reportFilters));
       setMovementReportRows(await getMovementSummaryReport(localStock, allInventoryMovements, reportFilters));
@@ -1689,7 +1700,7 @@ export default function PosStock({
     product: p.productName || p.name,
     sector: p.industrialSector || 'General Stock',
     category: p.productCategory || p.category,
-    supplier: p.supplierName || p.supplier || '',
+    supplier: p.supplierName || '',
     branch: p.branch || 'Main Branch',
     warehouse: p.warehouse || 'Main Warehouse',
     shelf: p.shelfLocation || 'A1-S1',
@@ -2868,7 +2879,7 @@ export default function PosStock({
         <div className="bg-white border border-[#b1b5c2] p-4 flex flex-col justify-between h-[96px] border-l-4 border-l-red-650">
           <span className="text-[9.5px] text-red-600 font-black uppercase tracking-wider block">OUT OF STOCK</span>
           <div className="mt-2 flex justify-between items-baseline">
-            <span className="text-2xl font-black text-red-600 animate-pulse">{stats.outOfStockCountItems || stats.outOfStockItems}</span>
+            <span className="text-2xl font-black text-red-600 animate-pulse">{stats.outOfStockItems}</span>
             <span className="text-[8px] bg-red-100 text-red-700 font-bold px-1.5 py-0.2">CRITICAL</span>
           </div>
         </div>
@@ -3063,7 +3074,7 @@ export default function PosStock({
                         </td>
                         <td className="py-2 px-3 uppercase text-[9px] text-slate-500">
                           <div className="font-black text-slate-700">{p.brand || 'Unbranded'}</div>
-                          <div className="text-[8px]">{p.supplierName || p.supplier || 'N/A'}</div>
+                          <div className="text-[8px]">{p.supplierName || 'N/A'}</div>
                         </td>
                         <td className="py-2 px-3 whitespace-nowrap text-[9.5px]">
                           <div className="font-bold text-slate-700">{p.branch || 'Main Branch'}</div>

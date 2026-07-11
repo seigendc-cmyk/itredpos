@@ -29,9 +29,9 @@ export function downloadCsv(filename: string, csv: string): void {
 }
 
 export function exportRowsToCsv<T extends Record<string, unknown>>(filename: string, columns: CsvColumn<T>[], rows: T[]): void {
-  const csvRows = [
+  const csvRows: string[][] = [
     columns.map((column) => column.header),
-    ...rows.map((row) => columns.map((column) => row[column.key]))
+    ...rows.map((row) => columns.map((column) => String(row[column.key] ?? '')))
   ];
   downloadCsv(filename, buildCsvBlob(csvRows));
 }
