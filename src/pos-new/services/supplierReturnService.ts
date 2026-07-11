@@ -17,10 +17,13 @@ import {
 } from '../mock/mockPosData';
 import { createOperationalApproval } from './approvalService';
 import { getGoodsReceivingLines, getGoodsReceivingNoteById } from './goodsReceivingService';
-import { postSupplierReturnMovement } from './inventoryMovementService';
+import { returnStockToSupplier } from './inventorySyncService';
 import { loadInventoryMovements } from '../utils/localInventoryStore';
 import { getVendorDocumentIdentity } from '../vendor/vendorBootstrapModel';
 import { readVendorScopedList, writeVendorScopedList } from '../utils/vendorDataMode';
+import { calculateDocumentTax, getCachedVendorTaxSettings } from './vendorTaxSettingsService';
+import { recordSupplierAccountReturn } from './supplierAccountService';
+import { assertCanonicalPurchaseSession } from './purchaseSessionService';
 
 const RETURN_KEY = 'itred_pos_supplier_returns_v1';
 const RETURN_LINE_KEY = 'itred_pos_supplier_return_lines_v1';
@@ -63,6 +66,10 @@ function today(): string {
 
 function makeId(prefix: string): string {
   return `${prefix}-${Date.now()}-${Math.floor(1000 + Math.random() * 9000)}`;
+}
+
+function safeId(value: string): string {
+  return value.replace(/[^A-Za-z0-9_-]/g, '_');
 }
 
 function getReturns(): SupplierReturn[] {
@@ -195,8 +202,10 @@ export async function getSupplierReturnSummary(filters: SupplierReturnFilterStat
 }
 
 export async function createSupplierReturnFromGRN(grnId: string, staffId: string): Promise<SupplierReturn | null> {
+  const session = assertCanonicalPurchaseSession();
   const note = await getGoodsReceivingNoteById(grnId);
   if (!note) return null;
+  if (note.vendorId !== session.vendorId || note.branchId !== session.branchId || note.warehouseId !== session.warehouseId) return null;
 
   const grnLines = await getGoodsReceivingLines(grnId);
   const candidates = grnLines.filter((line) => line.qtyAccepted > 0 || line.qtyRejected > 0 || line.varianceType === 'Over' || line.varianceType === 'Damaged' || line.varianceType === 'Wrong Product');
@@ -216,8 +225,8 @@ export async function createSupplierReturnFromGRN(grnId: string, staffId: string
     poNumber: note.poNumber,
     grnId: note.grnId,
     grnNumber: note.grnNumber,
-    requestedByStaffId: staffId,
-    requestedByStaffName: staffId,
+    requestedByStaffId: session.staffId || staffId,
+    requestedByStaffName: session.staffName,
     returnDate: today(),
     status: 'Draft',
     reason: candidates.some((line) => line.qtyRejected > 0 || line.varianceType === 'Damaged') ? 'Damaged' : 'Wrong Product',
@@ -463,8 +472,10 @@ export async function approveSupplierReturn(supplierReturnId: string, staffId: s
 }
 
 export async function postSupplierReturn(supplierReturnId: string, staffId: string): Promise<SupplierReturnPostingResult | null> {
+  const session = assertCanonicalPurchaseSession();
   const record = await getSupplierReturnById(supplierReturnId);
   if (!record || (record.status !== 'Draft' && record.status !== 'Approved')) return null;
+  if (record.vendorId !== session.vendorId || record.branchId !== session.branchId || record.warehouseId !== session.warehouseId) return null;
   const lines = (await getSupplierReturnLines(supplierReturnId)).filter((line) => line.qtyReturnApproved > 0);
   if (lines.length === 0) {
     return {
@@ -480,13 +491,11 @@ export async function postSupplierReturn(supplierReturnId: string, staffId: stri
 
   const postedLines: SupplierReturnLine[] = [];
   const noStockImpactLines: SupplierReturnLine[] = [];
-  const movements = loadInventoryMovements();
 
   for (const line of lines) {
     if (line.stockWasPosted) {
-      const latestMovement = movements.find((movement) => movement.productId === line.productId && movement.status === 'Posted');
-      const balanceBefore = latestMovement?.balanceAfter ?? line.qtyAcceptedIntoStock;
-      await postSupplierReturnMovement({
+      await returnStockToSupplier({
+        movementId: safeId(`${record.vendorId}_PURCHASE_RETURN_${record.supplierReturnId}_${line.lineId}`),
         vendorId: record.vendorId,
         branchId: record.branchId,
         warehouseId: record.warehouseId,
@@ -494,20 +503,16 @@ export async function postSupplierReturn(supplierReturnId: string, staffId: stri
         sku: line.sku,
         productName: line.productName,
         shelfLocation: line.shelfLocation,
-        referenceNumber: record.supplierReturnNumber,
-        qtyIn: 0,
-        qtyOut: line.qtyReturnApproved,
-        balanceBefore,
-        balanceAfter: Math.max(balanceBefore - line.qtyReturnApproved, 0),
+        quantityOut: line.qtyReturnApproved,
         unitCost: line.unitCost,
         sellingPrice: 0,
-        staffId,
-        staffName: staffId,
-        movementDate: nowIso(),
-        notes: `Supplier Return ${record.supplierReturnNumber}: ${line.returnReason}. Pending accounting review only.`,
-        riskFlag: record.reason === 'Wrong Product' || record.reason === 'Damaged' ? 'Medium' : 'Low',
-        approvalRequired: false,
-        status: 'Posted'
+        staffId: session.staffId || staffId,
+        staffName: session.staffName,
+        terminalId: session.terminalId,
+        createdAt: nowIso(),
+        referenceType: 'PURCHASE_RETURN',
+        referenceId: record.supplierReturnId,
+        notes: `Purchase Return ${record.supplierReturnNumber}: ${line.returnReason}. VAT reversal and supplier credit evidence recorded separately.`
       });
       postedLines.push({ ...line, qtyPostedOut: line.qtyReturnApproved, lineStatus: 'Posted' });
       await recordActivity({
@@ -518,7 +523,7 @@ export async function postSupplierReturn(supplierReturnId: string, staffId: stri
         poId: record.poId,
         poNumber: record.poNumber,
         eventType: 'SUPPLIER_RETURN_POSTED_TO_STOCK',
-        operator: staffId,
+        operator: session.staffName,
         message: `${record.supplierReturnNumber} posted ${line.qtyReturnApproved} ${line.sku} out of stock.`
       });
     } else {
@@ -531,10 +536,26 @@ export async function postSupplierReturn(supplierReturnId: string, staffId: stri
         poId: record.poId,
         poNumber: record.poNumber,
         eventType: 'SUPPLIER_REJECTION_RECORDED_NO_STOCK_IMPACT',
-        operator: staffId,
+        operator: session.staffName,
         message: `${record.supplierReturnNumber} recorded supplier rejection for ${line.sku}. No stock reduction required.`
       });
     }
+  }
+
+  const settings = getCachedVendorTaxSettings(record.vendorId);
+  const tax = calculateDocumentTax(postedLines.map((line) => ({ lineAmount: line.qtyPostedOut * line.unitCost })), settings);
+  if (tax.total > 0) {
+    recordSupplierAccountReturn({
+      vendorId: record.vendorId,
+      supplierId: record.supplierId,
+      referenceType: 'PURCHASE_RETURN',
+      referenceId: record.supplierReturnId,
+      amount: tax.total,
+      createdBy: session.staffId || staffId,
+      createdAt: nowIso(),
+      branchId: record.branchId,
+      notes: `Purchase return ${record.supplierReturnNumber} reduces supplier balance or creates supplier credit. VAT reversal: ${tax.vatAmount.toFixed(2)}.`
+    });
   }
 
   const postedLineIds = new Set([...postedLines, ...noStockImpactLines].map((line) => line.lineId));
@@ -552,8 +573,8 @@ export async function postSupplierReturn(supplierReturnId: string, staffId: stri
     poId: record.poId,
     poNumber: record.poNumber,
     eventType: 'SUPPLIER_RETURN_POSTED',
-    operator: staffId,
-    message: `${record.supplierReturnNumber} posted. No cashbook, payment, sales or COGS posting created.`
+    operator: session.staffName,
+    message: `${record.supplierReturnNumber} posted. Stock reduced only for accepted goods already in inventory and supplier account evidence was recorded.`
   });
 
   return {
@@ -563,7 +584,7 @@ export async function postSupplierReturn(supplierReturnId: string, staffId: stri
     stockPosted: postedLines.length > 0,
     postedLines,
     noStockImpactLines,
-    message: `${record.supplierReturnNumber} posted. Stock reduced only for accepted goods already in inventory.`
+    message: `${record.supplierReturnNumber} posted. Stock reduced only for accepted goods already in inventory and supplier balance evidence was recorded.`
   };
 }
 

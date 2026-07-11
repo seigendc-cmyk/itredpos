@@ -29,6 +29,7 @@ import {
 } from 'lucide-react';
 import { 
   Product, 
+  PosSession,
   Role, 
   PurchaseOrder, 
   PurchaseOrderActivityEvent,
@@ -109,12 +110,8 @@ import ProductTransformationPanel from '../components/ProductTransformationPanel
 import ManualProductForm from '../components/ManualProductForm';
 import RowActionMenu, { RowActionMenuItem } from '../components/RowActionMenu';
 import { getActiveVendorId, getVendorScopedStorageKey } from '../utils/vendorDataMode';
-import {
-  postGoodsReceivedMovement,
-  postStockAdjustmentMovement,
-  postStocktakeAdjustmentMovement,
-  postSupplierReturnMovement
-} from '../services/inventoryMovementService';
+import { getCachedVendorTaxSettings } from '../services/vendorTaxSettingsService';
+import { postLedgerMovement } from '../services/inventoryLedgerService';
 import {
   approvePurchaseOrder,
   cancelPurchaseOrder,
@@ -290,6 +287,7 @@ interface StockPanelsProps {
   stocktakePreselectToken?: number;
   productLimitReached?: boolean;
   productLimitMessage?: string;
+  session?: PosSession | null;
 }
 
 export default function StockPanels({
@@ -310,13 +308,17 @@ export default function StockPanels({
   stocktakePreselect,
   stocktakePreselectToken = 0,
   productLimitReached = false,
-  productLimitMessage = 'Product limit reached for your current plan.'
+  productLimitMessage = 'Product limit reached for your current plan.',
+  session = null
 }: StockPanelsProps) {
 
   // --- LOCAL PERSISTENCE STORAGE FOR SUB-PAGES ---
   const blockedPermissionMessage = 'You do not have permission to perform this action.';
-  const vendorId = getActiveVendorId();
-  const stockBranchName = activeBranch || 'Main Branch';
+  const actionErrorMessage = (error: unknown) => error instanceof Error ? error.message : 'Action failed. Please try again.';
+  const vendorId = session?.vendorId || getActiveVendorId();
+  const defaultVatRate = getCachedVendorTaxSettings(vendorId).defaultVatRate;
+  const stockBranchName = session?.branch || activeBranch;
+  const activeWarehouseId = session?.warehouseId || '';
   const supplierReturnsKey = getVendorScopedStorageKey('sci_pos_supplier_returns', vendorId);
 
   const [productMasterRows, setProductMasterRows] = useState<ProductMasterRecord[]>([]);
@@ -372,10 +374,10 @@ export default function StockPanels({
     condition: 'New',
     productStatus: 'Draft',
     taxMode: 'VAT Registered',
-    vatRate: 15,
+    vatRate: defaultVatRate,
     branchId: stockBranchName,
-    warehouseId: 'main-warehouse',
-    locationType: 'Main Warehouse',
+    warehouseId: activeWarehouseId,
+    locationType: session?.warehouse || '',
     createdByStaffId: staffName,
     createdByStaffName: staffName
   });
@@ -1645,7 +1647,7 @@ export default function StockPanels({
   const baseMovementPayload = (product: StockProduct, referenceNumber: string, notes: string) => ({
     vendorId: product.vendorId || vendorId,
     branchId: product.branchId || product.branch || activeBranch,
-    warehouseId: product.warehouseId || product.warehouse || 'Main Warehouse',
+    warehouseId: product.warehouseId || product.warehouse || activeWarehouseId,
     productId: product.id,
     sku: product.sku || product.code,
     alu: product.alu,
@@ -1664,6 +1666,50 @@ export default function StockPanels({
     notes,
     riskFlag: product.riskLevel === 'Critical' ? 'Critical' as const : product.riskLevel === 'High' ? 'High' as const : 'None' as const
   });
+
+  const postLegacyLedgerMovement = (
+    product: StockProduct,
+    referenceType: string,
+    referenceId: string,
+    movementType: string,
+    qtyIn: number,
+    qtyOut: number,
+    notes: string,
+    status: 'Posted' | 'Pending Approval' = 'Posted'
+  ) => {
+    if (status !== 'Posted') return;
+    const base = baseMovementPayload(product, referenceId, notes);
+    void postLedgerMovement({
+      movementId: `${base.vendorId}_${referenceType}_${referenceId}_${product.id}_${movementType}`.replace(/[^A-Za-z0-9_-]/g, '_'),
+      vendorId: base.vendorId,
+      branchId: base.branchId,
+      warehouseId: base.warehouseId,
+      productId: base.productId,
+      sku: base.sku,
+      productName: base.productName,
+      shelfLocation: base.shelfLocation,
+      movementType: movementType === 'GOODS_RECEIVED'
+        ? 'GOODS_RECEIVED'
+        : movementType === 'SUPPLIER_RETURN'
+          ? 'PURCHASE_RETURN'
+          : movementType.includes('STOCKTAKE')
+            ? 'STOCKTAKE_ADJUSTMENT'
+            : 'MANUAL_CORRECTION',
+      quantityIn: qtyIn,
+      quantityOut: qtyOut,
+      unitCost: Number(base.unitCost) || 0,
+      sellingPrice: Number(base.sellingPrice) || 0,
+      referenceType,
+      referenceId,
+      staffId: staffName,
+      staffName,
+      terminalId: 'TERMINAL_STOCK_DESK',
+      reason: notes,
+      notes
+    }).catch((error) => {
+      console.error('Inventory movement synchronization failed', error);
+    });
+  };
 
 
   // =========================================================================
@@ -1689,6 +1735,7 @@ export default function StockPanels({
   };
 
   const handlePOStatusAction = async (po: PurchaseOrder, action: 'submit' | 'approve' | 'sent' | 'cancel' | 'close' | 'export' | 'edit' | 'revoke') => {
+    try {
     if (action === 'edit') {
       if (!canPerformAction(simulatedRole, 'purchaseOrders.edit')) {
         setPoFeedback('You do not have permission to edit Purchase Orders.');
@@ -1759,6 +1806,9 @@ export default function StockPanels({
       setPoFeedback(result.message);
     }
     refreshPurchaseOrders();
+    } catch (error) {
+      setPoFeedback(actionErrorMessage(error));
+    }
   };
 
   const applyPurchaseOrderFilters = async () => {
@@ -1876,6 +1926,7 @@ export default function StockPanels({
   };
 
   const handleCreateGRNFromPO = async (po?: PurchaseOrder) => {
+    try {
     const targetPO = po || purchaseOrders.find((order) => order.status === 'Approved' || order.status === 'Sent To Supplier' || order.status === 'Partially Received');
     if (!targetPO) {
       setGoodsReceivingNotice('No approved, sent, or partially received Purchase Order is available for GRN draft creation.');
@@ -1895,6 +1946,9 @@ export default function StockPanels({
     setGoodsReceivingNotice(`${draft.grnNumber} draft created from ${targetPO.poNumber}. Draft GRN has not updated stock.`);
     setActiveGoodsReceivingNote(draft);
     setGoodsReceivingFormOpen(true);
+    } catch (error) {
+      setGoodsReceivingNotice(actionErrorMessage(error));
+    }
   };
 
   const applyPostedGRNToLocalStock = (result: GoodsReceivingPostingResult) => {
@@ -1905,13 +1959,18 @@ export default function StockPanels({
         if ((item.sku || item.code) !== line.sku) return item;
         const currentQty = item.qtyOnHand ?? item.stock;
         const nextQty = currentQty + line.qtyAccepted;
+        const inventoryUnitCost = line.unitCost ?? line.receivedUnitCost;
+        const oldAverageCost = item.costPrice ?? item.cost ?? 0;
+        const weightedAverageCost = nextQty > 0
+          ? Number((((currentQty * oldAverageCost) + (line.qtyAccepted * inventoryUnitCost)) / nextQty).toFixed(4))
+          : inventoryUnitCost;
         onUpdateStock(item.id, item.stock + line.qtyAccepted);
         return {
           ...item,
           stock: item.stock + line.qtyAccepted,
           qtyOnHand: nextQty,
-          cost: line.receivedUnitCost,
-          costPrice: line.receivedUnitCost,
+          cost: weightedAverageCost,
+          costPrice: weightedAverageCost,
           price: line.sellingPrice,
           sellingPrice: line.sellingPrice,
           shelfLocation: line.shelfLocation || item.shelfLocation,
@@ -1932,6 +1991,7 @@ export default function StockPanels({
   };
 
   const handleGoodsReceivingAction = async (note: GoodsReceivingNote, action: 'post' | 'submit' | 'approve' | 'cancel' | 'reverse' | 'export') => {
+    try {
     if (action === 'post') {
       if (!canPerformAction(simulatedRole, 'goodsReceiving.post')) {
         setGoodsReceivingNotice('You do not have permission to perform this action.');
@@ -1973,6 +2033,9 @@ export default function StockPanels({
     }
     await refreshGoodsReceiving();
     await refreshPurchaseOrders();
+    } catch (error) {
+      setGoodsReceivingNotice(actionErrorMessage(error));
+    }
   };
 
   const handleClosePOWithOutstanding = async (po: PurchaseOrder) => {
@@ -2004,6 +2067,7 @@ export default function StockPanels({
   };
 
   const handleCreateSupplierReturnFromGRN = async (note?: GoodsReceivingNote) => {
+    try {
     if (!canPerformAction(simulatedRole, 'supplierReturns.create')) {
       setSupplierReturnNotice('You do not have permission to perform this action.');
       return;
@@ -2023,6 +2087,9 @@ export default function StockPanels({
     setActiveSupplierReturn(draft);
     setSupplierReturnFormOpen(true);
     setActiveTab('Supplier Returns');
+    } catch (error) {
+      setSupplierReturnNotice(actionErrorMessage(error));
+    }
   };
 
   const applyPostedSupplierReturnToLocalStock = (result: SupplierReturnPostingResult) => {
@@ -2059,6 +2126,7 @@ export default function StockPanels({
     record: SupplierReturn,
     action: 'submit' | 'approve' | 'post' | 'dispatch' | 'credit' | 'replacement' | 'close' | 'cancel' | 'export'
   ) => {
+    try {
     if (action === 'submit') {
       await submitSupplierReturnForApproval(record.supplierReturnId);
       setSupplierReturnNotice(`${record.supplierReturnNumber} submitted for approval. Stock not reduced.`);
@@ -2136,6 +2204,9 @@ export default function StockPanels({
       setSupplierReturnNotice(result.message);
     }
     await refreshSupplierReturns();
+    } catch (error) {
+      setSupplierReturnNotice(actionErrorMessage(error));
+    }
   };
 
   const openStockAdjustmentForm = (record: StockAdjustment | null = null) => {
@@ -2365,23 +2436,6 @@ export default function StockPanels({
           msg: `QUEUED FOR APPROVAL: GRN ${grnNumber} contains discrepancies (Variance or Price Spike). Submitted to Authorization Queue. Stock will NOT update until Approved by a Supervisor.`
         });
 
-        grnLines.forEach((line) => {
-          if (line.rejected) return;
-          const match = localStock.find((item) => item.code === line.sku);
-          if (!match) return;
-          void postGoodsReceivedMovement({
-            ...baseMovementPayload(match, grnNumber, `GRN variance pending approval for ${grnSupplier}.`),
-            qtyIn: line.receivedQty,
-            qtyOut: 0,
-            balanceBefore: match.stock,
-            unitCost: line.costPrice,
-            sellingPrice: line.suggestedPrice || line.currentPrice,
-            approvalRequired: true,
-            status: 'Pending Approval',
-            riskFlag: line.status !== 'Matched' ? 'High' : 'Medium'
-          });
-        });
-        
         // Audit logs
         triggerNewActivityEvent('STOCK_ADJUSTMENT_REQUESTED', `GRN ${grnNumber} queued for approval due to discrepancies.`, 'High');
         if (hasQuantityVariance) {
@@ -2442,16 +2496,7 @@ export default function StockPanels({
       const match = localStock.find(p => p.code === line.sku);
       if (match) {
         onUpdateStock(match.id, match.stock + line.receivedQty);
-        void postGoodsReceivedMovement({
-          ...baseMovementPayload(match, grnRef, `Goods received from ${grnSupplier}.`),
-          qtyIn: line.receivedQty,
-          qtyOut: 0,
-          balanceBefore: match.stock,
-          unitCost: line.costPrice,
-          sellingPrice: line.suggestedPrice || line.currentPrice,
-          approvalRequired: false,
-          status: 'Posted'
-        });
+        postLegacyLedgerMovement(match, 'GRN', grnRef, 'GOODS_RECEIVED', line.receivedQty, 0, `Goods received from ${grnSupplier}.`);
       }
     });
 
@@ -2542,15 +2587,7 @@ export default function StockPanels({
 
     saveLocalStockState(updatedStock);
     onUpdateStock(matchProduct.id, matchProduct.stock - ret.quantityReturned);
-    void postSupplierReturnMovement({
-      ...baseMovementPayload(matchProduct, ret.id, `Supplier return shipped to ${ret.supplierName}.`),
-      qtyIn: 0,
-      qtyOut: ret.quantityReturned,
-      balanceBefore: matchProduct.stock,
-      approvalRequired: false,
-      status: 'Posted',
-      riskFlag: 'Medium'
-    });
+    postLegacyLedgerMovement(matchProduct, 'SUPPLIER_RETURN', ret.id, 'SUPPLIER_RETURN', 0, ret.quantityReturned, `Supplier return shipped to ${ret.supplierName}.`);
 
     // Update return status to Shipped
     setSupplierReturns(prev => prev.map(r => r.id === ret.id ? { ...r, status: 'Shipped' } : r));
@@ -2615,18 +2652,6 @@ export default function StockPanels({
       };
       setStockApprovals(prev => [newApproval, ...prev]);
       setAdjFeedback({ type: 'warning', msg: `Approval request ${reqId} queued. Stock Controller roles require Supervisor validation to adjust inventory.` });
-      void postStockAdjustmentMovement({
-        ...baseMovementPayload(matchProduct, reqId, `Pending stock adjustment request. Reason: ${adjReasonCode}.`),
-        movementType: isNegative ? 'STOCK_ADJUSTMENT_OUT' : 'STOCK_ADJUSTMENT_IN',
-        referenceType: 'ADJUSTMENT',
-        qtyIn: isNegative ? 0 : qty,
-        qtyOut: isNegative ? qty : 0,
-        balanceBefore: currentQty,
-        approvalRequired: true,
-        status: 'Pending Approval',
-        riskFlag: isSensitiveLoss ? 'High' : 'Medium'
-      });
-      
       triggerNewActivityEvent('STOCK_ADJUSTMENT_REQUESTED', `Adjustment request filed for SKU ${adjSku}`, 'Medium');
       logGlobalBiEvent('STOCK_ADJUSTMENT_REQUESTED', { sku: adjSku, delta: isNegative ? -qty : qty }, 'INFO');
       return;
@@ -2646,17 +2671,6 @@ export default function StockPanels({
       };
       setStockApprovals(prev => [newApproval, ...prev]);
       setAdjFeedback({ type: 'warning', msg: `QUEUED FOR MANAGER: Negative adjustments greater than 3 units require Manager or Owner authorization. Queuing request ${reqId}.` });
-      void postStockAdjustmentMovement({
-        ...baseMovementPayload(matchProduct, reqId, `Manager approval required for sensitive stock loss. Reason: ${adjReasonCode}.`),
-        movementType: 'STOCK_ADJUSTMENT_OUT',
-        referenceType: 'ADJUSTMENT',
-        qtyIn: 0,
-        qtyOut: qty,
-        balanceBefore: currentQty,
-        approvalRequired: true,
-        status: 'Pending Approval',
-        riskFlag: 'High'
-      });
       return;
     }
 
@@ -2677,17 +2691,15 @@ export default function StockPanels({
 
     saveLocalStockState(updatedStock);
     onUpdateStock(matchProduct.id, finalQtyStatus);
-    void postStockAdjustmentMovement({
-      ...baseMovementPayload(matchProduct, `ADJ-${Date.now()}`, `Posted stock adjustment. Reason: ${adjReasonCode}. ${adjNotes}`),
-      movementType: isNegative ? 'STOCK_ADJUSTMENT_OUT' : 'STOCK_ADJUSTMENT_IN',
-      referenceType: 'ADJUSTMENT',
-      qtyIn: isNegative ? 0 : qty,
-      qtyOut: isNegative ? qty : 0,
-      balanceBefore: currentQty,
-      approvalRequired: false,
-      status: 'Posted',
-      riskFlag: adjReasonCode === 'Theft suspicion' ? 'High' : 'Low'
-    });
+    postLegacyLedgerMovement(
+      matchProduct,
+      'ADJUSTMENT',
+      `ADJ-${Date.now()}`,
+      isNegative ? 'STOCK_ADJUSTMENT_OUT' : 'STOCK_ADJUSTMENT_IN',
+      isNegative ? 0 : qty,
+      isNegative ? qty : 0,
+      `Posted stock adjustment. Reason: ${adjReasonCode}. ${adjNotes}`
+    );
 
     triggerNewActivityEvent('STOCK_RECEIVED', `Stock Adjusted directly: ${matchProduct.name} set to ${finalQtyStatus} (${isNegative ? '-' : '+'}${qty}).`, 'Medium');
     logGlobalBiEvent('STOCK_RECEIVED', { sku: adjSku, change: isNegative ? -qty : qty, finalQtyStatus }, 'WARNING');
@@ -2784,22 +2796,6 @@ export default function StockPanels({
         setStocktakeFeedback(`SUBMISSION FLAG: Posted counts contain variances. Request ${reqId} queued for Supervisor authorization before applying to database.`);
         logGlobalBiEvent('VARIANCE_RISK_FOUND', { totalDiscrepantLines: totalLinesWithDiscrepancy.length }, 'HIGH');
         triggerNewActivityEvent('STOCK_ADJUSTMENT_REQUESTED', `Variance discrepancy found in stocktake audit. Filed request.`, 'High');
-        totalLinesWithDiscrepancy.forEach((line) => {
-          const match = localStock.find((item) => item.code === line.sku);
-          if (!match || line.variance === 0) return;
-          const isIncrease = line.variance > 0;
-          void postStocktakeAdjustmentMovement({
-            ...baseMovementPayload(match, reqId, `Stocktake variance pending approval. Counted ${line.countedQty}, system ${line.systemQty}.`),
-            movementType: isIncrease ? 'STOCKTAKE_ADJUSTMENT_IN' : 'STOCKTAKE_ADJUSTMENT_OUT',
-            referenceType: 'STOCKTAKE',
-            qtyIn: isIncrease ? line.variance : 0,
-            qtyOut: isIncrease ? 0 : Math.abs(line.variance),
-            balanceBefore: match.stock,
-            approvalRequired: stocktakeSessionType === 'Audit' || Math.abs(line.variance) > 3,
-            status: stocktakeSessionType === 'Audit' || Math.abs(line.variance) > 3 ? 'Pending Approval' : 'Posted',
-            riskFlag: Math.abs(line.variance) > 5 ? 'Critical' : 'Medium'
-          });
-        });
         if (stocktakeSessionType === 'Audit') {
           logGlobalBiEvent('AUDIT_STOCKTAKE_REVIEW_REQUIRED', { requestId: reqId }, 'HIGH');
         }
@@ -2835,17 +2831,15 @@ export default function StockPanels({
         onUpdateStock(match.id, line.countedQty);
         if (line.variance !== 0) {
           const isIncrease = line.variance > 0;
-          void postStocktakeAdjustmentMovement({
-            ...baseMovementPayload(match, `STK-${Date.now()}`, `Stocktake variance posted by ${line.countedBy || staffName}.`),
-            movementType: isIncrease ? 'STOCKTAKE_ADJUSTMENT_IN' : 'STOCKTAKE_ADJUSTMENT_OUT',
-            referenceType: 'STOCKTAKE',
-            qtyIn: isIncrease ? line.variance : 0,
-            qtyOut: isIncrease ? 0 : Math.abs(line.variance),
-            balanceBefore: match.stock,
-            approvalRequired: false,
-            status: 'Posted',
-            riskFlag: Math.abs(line.variance) > 5 ? 'Critical' : 'Medium'
-          });
+          postLegacyLedgerMovement(
+            match,
+            'STOCKTAKE',
+            `STK-${Date.now()}`,
+            isIncrease ? 'STOCKTAKE_ADJUSTMENT_IN' : 'STOCKTAKE_ADJUSTMENT_OUT',
+            isIncrease ? line.variance : 0,
+            isIncrease ? 0 : Math.abs(line.variance),
+            `Stocktake variance posted by ${line.countedBy || staffName}.`
+          );
         } else {
           logGlobalBiEvent('STOCKTAKE_COUNT_LOGGED', { sku: line.sku, countedQty: line.countedQty }, 'INFO');
         }

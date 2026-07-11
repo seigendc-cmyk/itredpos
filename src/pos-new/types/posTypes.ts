@@ -39,10 +39,14 @@ export type TerminalLifecycleStatus =
 export type ShiftLifecycleStatus =
   | 'Not Opened'
   | 'Open'
+  | 'Counting'
+  | 'PendingApproval'
   | 'Closing Review'
   | 'Closed'
   | 'Force Closed'
-  | 'Locked';
+  | 'Locked'
+  | 'Suspended'
+  | 'Reopened';
 
 export type TerminalActionType =
   | 'ACTIVATE_TERMINAL'
@@ -1216,6 +1220,7 @@ export type SupplierVatStatus = 'Unknown' | 'VATRegistered' | 'NotRegistered' | 
 
 export interface SupplierRecord {
   supplierId: string;
+  vendorId?: string;
   supplierCode: string;
   supplierName: string;
   tradingName?: string;
@@ -1224,6 +1229,7 @@ export interface SupplierRecord {
   whatsapp?: string;
   email: string;
   address: string;
+  city?: string;
   cityTown?: string;
   district?: string;
   suburb?: string;
@@ -1232,7 +1238,12 @@ export interface SupplierRecord {
   vatStatus?: SupplierVatStatus;
   paymentTermsDays: number;
   creditLimit: number;
+  currentBalance?: number;
+  overdueBalance?: number;
+  riskLevel?: RiskLevel;
   creditStatus: SupplierCreditStatus;
+  status?: 'active' | 'inactive' | 'suspended' | 'under_review';
+  preferred?: boolean;
   preferredSupplier: boolean;
   active: boolean;
   notes: string;
@@ -1689,6 +1700,7 @@ export interface DebtorPaymentCashLink {
 
 export interface DeliveryCashHandoverRecord {
   handoverId: string;
+  vendorId?: string;
   deliveryId: string;
   shiftId: string;
   drawerId: string;
@@ -1697,7 +1709,16 @@ export interface DeliveryCashHandoverRecord {
   cashExpected: number;
   cashReceived: number;
   difference: number;
-  handoverStatus: 'Pending' | 'Confirmed' | 'Queried' | 'Rejected';
+  handoverStatus: 'Pending' | 'Confirmed' | 'Queried' | 'Rejected' | 'Declared' | 'Counting' | 'Accepted' | 'VarianceReview' | 'Reconciled';
+  deliveryStaffId?: string;
+  receivingStaffId?: string;
+  amountExpected?: number;
+  amountDeclared?: number;
+  amountCounted?: number;
+  variance?: number;
+  handedOverAt?: string;
+  receivedAt?: string;
+  cashMovementId?: string;
   receivedBy: string;
   createdAt: string;
   notes: string;
@@ -1788,15 +1809,20 @@ export interface BIEvent {
 export interface POSSession {
   vendor: string;
   vendorId?: string;
+  vendorName?: string;
   branch: string;
   branchId?: string;
+  branchName?: string;
   terminal: string;
   terminalId?: string;
+  terminalName?: string;
   warehouse?: string;
   warehouseId?: string;
+  warehouseName?: string;
   staffId?: string;
   staffName: string;
   role: string;
+  permissions?: string[];
   licenseId?: string;
   planId?: string;
   licenseMode?: string;
@@ -1804,6 +1830,7 @@ export interface POSSession {
   activationId?: string;
   dashboardType?: string;
   openedAt?: string;
+  signedInAt?: string;
 }
 
 export interface POSSettings {
@@ -2956,6 +2983,8 @@ export type CustomerType =
   | 'Individual'
   | 'Business'
   | 'Government'
+  | 'Staff'
+  | 'Other'
   | 'School'
   | 'Fleet Customer'
   | 'Dealer'
@@ -3479,20 +3508,28 @@ export interface CustomerRecord {
   customerCode: string;
   customerName: string;
   customerType: CustomerType;
+  tradingName?: string;
+  contactPerson?: string;
   phone: string;
   whatsapp: string;
   email: string;
+  address?: string;
   taxNumber: string;
   billingAddress: string;
   deliveryAddress: string;
+  city?: string;
   cityTown: string;
   district: string;
   suburb: string;
   source: CustomerSource;
   status: CustomerStatus;
   creditStatus: CustomerCreditStatus;
+  creditEnabled?: boolean;
   creditLimit?: number;
+  paymentTermsDays?: number;
   currentBalance?: number;
+  overdueBalance?: number;
+  riskLevel?: RiskLevel;
   notes: string;
   createdByStaffId: string;
   approvedByStaffId?: string;
@@ -3780,6 +3817,8 @@ export interface PurchaseOrderApprovalDetails {
 export interface PurchaseOrder {
   poId: string;
   poNumber: string;
+  purchaseOrderId?: string;
+  purchaseOrderNumber?: string;
   vendorId: string;
   branchId: string;
   warehouseId: string;
@@ -3795,19 +3834,32 @@ export interface PurchaseOrder {
   requestedByStaffName: string;
   approvedByStaffId?: string;
   approvedByStaffName?: string;
+  createdBy?: string;
+  approvedBy?: string;
   poDate: string;
+  orderDate?: string;
   expectedDeliveryDate: string;
+  expectedDate?: string;
   priority: PurchaseOrderPriority;
   source: PurchaseOrderSource;
   status: PurchaseOrderStatus;
+  approvalStatus?: 'Not Required' | 'Pending' | 'Approved' | 'Rejected';
+  postingStatus?: 'Not Posted' | 'Partially Posted' | 'Posted' | 'Closed';
   deliveryBranchId: string;
   deliveryWarehouseId: string;
   deliveryAddress: string;
   currency: string;
   subtotalEstimate: number;
+  subtotal?: number;
+  discountTotal?: number;
+  taxableAmount?: number;
   taxEstimate: number;
+  vatTotal?: number;
   deliveryCostEstimate: number;
   grandTotalEstimate: number;
+  grandTotal?: number;
+  paymentTermsDays?: number;
+  paymentMethod?: string;
   notes: string;
   internalMemo: string;
   termsAndConditions: string;
@@ -3817,7 +3869,11 @@ export interface PurchaseOrder {
 
 export interface PurchaseOrderLine {
   lineId: string;
+  purchaseOrderLineId?: string;
   poId: string;
+  purchaseOrderId?: string;
+  vendorId?: string;
+  warehouseId?: string;
   productId: string;
   sku: string;
   productName: string;
@@ -3830,6 +3886,12 @@ export interface PurchaseOrderLine {
   qtyReceived: number;
   qtyOutstanding: number;
   estimatedUnitCost: number;
+  unitCost?: number;
+  discountAmount?: number;
+  taxableAmount?: number;
+  vatRate?: number;
+  vatAmount?: number;
+  lineTotal?: number;
   estimatedLineTotal: number;
   lastCostPrice?: number;
   currentSellingPrice?: number;
@@ -3948,6 +4010,8 @@ export type POFulfillmentStatus =
 export interface GoodsReceivingNote {
   grnId: string;
   grnNumber: string;
+  goodsReceiptId?: string;
+  goodsReceiptNumber?: string;
   vendorId: string;
   poId?: string;
   poNumber?: string;
@@ -3958,12 +4022,19 @@ export interface GoodsReceivingNote {
   receivedByStaffId: string;
   receivedByStaffName: string;
   receivedDate: string;
+  receivedAt?: string;
+  supplierDocumentNumber?: string;
   supplierInvoiceNumber: string;
   supplierInvoiceDate: string;
   supplierInvoiceAmount: number;
   deliveryNoteNumber: string;
+  subtotal?: number;
+  vatTotal?: number;
+  total?: number;
   vehicleOrCourierReference?: string;
   receivingStatus: GoodsReceivingStatus;
+  status?: GoodsReceivingStatus;
+  postingStatus?: 'Draft' | 'Pending' | 'Posted' | 'Failed';
   approvalRequired: boolean;
   approvedByStaffId?: string;
   approvedByStaffName?: string;
@@ -3975,9 +4046,13 @@ export interface GoodsReceivingNote {
 
 export interface GoodsReceivingLine {
   lineId: string;
+  goodsReceiptLineId?: string;
   grnId: string;
+  goodsReceiptId?: string;
   poId?: string;
+  purchaseOrderId?: string;
   poLineId?: string;
+  purchaseOrderLineId?: string;
   productId: string;
   sku: string;
   productName: string;
@@ -3988,11 +4063,18 @@ export interface GoodsReceivingLine {
   qtyPreviouslyReceived: number;
   qtyOutstandingBeforeGRN: number;
   qtyReceivedNow: number;
+  quantityReceived?: number;
   qtyAccepted: number;
+  quantityAccepted?: number;
   qtyRejected: number;
+  quantityRejected?: number;
   qtyOutstandingAfterGRN: number;
   previousCostPrice: number;
   receivedUnitCost: number;
+  unitCost?: number;
+  vatRate?: number;
+  vatAmount?: number;
+  lineTotal?: number;
   sellingPrice: number;
   shelfLocation: string;
   varianceType: ReceivingVarianceType;
@@ -4942,34 +5024,89 @@ export type DeliveryStatus =
   | 'Not Required'
   | 'Draft'
   | 'Pending Assignment'
+  | 'AwaitingAssignment'
   | 'Broadcast To iDeliver'
   | 'Provider Selected'
   | 'Assigned'
+  | 'ReadyForDispatch'
   | 'Accepted By Driver'
+  | 'Dispatched'
   | 'Picked Up'
   | 'In Transit'
+  | 'InTransit'
   | 'Arrived'
+  | 'PartiallyDelivered'
   | 'Delivered'
   | 'Delivery Failed'
+  | 'DeliveryFailed'
   | 'Cancelled'
   | 'Returned To Vendor'
+  | 'AwaitingCustomerConfirmation'
   | 'Cash Pending Review'
+  | 'AwaitingCashHandover'
   | 'Closed'
   | 'Out for Delivery'
   | 'Completed'
+  | 'Disputed'
   | 'Failed'
   | 'Waiting Collection';
 
+export type CanonicalDeliveryStatus =
+  | 'Draft'
+  | 'AwaitingAssignment'
+  | 'Assigned'
+  | 'ReadyForDispatch'
+  | 'Dispatched'
+  | 'InTransit'
+  | 'Arrived'
+  | 'PartiallyDelivered'
+  | 'Delivered'
+  | 'DeliveryFailed'
+  | 'Cancelled'
+  | 'AwaitingCustomerConfirmation'
+  | 'AwaitingCashHandover'
+  | 'Completed'
+  | 'Disputed';
+
 export type VehicleType = 'Bike' | 'Car' | 'Kombi' | 'Lorry' | 'Walking Courier' | 'Other';
 export type DeliveryCodeStatus = 'Not Generated' | 'Code Generated' | 'Code Sent' | 'Code Pending' | 'Code Confirmed' | DeliveryConfirmationStatus;
-export type DeliveryFailureReason = 'Customer unavailable' | 'Wrong address' | 'Customer rejected delivery' | 'Delivery person failed to confirm code' | 'Vehicle breakdown' | 'Product issue' | 'Other' | '';
+export type DeliveryFailureReason =
+  | 'Customer unavailable'
+  | 'Wrong address'
+  | 'Customer refused'
+  | 'Customer rejected delivery'
+  | 'No payment'
+  | 'Vehicle problem'
+  | 'Vehicle breakdown'
+  | 'Item damaged'
+  | 'Product issue'
+  | 'Security issue'
+  | 'Delivery delayed'
+  | 'Delivery person failed to confirm code'
+  | 'Other'
+  | '';
 
 export type DeliveryPriority = 'Normal' | 'High' | 'Urgent';
-export type DeliveryPaymentMode = 'Already Paid' | 'Cash On Delivery' | 'Delivery Fee Cash' | 'Mixed Payment' | 'No Payment Due';
-export type DeliveryCashStatus = 'Not Required' | 'Pending Collection' | 'Collected By Driver' | 'Confirmed By Vendor' | 'Variance Review' | 'Missing Cash' | 'Closed';
+export type DeliveryPaymentMode = 'Already Paid' | 'Cash On Delivery' | 'Delivery Fee Cash' | 'Mixed Payment' | 'No Payment Due' | 'Mobile Money on Delivery' | 'Card on Delivery' | 'Prepaid' | 'Credit' | 'No Payment Required';
+export type DeliveryCashStatus = 'Not Required' | 'Pending Collection' | 'Collected By Driver' | 'Confirmed By Vendor' | 'Variance Review' | 'Missing Cash' | 'Closed' | 'NotRequired' | 'Pending' | 'Collected' | 'PartiallyCollected' | 'Short' | 'Over' | 'Failed' | 'HandedOver' | 'Reconciled';
 export type DeliveryProviderType = 'Vendor Staff' | 'iDeliver Partner' | 'External Courier' | 'Customer Pickup';
 export type DeliveryTrackingStatus = 'Not Started' | 'Location Shared' | 'En Route' | 'Delayed' | 'Arrived' | 'Completed' | 'Tracking Unavailable';
-export type DeliveryConfirmationStatus = 'Code Pending' | 'Code Sent' | 'Code Verified' | 'Code Failed' | 'Manual Override Required';
+export type DeliveryConfirmationStatus = 'Code Pending' | 'Code Sent' | 'Code Verified' | 'Code Failed' | 'Manual Override Required' | 'Issued' | 'Verified' | 'Expired' | 'Locked' | 'Cancelled';
+export type DeliveryProofStatus = 'Missing' | 'Pending' | 'Captured' | 'Rejected' | 'Locked';
+export type DeliverySyncStatus = 'Saved offline' | 'Waiting to synchronize' | 'Synchronized' | 'Synchronization failed';
+export type DeliveryFailureStatus = 'Open' | 'Rescheduled' | 'Returned' | 'Resolved' | 'Disputed';
+export type DeliveryReturnCondition = 'Good' | 'Damaged' | 'Wrong Item' | 'Rejected' | 'Unknown';
+
+export interface DeliveryContext {
+  vendorId: string;
+  branchId: string;
+  warehouseId: string;
+  terminalId: string;
+  staffId: string;
+  staffName: string;
+  role: string;
+  permissions: string[];
+}
 
 export interface DeliveryOrder {
   id: string;
@@ -5041,8 +5178,12 @@ export interface DeliveryRequest {
   vendorId: string;
   receiptId: string;
   receiptNumber: string;
+  saleId?: string;
+  orderId?: string;
   branchId: string;
   branchName: string;
+  warehouseId?: string;
+  warehouseName?: string;
   terminalId: string;
   cashierStaffId: string;
   cashierStaffName: string;
@@ -5051,46 +5192,76 @@ export interface DeliveryRequest {
   customerPhone: string;
   customerWhatsapp: string;
   deliveryMethod: DeliveryMethod;
+  deliveryType?: DeliveryMethod | string;
   deliveryStatus: DeliveryStatus;
+  status?: CanonicalDeliveryStatus;
   priority: DeliveryPriority;
   deliveryAddress: string;
   deliverySuburb?: string;
   deliveryCityTown?: string;
+  latitude?: number;
+  longitude?: number;
+  deliveryInstructions?: string;
   deliveryNotes: string;
   deliveryFee: number;
   paymentMode: DeliveryPaymentMode;
   cashStatus: DeliveryCashStatus;
   totalReceiptAmount: number;
   cashToCollect: number;
+  amountCollected?: number;
+  amountHandedOver?: number;
   providerId?: string;
   providerName?: string;
+  assignedTeamId?: string;
+  assignedDriverId?: string;
+  assignedVehicleId?: string;
   driverStaffId?: string;
   driverName?: string;
   driverPhone?: string;
   confirmationCode: string;
+  confirmationCodeHash?: string;
   confirmationStatus: DeliveryConfirmationStatus;
+  customerConfirmationStatus?: DeliveryConfirmationStatus;
+  customerConfirmedAt?: string;
+  customerConfirmedBy?: string;
+  proofStatus?: DeliveryProofStatus;
+  proofId?: string;
+  cashHandoverId?: string;
   trackingStatus: DeliveryTrackingStatus;
   requestedAt: string;
   assignedAt?: string;
   acceptedAt?: string;
   pickedUpAt?: string;
+  dispatchedAt?: string;
   deliveredAt?: string;
+  completedAt?: string;
   cancelledAt?: string;
   failureReason?: string;
   verificationAttempts?: number;
   verifiedAt?: string;
   verifiedByStaffId?: string;
+  createdBy?: string;
+  syncStatus?: DeliverySyncStatus;
+  version?: number;
   createdAt: string;
   updatedAt: string;
 }
 
 export interface DeliveryRequestLine {
   lineId: string;
+  deliveryLineId?: string;
   deliveryId: string;
+  vendorId?: string;
+  saleLineId?: string;
   productId: string;
   sku: string;
   productName: string;
   qty: number;
+  quantityOrdered?: number;
+  quantityDispatched?: number;
+  quantityDelivered?: number;
+  quantityRejected?: number;
+  condition?: DeliveryReturnCondition | 'Delivered' | 'Pending' | 'Rejected';
   receiptLineId?: string;
   lineStatus: string;
   notes: string;
@@ -5111,24 +5282,41 @@ export interface DeliveryProvider {
 
 export interface DeliveryAssignment {
   assignmentId: string;
+  vendorId?: string;
   deliveryId: string;
+  teamId?: string;
   providerId?: string;
   providerName?: string;
   driverStaffId?: string;
+  driverId?: string;
   driverName?: string;
   driverPhone?: string;
+  assistantIds?: string[];
+  vehicleId?: string;
   vehiclePlaceholder?: string;
   assignedAt: string;
   acceptedAt?: string;
+  status?: 'Active' | 'Superseded' | 'Cancelled' | 'Accepted';
+  notes?: string;
   assignedByStaffId: string;
+  assignedBy?: string;
 }
 
 export interface DeliveryTrackingEvent {
   trackingEventId: string;
+  vendorId?: string;
   deliveryId: string;
+  driverId?: string;
   dateTime: string;
   status: DeliveryTrackingStatus;
   locationText: string;
+  latitude?: number;
+  longitude?: number;
+  accuracy?: number;
+  heading?: number;
+  speed?: number;
+  recordedAt?: string;
+  source?: 'DriverDevice' | 'ManualStatus' | 'MapsPlaceholder' | 'OfflineQueue';
   latitudePlaceholder?: string;
   longitudePlaceholder?: string;
   notes: string;
@@ -5137,11 +5325,17 @@ export interface DeliveryTrackingEvent {
 
 export interface DeliveryConfirmationCode {
   codeId: string;
+  confirmationId?: string;
+  vendorId?: string;
   deliveryId: string;
+  customerId?: string;
   code: string;
+  codeHash?: string;
   status: DeliveryConfirmationStatus;
   sentToCustomer: boolean;
   attempts: number;
+  issuedAt?: string;
+  expiresAt?: string;
   verifiedAt?: string;
   verifiedByStaffId?: string;
   createdAt: string;
@@ -5149,17 +5343,120 @@ export interface DeliveryConfirmationCode {
 
 export interface DeliveryCashCollection {
   cashCollectionId: string;
+  collectionId?: string;
+  vendorId?: string;
   deliveryId: string;
+  saleId?: string;
+  customerId?: string;
+  deliveryStaffId?: string;
   paymentMode: DeliveryPaymentMode;
   cashToCollect: number;
+  amountExpected?: number;
   deliveryFeeCash: number;
   amountCollectedByDriver: number;
+  amountCollected?: number;
+  paymentMethod?: DeliveryPaymentMode;
+  collectionReference?: string;
+  collectedAt?: string;
   driverCollectionNotes: string;
   vendorCashConfirmed: boolean;
   vendorConfirmedAmount: number;
   cashVariance: number;
   cashStatus: DeliveryCashStatus;
+  status?: DeliveryCashStatus;
+  notes?: string;
   updatedAt: string;
+}
+
+export interface DeliveryAddressRecord {
+  addressId: string;
+  vendorId: string;
+  customerId: string;
+  label: string;
+  addressLine: string;
+  suburb: string;
+  city: string;
+  country: string;
+  latitude?: number;
+  longitude?: number;
+  landmark?: string;
+  contactPhone: string;
+  contactName: string;
+  verified: boolean;
+  defaultAddress?: boolean;
+  verifiedAt?: string;
+  createdAt: string;
+  updatedAt?: string;
+}
+
+export interface ProofOfDeliveryRecord {
+  proofId: string;
+  vendorId: string;
+  deliveryId: string;
+  receivedByName: string;
+  receiverRelationship: string;
+  signatureUrl?: string;
+  photoUrls: string[];
+  latitude?: number;
+  longitude?: number;
+  confirmedAt: string;
+  confirmedByStaffId: string;
+  condition: DeliveryReturnCondition | 'Delivered' | 'Partial';
+  notes: string;
+  status: DeliveryProofStatus;
+}
+
+export interface DeliveryFailureRecord {
+  failureId: string;
+  vendorId: string;
+  deliveryId: string;
+  reason: string;
+  notes: string;
+  failedAt: string;
+  reportedBy: string;
+  nextAction: string;
+  rescheduleDate?: string;
+  status: DeliveryFailureStatus;
+}
+
+export interface DeliveryReturnRecord {
+  returnId: string;
+  vendorId: string;
+  deliveryId: string;
+  deliveryLineId: string;
+  productId: string;
+  quantityReturned: number;
+  condition: DeliveryReturnCondition;
+  inspectedBy: string;
+  returnedAt: string;
+  inventoryMovementId?: string;
+  notes: string;
+}
+
+export interface DeliveryPerformanceRecord {
+  vendorId: string;
+  teamId?: string;
+  driverId?: string;
+  periodStart: string;
+  periodEnd: string;
+  deliveriesAssigned: number;
+  deliveriesCompleted: number;
+  deliveriesFailed: number;
+  averageDeliveryMinutes: number;
+  onTimePercentage: number;
+  averageRating: number;
+  cashVarianceTotal: number;
+  performanceScore: number;
+}
+
+export interface DeliveryBIWarning {
+  warningId: string;
+  deliveryId?: string;
+  title: string;
+  shortReason: string;
+  severity: 'Low' | 'Medium' | 'High' | 'Critical';
+  recommendedAction: string;
+  relatedRecordId?: string;
 }
 
 export interface DeliveryActivityEvent {
@@ -5195,8 +5492,14 @@ export interface DeliverySummary {
   broadcastToIDeliver: number;
   assigned: number;
   inTransit: number;
+  readyForDispatch?: number;
+  arrived?: number;
+  awaitingConfirmation?: number;
+  awaitingCashHandover?: number;
+  completedToday?: number;
   deliveredToday: number;
   failedDeliveries: number;
+  failedToday?: number;
   cashPendingReview: number;
   codeVerificationPending: number;
   returnedToVendor: number;

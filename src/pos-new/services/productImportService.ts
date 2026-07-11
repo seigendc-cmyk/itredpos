@@ -33,6 +33,7 @@ import { enqueueOfflineAction, getNetworkStatus } from './offlineSyncService';
 import { postInventoryMovement } from './inventoryMovementService';
 import { productMasterToPosProduct, upsertLocalProducts } from '../utils/localProductStore';
 import { ENABLE_MOCK_SEED_DATA, getActiveVendorId, readVendorScopedList, writeVendorScopedList } from '../utils/vendorDataMode';
+import { getCachedVendorTaxSettings } from './vendorTaxSettingsService';
 
 const BATCH_KEY = 'itred_pos_product_import_batches_v1';
 const ROW_KEY = 'itred_pos_product_import_rows_v1';
@@ -617,8 +618,10 @@ export async function rejectImportBatch(batchId: string, staffId: string, notes:
 export async function createProductDraftFromImportRow(row: ProductImportRow): Promise<ProductMasterRecord> {
   const mapped = row.mappedProduct;
   const productName = String(mapped.productName || 'Imported Product Draft');
+  const vendorId = getActiveVendorId();
+  const defaultVatRate = getCachedVendorTaxSettings(vendorId).defaultVatRate;
   return createProductMasterDraft({
-    vendorId: getActiveVendorId(),
+    vendorId,
     productCode: String(mapped.sku || mapped.barcode || mapped.alu || `IMP-${Date.now()}`),
     sku: String(mapped.sku || mapped.barcode || mapped.alu || `IMP-${Date.now()}`),
     barcode: mapped.barcode ? String(mapped.barcode) : undefined,
@@ -650,9 +653,9 @@ export async function createProductDraftFromImportRow(row: ProductImportRow): Pr
     partNumber: mapped.partNumber ? String(mapped.partNumber) : undefined,
     oemNumber: mapped.oemNumber ? String(mapped.oemNumber) : undefined,
     tags: mapped.tags ? String(mapped.tags).split('|') : ['Imported Draft'],
-    taxCode: 'VAT15',
+    taxCode: defaultVatRate > 0 ? 'STANDARD' : 'EXEMPT',
     taxMode: mapped.taxMode ? String(mapped.taxMode) : 'VAT Registered',
-    vatRate: parseNumber(mapped.vatRate) || 15,
+    vatRate: parseNumber(mapped.vatRate) || defaultVatRate,
     defaultSellingPrice: parseNumber(mapped.sellingPrice) || 0,
     defaultCostPrice: parseNumber(mapped.costPrice) || 0,
     reorderLevel: parseNumber(mapped.reorderLevel) || 0,

@@ -55,6 +55,7 @@ import {
   runTerminalControlCheck,
   unassignCashDrawer
 } from '../services/terminalControlService';
+import { calculateExpectedCash } from '../services/cashMovementService';
 import {
   BiEvent,
   CashDrawerAssignment,
@@ -75,7 +76,7 @@ interface PosShiftProps {
   activeShift: Shift | null;
   shiftHistory: Shift[];
   transactions: Transaction[];
-  onOpenShift: (operatorName: string, startingFloat: number) => void;
+  onOpenShift: (operatorName: string, startingFloat: number, shiftId?: string) => void;
   onCloseShift: (actualFloat: number) => void;
   terminalId: string;
   activeOperator: string;
@@ -187,12 +188,12 @@ export default function PosShift({
   session,
   onNavigate
 }: PosShiftProps) {
-  const branchName = session?.branch || 'Main Branch';
-  const branchId = branchIdFromName(branchName);
-  const terminalId = session?.terminal || parentTerminalId || 'POS-01';
-  const terminalName = terminalId;
+  const branchName = session?.branch || session?.branchName || 'Main Branch';
+  const branchId = session?.branchId || branchIdFromName(branchName);
+  const terminalId = session?.terminalId || session?.terminal || parentTerminalId || 'POS-01';
+  const terminalName = session?.terminal || session?.terminalName || terminalId;
   const staffName = session?.staffName || activeOperator || 'Cashier';
-  const staffId = staffIdFromName(staffName);
+  const staffId = session?.staffId || staffIdFromName(staffName);
   const roleName = (session?.role || 'Owner') as Role;
   const VENDOR_ID = session?.vendorId || DEFAULT_VENDOR_ID;
 
@@ -216,12 +217,13 @@ export default function PosShift({
   const [openTerminalActionMenuId, setOpenTerminalActionMenuId] = useState<string | null>(null);
   const [startWizardOpen, setStartWizardOpen] = useState(false);
   const [startWizardDirty, setStartWizardDirty] = useState(false);
+  const [movementExpectedCash, setMovementExpectedCash] = useState<number | null>(null);
 
   const currentDrawer = drawerAssignments.find((assignment) => assignment.status === 'Assigned') || null;
   const cashSalesTotal = useMemo(() => transactions
     .filter((transaction) => transaction.paymentMethod === 'CASH' || transaction.paymentMethod === 'Cash')
     .reduce((sum, transaction) => sum + transaction.total, 0), [transactions]);
-  const expectedCash = (shift?.openingFloat || activeShift?.startingCash || 0) + cashSalesTotal;
+  const expectedCash = movementExpectedCash ?? ((shift?.openingFloat || activeShift?.startingCash || 0) + cashSalesTotal);
   const salesTotal = useMemo(() => transactions
     .filter((transaction) => transaction.status === 'COMPLETED')
     .reduce((sum, transaction) => sum + transaction.total, 0), [transactions]);
@@ -294,6 +296,23 @@ export default function PosShift({
   useEffect(() => {
     void loadControlData();
   }, [branchId, terminalId, roleName, staffId]);
+
+  useEffect(() => {
+    const shiftId = shift?.id || activeShift?.id;
+    if (!shiftId || VENDOR_ID === DEFAULT_VENDOR_ID) {
+      setMovementExpectedCash(null);
+      return;
+    }
+    let cancelled = false;
+    void calculateExpectedCash(shiftId, VENDOR_ID).then((cash) => {
+      if (!cancelled) setMovementExpectedCash(cash.expectedCash);
+    }).catch(() => {
+      if (!cancelled) setMovementExpectedCash(null);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [VENDOR_ID, activeShift?.id, cashLogs.length, shift?.id, transactions.length]);
 
   useEffect(() => {
     try {
@@ -414,7 +433,8 @@ export default function PosShift({
         staffId,
         staffName,
         openingFloat: payload.openingFloat,
-        notes: payload.notes
+        notes: payload.notes,
+        session
       });
       let drawer = currentDrawer;
       if (!drawer && payload.drawerId) {
@@ -430,7 +450,7 @@ export default function PosShift({
           notes: 'Drawer assigned during shift open.'
         });
       }
-      onOpenShift(staffName, payload.openingFloat);
+      onOpenShift(staffName, payload.openingFloat, opened.id);
       onLogBiEvent('SHIFT_OPENED', staffName, terminalId, { floatAmount: payload.openingFloat, details: payload.notes }, 'INFO');
       saveShiftRecoveryState(recoveryContext(opened, drawer));
       markRecoveryCheckpoint('SHIFT_OPENED', { shiftId: opened.id, drawerId: drawer?.drawerId });
@@ -445,9 +465,10 @@ export default function PosShift({
       await logTerminalControlEvent({ vendorId: VENDOR_ID, branchId, terminalId, staffId, staffName, eventType: 'SHIFT_START_NAVIGATED_TO_SALES', message: 'Navigated to Sales Terminal after shift open.', severity: 'INFO' });
       await loadControlData();
       onNavigate?.('SALES');
-    } catch {
-      await logTerminalControlEvent({ vendorId: VENDOR_ID, branchId, terminalId, staffId, staffName, eventType: 'SHIFT_OPEN_FAILED', message: 'Shift open failed during local workflow.', severity: 'WARNING' });
-      setStatusMessage('Shift could not be opened.');
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Shift could not be opened.';
+      await logTerminalControlEvent({ vendorId: VENDOR_ID, branchId, terminalId, staffId, staffName, eventType: 'SHIFT_OPEN_FAILED', message, severity: 'WARNING' });
+      setStatusMessage(message);
     }
   };
 
@@ -483,7 +504,7 @@ export default function PosShift({
       await logTerminalControlEvent({ vendorId: VENDOR_ID, branchId, terminalId, staffId, staffName, eventType: 'SHIFT_CLOSE_BLOCKED', message: 'Shift close blocked because no open shift exists.', severity: 'WARNING' });
       return;
     }
-    const closed = await closeShift(shift.id, payload.countedCash, staffName);
+    const closed = await closeShift(shift.id, payload.countedCash, staffName, session);
     if (closed) {
       const report = eodPayload || await prepareShiftEodPrintPayload(buildEodContext(payload.countedCash, payload.cashNotes));
       setEodPayload(report);

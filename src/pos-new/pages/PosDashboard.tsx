@@ -1,38 +1,45 @@
-import React, { useState } from 'react';
-import { 
-  TrendingUp, 
-  Layers, 
-  Lock, 
-  Unlock, 
-  Users, 
-  Monitor, 
-  ShieldAlert, 
-  DollarSign, 
-  Clock, 
-  Activity, 
-  CheckCircle2, 
-  Building, 
-  AlertTriangle, 
-  ArrowRight, 
-  Check, 
-  Database,
-  Zap,
-  Package,
+import React, { useEffect, useMemo, useState } from 'react';
+import {
+  ArrowRight,
+  ClipboardCheck,
   ClipboardList,
-  PlusCircle,
+  Package,
+  Receipt,
+  ShieldAlert,
+  TrendingUp,
   Truck,
-  FileCheck,
-  RotateCcw,
-  RefreshCw,
-  Eye,
-  ShieldCheck,
-  FileText,
-  Download,
-  X
+  Users,
+  Wallet
 } from 'lucide-react';
-import { Product, Transaction, Shift, CashLog, PosSession, PosPageId, BusinessProfile } from '../types';
-import { getBusinessProfileDashboardSummary } from '../services/businessProfileService';
-import { normalizeSecurityRole, roleHasPermission } from '../auth/permissionMatrixService';
+import {
+  BusinessProfile,
+  CashLog,
+  CustomerDebtRecord,
+  CustomerRecord,
+  CustomerSummary,
+  DeliverySummary,
+  GoodsReceivingNote,
+  OperationalApprovalRequest,
+  PosPageId,
+  PosSession,
+  Product,
+  Shift,
+  StocktakeSessionSummary,
+  StockTransferSummary,
+  TaskRecord,
+  TaskSummary,
+  Transaction
+} from '../types';
+import { getDeliverySummary } from '../services/deliveryService';
+import { getOperationalApprovals } from '../services/approvalService';
+import { getTaskSummary, getTasks } from '../services/taskService';
+import { biEventService } from '../services/biEventService';
+import { getCustomerSummary, getCustomers } from '../services/customerService';
+import { getCustomerDebtRecords } from '../services/customerCreditService';
+import { getGoodsReceivingNotes } from '../services/goodsReceivingService';
+import { getStockTransferSummary } from '../services/stockTransferService';
+import { getStocktakeSessionSummary } from '../services/stocktakeService';
+import { getStaffByVendor } from '../services/staffFirestoreService';
 
 interface PosDashboardProps {
   products: Product[];
@@ -44,6 +51,144 @@ interface PosDashboardProps {
   businessProfile?: BusinessProfile;
 }
 
+type DateFilter = 'Today' | 'Yesterday' | 'This Week' | 'This Month';
+type Severity = 'Low' | 'Medium' | 'High' | 'Critical';
+
+type ServiceState = {
+  delivery: DeliverySummary | null;
+  approvals: OperationalApprovalRequest[];
+  taskSummary: TaskSummary | null;
+  tasks: TaskRecord[];
+  customers: CustomerRecord[];
+  customerSummary: CustomerSummary | null;
+  customerDebts: CustomerDebtRecord[];
+  goodsReceiving: GoodsReceivingNote[];
+  transferSummary: StockTransferSummary | null;
+  stocktakeSummary: StocktakeSessionSummary | null;
+  staffOnDuty: Array<{ name: string; role: string; status: string }>;
+  biWarnings: Array<{ title: string; reason: string; severity: Severity; action: string }>;
+};
+
+const emptyServiceState: ServiceState = {
+  delivery: null,
+  approvals: [],
+  taskSummary: null,
+  tasks: [],
+  customers: [],
+  customerSummary: null,
+  customerDebts: [],
+  goodsReceiving: [],
+  transferSummary: null,
+  stocktakeSummary: null,
+  staffOnDuty: [],
+  biWarnings: []
+};
+
+function startOfDay(date: Date): Date {
+  const next = new Date(date);
+  next.setHours(0, 0, 0, 0);
+  return next;
+}
+
+function endOfDay(date: Date): Date {
+  const next = new Date(date);
+  next.setHours(23, 59, 59, 999);
+  return next;
+}
+
+function isoDate(date: Date): string {
+  return date.toISOString().slice(0, 10);
+}
+
+function getDateRange(filter: DateFilter): { from: Date; to: Date; label: string } {
+  const now = new Date();
+  if (filter === 'Yesterday') {
+    const yesterday = new Date(now);
+    yesterday.setDate(now.getDate() - 1);
+    return { from: startOfDay(yesterday), to: endOfDay(yesterday), label: 'Yesterday' };
+  }
+  if (filter === 'This Week') {
+    const first = new Date(now);
+    first.setDate(now.getDate() - now.getDay());
+    return { from: startOfDay(first), to: endOfDay(now), label: 'This Week' };
+  }
+  if (filter === 'This Month') {
+    return { from: startOfDay(new Date(now.getFullYear(), now.getMonth(), 1)), to: endOfDay(now), label: 'This Month' };
+  }
+  return { from: startOfDay(now), to: endOfDay(now), label: 'Today' };
+}
+
+function previousDayRange(from: Date): { from: Date; to: Date } {
+  const day = new Date(from);
+  day.setDate(from.getDate() - 1);
+  return { from: startOfDay(day), to: endOfDay(day) };
+}
+
+function inRange(value: string | undefined, from: Date, to: Date): boolean {
+  if (!value) return false;
+  const time = new Date(value).getTime();
+  return Number.isFinite(time) && time >= from.getTime() && time <= to.getTime();
+}
+
+function money(value: number): string {
+  return `USD ${value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
+
+function percent(value: number): string {
+  return `${value >= 0 ? '+' : ''}${value.toFixed(1)}%`;
+}
+
+function productQty(product: Product): number {
+  return Number(product.availableStock ?? product.qtyOnHand ?? product.stock ?? 0) || 0;
+}
+
+function productCost(product: Product): number {
+  return Number(product.costPrice ?? product.cost ?? 0) || 0;
+}
+
+function productPrice(product: Product): number {
+  return Number(product.sellingPrice ?? product.price ?? 0) || 0;
+}
+
+function productName(product: Product): string {
+  return product.productName || product.name || product.sku || product.code || 'Unnamed product';
+}
+
+function productCategory(product: Product): string {
+  return product.productCategory || product.category || 'Uncategorised';
+}
+
+function isCashPayment(method: string): boolean {
+  return ['CASH', 'Cash'].includes(method);
+}
+
+function scopeMatches(value: string, ...candidates: Array<string | undefined>): boolean {
+  if (value === 'ALL') return true;
+  const needle = value.trim().toLowerCase();
+  return candidates.some((candidate) => String(candidate || '').trim().toLowerCase() === needle);
+}
+
+function compareStatus(value: number): 'Good' | 'Watch' | 'Attention' {
+  if (value > 0) return 'Good';
+  if (value === 0) return 'Watch';
+  return 'Attention';
+}
+
+function severityForVariance(amount: number): Severity {
+  const absolute = Math.abs(amount);
+  if (absolute >= 250) return 'Critical';
+  if (absolute >= 100) return 'High';
+  if (absolute > 0) return 'Medium';
+  return 'Low';
+}
+
+function severityClass(severity: Severity): string {
+  if (severity === 'Critical') return 'border-rose-500 bg-rose-50 text-rose-900';
+  if (severity === 'High') return 'border-orange-400 bg-orange-50 text-orange-950';
+  if (severity === 'Medium') return 'border-amber-300 bg-amber-50 text-amber-900';
+  return 'border-emerald-300 bg-emerald-50 text-emerald-800';
+}
+
 export default function PosDashboard({
   products,
   transactions,
@@ -53,948 +198,629 @@ export default function PosDashboard({
   session,
   businessProfile
 }: PosDashboardProps) {
-
-  // Retrieve current active operator name
-  const staffName = session?.staffName || 'Admin User';
-  const roleName = session?.role || 'Owner';
   const vendorName = session?.vendor || businessProfile?.tradingName || businessProfile?.legalName || businessProfile?.businessName || 'Business';
-  const branchName = session?.branch || 'Main Branch';
-  const terminalName = session?.terminal || 'POS-01';
-  const businessSummary = getBusinessProfileDashboardSummary(
-    (permissionKey) => roleHasPermission(normalizeSecurityRole(roleName), permissionKey),
-    businessProfile
-  );
+  const currentBranch = session?.branchId || session?.branch || 'ALL';
+  const currentWarehouse = session?.warehouseId || session?.warehouse || 'ALL';
+  const [dateFilter, setDateFilter] = useState<DateFilter>('Today');
+  const [branchFilter, setBranchFilter] = useState(currentBranch);
+  const [warehouseFilter, setWarehouseFilter] = useState(currentWarehouse);
+  const [serviceState, setServiceState] = useState<ServiceState>(emptyServiceState);
 
-  const [consoleNotification, setConsoleNotification] = useState<string>('Workspace ready');
-  const [notificationType, setNotificationType] = useState<'info' | 'success' | 'warning'>('info');
+  const dateRange = useMemo(() => getDateRange(dateFilter), [dateFilter]);
+  const priorRange = useMemo(() => previousDayRange(dateRange.from), [dateRange.from]);
 
-  // Local state for approval queue cards to allow interactive approving
-  const [overridesCount, setOverridesCount] = useState(0);
-  const [refundsCount, setRefundsCount] = useState(0);
-  const [adjustmentsCount, setAdjustmentsCount] = useState(0);
-  const [varianceCount, setVarianceCount] = useState(0);
-  const [analyticsModal, setAnalyticsModal] = useState<'trading' | 'stock' | null>(null);
-
-  const todayKey = new Date().toISOString().slice(0, 10);
-  const todaysTransactions = React.useMemo(() => transactions.filter((transaction) => (transaction.date || '').slice(0, 10) === todayKey), [todayKey, transactions]);
-  const tradingSummary = React.useMemo(() => {
-    const saleRows = todaysTransactions.length > 0 ? todaysTransactions : transactions;
-    const grossSales = saleRows.reduce((sum, transaction) => sum + (transaction.total || 0), 0);
-    const transactionCount = saleRows.length;
-    const itemsSold = saleRows.reduce((sum, transaction) => sum + (transaction.items?.reduce((itemSum, item) => itemSum + item.quantity, 0) || 0), 0);
-    const cashSales = saleRows.filter((transaction) => transaction.paymentMethod === 'CASH').reduce((sum, transaction) => sum + (transaction.total || 0), 0);
-    const cardSales = saleRows.filter((transaction) => transaction.paymentMethod === 'CARD').reduce((sum, transaction) => sum + (transaction.total || 0), 0);
-    const splitSales = saleRows.filter((transaction) => transaction.paymentMethod === 'SPLIT').reduce((sum, transaction) => sum + (transaction.total || 0), 0);
-    const estimatedCost = saleRows.reduce((sum, transaction) => {
-      return sum + (transaction.items?.reduce((itemSum, item) => {
-        const product = products.find((row) => row.id === item.productId || row.code === item.code);
-        const unitCost = product?.cost ?? item.price * 0.62;
-        return itemSum + unitCost * item.quantity;
-      }, 0) || 0);
-    }, 0);
-    const grossProfit = Math.max(0, grossSales - estimatedCost);
-    return {
-      grossSales,
-      transactionCount,
-      averageBasket: transactionCount > 0 ? grossSales / transactionCount : 0,
-      itemsSold,
-      cashSales,
-      cardSales,
-      splitSales,
-      grossProfit,
-      grossMargin: grossSales > 0 ? (grossProfit / grossSales) * 100 : 0
-    };
-  }, [todaysTransactions, transactions, products]);
-  const stockHealthSummary = React.useMemo(() => {
-    const ninetyDaysAgo = Date.now() - 90 * 24 * 60 * 60 * 1000;
-    const stockLevel = (product: Product) => product.stock ?? product.qtyOnHand ?? product.availableStock ?? 0;
-    const lowStockRows = products.filter((product) => stockLevel(product) > 0 && stockLevel(product) <= (product.minStock || 5));
-    const outOfStockRows = products.filter((product) => stockLevel(product) <= 0);
-    const deadStockRows = products.filter((product) => {
-      const lastMovement = product.lastMovementDate ? new Date(product.lastMovementDate).getTime() : 0;
-      return lastMovement > 0 && lastMovement < ninetyDaysAgo;
+  const branchOptions = useMemo(() => {
+    const rows = new Map<string, string>();
+    rows.set('ALL', 'All Branches');
+    if (session?.branchId || session?.branch) rows.set(currentBranch, session?.branch || session?.branchId || currentBranch);
+    products.forEach((product) => {
+      const key = product.branchId || product.branch;
+      if (key) rows.set(key, product.branch || product.branchId || key);
     });
-    const fastMovers = products
-      .filter((product) => (product.healthStatus === 'Fast Moving' || stockLevel(product) > (product.minStock || 5) * 3) && stockLevel(product) > 0)
-      .slice(0, 6);
-    const reorderRows = products.filter((product) => stockLevel(product) <= (product.minStock || 5));
-    return {
-      lowStock: lowStockRows.length,
-      outOfStock: outOfStockRows.length,
-      deadStock: deadStockRows.length,
-      varianceRisk: Math.max(0, products.filter((product) => product.healthStatus === 'Low Stock' || product.healthStatus === 'Out of Stock').length),
-      slowMovers: deadStockRows.length,
-      fastMovers: fastMovers.length,
-      reorderRequired: reorderRows.length,
-      lowStockRows,
-      outOfStockRows,
-      deadStockRows,
-      fastMoverRows: fastMovers,
-      reorderRows
+    transactions.forEach((transaction) => {
+      if (transaction.branch) rows.set(transaction.branch, transaction.branch);
+    });
+    return Array.from(rows, ([value, label]) => ({ value, label }));
+  }, [currentBranch, products, session?.branch, session?.branchId, transactions]);
+
+  const warehouseOptions = useMemo(() => {
+    const rows = new Map<string, string>();
+    rows.set('ALL', 'All Warehouses');
+    if (session?.warehouseId || session?.warehouse) rows.set(currentWarehouse, session?.warehouse || session?.warehouseId || currentWarehouse);
+    products.forEach((product) => {
+      const key = product.warehouseId || product.warehouse;
+      if (key) rows.set(key, product.warehouse || product.warehouseId || key);
+    });
+    return Array.from(rows, ([value, label]) => ({ value, label }));
+  }, [currentWarehouse, products, session?.warehouse, session?.warehouseId]);
+
+  useEffect(() => {
+    let active = true;
+    const filters = {
+      dateFrom: isoDate(dateRange.from),
+      dateTo: isoDate(dateRange.to),
+      branch: branchFilter === 'ALL' ? undefined : branchFilter,
+      warehouse: warehouseFilter === 'ALL' ? undefined : warehouseFilter
     };
-  }, [products]);
 
-  const money = (value: number) => `USD ${value.toFixed(2)}`;
-  type AnalyticsSection = { title: string; rows: string[][] };
-  const analyticsSections = (kind: 'trading' | 'stock'): AnalyticsSection[] => {
-    if (kind === 'trading') {
-      return [
-        {
-          title: 'Sales Breakdown',
-          rows: [
-            ['Gross sales', money(tradingSummary.grossSales)],
-            ['Cash sales', money(tradingSummary.cashSales)],
-            ['Card sales', money(tradingSummary.cardSales)],
-            ['Split payments', money(tradingSummary.splitSales)],
-            ['Items sold', String(tradingSummary.itemsSold)]
-          ]
-        },
-        {
-          title: 'Profit Breakdown',
-          rows: [
-            ['Estimated gross profit', money(tradingSummary.grossProfit)],
-            ['Estimated margin', `${tradingSummary.grossMargin.toFixed(1)}%`],
-            ['Discount impact', money(Math.max(0, transactions.reduce((sum, transaction) => sum + (transaction.discount || 0), 0)))],
-            ['Average basket value', money(tradingSummary.averageBasket)]
-          ]
-        },
-        {
-          title: 'Transaction Analysis',
-          rows: [
-            ['Transaction count', String(tradingSummary.transactionCount)],
-            ['Average units per sale', tradingSummary.transactionCount > 0 ? (tradingSummary.itemsSold / tradingSummary.transactionCount).toFixed(1) : '0.0'],
-            ['Active branch', branchName],
-            ['Active terminal', terminalName]
-          ]
-        }
-      ];
-    }
-    return [
-      {
-        title: 'Stock Risk',
-        rows: [
-          ['Low stock', String(stockHealthSummary.lowStock)],
-          ['Out of stock', String(stockHealthSummary.outOfStock)],
-          ['Variance risk', String(stockHealthSummary.varianceRisk)],
-          ['Dead stock', String(stockHealthSummary.deadStock)]
-        ]
-      },
-      {
-        title: 'Slow Movers',
-        rows: stockHealthSummary.deadStockRows.slice(0, 6).map((product) => [
-          product.name || product.productName || product.code,
-          `${product.stock ?? product.qtyOnHand ?? product.availableStock ?? 0} on hand`
-        ]).concat(stockHealthSummary.deadStockRows.length === 0 ? [['No slow movers', '0 items']] : [])
-      },
-      {
-        title: 'Fast Movers',
-        rows: stockHealthSummary.fastMoverRows.map((product) => [
-          product.name || product.productName || product.code,
-          `${product.stock ?? product.qtyOnHand ?? product.availableStock ?? 0} on hand`
-        ]).concat(stockHealthSummary.fastMoverRows.length === 0 ? [['No fast movers', '0 items']] : [])
-      },
-      {
-        title: 'Reorder Analysis',
-        rows: [
-          ['Products requiring reorder', String(stockHealthSummary.reorderRequired)],
-          ['Critical zero stock', String(stockHealthSummary.outOfStock)],
-          ['Low stock watchlist', String(stockHealthSummary.lowStock)],
-          ['Recommended action', stockHealthSummary.reorderRequired > 0 ? 'Create supplier reorder review' : 'Maintain current stock levels']
-        ]
-      }
-    ];
-  };
-  const exportRows = (kind: 'trading' | 'stock'): string[][] => {
-    return [['Section', 'Metric', 'Value'], ...analyticsSections(kind).flatMap((section) => section.rows.map(([metric, value]) => [section.title, metric, value]))];
-  };
-  const exportExcel = (kind: 'trading' | 'stock') => {
-    const rows = exportRows(kind);
-    const csv = rows.map((row) => row.map((cell) => `"${cell.replace(/"/g, '""')}"`).join(',')).join('\n');
-    const url = URL.createObjectURL(new Blob([csv], { type: 'application/vnd.ms-excel;charset=utf-8' }));
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `${kind === 'trading' ? 'today-trading-summary' : 'stock-health'}-${todayKey}.xls`;
-    link.click();
-    URL.revokeObjectURL(url);
-    triggerNotification(`${kind === 'trading' ? 'Trading summary' : 'Stock health'} Excel export prepared.`, 'success');
-  };
-  const exportPdf = (kind: 'trading' | 'stock') => {
-    const title = kind === 'trading' ? 'Today Trading Summary' : 'Stock Health';
-    const sections = analyticsSections(kind);
-    const printWindow = window.open('', '_blank', 'noopener,noreferrer');
-    if (!printWindow) {
-      triggerNotification('PDF export blocked by browser popup settings.', 'warning');
-      return;
-    }
-    printWindow.document.write(`
-      <html>
-        <head>
-          <title>${title}</title>
-          <style>
-            body { font-family: Arial, sans-serif; color: #111827; padding: 24px; }
-            h1 { color: #f26a1b; font-size: 22px; margin-bottom: 4px; }
-            p { color: #475569; margin-top: 0; }
-            table { border-collapse: collapse; width: 100%; margin-top: 20px; }
-            th, td { border: 1px solid #cbd5e1; padding: 10px; text-align: left; }
-            th { background: #fff7ed; color: #9a3412; }
-          </style>
-        </head>
-        <body>
-          <h1>${title}</h1>
-          <p>${vendorName} | ${branchName} | ${todayKey}</p>
-          ${sections.map((section) => `
-            <h2>${section.title}</h2>
-            <table><thead><tr><th>Metric</th><th>Value</th></tr></thead><tbody>
-              ${section.rows.map(([label, value]) => `<tr><td>${label}</td><td>${value}</td></tr>`).join('')}
-            </tbody></table>
-          `).join('')}
-        </body>
-      </html>
-    `);
-    printWindow.document.close();
-    printWindow.focus();
-    printWindow.print();
-    triggerNotification(`${title} PDF export prepared.`, 'success');
-  };
+    void Promise.all([
+      getDeliverySummary({ dateFrom: filters.dateFrom, dateTo: filters.dateTo }),
+      getOperationalApprovals(),
+      getTaskSummary(),
+      getTasks({ dueDateFrom: filters.dateFrom, dueDateTo: filters.dateTo }),
+      biEventService.getBIEvents(),
+      getCustomerSummary(),
+      getCustomers(),
+      getCustomerDebtRecords({ status: 'All' }),
+      getGoodsReceivingNotes({ dateFrom: filters.dateFrom, dateTo: filters.dateTo, branch: filters.branch, warehouse: filters.warehouse }),
+      getStockTransferSummary({ dateFrom: filters.dateFrom, dateTo: filters.dateTo, sourceBranch: filters.branch, sourceWarehouse: filters.warehouse }),
+      getStocktakeSessionSummary({ dateFrom: filters.dateFrom, dateTo: filters.dateTo, branch: filters.branch, warehouse: filters.warehouse }),
+      session?.vendorId ? getStaffByVendor(session.vendorId) : Promise.resolve([])
+    ]).then(([delivery, approvals, taskSummary, tasks, biEvents, customerSummary, customers, customerDebts, goodsReceiving, transferSummary, stocktakeSummary, staff]) => {
+      if (!active) return;
+      setServiceState({
+        delivery,
+        approvals,
+        taskSummary,
+        tasks,
+        customers,
+        customerSummary,
+        customerDebts,
+        goodsReceiving,
+        transferSummary,
+        stocktakeSummary,
+        staffOnDuty: staff
+          .filter((row) => String(row.status || '').toLowerCase() === 'active')
+          .map((row) => ({ name: row.displayName || row.email || 'Staff member', role: row.roleName || 'Staff', status: 'Signed in' })),
+        biWarnings: biEvents
+          .filter((event) => ['High', 'Critical', 'WARNING', 'CRITICAL'].includes(String(event.severity)))
+          .slice(0, 4)
+          .map((event) => ({
+            title: businessWarningTitle(event.eventType),
+            reason: String(event.payload?.reason || event.payload?.details || 'Needs management review.'),
+            severity: event.severity === 'Critical' || event.severity === 'CRITICAL' ? 'Critical' : 'High',
+            action: 'Open related record'
+          }))
+      });
+    }).catch(() => {
+      if (active) setServiceState(emptyServiceState);
+    });
+    return () => {
+      active = false;
+    };
+  }, [branchFilter, dateRange.from, dateRange.to, session?.vendorId, warehouseFilter]);
 
-  // Alert simulation triggers
-  const triggerNotification = (message: string, type: 'info' | 'success' | 'warning' = 'info') => {
-    setConsoleNotification(message);
-    setNotificationType(type);
-    setTimeout(() => {
-      setConsoleNotification('Sync Status: Fully Synchronized');
-      setNotificationType('info');
-    }, 4000);
-  };
+  const scopedProducts = useMemo(() => products.filter((product) => {
+    const branchOk = branchFilter === 'ALL' || !product.branchId && !product.branch || scopeMatches(branchFilter, product.branchId, product.branch);
+    const warehouseOk = warehouseFilter === 'ALL' || !product.warehouseId && !product.warehouse || scopeMatches(warehouseFilter, product.warehouseId, product.warehouse);
+    return branchOk && warehouseOk;
+  }), [branchFilter, products, warehouseFilter]);
 
-  // Handle local approval actions
-  const approvePriceOverride = () => {
-    if (overridesCount > 0) {
-      setOverridesCount(prev => prev - 1);
-      triggerNotification(`APPROVED: Price override bypass granted for operator.`, 'success');
-    } else {
-      triggerNotification(`No price overrides pending in approval queue.`, 'info');
-    }
-  };
+  const scopedTransactions = useMemo(() => transactions.filter((transaction) => {
+    const branchOk = branchFilter === 'ALL' || !transaction.branch || scopeMatches(branchFilter, transaction.branch);
+    return branchOk && inRange(transaction.date, dateRange.from, dateRange.to);
+  }), [branchFilter, dateRange.from, dateRange.to, transactions]);
 
-  const approveRefund = () => {
-    if (refundsCount > 0) {
-      setRefundsCount(prev => prev - 1);
-      triggerNotification(`APPROVED: Customer refund of USD 45.00 authorized.`, 'success');
-    } else {
-      triggerNotification(`No active refunds pending.`, 'info');
-    }
-  };
+  const priorTransactions = useMemo(() => transactions.filter((transaction) => {
+    const branchOk = branchFilter === 'ALL' || !transaction.branch || scopeMatches(branchFilter, transaction.branch);
+    return branchOk && inRange(transaction.date, priorRange.from, priorRange.to);
+  }), [branchFilter, priorRange.from, priorRange.to, transactions]);
 
-  const approveAdjustment = () => {
-    if (adjustmentsCount > 0) {
-      setAdjustmentsCount(prev => prev - 1);
-      triggerNotification(`APPROVED: Inventory write-in stock correction processed.`, 'success');
-    } else {
-      triggerNotification(`No pending stock adjustments.`, 'info');
-    }
-  };
+  const scopedCashLogs = useMemo(() => cashLogs.filter((log) => inRange(log.timestamp, dateRange.from, dateRange.to)), [cashLogs, dateRange.from, dateRange.to]);
 
-  const BI_ALERTS: Array<{ id: string; type: string; severity: string; message: string; time: string }> = [];
-  const dashboardAlertCount = overridesCount + refundsCount + adjustmentsCount + varianceCount + BI_ALERTS.length;
+  const productById = useMemo(() => new Map(scopedProducts.flatMap((product) => [[product.id, product], [product.code, product], [product.sku || '', product]]).filter(([key]) => key)), [scopedProducts]);
+
+  const trading = useMemo(() => summarizeTrading(scopedTransactions, productById), [productById, scopedTransactions]);
+  const priorTrading = useMemo(() => summarizeTrading(priorTransactions, productById), [priorTransactions, productById]);
+
+  const cash = useMemo(() => {
+    const cashSales = scopedTransactions.filter((transaction) => isCashPayment(transaction.paymentMethod)).reduce((sum, transaction) => sum + transaction.total, 0);
+    const paidIn = scopedCashLogs.filter((log) => log.type === 'PAY_IN' || log.type === 'INITIAL').reduce((sum, log) => sum + log.amount, 0);
+    const paidOut = scopedCashLogs.filter((log) => log.type === 'PAY_OUT' || log.type === 'SAFE_DROP').reduce((sum, log) => sum + log.amount, 0);
+    const openingFloat = activeShift?.startingCash ?? scopedCashLogs.find((log) => log.type === 'INITIAL')?.amount ?? 0;
+    const expectedCash = activeShift?.expectedCash ?? openingFloat + cashSales + paidIn - paidOut;
+    const countedCash = activeShift?.actualCash ?? 0;
+    const variance = activeShift?.difference ?? (countedCash ? countedCash - expectedCash : 0);
+    return { openingFloat, cashSales, paidOut, expectedCash, countedCash, variance, severity: severityForVariance(variance) };
+  }, [activeShift, scopedCashLogs, scopedTransactions]);
+
+  const stock = useMemo(() => {
+    const lowStockRows = scopedProducts.filter((product) => productQty(product) > 0 && productQty(product) <= (product.reorderLevel ?? product.minStock ?? 5));
+    const outRows = scopedProducts.filter((product) => productQty(product) <= 0);
+    const stockValue = scopedProducts.reduce((sum, product) => sum + productQty(product) * productCost(product), 0);
+    const unpostedReceipts = serviceState.goodsReceiving.filter((note) => !['Posted', 'Partially Posted', 'Cancelled', 'Rejected', 'Reversed'].includes(note.receivingStatus)).length;
+    const pendingTransfers = (serviceState.transferSummary?.draftTransfers || 0) + (serviceState.transferSummary?.pendingApproval || 0) + (serviceState.transferSummary?.inTransit || 0);
+    return {
+      lowStockRows,
+      outRows,
+      lowStock: lowStockRows.length,
+      outOfStock: outRows.length,
+      stockValue,
+      unpostedReceipts,
+      pendingTransfers,
+      stocktakeProgress: serviceState.stocktakeSummary
+        ? `${serviceState.stocktakeSummary.counting} counting, ${serviceState.stocktakeSummary.submitted} submitted`
+        : 'No stocktake in progress'
+    };
+  }, [scopedProducts, serviceState.goodsReceiving, serviceState.stocktakeSummary, serviceState.transferSummary]);
+
+  const performance = useMemo(() => summarizePerformance(scopedTransactions, scopedProducts), [scopedProducts, scopedTransactions]);
+  const customerPanel = useMemo(() => summarizeCustomers(serviceState.customers, serviceState.customerSummary, serviceState.customerDebts, scopedTransactions, dateRange), [dateRange, scopedTransactions, serviceState.customerDebts, serviceState.customerSummary, serviceState.customers]);
+  const approvals = useMemo(() => summarizeApprovals(serviceState.approvals), [serviceState.approvals]);
+  const staffActivity = useMemo(() => summarizeStaff(scopedTransactions, serviceState.tasks, serviceState.staffOnDuty, activeShift, cash.variance), [activeShift, cash.variance, scopedTransactions, serviceState.staffOnDuty, serviceState.tasks]);
+  const warnings = useMemo(() => buildWarnings(stock, cash, approvals, serviceState.delivery, customerPanel, performance, serviceState.stocktakeSummary, serviceState.biWarnings), [approvals, cash, customerPanel, performance, serviceState.biWarnings, serviceState.delivery, serviceState.stocktakeSummary, stock]);
+  const dailyActions = useMemo(() => buildDailyActions(stock, cash, approvals, serviceState.delivery, customerPanel, serviceState.taskSummary, activeShift), [activeShift, approvals, cash, customerPanel, serviceState.delivery, serviceState.taskSummary, stock]);
+
+  const kpis = [
+    createKpi("Today's Sales", money(trading.sales), trading.sales, priorTrading.sales, trading.sales > 0 ? 'Sales recorded' : 'No sales recorded today'),
+    createKpi('Gross Profit', money(trading.grossProfit), trading.grossProfit, priorTrading.grossProfit, trading.grossProfit > 0 ? `${trading.margin.toFixed(1)}% margin` : 'No gross profit yet'),
+    createKpi('Cash in Drawer', money(cash.expectedCash), cash.expectedCash, priorTrading.cashSales, Math.abs(cash.variance) > 0 ? 'Variance to review' : 'No cash variance'),
+    createKpi('Transactions', String(trading.transactions), trading.transactions, priorTrading.transactions, trading.transactions > 0 ? 'Receipts posted' : 'No sales recorded today'),
+    createKpi('Customers Served', String(trading.customersServed), trading.customersServed, priorTrading.customersServed, trading.customersServed > 0 ? 'Customers served' : 'No customers served yet'),
+    createKpi('Average Basket Value', money(trading.averageBasket), trading.averageBasket, priorTrading.averageBasket, trading.averageBasket > 0 ? 'Basket tracked' : 'No basket data yet')
+  ];
 
   return (
-    <div className="space-y-6 select-none font-mono text-xs text-slate-300">
-      
-      {/* 0. Top Operational Context Banner */}
-      <div id="dashboard-context-banner" className="bg-[#0f131a] border border-slate-800 p-4 relative overflow-hidden">
-        {/* Corner machinery visual lines */}
-        <div className="absolute top-0 left-0 w-1.5 h-1.5 border-t border-l border-amber-500"></div>
-        <div className="absolute top-0 right-0 w-1.5 h-1.5 border-t border-r border-amber-500"></div>
-        <div className="absolute bottom-0 left-0 w-1.5 h-1.5 border-b border-l border-amber-500"></div>
-        <div className="absolute bottom-0 right-0 w-1.5 h-1.5 border-b border-r border-amber-500"></div>
-
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-          <div className="flex items-center gap-3">
-            <div className="w-2.5 h-2.5 bg-emerald-500 animate-pulse shrink-0"></div>
-            <div>
-              <div className="text-[10px] text-slate-550 font-black uppercase tracking-widest leading-none">
-                ACTIVE OPERATIONAL SITE IDENTITY CONTEXT
-              </div>
-              <div className="text-slate-100 font-bold text-xs mt-1 uppercase flex flex-wrap items-center gap-x-3 gap-y-1">
-                <span>VENDOR: <strong className="text-amber-500">{vendorName}</strong></span>
-                <span className="text-slate-700 font-normal">|</span>
-                <span>BRANCH: <strong className="text-[#00f0ff]">{branchName}</strong></span>
-                <span className="text-slate-700 font-normal">|</span>
-                <span>TERMINAL: <strong className="text-slate-200">{terminalName}</strong></span>
-              </div>
-            </div>
-          </div>
-
-          <div className="flex items-center gap-3 border-t md:border-t-0 md:border-l border-slate-800 pt-3 md:pt-0 md:pl-5 shrink-0">
-            <div className="bg-amber-500/10 border border-amber-500/30 p-2 shrink-0">
-              <Users className="w-5 h-5 text-amber-500" />
-            </div>
-            <div>
-              <div className="text-[9px] text-slate-500 uppercase font-black tracking-widest leading-none">
-                AUTHENTICATED OPERATOR
-              </div>
-              <div className="text-slate-200 font-bold text-xs mt-1 uppercase">
-                {staffName} <span className="text-amber-400 font-normal">[{roleName}]</span>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Status notification feedback */}
-      <div className={`p-3 border text-[10px] tracking-wide uppercase transition-all duration-300 flex items-center justify-between ${
-        notificationType === 'success' ? 'bg-emerald-950/30 border-emerald-800 text-emerald-400' :
-        notificationType === 'warning' ? 'bg-amber-950/30 border-amber-800 text-amber-400' :
-        'bg-slate-950 border-slate-850 text-sky-400'
-      }`}>
-        <div className="flex items-center gap-2">
-          {notificationType === 'success' ? <CheckCircle2 className="w-4 h-4 shrink-0" /> :
-           notificationType === 'warning' ? <ShieldAlert className="w-4 h-4 shrink-0" /> :
-           <Activity className="w-4 h-4 shrink-0 animate-pulse" />}
-          <span>{consoleNotification}</span>
-        </div>
-        <div className="text-[9px] text-slate-600 font-black">
-          UTC: {new Date().toISOString().substring(11, 19)}
-        </div>
-      </div>
-
-      <section className="bg-white border-2 border-[#b1b5c2] p-4 text-[#1e222b]">
-        <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3 mb-4">
+    <div className="space-y-5 text-xs text-[#1e222b]" id="pos-vendor-dashboard">
+      <header className="border border-slate-700 bg-[#1e222b] p-4 text-white">
+        <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
           <div>
-            <p className="text-[9px] text-orange-600 uppercase font-black">Workspace Setup</p>
-            <h2 className="text-sm font-black uppercase">Complete your setup by adding products, creating staff, and opening your first shift.</h2>
+            <p className="text-[10px] font-black uppercase tracking-[0.24em] text-orange-400">Dashboard</p>
+            <h1 className="mt-1 text-xl font-black uppercase">Daily Business Control</h1>
+            <p className="mt-2 max-w-3xl text-[11px] font-bold uppercase leading-relaxed text-slate-300">
+              {vendorName} | {branchOptions.find((row) => row.value === branchFilter)?.label || 'Current Branch'} | {dateRange.label}
+            </p>
           </div>
-          <button type="button" onClick={() => onNavigate('STOCK')} className="sci-pos-button sci-pos-button--primary">
-            Add Products
-          </button>
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+            <Select label="Period" value={dateFilter} options={['Today', 'Yesterday', 'This Week', 'This Month']} onChange={(value) => setDateFilter(value as DateFilter)} />
+            <Select label="Branch" value={branchFilter} options={branchOptions.map((row) => row.value)} optionLabels={Object.fromEntries(branchOptions.map((row) => [row.value, row.label]))} onChange={setBranchFilter} />
+            <Select label="Warehouse" value={warehouseFilter} options={warehouseOptions.map((row) => row.value)} optionLabels={Object.fromEntries(warehouseOptions.map((row) => [row.value, row.label]))} onChange={setWarehouseFilter} />
+          </div>
         </div>
-        <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
-          <DashboardBusinessMetric label="Sales Today" value={money(tradingSummary.grossSales)} />
-          <DashboardBusinessMetric label="Products" value={String(products.length)} />
-          <DashboardBusinessMetric label="Customers" value="0" />
-          <DashboardBusinessMetric label="Deliveries" value="0" />
-          <DashboardBusinessMetric label="Alerts" value={String(dashboardAlertCount)} />
-        </div>
+      </header>
+
+      <section className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-6">
+        {kpis.map((kpi) => <KpiCard key={kpi.label} {...kpi} />)}
       </section>
 
-      <div className="bg-white border-2 border-[#b1b5c2] p-3 text-[#1e222b]">
-        <div className="flex items-center justify-between gap-3 mb-3">
-          <div>
-            <p className="text-[9px] text-orange-600 uppercase font-black">Business Profile</p>
-            <h3 className="text-sm font-black uppercase">Registration Summary</h3>
-          </div>
-          {!businessSummary.canViewRegistration && <span className="border border-orange-400 bg-orange-50 text-orange-950 px-2 py-1 text-[9px] font-black uppercase">Registration details hidden by permission</span>}
-        </div>
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
-          {businessSummary.canViewRegistration ? (
-            <>
-              <DashboardBusinessMetric label="Registered Name" value={businessSummary.registration.registeredBusinessName} />
-              <DashboardBusinessMetric label="Trading Name" value={businessSummary.registration.tradingName || '-'} />
-              <DashboardBusinessMetric label="Registration No" value={businessSummary.registration.registrationNumber || '-'} />
-              <DashboardBusinessMetric label="Registration Date" value={businessSummary.registration.registrationDate || '-'} />
-              <DashboardBusinessMetric label="Registration Place" value={businessSummary.registration.registrationPlace || '-'} />
-              <DashboardBusinessMetric label="VAT Status" value={businessSummary.registration.vatStatus} />
-              <DashboardBusinessMetric label="Tax Registration" value={businessSummary.registration.taxRegistrationNumber || '-'} />
-              <DashboardBusinessMetric label="Admin / Accountant" value={businessSummary.registration.accountantOrAdministratorName || '-'} />
-              <DashboardBusinessMetric label="Admin Phone" value={businessSummary.registration.accountantOrAdministratorPhone || '-'} />
-            </>
+      <section className="grid grid-cols-1 gap-4 xl:grid-cols-3">
+        <Panel title="Stock Control" icon={Package} actions={[
+          ['Open Inventory', () => onNavigate('STOCK')],
+          ['Receive Stock', () => onNavigate('STOCK')],
+          ['Start Stocktake', () => onNavigate('STOCK')],
+          ['Review Transfers', () => onNavigate('STOCK')]
+        ]}>
+          <MetricGrid rows={[
+            ['Low Stock Items', String(stock.lowStock)],
+            ['Out of Stock Items', String(stock.outOfStock)],
+            ['Stock Value', money(stock.stockValue)],
+            ['Unposted Goods Receipts', String(stock.unpostedReceipts)],
+            ['Pending Stock Transfers', String(stock.pendingTransfers)],
+            ['Stocktake Progress', stock.stocktakeProgress]
+          ]} />
+          <MiniList
+            empty="No low stock items"
+            rows={stock.lowStockRows.slice(0, 4).map((product) => [productName(product), `${productQty(product)} left`])}
+          />
+        </Panel>
+
+        <Panel title="Cash Control" icon={Wallet} actions={[
+          ['Open Cash Control', () => onNavigate('CASH')],
+          ['Count Drawer', () => onNavigate('CASH')],
+          ['Review Variance', () => onNavigate('CASH')],
+          ['Close Shift', () => onNavigate('SHIFT')]
+        ]}>
+          <MetricGrid rows={[
+            ['Opening Float', money(cash.openingFloat)],
+            ['Cash Sales', money(cash.cashSales)],
+            ['Cash Paid Out', money(cash.paidOut)],
+            ['Expected Cash', money(cash.expectedCash)],
+            ['Counted Cash', cash.countedCash ? money(cash.countedCash) : 'Not counted'],
+            ['Variance', money(cash.variance)]
+          ]} />
+          {Math.abs(cash.variance) > 0 ? (
+            <WarningBox
+              title="Cash variance detected"
+              severity={cash.severity}
+              reason={`${money(cash.variance)} variance on ${activeShift?.operator || 'current shift'}.`}
+              action="Review variance before closing the shift."
+            />
           ) : (
-            <>
-              <DashboardBusinessMetric label="Business Name" value={businessSummary.basic.businessName || '-'} />
-              <DashboardBusinessMetric label="Trading Name" value={businessSummary.basic.tradingName || '-'} />
-              <DashboardBusinessMetric label="City / Town" value={businessSummary.basic.cityTown || '-'} />
-              <DashboardBusinessMetric label="Industrial Sector" value={businessSummary.basic.industrialSector || '-'} />
-              <DashboardBusinessMetric label="Status" value={businessSummary.basic.status || '-'} />
-            </>
+            <EmptyState text="No cash variance" />
           )}
-        </div>
-      </div>
+        </Panel>
 
-      {/* Main Grid: Left Side Operations (cols-2), Right Side BI Alerts (cols-1) */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-
-        {/* LEFT COLUMN SPANS */}
-        <div className="lg:col-span-2 space-y-6">
-
-          {/* 1. Today Trading Summary */}
-          <div className="space-y-3">
-            <h3 className="text-[11px] font-black uppercase text-slate-400 tracking-wider flex items-center gap-2">
-              <TrendingUp className="w-4 h-4 text-emerald-400" />
-              1. Today Trading Summary
-            </h3>
-            
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-              
-              {/* Metric 1 */}
-              <div className="dashboard-analytics-card bg-[#10141e] border border-slate-800 p-4 relative flex flex-col justify-between h-28 hover:border-[#00f0ff] transition-all" onDoubleClick={() => setAnalyticsModal('trading')} title="Double click for trading analytics">
-                <div className="text-[9px] text-slate-500 uppercase font-black tracking-wider leading-none">
-                  Sales Today
-                </div>
-                <div className="text-lg font-black text-slate-50 font-mono tracking-tight my-1">
-                  {money(tradingSummary.grossSales)}
-                </div>
-                <div className="text-[9px] text-emerald-400 uppercase font-black tracking-widest flex items-center gap-1">
-                  <span className="w-1.5 h-1.5 bg-emerald-500 rounded-none shrink-0" />
-                  {tradingSummary.transactionCount > 0 ? 'Sales recorded' : 'No sales yet'}
-                </div>
-              </div>
-
-              {/* Metric 2 */}
-              <div className="dashboard-analytics-card bg-[#10141e] border border-slate-800 p-4 relative flex flex-col justify-between h-28 hover:border-[#00f0ff] transition-all" onDoubleClick={() => setAnalyticsModal('trading')} title="Double click for trading analytics">
-                <div className="text-[9px] text-slate-500 uppercase font-black tracking-wider leading-none">
-                  Transactions
-                </div>
-                <div className="text-lg font-black text-slate-50 font-mono tracking-tight my-1">
-                  {tradingSummary.transactionCount} sales
-                </div>
-                <div className="text-[9px] text-indigo-400 uppercase font-black tracking-widest flex items-center gap-1">
-                  <span className="w-1.5 h-1.5 bg-indigo-500 rounded-none shrink-0" />
-                  {tradingSummary.transactionCount > 0 ? 'Receipts posted' : 'No receipts yet'}
-                </div>
-              </div>
-
-              {/* Metric 3 */}
-              <div className="dashboard-analytics-card bg-[#10141e] border border-slate-800 p-4 relative flex flex-col justify-between h-28 hover:border-[#00f0ff] transition-all" onDoubleClick={() => setAnalyticsModal('trading')} title="Double click for trading analytics">
-                <div className="text-[9px] text-slate-500 uppercase font-black tracking-wider leading-none">
-                  Average Basket
-                </div>
-                <div className="text-lg font-black text-slate-50 font-mono tracking-tight my-1">
-                  {money(tradingSummary.averageBasket)}
-                </div>
-                <div className="text-[9px] text-cyan-400 uppercase font-black tracking-widest flex items-center gap-1">
-                  <span className="w-1.5 h-1.5 bg-cyan-400 rounded-none shrink-0" />
-                  {tradingSummary.transactionCount > 0 ? 'Basket tracked' : 'Awaiting first sale'}
-                </div>
-              </div>
-
-              {/* Metric 4 */}
-              <div className="dashboard-analytics-card bg-[#10141e] border border-slate-800 p-4 relative flex flex-col justify-between h-28 hover:border-[#00f0ff] transition-all" onDoubleClick={() => setAnalyticsModal('trading')} title="Double click for trading analytics">
-                <div className="text-[9px] text-slate-500 uppercase font-black tracking-wider leading-none">
-                  Items Sold
-                </div>
-                <div className="text-lg font-black text-slate-50 font-mono tracking-tight my-1">
-                  {tradingSummary.itemsSold} pcs
-                </div>
-                <div className="text-[9px] text-[#00f0ff] uppercase font-black tracking-widest flex items-center gap-1">
-                  <span className="w-1.5 h-1.5 bg-[#00f0ff] rounded-none shrink-0" />
-                  {tradingSummary.itemsSold > 0 ? 'Items sold' : 'No items sold'}
-                </div>
-              </div>
-
-            </div>
-            <div className="dashboard-export-actions">
-              <button type="button" onClick={() => exportPdf('trading')}><FileText className="w-3.5 h-3.5" /> PDF</button>
-              <button type="button" onClick={() => exportExcel('trading')}><Download className="w-3.5 h-3.5" /> Excel</button>
-            </div>
-          </div>
-
-          {/* 2 & 3: Shift Status & Stock Health in Double Columns */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-
-            {/* 2. Shift Status */}
-            <div className="space-y-3">
-              <h3 className="text-[11px] font-black uppercase text-slate-400 tracking-wider flex items-center gap-2">
-                <Clock className="w-4 h-4 text-amber-500" />
-                2. Shift Status
-              </h3>
-
-              <div className="bg-[#0f131a] border border-slate-800 p-4 space-y-3">
-                <div className="flex items-center justify-between border-b border-slate-900 pb-2">
-                  <span className="text-slate-500 uppercase font-bold text-[10px]">Active Shift Lock:</span>
-                  <span className="bg-emerald-950/60 border border-emerald-800 text-emerald-400 px-2 py-0.5 text-[9px] font-black tracking-widest uppercase">
-                    {activeShift ? '[Open / Active]' : '[Not Open]'}
-                  </span>
-                </div>
-
-                <div className="space-y-2 text-[10.5px]">
-                  <div className="flex justify-between">
-                    <span className="text-slate-500">Opened By:</span>
-                    <span className="text-slate-200 font-bold uppercase">{activeShift?.operator || staffName}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-slate-500">Opening Float:</span>
-                    <span className="text-slate-200 font-mono">{money(activeShift?.startingCash || 0)}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-slate-500">Expected Cash:</span>
-                    <span className="text-amber-500 font-mono font-bold">{money(activeShift?.expectedCash || 0)}</span>
-                  </div>
-                  <div className="flex justify-between border-t border-slate-900/50 pt-2 text-[10px]">
-                    <span className="text-slate-500">Declared Cash:</span>
-                    <span className="text-slate-400 italic">Pending Reconcile</span>
-                  </div>
-                  <div className="flex justify-between text-[10px]">
-                    <span className="text-slate-500">Variance:</span>
-                    <span className="text-slate-400 italic">Pending Audit</span>
-                  </div>
-                </div>
-
-                <div className="pt-2 border-t border-slate-900">
-                  <button
-                    onClick={() => onNavigate('SHIFT')}
-                    className="w-full text-center py-2 bg-slate-950 hover:bg-slate-900 border border-slate-800 text-[#00f0ff] hover:text-[#4df5ff] transition-colors text-[9px] uppercase font-bold tracking-wider"
-                  >
-                    Manage Shift Registers &rarr;
-                  </button>
-                </div>
-              </div>
-            </div>
-
-            {/* 3. Stock Health */}
-            <div className="space-y-3">
-              <h3 className="text-[11px] font-black uppercase text-slate-400 tracking-wider flex items-center gap-2">
-                <Package className="w-4 h-4 text-[#00f0ff]" />
-                3. Stock Health
-              </h3>
-
-              <div className="bg-[#0f131a] border border-slate-800 p-4 space-y-3">
-                <div className="grid grid-cols-2 gap-3.5">
-                  
-                  <div className="dashboard-analytics-card bg-slate-950 p-2.5 border border-slate-800 hover:border-amber-500/50 transition-colors" onDoubleClick={() => setAnalyticsModal('stock')} title="Double click for stock health analytics">
-                    <div className="text-[9px] text-amber-500 uppercase font-black tracking-wider leading-none">
-                      Low Stock
-                    </div>
-                    <div className="text-lg font-black text-slate-100 font-mono mt-1">
-                      {stockHealthSummary.lowStock} items
-                    </div>
-                    <span className="text-[8px] text-slate-500 block uppercase">BELOW SAFETY VAL</span>
-                  </div>
-
-                  <div className="dashboard-analytics-card bg-slate-950 p-2.5 border border-slate-800 hover:border-rose-500/50 transition-colors" onDoubleClick={() => setAnalyticsModal('stock')} title="Double click for stock health analytics">
-                    <div className="text-[9px] text-rose-500 uppercase font-black tracking-wider leading-none">
-                      Out of Stock
-                    </div>
-                    <div className="text-lg font-black text-slate-100 font-mono mt-1">
-                      {stockHealthSummary.outOfStock} items
-                    </div>
-                    <span className="text-[8px] text-rose-400 block uppercase font-bold animate-pulse">0 BAL SHUTDOWN</span>
-                  </div>
-
-                  <div className="dashboard-analytics-card bg-slate-950 p-2.5 border border-slate-800 hover:border-slate-700 transition-colors" onDoubleClick={() => setAnalyticsModal('stock')} title="Double click for stock health analytics">
-                    <div className="text-[9px] text-slate-500 uppercase font-black tracking-wider leading-none">
-                      Dead Stock
-                    </div>
-                    <div className="text-lg font-black text-slate-100 font-mono mt-1">
-                      {stockHealthSummary.deadStock} items
-                    </div>
-                    <span className="text-[8px] text-slate-500 block uppercase">NO MVMNT &gt; 90D</span>
-                  </div>
-
-                  <div className="dashboard-analytics-card bg-slate-950 p-2.5 border border-slate-800 hover:border-amber-500 transition-colors" onDoubleClick={() => setAnalyticsModal('stock')} title="Double click for stock health analytics">
-                    <div className="text-[9px] text-yellow-500 uppercase font-black tracking-wider leading-none">
-                      Variance Risk
-                    </div>
-                    <div className="text-lg font-black text-slate-100 font-mono mt-1">
-                      {stockHealthSummary.varianceRisk} items
-                    </div>
-                    <span className="text-[8px] text-slate-500 block uppercase">DRIFT SUSPICION</span>
-                  </div>
-
-                </div>
-
-                <div className="pt-1">
-                  <div className="dashboard-export-actions dashboard-export-actions--stock">
-                    <button type="button" onClick={() => exportPdf('stock')}><FileText className="w-3.5 h-3.5" /> PDF</button>
-                    <button type="button" onClick={() => exportExcel('stock')}><Download className="w-3.5 h-3.5" /> Excel</button>
-                  </div>
-                  <button
-                    onClick={() => onNavigate('STOCK')}
-                    className="w-full text-center py-2 bg-slate-950 hover:bg-slate-900 border border-slate-800 text-[#00f0ff] hover:text-[#4df5ff] transition-colors text-[9px] uppercase font-bold tracking-wider"
-                  >
-                    Open Stock Control Log &rarr;
-                  </button>
-                </div>
-              </div>
-            </div>
-
-          </div>
-
-          {/* 4. Approval Queue */}
-          <div className="space-y-3">
-            <h3 className="text-[11px] font-black uppercase text-slate-400 tracking-wider flex items-center gap-2">
-              <Zap className="w-4 h-4 text-amber-500" />
-              4. Price & Transaction Approval Queue
-            </h3>
-
-            <div className="bg-[#0f131a] border border-slate-800 p-4">
-              <div className="text-[9px] text-slate-500 uppercase font-black tracking-widest mb-3 leading-none">
-                Approval Requests From Active Terminals:
-              </div>
-
-              <div className="space-y-2.5">
-                
-                {/* Override Queue Row */}
-                <div className="flex items-center justify-between p-2.5 bg-slate-950 border border-slate-850 hover:border-slate-750">
-                  <div className="space-y-1">
-                    <div className="flex items-center gap-2">
-                      <span className="bg-amber-500/10 border border-amber-500/30 text-amber-500 px-1.5 py-0.5 text-[8px] font-black uppercase tracking-wider">
-                        PRICE OVERRIDE
-                      </span>
-                      <strong className="text-slate-200 text-[10.5px] font-mono">{overridesCount} Active Request(s)</strong>
-                    </div>
-                    <p className="text-[9px] text-slate-500 max-w-md truncate">{overridesCount > 0 ? 'Price override request awaiting review.' : 'No price override requests yet.'}</p>
-                  </div>
-                  <button
-                    onClick={approvePriceOverride}
-                    disabled={overridesCount === 0}
-                    className="bg-amber-500 hover:bg-amber-600 disabled:bg-slate-850 text-slate-950 disabled:text-slate-600 px-3 py-1.5 font-bold uppercase transition-colors shrink-0 text-[10px]"
-                  >
-                    {overridesCount > 0 ? 'Review & Sign' : 'Cleared'}
-                  </button>
-                </div>
-
-                {/* Refund Row */}
-                <div className="flex items-center justify-between p-2.5 bg-slate-950 border border-slate-850 hover:border-slate-750">
-                  <div className="space-y-1">
-                    <div className="flex items-center gap-2">
-                      <span className="bg-[#00f0ff]/10 border border-[#00f0ff]/30 text-[#00f0ff] px-1.5 py-0.5 text-[8px] font-black uppercase tracking-wider">
-                        REFUND QUEUE
-                      </span>
-                      <strong className="text-slate-200 text-[10.5px] font-mono">{refundsCount} Active Request(s)</strong>
-                    </div>
-                    <p className="text-[9px] text-slate-500 max-w-md truncate">{refundsCount > 0 ? 'Refund request awaiting review.' : 'No refund requests yet.'}</p>
-                  </div>
-                  <button
-                    onClick={approveRefund}
-                    disabled={refundsCount === 0}
-                    className="bg-amber-500 hover:bg-amber-600 disabled:bg-slate-850 text-slate-950 disabled:text-slate-600 px-3 py-1.5 font-bold uppercase transition-colors shrink-0 text-[10px]"
-                  >
-                    {refundsCount > 0 ? 'Review & Sign' : 'Cleared'}
-                  </button>
-                </div>
-
-                {/* Stock write-in Row */}
-                <div className="flex items-center justify-between p-2.5 bg-slate-950 border border-slate-850 hover:border-slate-750">
-                  <div className="space-y-1">
-                    <div className="flex items-center gap-2">
-                      <span className="bg-indigo-500/10 border border-indigo-500/30 text-indigo-400 px-1.5 py-0.5 text-[8px] font-black uppercase tracking-wider">
-                        STOCK ADJUSTMENT
-                      </span>
-                      <strong className="text-slate-200 text-[10.5px] font-mono">{adjustmentsCount} Active Request(s)</strong>
-                    </div>
-                    <p className="text-[9px] text-slate-500 max-w-md truncate">{adjustmentsCount > 0 ? 'Stock adjustment request awaiting review.' : 'No stock adjustment requests yet.'}</p>
-                  </div>
-                  <button
-                    onClick={approveAdjustment}
-                    disabled={adjustmentsCount === 0}
-                    className="bg-amber-500 hover:bg-amber-600 disabled:bg-slate-850 text-slate-950 disabled:text-slate-600 px-3 py-1.5 font-bold uppercase transition-colors shrink-0 text-[10px]"
-                  >
-                    {adjustmentsCount > 0 ? 'Review & Sign' : 'Cleared'}
-                  </button>
-                </div>
-
-                {/* Cash Variance Row */}
-                <div className="flex items-center justify-between p-2.5 bg-slate-950 border border-slate-850 hover:border-slate-750">
-                  <div className="space-y-1">
-                    <div className="flex items-center gap-2">
-                      <span className="bg-rose-500/10 border border-rose-500/30 text-rose-400 px-1.5 py-0.5 text-[8px] font-black uppercase tracking-wider">
-                        CASH VARIANCE REVIEWS
-                      </span>
-                      <strong className="text-slate-200 text-[10.5px] font-mono">{varianceCount} Active Request(s)</strong>
-                    </div>
-                    <p className="text-[9px] text-slate-500 max-w-md truncate">Drawer discrepancy flagged beneath allowed standard float bounds.</p>
-                  </div>
-                  <button
-                    disabled
-                    className="bg-slate-850 text-slate-600 px-3 py-1.5 font-bold uppercase transition-colors shrink-0 text-[10px]"
-                  >
-                    No Alerts
-                  </button>
-                </div>
-
-              </div>
-            </div>
-          </div>
-
-          {/* 6. Quick Actions */}
-          <div className="space-y-3">
-            <h3 className="text-[11px] font-black uppercase text-slate-400 tracking-wider flex items-center gap-2">
-              <TableActionsIcon className="w-4 h-4 text-emerald-400" />
-              6. Quick Actions
-            </h3>
-
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-              
-              <button
-                onClick={() => onNavigate('SALES')}
-                className="bg-[#141822] hover:bg-[#1a2130] border border-slate-800 hover:border-[#00f0ff] p-4 text-center cursor-pointer group transition-all text-slate-200"
-              >
-                <PlusCircle className="w-6 h-6 text-emerald-400 mx-auto mb-2 group-hover:scale-105 transition-transform" />
-                <span className="block font-bold uppercase text-[10px] tracking-wider text-slate-100">New Sale</span>
-                <span className="text-[8.5px] text-slate-550 block mt-1">OPEN TERMINAL</span>
-              </button>
-
-              <button
-                onClick={() => {
-                  onNavigate('STOCK');
-                  triggerNotification('STOCKTAKE UTILITY LOADED: Initiating visual scanner sequence.', 'info');
-                }}
-                className="bg-[#141822] hover:bg-[#1a2130] border border-slate-800 hover:border-amber-500 p-4 text-center cursor-pointer group transition-all text-slate-200"
-              >
-                <ClipboardList className="w-6 h-6 text-amber-500 mx-auto mb-2 group-hover:scale-105 transition-transform" />
-                <span className="block font-bold uppercase text-[10px] tracking-wider text-slate-100">Open Stocktake</span>
-                <span className="text-[8.5px] text-slate-550 block mt-1">INVENTORY COUNT</span>
-              </button>
-
-              <button
-                onClick={() => {
-                  onNavigate('STOCK');
-                  triggerNotification('Goods receiving workspace opened. Fill incoming stock details below.', 'info');
-                }}
-                className="bg-[#141822] hover:bg-[#1a2130] border border-slate-800 hover:border-sky-500 p-4 text-center cursor-pointer group transition-all text-slate-200"
-              >
-                <Truck className="w-6 h-6 text-sky-400 mx-auto mb-2 group-hover:scale-105 transition-transform" />
-                <span className="block font-bold uppercase text-[10px] tracking-wider text-slate-100">Receive Goods</span>
-                <span className="text-[8.5px] text-slate-550 block mt-1">STOCK RECEIVING</span>
-              </button>
-
-              <button
-                onClick={() => onNavigate('CASH')}
-                className="bg-[#141822] hover:bg-[#1a2130] border border-slate-800 hover:border-emerald-500 p-4 text-center cursor-pointer group transition-all text-slate-200"
-              >
-                <FileCheck className="w-6 h-6 text-emerald-500 mx-auto mb-2 group-hover:scale-105 transition-transform" />
-                <span className="block font-bold uppercase text-[10px] tracking-wider text-slate-100">Cash Count</span>
-                <span className="text-[8.5px] text-slate-550 block mt-1">VERIFY CASH FLOAT</span>
-              </button>
-
-              <button
-                onClick={() => {
-                  triggerNotification('Approval request sent to branch supervisors.', 'warning');
-                }}
-                className="bg-[#141822] hover:bg-[#1a2130] border border-slate-800 hover:border-amber-400 p-4 text-center cursor-pointer group transition-all text-slate-200"
-              >
-                <Zap className="w-6 h-6 text-amber-400 mx-auto mb-2 group-hover:scale-105 transition-transform animate-pulse" />
-                <span className="block font-bold uppercase text-[10px] tracking-wider text-slate-100">Request Approval</span>
-                <span className="text-[8.5px] text-slate-550 block mt-1">SUBMIT APPROVAL</span>
-              </button>
-
-              <button
-                onClick={() => onNavigate('BI_DESK')}
-                className="bg-[#141822] hover:bg-[#1a2130] border border-slate-800 hover:border-[#00f0ff] p-4 text-center cursor-pointer group transition-all text-slate-200"
-              >
-                <Eye className="w-6 h-6 text-[#00f0ff] mx-auto mb-2 group-hover:scale-105 transition-transform" />
-                <span className="block font-bold uppercase text-[10px] tracking-wider text-slate-100">View BI Desk</span>
-                <span className="text-[8.5px] text-slate-550 block mt-1">LIVE ACTIVITY FEED</span>
-              </button>
-
-            </div>
-          </div>
-
-        </div>
-
-        {/* RIGHT COLUMN: 5. ALERTS READOUT (1 Col) */}
-        <div className="space-y-3">
-          <h3 className="text-[11px] font-black uppercase text-slate-400 tracking-wider flex items-center gap-2">
-            <ShieldAlert className="w-4 h-4 text-rose-500 animate-pulse" />
-            5. Operational Alerts
-          </h3>
-
-          <div className="bg-[#0f131a] border border-slate-800 p-4 h-[730px] flex flex-col justify-between relative overflow-hidden">
-            {/* Fine framing indicators */}
-            <div className="absolute top-0 left-0 w-1.5 h-1.5 border-t border-l border-slate-700"></div>
-            <div className="absolute top-0 right-0 w-1.5 h-1.5 border-t border-r border-slate-700"></div>
-            <div className="absolute bottom-0 left-0 w-1.5 h-1.5 border-b border-l border-slate-700"></div>
-            <div className="absolute bottom-0 right-0 w-1.5 h-1.5 border-b border-r border-slate-700"></div>
-
-            <div className="space-y-4">
-              <div className="border-b border-slate-900 pb-2">
-                <div className="text-[10px] font-black text-slate-100 uppercase tracking-widest flex items-center justify-between">
-                  <span>Live Activity Feed</span>
-                  <span className="text-[8px] bg-amber-500/10 border border-amber-500/20 text-amber-500 px-1.5 py-0.5 animate-pulse">
-                    LIVE STREAM
-                  </span>
-                </div>
-                <p className="text-[9px] text-slate-500 mt-1 leading-normal">
-                  Realtime notification stream mapping core hardware interaction faults, bypasses, price corrections, and zero stock events.
-                </p>
-              </div>
-
-              {/* Precise vertical list mapping the 5 specific alerts */}
-              <div className="space-y-3 max-h-[580px] overflow-y-auto pr-1 pos-custom-scroll">
-                
-                {BI_ALERTS.map((alert) => (
-                  <div 
-                    key={alert.id} 
-                    className={`p-3 border text-[10.5px] relative group hover:bg-slate-900/40 transition-colors ${
-                      alert.severity === 'Critical' ? 'bg-rose-950/10 border-rose-900/60' :
-                      alert.severity === 'High' ? 'bg-amber-950/10 border-amber-900/60' :
-                      'bg-slate-950 border-slate-850'
-                    }`}
-                  >
-                    {/* Tiny accent decoration representing active alert sync */}
-                    <div className={`absolute top-0 left-0 w-1 h-full ${
-                      alert.severity === 'Critical' ? 'bg-rose-500' :
-                      alert.severity === 'High' ? 'bg-amber-500' :
-                      'bg-indigo-500'
-                    }`} />
-
-                    <div className="pl-2.5">
-                      <div className="flex items-center justify-between text-[8px] uppercase font-black text-slate-500 mb-1">
-                        <span>ID: {alert.id} • HRE_M3</span>
-                        <span className={`px-1.5 py-0.5 font-bold ${
-                          alert.severity === 'Critical' ? 'bg-rose-950 border border-rose-800 text-rose-400' :
-                          alert.severity === 'High' ? 'bg-amber-950 border border-amber-800 text-amber-400' :
-                          'bg-indigo-950 border border-indigo-900 text-indigo-400'
-                        }`}>
-                          {alert.severity}
-                        </span>
-                      </div>
-
-                      <div className="text-[10px] font-black text-slate-200 uppercase tracking-wide flex items-center gap-1">
-                        <span className="w-1.5 h-1.5 rounded-none inline-block shrink-0 bg-slate-550" />
-                        {alert.type}
-                      </div>
-
-                      <p className="text-[10px] text-slate-300 font-medium leading-relaxed mt-1 text-slate-300">
-                        {alert.message}
-                      </p>
-
-                      <div className="mt-2 pt-1 border-t border-slate-900 flex justify-between items-center text-[8.5px] text-slate-500">
-                        <span>STATION ID: {terminalName}</span>
-                        <span>⌛ {alert.time}</span>
-                      </div>
-                    </div>
-                  </div>
-                ))}
-                {BI_ALERTS.length === 0 && (
-                  <div className="p-6 border border-slate-800 text-center text-slate-500 text-[10px] font-black uppercase">
-                    No alerts recorded yet.
-                  </div>
-                )}
-
-              </div>
-            </div>
-
-            {/* Total count footer log */}
-            <div className="border-t border-slate-900 pt-3 flex items-center justify-between text-[9px] text-slate-600 font-black">
-              <span>ALERT STREAM BUFFER: 5 RECORDS</span>
-              <span>STATE: OPERATIONAL</span>
-            </div>
-          </div>
-        </div>
-
-      </div>
-
-      {/* Modern Industrial Footer Diagnostics Bar */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 border border-slate-800 bg-slate-950 p-4 font-mono text-[10px] uppercase text-slate-400">
-        <div className="flex items-center gap-3">
-          <Clock className="w-4 h-4 text-amber-500 shrink-0" />
-          <div>
-            <div className="text-slate-600 text-[9px]">Business Date</div>
-            <div className="text-slate-300 font-bold">
-              {new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
-            </div>
-          </div>
-        </div>
-
-        <div className="flex items-center gap-3 border-t md:border-t-0 md:border-x border-slate-800 py-2 md:py-0 md:px-4">
-          <Database className="w-4 h-4 text-indigo-400 shrink-0" />
-          <div>
-            <div className="text-slate-600 text-[9px]">Connection Status</div>
-            <div className="text-slate-200 font-bold">Online</div>
-          </div>
-        </div>
-
-        <div className="flex items-center gap-3 border-t md:border-t-0 py-2 md:py-0">
-          <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
-          <div>
-            <div className="text-slate-600 text-[9px]">DIAGNOSTIC STATUS</div>
-            <div className="text-emerald-400 font-bold">Terminal Ready</div>
-          </div>
-        </div>
-      </div>
-
-      {analyticsModal && (
-        <DashboardAnalyticsModal
-          title={analyticsModal === 'trading' ? 'Today Trading Summary' : 'Stock Health'}
-          subtitle={`${vendorName} | ${branchName} | ${todayKey}`}
-          sections={analyticsSections(analyticsModal)}
-          onExportPdf={() => exportPdf(analyticsModal)}
-          onExportExcel={() => exportExcel(analyticsModal)}
-          onClose={() => setAnalyticsModal(null)}
-        />
-      )}
-
-    </div>
-  );
-}
-
-// Compact helper components to keep compilation smooth & type-safe
-function TableActionsIcon(props: React.SVGProps<SVGSVGElement>) {
-  return (
-    <svg
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      viewBox="0 0 24 24"
-      xmlns="http://www.w3.org/2000/svg"
-      {...props}
-    >
-      <rect x="3" y="3" width="18" height="18" rx="0" />
-      <path d="M21 9H3" />
-      <path d="M21 15H3" />
-      <path d="M12 3v18" />
-    </svg>
-  );
-}
-
-function DashboardBusinessMetric({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="border border-[#d6d9e0] bg-slate-50 p-2 min-h-14">
-      <span className="block text-[8px] text-slate-500 uppercase font-black">{label}</span>
-      <strong className="block text-[10px] text-[#1e222b] uppercase break-words">{value}</strong>
-    </div>
-  );
-}
-
-function DashboardAnalyticsModal({
-  title,
-  subtitle,
-  sections,
-  onExportPdf,
-  onExportExcel,
-  onClose
-}: {
-  title: string;
-  subtitle: string;
-  sections: Array<{ title: string; rows: string[][] }>;
-  onExportPdf: () => void;
-  onExportExcel: () => void;
-  onClose: () => void;
-}) {
-  return (
-    <div className="dashboard-analytics-backdrop" onClick={onClose}>
-      <section className="dashboard-analytics-modal" onClick={(event) => event.stopPropagation()} role="dialog" aria-modal="true" aria-label={title}>
-        <header>
-          <div>
-            <p>Analytics</p>
-            <h2>{title}</h2>
-            <span>{subtitle}</span>
-          </div>
-          <button type="button" onClick={onClose} aria-label="Close analytics"><X className="w-4 h-4" /></button>
-        </header>
-        <div className="dashboard-analytics-grid dashboard-analytics-grid--sections">
-          {sections.map((section) => (
-            <section key={section.title} className="dashboard-analytics-section">
-              <h3>{section.title}</h3>
-              <div>
-                {section.rows.map(([label, value]) => (
-                  <p key={`${section.title}-${label}`}>
-                    <span>{label}</span>
-                    <strong>{value}</strong>
-                  </p>
-                ))}
-              </div>
-            </section>
-          ))}
-        </div>
-        <footer>
-          <button type="button" onClick={onExportPdf}><FileText className="w-4 h-4" /> Export PDF</button>
-          <button type="button" onClick={onExportExcel}><Download className="w-4 h-4" /> Export Excel</button>
-          <button type="button" onClick={onClose}>Close</button>
-        </footer>
+        <Panel title="Sales Performance" icon={TrendingUp}>
+          <MetricGrid rows={[
+            ['Best Performing Category', performance.bestCategory],
+            ['Highest Value Sale', money(performance.highestValueSale)],
+            ['Return Value', money(performance.returnValue)],
+            ['Discount Value', money(performance.discountValue)]
+          ]} />
+          <BarList title="Top Selling Products" rows={performance.topProducts} />
+          <MiniList empty="No slow-moving products" rows={performance.slowProducts.slice(0, 3).map((product) => [productName(product), `${productQty(product)} on hand`])} />
+        </Panel>
       </section>
+
+      <section className="grid grid-cols-1 gap-4 xl:grid-cols-3">
+        <Panel title="Customers" icon={Users} actions={[
+          ['Open Customers', () => onNavigate('CUSTOMER_CENTRE')],
+          ['Review Credit', () => onNavigate('CUSTOMER_CENTRE')],
+          ['Send Reminder', () => onNavigate('CUSTOMER_CENTRE')]
+        ]}>
+          <MetricGrid rows={[
+            ['New Customers Today', String(customerPanel.newToday)],
+            ['Returning Customers', String(customerPanel.returning)],
+            ['Credit Customers', String(customerPanel.creditCustomers)],
+            ['Outstanding Balances', money(customerPanel.outstandingBalance)],
+            ['Overdue Accounts', String(customerPanel.overdueAccounts)]
+          ]} />
+          {customerPanel.overdueAccounts > 0 ? <WarningBox title="Customer credit overdue" severity="High" reason={`${customerPanel.overdueAccounts} customer account(s) overdue.`} action="Review credit and send reminders." /> : <EmptyState text="No overdue customer accounts" />}
+        </Panel>
+
+        <Panel title="Deliveries" icon={Truck} actions={[
+          ['Assign Delivery', () => onNavigate('DELIVERY')],
+          ['Open Delivery Desk', () => onNavigate('DELIVERY')],
+          ['Review Failed Delivery', () => onNavigate('DELIVERY')],
+          ['Confirm Cash Handover', () => onNavigate('DELIVERY')]
+        ]}>
+          <MetricGrid rows={[
+            ['Awaiting Assignment', String(serviceState.delivery?.pendingAssignment || 0)],
+            ['In Transit', String(serviceState.delivery?.inTransit || 0)],
+            ['Delivered Today', String(serviceState.delivery?.deliveredToday || 0)],
+            ['Failed Deliveries', String(serviceState.delivery?.failedDeliveries || 0)],
+            ['Cash Awaiting Handover', String(serviceState.delivery?.cashPendingReview || 0)]
+          ]} />
+          {(serviceState.delivery?.pendingAssignment || serviceState.delivery?.inTransit || serviceState.delivery?.failedDeliveries) ? null : <EmptyState text="No pending deliveries" />}
+        </Panel>
+
+        <Panel title="Staff Activity" icon={ClipboardCheck} actions={[
+          ['Open Staff', () => onNavigate('SETTINGS')],
+          ['Review Shift', () => onNavigate('SHIFT')],
+          ['Assign Task', () => onNavigate('TASK_DESK')]
+        ]}>
+          <MetricGrid rows={[
+            ['Staff Currently Signed In', String(staffActivity.signedIn)],
+            ['Open Shifts', activeShift?.status === 'ACTIVE' ? '1' : '0'],
+            ['Staff Sales', money(staffActivity.staffSales)],
+            ['Staff Cash Variances', String(staffActivity.cashVarianceCount)],
+            ['Pending Staff Tasks', String(staffActivity.pendingTasks)]
+          ]} />
+          <MiniList empty="No staff currently signed in" rows={staffActivity.staffRows.slice(0, 4).map((row) => [row.name, row.role])} />
+        </Panel>
+      </section>
+
+      <section className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+        <Panel title="Approvals and Tasks" icon={ClipboardList} actions={[
+          ['Open Approvals', () => onNavigate('APPROVALS')],
+          ['Open Tasks', () => onNavigate('TASK_DESK')]
+        ]}>
+          <MetricGrid rows={[
+            ['Pending Discounts', String(approvals.pendingDiscounts)],
+            ['Pending Voids', String(approvals.pendingVoids)],
+            ['Pending Refunds', String(approvals.pendingRefunds)],
+            ['Pending Stock Adjustments', String(approvals.pendingStockAdjustments)],
+            ['Pending Purchase Approvals', String(approvals.pendingPurchaseApprovals)],
+            ['Overdue Tasks', String(serviceState.taskSummary?.overdue || 0)]
+          ]} />
+          {approvals.highRisk.length > 0 ? (
+            <MiniList
+              empty="No high-risk approvals"
+              rows={approvals.highRisk.slice(0, 4).map((approval) => [approval.title || approval.category, approval.risk])}
+            />
+          ) : (
+            <EmptyState text="No approvals waiting" />
+          )}
+        </Panel>
+
+        <Panel title="Today's Actions" icon={Receipt}>
+          <div className="space-y-2">
+            {dailyActions.length > 0 ? dailyActions.map((action) => (
+              <button
+                key={action.label}
+                type="button"
+                onClick={() => onNavigate(action.page)}
+                className="flex w-full items-center justify-between border border-slate-200 bg-white px-3 py-2 text-left text-[11px] font-black uppercase text-[#1e222b] hover:border-orange-500 hover:bg-orange-50"
+              >
+                <span>{action.label}</span>
+                <ArrowRight className="h-3.5 w-3.5 text-orange-600" />
+              </button>
+            )) : <EmptyState text="No urgent actions for today" />}
+          </div>
+        </Panel>
+      </section>
+
+      <Panel title="Loss Control and BI Warnings" icon={ShieldAlert} actions={[['Open BI Desk', () => onNavigate('BI_DESK')]]}>
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
+          {warnings.length > 0 ? warnings.map((warning) => (
+            <WarningBox key={`${warning.title}-${warning.reason}`} {...warning} />
+          )) : <EmptyState text="No urgent loss-control risks" />}
+        </div>
+      </Panel>
     </div>
+  );
+}
+
+function summarizeTrading(rows: Transaction[], productById: Map<string, Product>) {
+  const activeRows = rows.filter((transaction) => !['VOIDED', 'RETURNED', 'REFUNDED'].includes(String(transaction.status)));
+  const sales = activeRows.reduce((sum, transaction) => sum + transaction.total, 0);
+  const grossCost = activeRows.reduce((sum, transaction) => sum + transaction.items.reduce((itemSum, item) => {
+    const product = productById.get(item.productId) || productById.get(item.code);
+    const unitCost = item.unitCost ?? item.costPrice ?? (product ? productCost(product) : item.price * 0.62);
+    return itemSum + unitCost * item.quantity;
+  }, 0), 0);
+  const customers = new Set(activeRows.map((row) => row.customerId || row.customerName || row.invoiceNo).filter(Boolean));
+  const cashSales = activeRows.filter((row) => isCashPayment(row.paymentMethod)).reduce((sum, row) => sum + row.total, 0);
+  return {
+    sales,
+    grossProfit: Math.max(0, sales - grossCost),
+    margin: sales > 0 ? ((sales - grossCost) / sales) * 100 : 0,
+    transactions: activeRows.length,
+    customersServed: customers.size,
+    averageBasket: activeRows.length > 0 ? sales / activeRows.length : 0,
+    cashSales
+  };
+}
+
+function summarizePerformance(rows: Transaction[], products: Product[]) {
+  const productMap = new Map(products.flatMap((product) => [[product.id, product], [product.code, product], [product.sku || '', product]]).filter(([key]) => key));
+  const productSales = new Map<string, { name: string; qty: number; value: number }>();
+  const categorySales = new Map<string, number>();
+
+  rows.forEach((transaction) => {
+    transaction.items.forEach((item) => {
+      const product = productMap.get(item.productId) || productMap.get(item.code);
+      const name = product ? productName(product) : item.name;
+      const current = productSales.get(name) || { name, qty: 0, value: 0 };
+      current.qty += item.quantity;
+      current.value += item.total;
+      productSales.set(name, current);
+      const category = product ? productCategory(product) : 'Uncategorised';
+      categorySales.set(category, (categorySales.get(category) || 0) + item.total);
+    });
+  });
+
+  const topProducts = Array.from(productSales.values()).sort((a, b) => b.value - a.value).slice(0, 5).map((row) => ({
+    label: row.name,
+    value: money(row.value),
+    percent: Math.min(100, rows.length ? (row.value / Math.max(1, Array.from(productSales.values()).reduce((sum, item) => sum + item.value, 0))) * 100 : 0)
+  }));
+
+  const bestCategory = Array.from(categorySales.entries()).sort((a, b) => b[1] - a[1])[0]?.[0] || 'No sales recorded';
+  const soldNames = new Set(Array.from(productSales.keys()));
+  return {
+    topProducts,
+    slowProducts: products.filter((product) => productQty(product) > 0 && !soldNames.has(productName(product))).slice(0, 5),
+    bestCategory,
+    highestValueSale: rows.reduce((max, row) => Math.max(max, row.total), 0),
+    returnValue: rows.filter((row) => ['RETURNED', 'REFUNDED'].includes(String(row.status))).reduce((sum, row) => sum + row.total, 0),
+    discountValue: rows.reduce((sum, row) => sum + (row.discount || 0), 0)
+  };
+}
+
+function summarizeCustomers(customers: CustomerRecord[], summary: CustomerSummary | null, debts: CustomerDebtRecord[], transactions: Transaction[], range: { from: Date; to: Date }) {
+  const newToday = customers.filter((customer) => inRange(customer.createdAt, range.from, range.to)).length;
+  const creditCustomers = customers.filter((customer) => customer.creditStatus !== 'Cash Only' && customer.creditStatus !== 'Credit Blocked').length;
+  const outstandingBalance = debts.reduce((sum, debt) => sum + Math.max(0, debt.outstandingAmount || 0), 0);
+  const overdueAccounts = new Set(debts.filter((debt) => debt.overdueDays > 0 && debt.outstandingAmount > 0).map((debt) => debt.customerId)).size;
+  const returning = summary?.repeatCustomers ?? new Set(transactions.map((row) => row.customerId).filter(Boolean)).size;
+  return { newToday, returning, creditCustomers, outstandingBalance, overdueAccounts };
+}
+
+function summarizeApprovals(approvals: OperationalApprovalRequest[]) {
+  const pending = approvals.filter((approval) => ['Pending', 'InReview', 'MoreInfoRequested', 'Escalated'].includes(approval.status));
+  const contains = (approval: OperationalApprovalRequest, text: string) => `${approval.category} ${approval.title || ''} ${approval.approvalType || ''}`.toLowerCase().includes(text);
+  return {
+    pendingDiscounts: pending.filter((approval) => contains(approval, 'discount') || contains(approval, 'price')).length,
+    pendingVoids: pending.filter((approval) => contains(approval, 'void')).length,
+    pendingRefunds: pending.filter((approval) => contains(approval, 'refund') || contains(approval, 'return')).length,
+    pendingStockAdjustments: pending.filter((approval) => contains(approval, 'stock')).length,
+    pendingPurchaseApprovals: pending.filter((approval) => contains(approval, 'purchase') || contains(approval, 'supplier') || contains(approval, 'goods')).length,
+    highRisk: pending.filter((approval) => approval.risk === 'High' || approval.risk === 'Critical' || approval.priority === 'Urgent')
+  };
+}
+
+function summarizeStaff(transactions: Transaction[], tasks: TaskRecord[], staffRows: Array<{ name: string; role: string; status: string }>, activeShift: Shift | null, variance: number) {
+  const activeNames = new Set(staffRows.map((row) => row.name));
+  if (activeShift?.operator) activeNames.add(activeShift.operator);
+  const staffSales = transactions.reduce((sum, transaction) => sum + transaction.total, 0);
+  return {
+    signedIn: activeNames.size,
+    staffSales,
+    cashVarianceCount: Math.abs(variance) > 0 ? 1 : 0,
+    pendingTasks: tasks.filter((task) => !['Closed', 'Completed', 'Cancelled'].includes(task.status)).length,
+    staffRows: Array.from(activeNames).map((name) => ({
+      name,
+      role: staffRows.find((row) => row.name === name)?.role || (activeShift?.operator === name ? 'Shift operator' : 'Staff')
+    }))
+  };
+}
+
+function buildWarnings(
+  stock: { outOfStock: number; lowStock: number },
+  cash: { variance: number; severity: Severity },
+  approvals: ReturnType<typeof summarizeApprovals>,
+  delivery: DeliverySummary | null,
+  customers: { overdueAccounts: number },
+  performance: ReturnType<typeof summarizePerformance>,
+  stocktake: StocktakeSessionSummary | null,
+  biWarnings: ServiceState['biWarnings']
+) {
+  const warnings: Array<{ title: string; reason: string; severity: Severity; action: string }> = [];
+  if (Math.abs(cash.variance) > 0) warnings.push({ title: 'Cash variance detected', reason: `${money(cash.variance)} variance requires review.`, severity: cash.severity, action: 'Review variance' });
+  if (stock.outOfStock > 0) warnings.push({ title: 'Negative stock risk', reason: `${stock.outOfStock} product(s) are out of stock.`, severity: 'High', action: 'Review stock' });
+  if (performance.discountValue > 0) warnings.push({ title: 'High discount activity', reason: `${money(performance.discountValue)} discount value in the selected period.`, severity: 'Medium', action: 'Review discounts' });
+  if (performance.returnValue > 0) warnings.push({ title: 'Unusual returns', reason: `${money(performance.returnValue)} returns or refunds recorded.`, severity: 'Medium', action: 'Review sales history' });
+  if ((stocktake?.openSessions || 0) === 0 && stock.lowStock > 0) warnings.push({ title: 'Stocktake overdue', reason: 'Low stock exists and no open stocktake is in progress.', severity: 'Medium', action: 'Start stocktake' });
+  if ((delivery?.failedDeliveries || 0) > 0 || (delivery?.urgentDeliveries || 0) > 0) warnings.push({ title: 'Supplier delivery overdue', reason: 'Delivery exceptions need follow-up.', severity: 'High', action: 'Open delivery desk' });
+  if (customers.overdueAccounts > 0) warnings.push({ title: 'Customer credit overdue', reason: `${customers.overdueAccounts} account(s) overdue.`, severity: 'High', action: 'Review credit' });
+  if (performance.topProducts.length > 0 && performance.topProducts.every((row) => row.percent < 5)) warnings.push({ title: 'Low gross margin', reason: 'Sales mix may need margin review.', severity: 'Medium', action: 'Review performance' });
+  if (approvals.highRisk.length > 0) warnings.push({ title: 'Unusual staff activity', reason: `${approvals.highRisk.length} high-risk approval(s) waiting.`, severity: 'High', action: 'Open approvals' });
+  return [...warnings, ...biWarnings].slice(0, 9);
+}
+
+function buildDailyActions(
+  stock: { lowStock: number; unpostedReceipts: number },
+  cash: { variance: number },
+  approvals: ReturnType<typeof summarizeApprovals>,
+  delivery: DeliverySummary | null,
+  customers: { overdueAccounts: number },
+  tasks: TaskSummary | null,
+  activeShift: Shift | null
+): Array<{ label: string; page: PosPageId }> {
+  const actions: Array<{ label: string; page: PosPageId }> = [];
+  if (activeShift) actions.push({ label: 'Count cash drawer', page: 'CASH' });
+  if (stock.lowStock > 0) actions.push({ label: 'Review low stock', page: 'STOCK' });
+  if (approvals.pendingRefunds > 0) actions.push({ label: 'Approve pending refund', page: 'APPROVALS' });
+  if ((delivery?.cashPendingReview || 0) > 0) actions.push({ label: 'Confirm delivery cash', page: 'DELIVERY' });
+  if (customers.overdueAccounts > 0) actions.push({ label: 'Follow up overdue customer', page: 'CUSTOMER_CENTRE' });
+  if (stock.unpostedReceipts > 0) actions.push({ label: 'Receive supplier stock', page: 'STOCK' });
+  if (activeShift?.status === 'ACTIVE') actions.push({ label: 'Close open shift', page: 'SHIFT' });
+  if (Math.abs(cash.variance) > 0) actions.push({ label: 'Review cash variance', page: 'CASH' });
+  if ((tasks?.overdue || 0) > 0) actions.push({ label: 'Open overdue tasks', page: 'TASK_DESK' });
+  return actions.slice(0, 8);
+}
+
+function businessWarningTitle(eventType: string): string {
+  if (eventType.includes('CASH')) return 'Cash variance detected';
+  if (eventType.includes('ZERO_STOCK')) return 'Negative stock risk';
+  if (eventType.includes('PRICE') || eventType.includes('DISCOUNT')) return 'High discount activity';
+  if (eventType.includes('RETURN')) return 'Unusual returns';
+  if (eventType.includes('DELIVERY')) return 'Supplier delivery overdue';
+  if (eventType.includes('LOGIN') || eventType.includes('STAFF')) return 'Unusual staff activity';
+  return 'Business warning';
+}
+
+function createKpi(label: string, value: string, current: number, previous: number, statusText: string) {
+  const delta = previous === 0 ? (current > 0 ? 100 : 0) : ((current - previous) / Math.abs(previous)) * 100;
+  return {
+    label,
+    value,
+    comparison: `${percent(delta)} vs previous day`,
+    status: compareStatus(delta),
+    statusText
+  };
+}
+
+function KpiCard({ label, value, comparison, status, statusText }: { label: string; value: string; comparison: string; status: 'Good' | 'Watch' | 'Attention'; statusText: string }) {
+  const statusClasses = status === 'Good' ? 'text-emerald-700 bg-emerald-50 border-emerald-300' : status === 'Attention' ? 'text-rose-800 bg-rose-50 border-rose-300' : 'text-orange-900 bg-orange-50 border-orange-300';
+  return (
+    <article className="min-h-[126px] border border-[#b1b5c2] bg-white p-3">
+      <div className="flex items-center justify-between gap-2">
+        <p className="text-[9px] font-black uppercase tracking-wide text-slate-500">{label}</p>
+        <span className={`border px-1.5 py-0.5 text-[8px] font-black uppercase ${statusClasses}`}>{status}</span>
+      </div>
+      <strong className="mt-3 block text-lg font-black text-[#1e222b]">{value}</strong>
+      <p className="mt-2 text-[10px] font-black uppercase text-orange-700">{comparison}</p>
+      <p className="mt-1 text-[10px] font-bold uppercase text-slate-500">{statusText}</p>
+    </article>
+  );
+}
+
+function Panel({ title, icon: Icon, actions = [], children }: { title: string; icon: React.ElementType; actions?: Array<[string, () => void]>; children: React.ReactNode }) {
+  return (
+    <section className="border border-[#b1b5c2] bg-[#f4f5f7] p-4">
+      <div className="mb-3 flex flex-col gap-2 border-b border-slate-300 pb-3 sm:flex-row sm:items-center sm:justify-between">
+        <h2 className="flex items-center gap-2 text-sm font-black uppercase text-[#1e222b]">
+          <Icon className="h-4 w-4 text-orange-600" />
+          {title}
+        </h2>
+        {actions.length > 0 && (
+          <div className="flex flex-wrap gap-1.5">
+            {actions.map(([label, onClick]) => (
+              <button key={label} type="button" onClick={onClick} className="border border-slate-300 bg-white px-2 py-1 text-[9px] font-black uppercase text-[#1e222b] hover:border-orange-500 hover:bg-orange-50">
+                {label}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+      <div className="space-y-3">{children}</div>
+    </section>
+  );
+}
+
+function MetricGrid({ rows }: { rows: string[][] }) {
+  return (
+    <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+      {rows.map(([label, value]) => (
+        <div key={label} className="border border-slate-200 bg-white p-2">
+          <p className="text-[8px] font-black uppercase text-slate-500">{label}</p>
+          <strong className="mt-1 block break-words text-[11px] font-black uppercase text-[#1e222b]">{value}</strong>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function MiniList({ rows, empty }: { rows: string[][]; empty: string }) {
+  if (rows.length === 0) return <EmptyState text={empty} />;
+  return (
+    <div className="space-y-1.5">
+      {rows.map(([label, value]) => (
+        <div key={`${label}-${value}`} className="flex items-center justify-between gap-3 border border-slate-200 bg-white px-2 py-1.5 text-[10px] font-bold uppercase">
+          <span className="truncate text-[#1e222b]">{label}</span>
+          <span className="shrink-0 text-slate-500">{value}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function BarList({ title, rows }: { title: string; rows: Array<{ label: string; value: string; percent: number }> }) {
+  return (
+    <div className="space-y-2">
+      <h3 className="text-[10px] font-black uppercase text-slate-600">{title}</h3>
+      {rows.length === 0 ? <EmptyState text="No sales recorded today" /> : rows.map((row) => (
+        <div key={row.label} className="space-y-1">
+          <div className="flex justify-between gap-3 text-[10px] font-black uppercase">
+            <span className="truncate">{row.label}</span>
+            <span>{row.value}</span>
+          </div>
+          <div className="h-2 border border-slate-200 bg-white">
+            <div className="h-full bg-orange-600" style={{ width: `${Math.max(6, row.percent)}%` }} />
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function WarningBox({ title, reason, severity, action }: { title: string; reason: string; severity: Severity; action: string }) {
+  return (
+    <div className={`border p-3 ${severityClass(severity)}`}>
+      <div className="flex items-center justify-between gap-2">
+        <h3 className="text-[11px] font-black uppercase">{title}</h3>
+        <span className="border border-current px-1.5 py-0.5 text-[8px] font-black uppercase">{severity}</span>
+      </div>
+      <p className="mt-2 text-[10px] font-bold uppercase leading-relaxed">{reason}</p>
+      <button type="button" className="mt-3 inline-flex items-center gap-1 border border-current bg-white/60 px-2 py-1 text-[9px] font-black uppercase">
+        {action}
+        <ArrowRight className="h-3 w-3" />
+      </button>
+    </div>
+  );
+}
+
+function EmptyState({ text }: { text: string }) {
+  return (
+    <div className="border border-slate-200 bg-white p-3 text-center text-[10px] font-black uppercase text-slate-500">
+      {text}
+    </div>
+  );
+}
+
+function Select({ label, value, options, optionLabels, onChange }: { label: string; value: string; options: string[]; optionLabels?: Record<string, string>; onChange: (value: string) => void }) {
+  return (
+    <label className="block">
+      <span className="block text-[9px] font-black uppercase tracking-wide text-slate-400">{label}</span>
+      <select
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        className="mt-1 min-h-9 w-full border border-slate-600 bg-slate-950 px-2 text-[11px] font-black uppercase text-white outline-none focus:border-orange-500"
+      >
+        {options.map((option) => <option key={option} value={option}>{optionLabels?.[option] || option}</option>)}
+      </select>
+    </label>
   );
 }

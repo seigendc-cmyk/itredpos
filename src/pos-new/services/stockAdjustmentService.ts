@@ -17,7 +17,8 @@ import {
   mockStockAdjustments
 } from '../mock/mockPosData';
 import { createOperationalApproval } from './approvalService';
-import { calculateRunningBalance, postStockAdjustmentMovement } from './inventoryMovementService';
+import { calculateRunningBalance } from './inventoryMovementService';
+import { postInventoryMovement as postCanonicalInventoryMovement, type CanonicalInventoryMovementType, type InventoryMovementRecord } from './inventorySyncService';
 import { publishCommerceEvent, writeAuditLog, CommerceOperationContext } from '../../commerce-integration';
 import { getVendorDocumentIdentity } from '../vendor/vendorBootstrapModel';
 import { readVendorScopedList, writeVendorScopedList } from '../utils/vendorDataMode';
@@ -72,6 +73,49 @@ function today(): string {
 
 function makeId(prefix: string): string {
   return `${prefix}-${Date.now()}-${Math.floor(1000 + Math.random() * 9000)}`;
+}
+
+function safeId(value: string): string {
+  return value.replace(/[^A-Za-z0-9_-]/g, '_');
+}
+
+function canonicalAdjustmentType(reason: StockAdjustmentReason, qtyImpact: number): CanonicalInventoryMovementType {
+  if (qtyImpact < 0 && reason === 'Expired Stock') return 'EXPIRY_WRITEOFF';
+  if (qtyImpact < 0 && reason === 'Theft / Loss') return 'THEFT_LOSS';
+  if (qtyImpact < 0 && (reason === 'Write Off' || reason === 'Damaged Stock')) return 'DAMAGE_WRITEOFF';
+  return 'MANUAL_CORRECTION';
+}
+
+function toLocalAdjustmentMovement(record: InventoryMovementRecord, movementType: InventoryMovementType, line: StockAdjustmentLine, adjustmentNumber: string, staffId: string): InventoryMovement {
+  return {
+    movementId: record.movementId,
+    vendorId: record.vendorId,
+    branchId: record.branchId,
+    warehouseId: record.warehouseId,
+    productId: record.productId,
+    sku: record.sku || line.sku,
+    productName: record.productName || line.productName,
+    shelfLocation: record.shelfLocation,
+    movementType,
+    referenceType: 'ADJUSTMENT',
+    referenceNumber: adjustmentNumber,
+    qtyIn: record.quantityIn,
+    qtyOut: record.quantityOut,
+    balanceBefore: record.balanceBefore,
+    balanceAfter: record.balanceAfter,
+    unitCost: record.unitCost,
+    sellingPrice: 0,
+    totalCostImpact: (record.quantityIn - record.quantityOut) * record.unitCost,
+    staffId,
+    staffName: staffId,
+    movementDate: record.createdAt,
+    notes: record.reason || `Stock Adjustment ${adjustmentNumber}`,
+    riskFlag: line.riskLevel,
+    approvalRequired: false,
+    status: 'Posted',
+    createdAt: record.createdAt,
+    updatedAt: record.createdAt
+  };
 }
 
 function getAdjustments(): StockAdjustment[] {
@@ -387,6 +431,9 @@ export async function submitStockAdjustmentForApproval(adjustmentId: string): Pr
 export async function approveStockAdjustment(adjustmentId: string, staffId: string, notes = ''): Promise<StockAdjustment | null> {
   const record = await getStockAdjustmentById(adjustmentId);
   if (!record || record.status !== 'Pending Approval') return null;
+  if (record.requestedByStaffId === staffId && (record.riskLevel === 'High' || record.riskLevel === 'Critical' || record.approvalRequired)) {
+    throw new Error('Staff cannot approve their own restricted stock adjustment.');
+  }
   const updated = updateAdjustment(adjustmentId, {
     status: 'Approved',
     approvedByStaffId: staffId,
@@ -425,14 +472,16 @@ export async function postStockAdjustment(
   for (const line of lines) {
     const qtyImpact = line.newQty - line.currentQty;
     if (qtyImpact === 0) continue;
-    const movementType = record.reason === 'Write Off'
+    const localMovementType: InventoryMovementType = record.reason === 'Write Off'
       ? 'WRITE_OFF'
       : qtyImpact > 0
         ? 'STOCK_ADJUSTMENT_IN'
         : 'STOCK_ADJUSTMENT_OUT';
+    const movementType = canonicalAdjustmentType(record.reason, qtyImpact);
     const currentBalance = await calculateRunningBalance(line.productId, record.warehouseId);
     const balanceBefore = currentBalance || line.currentQty;
-    const movement = await postStockAdjustmentMovement({
+    const movementRecord = await postCanonicalInventoryMovement({
+      movementId: safeId(`${record.vendorId}_${adjustmentId}_${line.lineId}_${movementType}`),
       vendorId: record.vendorId,
       branchId: record.branchId,
       warehouseId: record.warehouseId,
@@ -442,22 +491,21 @@ export async function postStockAdjustment(
       shelfLocation: line.shelfLocation,
       movementType,
       referenceType: 'ADJUSTMENT',
-      referenceNumber: record.adjustmentNumber,
-      qtyIn: qtyImpact > 0 ? qtyImpact : 0,
-      qtyOut: qtyImpact < 0 ? Math.abs(qtyImpact) : 0,
-      balanceBefore,
-      balanceAfter: balanceBefore + qtyImpact,
+      referenceId: adjustmentId,
+      quantityIn: qtyImpact > 0 ? qtyImpact : 0,
+      quantityOut: qtyImpact < 0 ? Math.abs(qtyImpact) : 0,
       unitCost: line.unitCost,
-      context,
       sellingPrice: 0,
       staffId,
       staffName: staffId,
-      movementDate: nowIso(),
+      terminalId: context?.terminalId,
+      createdAt: nowIso(),
+      reason: `${line.reason}: ${line.notes || record.notes}`,
       notes: `Stock Adjustment ${record.adjustmentNumber}: ${line.reason}. Pending Accounting Review Placeholder only; no cashbook posting.`,
-      riskFlag: line.riskLevel,
-      approvalRequired: false,
-      status: 'Posted'
     });
+    const movement = toLocalAdjustmentMovement(movementRecord, localMovementType, line, record.adjustmentNumber, staffId);
+    movement.balanceBefore = balanceBefore || movement.balanceBefore;
+    movement.balanceAfter = movement.balanceBefore + qtyImpact;
     movements.push(movement);
   }
   const updated = updateAdjustment(adjustmentId, { status: 'Posted', postedByStaffId: staffId, postedByStaffName: staffId });

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { AlertTriangle, X } from 'lucide-react';
 
 export interface MiscellaneousSalePayload {
@@ -16,16 +16,21 @@ interface MiscellaneousSaleModalProps {
   open: boolean;
   onSubmit: (payload: MiscellaneousSalePayload) => void;
   onCancel: () => void;
+  defaultVatRate?: number;
 }
 
-export default function MiscellaneousSaleModal({ open, onSubmit, onCancel }: MiscellaneousSaleModalProps) {
+export default function MiscellaneousSaleModal({ open, onSubmit, onCancel, defaultVatRate = 0 }: MiscellaneousSaleModalProps) {
   const [description, setDescription] = useState('');
   const [quantity, setQuantity] = useState('1');
   const [unitPrice, setUnitPrice] = useState('');
   const [taxable, setTaxable] = useState(true);
-  const [vatRate, setVatRate] = useState('15');
+  const [vatRate, setVatRate] = useState(String(defaultVatRate || 0));
   const [reason, setReason] = useState('');
   const [notes, setNotes] = useState('');
+
+  useEffect(() => {
+    if (open) setVatRate(String(defaultVatRate || 0));
+  }, [defaultVatRate, open]);
   const [customerRequestReference, setCustomerRequestReference] = useState('');
   const [error, setError] = useState('');
 

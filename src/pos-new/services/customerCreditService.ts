@@ -2,6 +2,14 @@ import { createBIAdviceFromTrigger } from './biAdviceService';
 import { createOperationalApproval } from './approvalService';
 import { createAccountingPostingPlaceholder } from './accountingService';
 import { getCustomerById, getCustomerPurchaseHistory, realRecordsExist } from './customerService';
+import { assertCanonicalCustomerContext } from './customerContextService';
+import {
+  calculateCustomerLedgerBalance,
+  getCustomerAccountEntries,
+  recordCustomerAccountEntry
+} from './customerAccountService';
+import { getCustomerCreditPolicy, creditSaleRequiresApproval } from './customerCreditPolicyService';
+import { recordCustomerPayment } from './customerPaymentService';
 import { mockCustomers } from '../mock/mockPosData';
 import { getActiveVendorId, readVendorScopedJson, readVendorScopedList, shouldUseMockSeedData, writeVendorScopedJson, writeVendorScopedList } from '../utils/vendorDataMode';
 
@@ -88,6 +96,8 @@ const CUSTOMER_CREDIT_NOTE_KEY = 'itred_pos_customer_credit_notes_v1';
 const BULK_COLLECTION_KEY = 'itred_pos_bulk_collection_batches_v1';
 const DEBTOR_PERIOD_LOCK_KEY = 'itred_pos_debtor_period_locks_v1';
 const DEBTOR_PERIOD_ADJUSTMENT_KEY = 'itred_pos_debtor_period_adjustments_v1';
+
+export const CUSTOMER_CREDIT_APPLICATIONS_COLLECTION = 'customer_credit_applications';
 
 export interface CreditDecision {
   decision: 'Allowed' | 'Requires Approval' | 'Blocked';
@@ -743,6 +753,9 @@ export function getAgeingIntervalConfigs(): CustomerAgeingIntervalConfig[] {
 }
 
 export async function calculateCustomerOutstandingBalance(customerId: string): Promise<number> {
+  const vendorId = getActiveVendorId();
+  const ledgerEntries = getCustomerAccountEntries(vendorId, customerId);
+  if (ledgerEntries.length > 0) return calculateCustomerLedgerBalance(vendorId, customerId);
   return getCustomerDebtByCustomer(customerId).then((rows) => rows.reduce((sum, debt) => sum + debt.outstandingAmount, 0));
 }
 
@@ -800,7 +813,8 @@ export async function calculateCustomerCreditWorthiness(customerId: string): Pro
 }
 
 export async function canCustomerBuyOnCredit(customerId: string, saleTotal: number): Promise<CreditDecision> {
-  const profile = await getCustomerCreditProfile(customerId);
+  const [customer, profile] = await Promise.all([getCustomerById(customerId), getCustomerCreditProfile(customerId)]);
+  const policy = getCustomerCreditPolicy();
   const worthiness = await calculateCustomerCreditWorthiness(customerId);
   const balance = await calculateCustomerOutstandingBalance(customerId);
   const customerDebts = await getCustomerDebtByCustomer(customerId);
@@ -820,6 +834,24 @@ export async function canCustomerBuyOnCredit(customerId: string, saleTotal: numb
   } else if (customerId === 'CUST-WALKIN') {
     decision = 'Blocked';
     reasonList.push('Select a registered customer before selling on credit.');
+  }
+  if (!customer) {
+    decision = 'Blocked';
+    reasonList.push('Customer record was not found.');
+  } else {
+    if (customer.vendorId !== getActiveVendorId()) {
+      decision = 'Blocked';
+      reasonList.push('Customer belongs to another vendor.');
+    }
+    if (customer.status !== 'Active') {
+      decision = 'Blocked';
+      reasonList.push(customer.status === 'Suspended' ? 'Customer account suspended.' : 'Customer account is not active.');
+    }
+    const masterStatus = normalizeCreditStatus(customer.creditStatus);
+    if (!statusAllowsCredit(masterStatus)) {
+      decision = masterStatus === 'Review' ? 'Requires Approval' : 'Blocked';
+      reasonList.push(masterStatus === 'Review' ? 'Credit application pending.' : 'Credit not enabled.');
+    }
   }
   if (controlStatus === 'CreditBlocked' || controlStatus === 'Suspended' || controlStatus === 'CashOnly') {
     decision = 'Blocked';
@@ -842,12 +874,17 @@ export async function canCustomerBuyOnCredit(customerId: string, saleTotal: numb
     reasonList.push(`Credit status is ${profile.creditStatus}.`);
   }
   if (overdueBalance > 0) {
-    decision = decision === 'Blocked' ? 'Blocked' : 'Requires Approval';
+    decision = policy.blockOnOverdue ? 'Blocked' : decision === 'Blocked' ? 'Blocked' : 'Requires Approval';
     reasonList.push(`${money(overdueBalance)} is overdue.`);
   }
   if (newBalance > profile.creditLimit) {
-    decision = decision === 'Blocked' ? 'Blocked' : 'Requires Approval';
-    reasonList.push(`New balance ${money(newBalance)} exceeds limit ${money(profile.creditLimit)}.`);
+    decision = policy.blockOnLimitExceeded ? 'Blocked' : decision === 'Blocked' ? 'Blocked' : 'Requires Approval';
+    reasonList.push(`Credit limit exceeded. New balance ${money(newBalance)} exceeds limit ${money(profile.creditLimit)}.`);
+  }
+  const policyDecision = creditSaleRequiresApproval({ saleTotal, currentBalance: balance, creditLimit: profile.creditLimit, overdueBalance }, policy);
+  if (policyDecision.required && decision !== 'Blocked') {
+    decision = 'Requires Approval';
+    reasonList.push(...policyDecision.reasons.filter((reason) => !reasonList.includes(reason)));
   }
   if (worthiness.grade === 'Risky' || worthiness.grade === 'Blocked') {
     decision = decision === 'Blocked' ? 'Blocked' : 'Requires Approval';
@@ -894,6 +931,10 @@ export async function canCustomerBuyOnCredit(customerId: string, saleTotal: numb
 }
 
 export async function createCustomerDebtFromCreditSale(payload: CreditSaleDebtPayload): Promise<CustomerDebtRecord> {
+  const existing = readList<CustomerDebtRecord>(DEBT_KEY).find((debt) =>
+    debt.saleId === payload.saleId || debt.receiptNumber === payload.receiptNumber
+  );
+  if (existing) return existing;
   const config = getDefaultAgeingIntervalConfig();
   const dueDate = addDays(payload.saleDate, payload.paymentTermsDays || 30);
   const overdueDays = calculateOverdueDays(dueDate);
@@ -929,6 +970,28 @@ export async function createCustomerDebtFromCreditSale(payload: CreditSaleDebtPa
     updatedAt: nowIso()
   };
   saveList(DEBT_KEY, [debt, ...readList<CustomerDebtRecord>(DEBT_KEY)]);
+  const context = assertCanonicalCustomerContext({
+    vendorId: getActiveVendorId(),
+    branchId: payload.branchId,
+    warehouseId: payload.branchId,
+    terminalId: payload.terminalId,
+    staffId: payload.cashierStaffId,
+    staffName: payload.cashierStaffId,
+    role: 'Cashier',
+    permissions: []
+  });
+  recordCustomerAccountEntry({
+    customerId: payload.customerId,
+    entryType: 'CREDIT_SALE',
+    referenceType: 'SALE',
+    referenceId: payload.saleId,
+    debit: payload.creditAmount,
+    dueDate,
+    transactionDate: payload.saleDate,
+    description: `Credit sale ${payload.receiptNumber}.`,
+    branchId: payload.branchId,
+    idempotencyKey: `${payload.saleId}_CUSTOMER_LEDGER`
+  }, context);
   const profile = await getCustomerCreditProfile(payload.customerId);
   await createOrUpdateCustomerCreditProfile(payload.customerId, {
     currentBalance: profile.currentBalance + debt.outstandingAmount,
@@ -1041,6 +1104,31 @@ export async function recordCustomerDebtPayment(payload: Omit<CustomerDebtPaymen
   const target = debts.find((debt) => debt.debtId === payload.debtId);
   if (!target) return null;
   if (payload.amount > target.outstandingAmount) throw new Error('Payment cannot exceed outstanding amount.');
+  const context = assertCanonicalCustomerContext({
+    vendorId: getActiveVendorId(),
+    branchId: payload.branchId || target.branchId,
+    warehouseId: payload.branchId || target.branchId,
+    terminalId: target.terminalId || 'CUSTOMER-CENTRE',
+    staffId: payload.receivedByStaffId,
+    staffName: payload.receivedByStaffId,
+    role: 'Cashier',
+    permissions: []
+  });
+  const ledgerEntries = getCustomerAccountEntries(context.vendorId, payload.customerId);
+  if (ledgerEntries.length === 0 && target.outstandingAmount > 0) {
+    recordCustomerAccountEntry({
+      customerId: payload.customerId,
+      entryType: 'OPENING_BALANCE',
+      referenceType: 'DEBT',
+      referenceId: target.debtId,
+      debit: target.outstandingAmount,
+      dueDate: target.dueDate,
+      transactionDate: target.saleDate,
+      description: `Opening debtor balance for ${target.receiptNumber}.`,
+      branchId: target.branchId,
+      idempotencyKey: `${target.debtId}_OPENING_LEDGER`
+    }, context);
+  }
   const paidAmount = target.paidAmount + payload.amount;
   const outstandingAmount = Math.max(0, target.outstandingAmount - payload.amount);
   const updated: CustomerDebtRecord = {
@@ -1057,6 +1145,16 @@ export async function recordCustomerDebtPayment(payload: Omit<CustomerDebtPaymen
     receivedAt: nowIso()
   };
   saveList(PAYMENT_KEY, [payment, ...readList<CustomerDebtPayment>(PAYMENT_KEY)]);
+  await recordCustomerPayment({
+    customerId: payload.customerId,
+    amount: payload.amount,
+    paymentMethod: payload.paymentMethod,
+    reference: payload.reference || payment.paymentId,
+    paymentDate: payment.receivedAt,
+    notes: payload.notes,
+    idempotencyKey: `${target.debtId}_${payload.reference || payment.paymentId}_${payload.amount}`,
+    allowCashWithoutDrawer: true
+  }, context);
   await allocateDebtPayment(payment.paymentId, payload.allocationMethod || 'SelectedDebtOnly', [{
     customerId: payload.customerId,
     debtId: payload.debtId,
@@ -1141,6 +1239,20 @@ export async function getCustomerCreditActivityEvents(filters: { customerId?: st
 }
 
 export async function getCustomerDebtLedger(customerId: string): Promise<CustomerDebtLedgerRow[]> {
+  const canonicalEntries = getCustomerAccountEntries(getActiveVendorId(), customerId);
+  if (canonicalEntries.length > 0) {
+    return canonicalEntries.map((entry) => ({
+      id: entry.entryId,
+      date: entry.transactionDate,
+      type: entry.entryType.replace(/_/g, ' '),
+      reference: entry.referenceId,
+      debit: entry.debit,
+      credit: entry.credit,
+      balance: entry.balanceAfter,
+      staff: entry.createdBy,
+      notes: entry.description
+    }));
+  }
   const [debts, payments] = await Promise.all([
     getCustomerDebtByCustomer(customerId),
     Promise.resolve(getCustomerDebtPayments({ customerId }))
@@ -1287,6 +1399,9 @@ export async function generateCustomerStatement(input: {
   const creditNotesTotal = filteredLedger.filter((row) => row.type.toLowerCase().includes('credit note')).reduce((sum, row) => sum + row.credit, 0);
   const depositTotal = filteredLedger.filter((row) => row.type.toLowerCase().includes('deposit')).reduce((sum, row) => sum + row.credit, 0);
   const allocationTotal = filteredLedger.filter((row) => row.type === 'Allocation').reduce((sum, row) => sum + row.credit, 0);
+  const canonicalClosingBalance = filteredLedger.length > 0
+    ? filteredLedger[filteredLedger.length - 1].balance
+    : filteredDebts.reduce((sum, debt) => sum + debt.outstandingAmount, 0);
   return {
     customer,
     profile,
@@ -1301,8 +1416,8 @@ export async function generateCustomerStatement(input: {
     returnsTotal: 0,
     creditNotesTotal,
     adjustmentsTotal: depositTotal + allocationTotal,
-    closingBalance: filteredDebts.reduce((sum, debt) => sum + debt.outstandingAmount, 0),
-    overdueBalance: filteredDebts.filter((debt) => debt.overdueDays > 0).reduce((sum, debt) => sum + debt.outstandingAmount, 0),
+    closingBalance: canonicalClosingBalance,
+    overdueBalance: canonicalClosingBalance > 0 ? filteredDebts.filter((debt) => debt.overdueDays > 0).reduce((sum, debt) => sum + debt.outstandingAmount, 0) : 0,
     ageing,
     generatedBy: input.generatedBy,
     generatedAt: nowIso(),

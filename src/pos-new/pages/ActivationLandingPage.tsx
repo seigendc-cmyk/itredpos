@@ -1,8 +1,9 @@
 import { useState, FormEvent } from 'react';
 import { KeyRound, ShieldCheck, Loader2, AlertTriangle, ArrowRight } from 'lucide-react';
 import { consumeActivationCode, getDeviceId } from '../auth/posActivationCodeService';
-import type { POSActivationSnapshotLocal } from '../shared/backend';
+import type { POSActivationSnapshotLocal } from '../../shared/backend';
 
+// Deprecated: activation UI is not a runtime login blocker for the core POS auth path.
 interface ActivationLandingPageProps {
   onActivated: (snapshot: POSActivationSnapshotLocal) => void;
 }

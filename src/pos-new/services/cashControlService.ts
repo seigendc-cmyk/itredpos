@@ -1,6 +1,9 @@
 import { createAccountingPostingPlaceholder } from './accountingService';
 import { createBIAdviceFromTrigger, getBIAdviceRecords } from './biAdviceService';
 import { getCustomerDebtPayments } from './customerCreditService';
+import { assertCanonicalCashSession } from './cashSessionService';
+import { calculateExpectedCash as calculateCanonicalExpectedCash } from './cashMovementService';
+import { readVendorScopedList, writeVendorScopedList } from '../utils/vendorDataMode';
 import type {
   CashControlActivityEvent,
   CashControlFilterState,
@@ -27,37 +30,16 @@ const RECON_KEY = 'itred_pos_cash_control_reconciliations_v1';
 const EXPENSE_KEY = 'itred_pos_cash_control_expenses_v1';
 const DROP_KEY = 'itred_pos_cash_control_drops_v1';
 const LINK_KEY = 'itred_pos_cash_control_debtor_links_v1';
-const DELIVERY_KEY = 'itred_pos_cash_control_delivery_handovers_v1';
+const DELIVERY_KEY = 'delivery_cash_handovers';
 const ACTIVITY_KEY = 'itred_pos_cash_control_activity_v1';
 const VARIANCE_KEY = 'itred_pos_cash_control_variances_v1';
 
-function canUseStorage(): boolean {
-  return typeof localStorage !== 'undefined';
-}
-
 function readList<T>(key: string, fallback: T[] = []): T[] {
-  if (!canUseStorage()) return fallback;
-  try {
-    const raw = localStorage.getItem(key);
-    if (!raw) {
-      localStorage.setItem(key, JSON.stringify(fallback));
-      return fallback;
-    }
-    const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed as T[] : fallback;
-  } catch {
-    return fallback;
-  }
+  return readVendorScopedList<T>(key, fallback);
 }
 
 function saveList<T>(key: string, rows: T[]): T[] {
-  if (!canUseStorage()) return rows;
-  try {
-    localStorage.setItem(key, JSON.stringify(rows));
-  } catch {
-    // Local persistence is best-effort.
-  }
-  return rows;
+  return writeVendorScopedList(key, rows);
 }
 
 function nowIso(): string {
@@ -190,6 +172,8 @@ async function openingFloatForShift(shiftId: string): Promise<number> {
 }
 
 export async function calculateExpectedDrawerCash(shiftId: string, policy: CashEquivalencePolicy = 'PhysicalCashOnly'): Promise<number> {
+  const canonical = await calculateCanonicalExpectedCash(shiftId);
+  if (canonical.expectedCash !== 0 || canonical.openingFloat !== 0) return canonical.expectedCash;
   const [openingFloat, cashSales, cashDebtorPayments, cashDeliveryHandovers, cashRefunds, drawerExpenses, supplierCashPayments, cashDrops] = await Promise.all([
     openingFloatForShift(shiftId),
     calculateCashSalesForShift(shiftId),
@@ -221,16 +205,18 @@ export async function recordSupplierPaymentCashImpact(payload: {
   notes?: string;
 }): Promise<CashDrawerMovement | null> {
   if (payload.amount <= 0) return null;
+  if (!payload.shiftId) throw new Error('No open shift. Please open a shift before recording cash.');
+  const session = assertCanonicalCashSession();
   return createCashDrawerMovement({
-    shiftId: payload.shiftId || 'SHIFT-DEV-CASH',
-    branchId: payload.branchId || 'BR-LOCAL',
-    branchName: payload.branchName || 'Local Branch',
-    terminalId: payload.terminalId || 'POS-LOCAL',
-    terminalName: payload.terminalName || 'POS Local',
-    drawerId: payload.drawerId || 'DRAWER-DEV-01',
-    drawerName: payload.drawerName || payload.drawerId || 'DRAWER-DEV-01',
-    staffId: payload.staffId,
-    staffName: payload.staffName,
+    shiftId: payload.shiftId,
+    branchId: payload.branchId || session.branchId,
+    branchName: payload.branchName || session.branchName,
+    terminalId: payload.terminalId || session.terminalId,
+    terminalName: payload.terminalName || session.terminalName,
+    drawerId: payload.drawerId || `DRAWER-${session.terminalId}`,
+    drawerName: payload.drawerName || payload.drawerId || `DRAWER-${session.terminalId}`,
+    staffId: payload.staffId || session.staffId,
+    staffName: payload.staffName || session.staffName,
     type: 'SupplierPayment',
     direction: 'Out',
     source: 'SupplierPayment',
@@ -244,18 +230,19 @@ export async function recordSupplierPaymentCashImpact(payload: {
 
 export async function createDrawerExpense(payload: Omit<DrawerExpenseRecord, 'expenseId' | 'createdAt' | 'status'> & { status?: CashReconciliationStatus }): Promise<DrawerExpenseRecord> {
   if (payload.amount <= 0) throw new Error('Drawer expense amount must be above zero.');
+  const session = assertCanonicalCashSession();
   const expense: DrawerExpenseRecord = { ...payload, expenseId: makeId('DRE'), createdAt: nowIso(), status: payload.status || (payload.amount > 50 ? 'PendingReview' : 'Approved') };
   saveList(EXPENSE_KEY, [expense, ...readList<DrawerExpenseRecord>(EXPENSE_KEY, seedExpenses())]);
   await createCashDrawerMovement({
     shiftId: expense.shiftId,
-    branchId: 'BR-LOCAL',
-    branchName: 'Local Branch',
-    terminalId: 'POS-LOCAL',
-    terminalName: 'POS Local',
+    branchId: session.branchId,
+    branchName: session.branchName,
+    terminalId: session.terminalId,
+    terminalName: session.terminalName,
     drawerId: expense.drawerId,
     drawerName: expense.drawerId,
-    staffId: expense.createdBy,
-    staffName: expense.createdBy,
+    staffId: session.staffId,
+    staffName: session.staffName,
     type: expense.expenseType === 'Petty Cash' ? 'PettyCashPayout' : 'DrawerExpense',
     direction: 'Out',
     source: 'Expense',
@@ -272,18 +259,19 @@ export async function createDrawerExpense(payload: Omit<DrawerExpenseRecord, 'ex
 
 export async function createCashDrop(payload: Omit<CashDropRecord, 'cashDropId' | 'createdAt' | 'status'> & { status?: CashReconciliationStatus }): Promise<CashDropRecord> {
   if (payload.amount <= 0) throw new Error('Cash drop amount must be above zero.');
+  const session = assertCanonicalCashSession();
   const drop: CashDropRecord = { ...payload, cashDropId: makeId('DROP'), createdAt: nowIso(), status: payload.status || (payload.receivedBy ? 'Approved' : 'PendingReview') };
   saveList(DROP_KEY, [drop, ...readList<CashDropRecord>(DROP_KEY, seedCashDrops())]);
   await createCashDrawerMovement({
     shiftId: drop.shiftId,
-    branchId: 'BR-LOCAL',
-    branchName: 'Local Branch',
-    terminalId: 'POS-LOCAL',
-    terminalName: 'POS Local',
+    branchId: session.branchId,
+    branchName: session.branchName,
+    terminalId: session.terminalId,
+    terminalName: session.terminalName,
     drawerId: drop.drawerId,
     drawerName: drop.drawerId,
-    staffId: drop.createdBy,
-    staffName: drop.createdBy,
+    staffId: session.staffId,
+    staffName: session.staffName,
     type: 'CashDrop',
     direction: 'Out',
     source: 'EOD',
@@ -381,21 +369,43 @@ export async function getCashControlActivityEvents(filters: CashControlFilterSta
 }
 
 export async function getCashControlSummary(filters: CashControlFilterState = {}): Promise<CashControlSummary> {
-  const shiftId = filters.shiftId || 'SHIFT-DEV-CASH';
+  const shiftId = filters.shiftId || '';
+  if (!shiftId) {
+    return {
+      openingFloat: 0,
+      cashSales: 0,
+      cashDebtorPayments: 0,
+      deliveryCashHandovers: 0,
+      cashRefunds: 0,
+      drawerExpenses: 0,
+      pettyCashPayouts: 0,
+      supplierCashPayments: 0,
+      cashDrops: 0,
+      expectedCash: 0,
+      countedCash: 0,
+      variance: 0,
+      varianceType: 'Balanced',
+      pendingReview: 0,
+      highRiskAlerts: 0,
+      debtorNonCashPayments: 0,
+      deliveryCashPending: 0
+    };
+  }
+  const canonical = await calculateCanonicalExpectedCash(shiftId);
   const [openingFloat, cashSales, cashDebtorPayments, deliveryCashHandovers, cashRefunds, drawerExpenses, supplierCashPayments, cashDrops, reconciliations, alerts] = await Promise.all([
-    openingFloatForShift(shiftId),
-    calculateCashSalesForShift(shiftId),
+    Promise.resolve(canonical.openingFloat || openingFloatForShift(shiftId)),
+    Promise.resolve(canonical.cashSales || calculateCashSalesForShift(shiftId)),
     calculateCashDebtorPaymentsForShift(shiftId, filters.cashEquivalencePolicy),
     calculateCashDeliveryHandoversForShift(shiftId),
-    calculateCashRefundsForShift(shiftId),
-    calculateDrawerExpensesForShift(shiftId),
+    Promise.resolve(canonical.cashRefunds || calculateCashRefundsForShift(shiftId)),
+    Promise.resolve(canonical.cashOut || calculateDrawerExpensesForShift(shiftId)),
     calculateSupplierCashPaymentsForShift(shiftId),
-    calculateCashDropsForShift(shiftId),
+    Promise.resolve((canonical.safeDrops + canonical.bankDeposits) || calculateCashDropsForShift(shiftId)),
     Promise.resolve(readList<CashDrawerReconciliation>(RECON_KEY, seedReconciliations()).filter((row) => row.shiftId === shiftId)),
     getBIAdviceRecords({ category: 'Cash Control' })
   ]);
   const latestRecon = reconciliations[0];
-  const expectedCash = openingFloat + cashSales + cashDebtorPayments + deliveryCashHandovers - cashRefunds - drawerExpenses - supplierCashPayments - cashDrops;
+  const expectedCash = canonical.expectedCash || openingFloat + cashSales + cashDebtorPayments + deliveryCashHandovers - cashRefunds - drawerExpenses - supplierCashPayments - cashDrops;
   const countedCash = latestRecon?.countedCash ?? expectedCash;
   const variance = countedCash - expectedCash;
   const nonCashDebtorPayments = getCustomerDebtPayments({ shiftId }).filter((payment) => !isCashEquivalent(payment.paymentMethod, filters.cashEquivalencePolicy)).reduce((sum, payment) => sum + payment.amount, 0);
@@ -407,7 +417,7 @@ export async function getCashControlSummary(filters: CashControlFilterState = {}
     deliveryCashHandovers,
     cashRefunds,
     drawerExpenses,
-    pettyCashPayouts: (await getCashDrawerMovements({ shiftId, movementType: 'PettyCashPayout' })).reduce((sum, movement) => sum + movement.amount, 0),
+    pettyCashPayouts: canonical.pettyCash || (await getCashDrawerMovements({ shiftId, movementType: 'PettyCashPayout' })).reduce((sum, movement) => sum + movement.amount, 0),
     supplierCashPayments,
     cashDrops,
     expectedCash,

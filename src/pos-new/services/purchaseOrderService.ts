@@ -13,9 +13,11 @@ import {
 } from '../mock/mockPosData';
 import { createOperationalApproval } from './approvalService';
 import { createGRNDraftFromPO, getPOReceivingSummary } from './goodsReceivingService';
-import { flagPOSupplierNotInRecords, recordSupplierActivity } from './supplierService';
+import { flagPOSupplierNotInRecords, getSupplierById, recordSupplierActivity } from './supplierService';
 import { getVendorDocumentIdentity } from '../vendor/vendorBootstrapModel';
-import { readVendorScopedList, writeVendorScopedList } from '../utils/vendorDataMode';
+import { getActiveVendorId, readVendorScopedList, writeVendorScopedList } from '../utils/vendorDataMode';
+import { calculateDocumentTax, getCachedVendorTaxSettings } from './vendorTaxSettingsService';
+import { assertCanonicalPurchaseSession, hasPurchasePermission, type CanonicalPurchaseSession } from './purchaseSessionService';
 
 const PO_KEY = 'itred_pos_purchase_orders_v1';
 const PO_LINE_KEY = 'itred_pos_purchase_order_lines_v1';
@@ -73,33 +75,59 @@ function nextPONumber(orders: PurchaseOrder[]): string {
 
 function recalcOrderTotals(order: PurchaseOrder, lines: PurchaseOrderLine[]): PurchaseOrder {
   const subtotalEstimate = lines.reduce((sum, line) => sum + line.estimatedLineTotal, 0);
-  const taxEstimate = Number((subtotalEstimate * 0.15).toFixed(2));
-  const grandTotalEstimate = Number((subtotalEstimate + taxEstimate + order.deliveryCostEstimate).toFixed(2));
+  const taxSettings = getCachedVendorTaxSettings(order.vendorId || getActiveVendorId());
+  const tax = calculateDocumentTax([{ lineAmount: subtotalEstimate }], {
+    ...taxSettings,
+    pricesIncludeVat: false
+  });
+  const taxEstimate = tax.vatAmount;
+  const grandTotalEstimate = Number((tax.total + order.deliveryCostEstimate).toFixed(2));
   return {
     ...order,
+    purchaseOrderId: order.poId,
+    purchaseOrderNumber: order.poNumber,
+    orderDate: order.poDate,
+    expectedDate: order.expectedDeliveryDate,
     subtotalEstimate,
+    subtotal: tax.subtotal,
+    discountTotal: order.discountTotal || 0,
+    taxableAmount: tax.taxableAmount,
     taxEstimate,
+    vatTotal: tax.vatAmount,
     grandTotalEstimate,
+    grandTotal: grandTotalEstimate,
     updatedAt: nowIso()
   };
 }
 
 function normalizeLine(
   line: PurchaseOrderCreatePayload['lines'][number],
-  poId: string
+  poId: string,
+  order?: Pick<PurchaseOrder, 'vendorId' | 'warehouseId'>
 ): PurchaseOrderLine {
   const qtyOrdered = Number(line.qtyOrdered) || 0;
   const qtyReceived = Number(line.qtyReceived) || 0;
   const estimatedUnitCost = Number(line.estimatedUnitCost) || 0;
+  const lineTotal = Number((qtyOrdered * estimatedUnitCost).toFixed(2));
+  const lineId = line.lineId || makeId('PO-LINE');
   return {
     ...line,
-    lineId: line.lineId || makeId('PO-LINE'),
+    lineId,
+    purchaseOrderLineId: lineId,
     poId,
+    purchaseOrderId: poId,
+    vendorId: order?.vendorId,
+    warehouseId: order?.warehouseId,
     qtyOrdered,
     qtyReceived,
     qtyOutstanding: Math.max(qtyOrdered - qtyReceived, 0),
     estimatedUnitCost,
-    estimatedLineTotal: Number((qtyOrdered * estimatedUnitCost).toFixed(2)),
+    unitCost: estimatedUnitCost,
+    estimatedLineTotal: lineTotal,
+    taxableAmount: lineTotal,
+    vatRate: 0,
+    vatAmount: 0,
+    lineTotal,
     lineStatus: line.lineStatus || 'Draft'
   };
 }
@@ -136,6 +164,66 @@ async function recordSupplierValidationFailure(order: PurchaseOrder, message: st
 
 function hasLinkedSupplier(order: PurchaseOrder): boolean {
   return Boolean(order.supplierName.trim() && order.supplierId.trim());
+}
+
+function orderValue(order: PurchaseOrder): number {
+  return Number(order.grandTotalEstimate || 0);
+}
+
+function supplierIsUsable(order: PurchaseOrder, session: CanonicalPurchaseSession): { ok: boolean; message: string } {
+  if (!hasLinkedSupplier(order)) {
+    return { ok: false, message: `${order.poNumber} supplier must be selected or created before continuing.` };
+  }
+  const supplier = getSupplierById(order.supplierId);
+  if (!supplier || supplier.vendorId !== session.vendorId) {
+    return { ok: false, message: `${order.poNumber} supplier must be linked to this vendor before continuing.` };
+  }
+  if (!supplier.active || supplier.status === 'inactive' || supplier.status === 'suspended') {
+    return { ok: false, message: `${supplier.supplierName} is not active for purchasing.` };
+  }
+  if (supplier.paymentTermsDays === undefined || supplier.paymentTermsDays === null || supplier.paymentTermsDays < 0) {
+    return { ok: false, message: `${supplier.supplierName} must have explicit credit terms before purchasing.` };
+  }
+  return { ok: true, message: 'Supplier ready.' };
+}
+
+async function recordPurchaseOrderRiskWarnings(order: PurchaseOrder, operator: string): Promise<string[]> {
+  const warnings: string[] = [];
+  try {
+    const discipline = await import('./purchaseDisciplineService');
+    const capacity = discipline.getCOGSBuyingCapacitySummary();
+    const supplierPressure = discipline.calculateSupplierCreditPressure(order.supplierId);
+    if (orderValue(order) > capacity.safeBuyingCapacity) {
+      warnings.push('Purchase exceeds available stock reserve.');
+    }
+    if (supplierPressure.limit > 0 && orderValue(order) + supplierPressure.payable > supplierPressure.limit) {
+      warnings.push('Supplier credit limit exceeded.');
+    }
+    if (order.priority === 'Urgent') {
+      warnings.push('Urgent purchase bypass requires review.');
+    }
+    warnings.forEach((warning) => {
+      void discipline.createPOWithoutReserveCheckWarning(order.poNumber, operator);
+      void createOperationalApproval({
+        vendorId: order.vendorId,
+        branchId: order.branchId,
+        branch: order.branchId,
+        category: 'Purchase Order',
+        requestedBy: operator,
+        requestedByRole: 'Manager',
+        relatedRecord: order.poNumber,
+        amountOrValue: `${order.currency} ${order.grandTotalEstimate.toFixed(2)}`,
+        risk: warning.includes('exceeded') ? 'High' : 'Medium',
+        reason: warning,
+        context: 'Cash-plan and supplier-credit warning. Purchase Order remains non-posting until receiving.',
+        approvalType: 'PURCHASE_CASH_PLAN_WARNING',
+        requiredPermission: 'approvals.approve'
+      });
+    });
+  } catch {
+    // Purchase discipline is local/mock in this build and must not block PO controls.
+  }
+  return warnings;
 }
 
 export async function getPurchaseOrders(filters: PurchaseOrderFilterState = {}): Promise<PurchaseOrder[]> {
@@ -185,45 +273,81 @@ export async function getPurchaseOrderSummary(filters: PurchaseOrderFilterState 
 }
 
 export async function createPurchaseOrder(payload: PurchaseOrderCreatePayload): Promise<PurchaseOrder> {
+  const session = assertCanonicalPurchaseSession();
   const orders = readList<PurchaseOrder>(PO_KEY, mockPurchaseOrders, isPO);
   const poId = payload.poId || makeId('PO-ID');
   const createdAt = nowIso();
+  const supplier = payload.supplierId ? getSupplierById(payload.supplierId) : null;
+  if (!supplier || supplier.vendorId !== session.vendorId) {
+    throw new Error('Select an active supplier before creating a Purchase Order.');
+  }
+  if (!supplier.active || supplier.status === 'inactive' || supplier.status === 'suspended') {
+    throw new Error(`${supplier.supplierName} is not active for purchasing.`);
+  }
   const order: PurchaseOrder = {
     ...payload,
     poId,
+    purchaseOrderId: poId,
     poNumber: payload.poNumber || nextPONumber(orders),
+    purchaseOrderNumber: payload.poNumber || nextPONumber(orders),
+    vendorId: session.vendorId,
+    branchId: session.branchId,
+    warehouseId: session.warehouseId,
+    deliveryBranchId: session.branchId,
+    deliveryWarehouseId: session.warehouseId,
+    requestedByStaffId: session.staffId,
+    requestedByStaffName: session.staffName,
+    supplierName: supplier.supplierName,
+    supplierCode: supplier.supplierCode,
+    supplierPhone: supplier.phone,
+    supplierEmail: supplier.email,
+    supplierAddress: supplier.address,
+    supplierContactPerson: supplier.contactPerson,
+    paymentTermsDays: supplier.paymentTermsDays,
+    paymentMethod: payload.paymentMethod || (supplier.paymentTermsDays > 0 ? 'Supplier Credit' : 'Cash'),
+    approvalStatus: payload.status === 'Pending Approval' ? 'Pending' : payload.status === 'Approved' ? 'Approved' : 'Not Required',
+    postingStatus: 'Not Posted',
+    createdBy: session.staffId,
     createdAt,
     updatedAt: createdAt
   };
-  const lines = payload.lines.map((line) => normalizeLine(line, poId));
+  const lines = payload.lines.map((line) => normalizeLine(line, poId, order));
   const savedOrder = recalcOrderTotals(order, lines);
   const allLines = readList<PurchaseOrderLine>(PO_LINE_KEY, mockPurchaseOrderLines, isPOLine);
   saveList(PO_KEY, [savedOrder, ...orders]);
   saveList(PO_LINE_KEY, [...lines, ...allLines]);
-  await recordActivity(savedOrder, 'PURCHASE_ORDER_DRAFT_CREATED', payload.requestedByStaffName, `${savedOrder.poNumber} draft memo created. No stock, accounting, cashbook, COGS or inventory value posted.`);
+  await recordActivity(savedOrder, 'PURCHASE_ORDER_DRAFT_CREATED', session.staffName, `${savedOrder.poNumber} draft memo created. No stock, accounting, cashbook, COGS or inventory value posted.`);
   if (savedOrder.supplierId) {
-    recordSupplierActivity('SUPPLIER_LINKED_TO_PURCHASE_ORDER', `${savedOrder.supplierName} linked to ${savedOrder.poNumber}.`, payload.requestedByStaffName, savedOrder.supplierId, savedOrder.poId);
+    recordSupplierActivity('SUPPLIER_LINKED_TO_PURCHASE_ORDER', `${savedOrder.supplierName} linked to ${savedOrder.poNumber}.`, session.staffId, savedOrder.supplierId, savedOrder.poId);
   }
   if (!`${payload.notes || ''} ${payload.internalMemo || ''}`.includes('PDR-')) {
     try {
       const { createPOWithoutReserveCheckWarning } = await import('./purchaseDisciplineService');
-      await createPOWithoutReserveCheckWarning(savedOrder.poNumber, payload.requestedByStaffName);
+      await createPOWithoutReserveCheckWarning(savedOrder.poNumber, session.staffId);
     } catch {
       // Purchase discipline warnings are local/mock and must not block PO creation.
     }
   }
+  await recordPurchaseOrderRiskWarnings(savedOrder, session.staffName);
   return savedOrder;
 }
 
 export async function updatePurchaseOrderDraft(poId: string, patch: PurchaseOrderPatch): Promise<PurchaseOrder | null> {
+  const session = assertCanonicalPurchaseSession();
   const orders = readList<PurchaseOrder>(PO_KEY, mockPurchaseOrders, isPO);
   const order = orders.find((item) => item.poId === poId);
   if (!order || ['Fully Received', 'Closed', 'Closed With Outstanding', 'Cancelled'].includes(order.status)) return null;
+  if (order.vendorId !== session.vendorId) return null;
+  const supplierId = patch.supplierId || order.supplierId;
+  const supplier = supplierId ? getSupplierById(supplierId) : null;
+  if (!supplier || supplier.vendorId !== session.vendorId || !supplier.active || supplier.status === 'inactive' || supplier.status === 'suspended') {
+    throw new Error('Select an active supplier before saving this Purchase Order.');
+  }
 
   let nextLines = readList<PurchaseOrderLine>(PO_LINE_KEY, mockPurchaseOrderLines, isPOLine);
   if (patch.lines) {
     nextLines = [
-      ...patch.lines.map((line) => normalizeLine(line, poId)),
+      ...patch.lines.map((line) => normalizeLine(line, poId, { vendorId: session.vendorId, warehouseId: session.warehouseId })),
       ...nextLines.filter((line) => line.poId !== poId)
     ];
     saveList(PO_LINE_KEY, nextLines);
@@ -233,15 +357,29 @@ export async function updatePurchaseOrderDraft(poId: string, patch: PurchaseOrde
     ...order,
     ...patch,
     poId,
+    purchaseOrderId: poId,
+    vendorId: session.vendorId,
+    branchId: session.branchId,
+    warehouseId: session.warehouseId,
+    deliveryBranchId: session.branchId,
+    deliveryWarehouseId: session.warehouseId,
+    supplierName: supplier.supplierName,
+    supplierCode: supplier.supplierCode,
+    supplierPhone: supplier.phone,
+    supplierEmail: supplier.email,
+    supplierAddress: supplier.address,
+    supplierContactPerson: supplier.contactPerson,
+    paymentTermsDays: supplier.paymentTermsDays,
     status: patch.status || order.status,
     updatedAt: nowIso()
   };
   const updatedOrder = recalcOrderTotals(updatedBase, nextLines.filter((line) => line.poId === poId));
   saveList(PO_KEY, orders.map((item) => item.poId === poId ? updatedOrder : item));
-  await recordActivity(updatedOrder, 'PURCHASE_ORDER_UPDATED', updatedOrder.requestedByStaffName, `${updatedOrder.poNumber} purchase order updated. No stock or accounting posted.`);
+  await recordActivity(updatedOrder, 'PURCHASE_ORDER_UPDATED', session.staffName, `${updatedOrder.poNumber} purchase order updated. No stock or accounting posted.`);
   if (updatedOrder.supplierId) {
-    recordSupplierActivity('SUPPLIER_LINKED_TO_PURCHASE_ORDER', `${updatedOrder.supplierName} linked to ${updatedOrder.poNumber}.`, updatedOrder.requestedByStaffName, updatedOrder.supplierId, updatedOrder.poId);
+    recordSupplierActivity('SUPPLIER_LINKED_TO_PURCHASE_ORDER', `${updatedOrder.supplierName} linked to ${updatedOrder.poNumber}.`, session.staffId, updatedOrder.supplierId, updatedOrder.poId);
   }
+  await recordPurchaseOrderRiskWarnings(updatedOrder, session.staffName);
   return updatedOrder;
 }
 
@@ -254,28 +392,35 @@ async function updateStatus(
   message: string,
   patch: Partial<PurchaseOrder> = {}
 ): Promise<PurchaseOrder | null> {
+  const session = assertCanonicalPurchaseSession();
   const orders = readList<PurchaseOrder>(PO_KEY, mockPurchaseOrders, isPO);
   const current = orders.find((order) => order.poId === poId);
   if (!current) return null;
+  if (current.vendorId !== session.vendorId) return null;
   const updated: PurchaseOrder = {
     ...current,
     ...patch,
     status,
-    approvedByStaffId: status === 'Approved' ? staffId : patch.approvedByStaffId ?? current.approvedByStaffId,
-    approvedByStaffName: status === 'Approved' ? staffName : patch.approvedByStaffName ?? current.approvedByStaffName,
+    approvalStatus: status === 'Pending Approval' ? 'Pending' : status === 'Approved' ? 'Approved' : patch.approvalStatus ?? current.approvalStatus,
+    postingStatus: status === 'Fully Received' || status === 'Closed' ? 'Closed' : current.postingStatus || 'Not Posted',
+    approvedByStaffId: status === 'Approved' ? session.staffId : patch.approvedByStaffId ?? current.approvedByStaffId,
+    approvedByStaffName: status === 'Approved' ? session.staffName : patch.approvedByStaffName ?? current.approvedByStaffName,
+    approvedBy: status === 'Approved' ? session.staffId : patch.approvedBy ?? current.approvedBy,
     updatedAt: nowIso()
   };
   saveList(PO_KEY, orders.map((order) => order.poId === poId ? updated : order));
-  await recordActivity(updated, eventType, staffName, message);
+  await recordActivity(updated, eventType, session.staffName || staffName || staffId, message);
   return updated;
 }
 
 export async function submitPurchaseOrderForApproval(poId: string): Promise<PurchaseOrder | null> {
+  const session = assertCanonicalPurchaseSession();
   const order = await getPurchaseOrderById(poId);
   if (!order) return null;
   const lines = await getPurchaseOrderLines(poId);
-  if (!hasLinkedSupplier(order)) {
-    await recordSupplierValidationFailure(order, `${order.poNumber} supplier must be selected or created before submitting for approval.`);
+  const supplierValidation = supplierIsUsable(order, session);
+  if (!supplierValidation.ok) {
+    await recordSupplierValidationFailure(order, supplierValidation.message);
     return null;
   }
   if (lines.length === 0 || lines.some((line) => line.qtyOrdered <= 0 || line.estimatedUnitCost < 0)) {
@@ -287,8 +432,8 @@ export async function submitPurchaseOrderForApproval(poId: string): Promise<Purc
     branchId: order.branchId,
     branch: order.branchId,
     category: 'Purchase Order',
-    requestedBy: order.requestedByStaffName,
-    requestedByRole: 'Stock Controller',
+    requestedBy: session.staffName,
+    requestedByRole: session.role,
     relatedRecord: order.poNumber,
     amountOrValue: `${order.currency} ${order.grandTotalEstimate.toFixed(2)}`,
     risk: order.priority === 'Urgent' ? 'High' : 'Medium',
@@ -300,42 +445,51 @@ export async function submitPurchaseOrderForApproval(poId: string): Promise<Purc
   return updateStatus(
     poId,
     'Pending Approval',
-    order.requestedByStaffId,
-    order.requestedByStaffName,
+    session.staffId,
+    session.staffName,
     'PURCHASE_ORDER_SUBMITTED_FOR_APPROVAL',
     `${order.poNumber} submitted for approval. Purchase Order Approval Required.`
   );
 }
 
 export async function approvePurchaseOrder(poId: string, staffId: string, notes = ''): Promise<PurchaseOrder | null> {
+  const session = assertCanonicalPurchaseSession();
   const order = await getPurchaseOrderById(poId);
   if (!order) return null;
-  if (!hasLinkedSupplier(order)) {
-    await recordSupplierValidationFailure(order, `${order.poNumber} supplier must be selected or created before approval.`);
+  const supplierValidation = supplierIsUsable(order, session);
+  if (!supplierValidation.ok) {
+    await recordSupplierValidationFailure(order, supplierValidation.message);
+    return null;
+  }
+  const restricted = order.grandTotalEstimate >= 1000 || order.priority === 'Urgent';
+  if (restricted && order.requestedByStaffId === session.staffId && !hasPurchasePermission(session, 'purchaseOrders.selfApprove')) {
+    await recordActivity(order, 'PO_SUPPLIER_VALIDATION_FAILED', session.staffName, `${order.poNumber} requires independent approval.`);
     return null;
   }
   return updateStatus(
     poId,
     'Approved',
-    staffId,
-    staffId,
+    session.staffId || staffId,
+    session.staffName,
     'PURCHASE_ORDER_APPROVED',
     `${order.poNumber} approved as a supplier ordering memo. ${notes}`.trim()
   );
 }
 
 export async function markPurchaseOrderSent(poId: string, staffId: string): Promise<PurchaseOrder | null> {
+  const session = assertCanonicalPurchaseSession();
   const order = await getPurchaseOrderById(poId);
   if (!order) return null;
-  if (!hasLinkedSupplier(order)) {
-    await recordSupplierValidationFailure(order, `${order.poNumber} supplier must be selected or created before marking sent.`);
+  const supplierValidation = supplierIsUsable(order, session);
+  if (!supplierValidation.ok) {
+    await recordSupplierValidationFailure(order, supplierValidation.message);
     return null;
   }
   return updateStatus(
     poId,
     'Sent To Supplier',
-    staffId,
-    staffId,
+    session.staffId || staffId,
+    session.staffName,
     'PURCHASE_ORDER_SENT_TO_SUPPLIER',
     `${order.poNumber} marked sent to supplier. No stock, cashbook or accounting posting was created.`
   );

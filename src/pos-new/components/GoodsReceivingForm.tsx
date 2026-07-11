@@ -144,37 +144,41 @@ export default function GoodsReceivingForm({
   };
 
   const handlePost = async () => {
-    if (!canPost) {
-      setFeedback('You do not have permission to perform this action.');
-      return;
-    }
-    const parsedPaidAmount = Math.max(0, Number(paidAmount) || 0);
-    if (acquisitionType === 'Part Paid + Supplier Credit' && parsedPaidAmount <= 0) {
-      setFeedback('Enter the paid portion before posting a part-paid supplier credit GRN.');
-      return;
-    }
-    const result = await postGRN(note.grnId, staffName, {
-      acquisitionType,
-      paidAmount: parsedPaidAmount,
-      paymentSource,
-      supplierInvoiceNumber: note.supplierInvoiceNumber,
-      linkedSupplierBillId: linkedSupplierBillId.trim() || undefined
-    });
-    if (!result) {
-      setFeedback('Only Draft GRNs can be posted.');
-      return;
-    }
-    if (!result.stockPosted) {
-      setFeedback(result.message);
-      onChanged(result.message);
-      if (result.status === 'Pending Approval') {
-        const refreshed = await updateGRNDraft(note.grnId, {});
-        if (refreshed) setNote(refreshed);
+    try {
+      if (!canPost) {
+        setFeedback('You do not have permission to perform this action.');
+        return;
       }
-      return;
+      const parsedPaidAmount = Math.max(0, Number(paidAmount) || 0);
+      if (acquisitionType === 'Part Paid + Supplier Credit' && parsedPaidAmount <= 0) {
+        setFeedback('Enter the paid portion before posting a part-paid supplier credit GRN.');
+        return;
+      }
+      const result = await postGRN(note.grnId, staffName, {
+        acquisitionType,
+        paidAmount: parsedPaidAmount,
+        paymentSource,
+        supplierInvoiceNumber: note.supplierInvoiceNumber,
+        linkedSupplierBillId: linkedSupplierBillId.trim() || undefined
+      });
+      if (!result) {
+        setFeedback('Only Draft GRNs can be posted.');
+        return;
+      }
+      if (!result.stockPosted) {
+        setFeedback(result.message);
+        onChanged(result.message);
+        if (result.status === 'Pending Approval') {
+          const refreshed = await updateGRNDraft(note.grnId, {});
+          if (refreshed) setNote(refreshed);
+        }
+        return;
+      }
+      setFeedback(result.message);
+      onPosted(result);
+    } catch (error) {
+      setFeedback(error instanceof Error ? error.message : 'Goods receiving could not be posted.');
     }
-    setFeedback(result.message);
-    onPosted(result);
   };
 
   const handleCancel = async () => {

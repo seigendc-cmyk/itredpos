@@ -26,6 +26,11 @@ import {
 } from "../mock/mockPosData";
 import { calculateReceiptTaxSummary } from "../utils/taxUtils";
 import {
+  calculateLineTax,
+  getCachedVendorTaxSettings,
+  type VendorTaxSettings
+} from "./vendorTaxSettingsService";
+import {
   getVendorDocumentIdentity,
   isVendorDocumentPlaceholder,
   type VendorDocumentIdentity
@@ -302,6 +307,23 @@ function normalizePaymentMode(method: string): PaymentMode {
   return "Cash";
 }
 
+function taxSettingsFromSalePayload(payload: ReceiptSalePayload): VendorTaxSettings {
+  return {
+    vendorId: payload.vendorId,
+    vatEnabled: payload.vatMode !== "Not VAT Registered",
+    vatRegistered: payload.vatMode !== "Not VAT Registered",
+    vatNumber: "",
+    defaultVatRate: payload.vatMode === "Not VAT Registered" ? 0 : Number(payload.vatRate) || 0,
+    pricesIncludeVat: payload.vatMode !== "Exclusive",
+    outputTaxAccountId: "",
+    inputTaxAccountId: "",
+    exemptTaxCode: "EXEMPT",
+    zeroRatedTaxCode: "ZERO",
+    updatedAt: "",
+    updatedBy: ""
+  };
+}
+
 export async function getReceipts(
   filters: ReceiptFilters,
 ): Promise<ReceiptRecord[]> {
@@ -416,26 +438,27 @@ export async function createReceiptFromSale(
     payload.terminalId,
   );
   const now = payload.sale.date || new Date().toISOString();
-  const lines: ReceiptLine[] = payload.sale.items.map((item, index) => ({
-    id: `RL-${receiptNumber}-${index + 1}`,
-    receiptNumber,
-    productId: item.productId,
-    sku: item.code,
-    productName: item.name,
-    quantity: item.quantity,
-    unitPrice: item.price,
-    discountAmount: 0,
-    lineNetAmount: item.total,
-    vatAmount:
-      payload.vatMode === "Not VAT Registered"
-        ? 0
-        : item.total * ((payload.vatRate || 15) / 100),
-    lineTotal: item.total,
-  }));
+  const taxSettings = taxSettingsFromSalePayload(payload);
+  const lines: ReceiptLine[] = payload.sale.items.map((item, index) => {
+    const tax = calculateLineTax({ lineAmount: item.total }, taxSettings);
+    return {
+      id: `RL-${receiptNumber}-${index + 1}`,
+      receiptNumber,
+      productId: item.productId,
+      sku: item.code,
+      productName: item.name,
+      quantity: item.quantity,
+      unitPrice: item.price,
+      discountAmount: 0,
+      lineNetAmount: tax.netAmount,
+      vatAmount: tax.vatAmount,
+      lineTotal: tax.total,
+    };
+  });
   const taxSummary = calculateReceiptTaxSummary(
     lines,
     payload.vatMode || "Inclusive",
-    payload.vatRate || 15,
+    payload.vatRate || 0,
   );
   const receipt: ReceiptRecord = {
     id: `REC-${receiptNumber}`,
@@ -645,6 +668,7 @@ export async function getReceiptPreview(
     PAYMENTS_KEY,
     mockReceiptPayments,
   ).filter((payment) => payment.receiptNumber === receiptNumber);
+  const taxSettings = getCachedVendorTaxSettings(enrichedReceipt.vendorId);
   return {
     receipt: enrichedReceipt,
     lines,
@@ -652,9 +676,9 @@ export async function getReceiptPreview(
     taxSummary: calculateReceiptTaxSummary(
       lines,
       enrichedReceipt.businessDetails.vatRegistered
-        ? "Inclusive"
+        ? (taxSettings.pricesIncludeVat ? "Inclusive" : "Exclusive")
         : "Not VAT Registered",
-      15,
+      taxSettings.defaultVatRate,
     ),
     format: enrichedReceipt.businessDetails.receiptLayout || format,
     blueprint: {

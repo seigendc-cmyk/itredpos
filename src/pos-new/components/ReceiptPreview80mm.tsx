@@ -58,7 +58,9 @@ export default function ReceiptPreview80mm({ preview }: ReceiptPreview80mmProps)
       <div className="py-3 border-b border-dashed border-slate-400 text-[9px] space-y-1">
         <div className="flex justify-between"><span>Subtotal</span><strong>USD {receipt.subtotal.toFixed(2)}</strong></div>
         <div className="flex justify-between"><span>Discount</span><strong>USD {receipt.discountTotal.toFixed(2)}</strong></div>
-        <div className="flex justify-between"><span>{taxSummary.taxLabel}</span><strong>USD {taxSummary.vatAmount.toFixed(2)}</strong></div>
+        {taxSummary.vatMode !== 'Not VAT Registered' && (
+          <div className="flex justify-between"><span>{taxSummary.taxLabel}</span><strong>USD {taxSummary.vatAmount.toFixed(2)}</strong></div>
+        )}
         <div className="flex justify-between text-[12px] font-black border-t border-slate-300 pt-2 mt-2"><span>Total</span><span>USD {receipt.grandTotal.toFixed(2)}</span></div>
       </div>
 

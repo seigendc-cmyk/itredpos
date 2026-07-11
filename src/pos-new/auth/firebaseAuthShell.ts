@@ -1,4 +1,4 @@
-import { GoogleAuthProvider, onAuthStateChanged, signInWithPopup, getRedirectResult, signOut, type User, signInWithRedirect } from 'firebase/auth';
+import { GoogleAuthProvider, onAuthStateChanged, signInWithPopup, getRedirectResult, signOut, type User } from 'firebase/auth';
 import { auth, firebaseInitStatus, firebaseReady } from '../firebase/firebaseApp';
 
 import { isFirebaseAuthShellEnabled } from '../repositories/repositoryConfig';
@@ -59,36 +59,22 @@ export async function signInWithGooglePlaceholder(): Promise<AuthShellActionResu
   try {
     const provider = new GoogleAuthProvider();
 
-    // Requirement: Prefer signInWithPopup for localhost development.
-    const isLocalhost =
-      typeof window !== 'undefined' &&
-      (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
-
-    if (isLocalhost) {
-      const result = await signInWithPopup(auth, provider);
-      currentProfile = buildFirebaseUserProfile(result.user);
-      recordAuthActivity({
-        eventType: 'GOOGLE_SIGN_IN_PLACEHOLDER_SUCCESS',
-
-        label: 'Google Sign-In Popup Success',
-        message: 'Google popup sign-in completed successfully.',
-        staffId: currentProfile.email,
-        vendorId: 'demo-vendor-001'
-      });
-      return { ok: true, status: 'Signed In', message: 'Google sign-in completed.', profile: currentProfile };
-    }
-
-    // Non-local environments keep redirect flow (routing remains unchanged).
-    await (await import('firebase/auth')).signInWithRedirect(auth, provider);
-    return { ok: true, status: 'Signed In', message: 'Google redirect initiated.' };
+    const result = await signInWithPopup(auth, provider);
+    currentProfile = buildFirebaseUserProfile(result.user);
+    recordAuthActivity({
+      eventType: 'GOOGLE_SIGN_IN_PLACEHOLDER_SUCCESS',
+      label: 'Google Sign-In Popup Success',
+      message: 'Google popup sign-in completed successfully.',
+      staffId: currentProfile.email
+    });
+    return { ok: true, status: 'Signed In', message: 'Google sign-in completed.', profile: currentProfile };
   } catch (error) {
     const msg = errorMessage(error);
     recordAuthActivity({
         eventType: 'GOOGLE_SIGN_IN_PLACEHOLDER_FAILED',
 
       label: 'Google Sign-In Failed',
-      message: msg,
-      vendorId: 'demo-vendor-001'
+      message: msg
     });
     return { ok: false, status: 'Error', message: msg };
   }
@@ -105,8 +91,7 @@ export async function handleGoogleRedirectResult(): Promise<AuthShellActionResul
 
         label: 'Google Sign-In Redirect Success',
         message: 'Google sign-in redirect completed successfully.',
-        staffId: currentProfile.email,
-        vendorId: 'demo-vendor-001'
+        staffId: currentProfile.email
       });
       return { ok: true, status: 'Signed In', message: 'Google sign-in redirect completed.', profile: currentProfile };
     }
@@ -120,8 +105,7 @@ export async function handleGoogleRedirectResult(): Promise<AuthShellActionResul
       eventType: 'GOOGLE_SIGN_IN_PLACEHOLDER_FAILED',
 
       label: 'Google Sign-In Redirect Failed',
-      message: errorMessage(error),
-      vendorId: 'demo-vendor-001'
+      message: errorMessage(error)
     });
     return { ok: false, status: 'Error', message: errorMessage(error) };
   }

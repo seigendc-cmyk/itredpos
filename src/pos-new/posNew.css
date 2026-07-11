@@ -12872,3 +12872,58 @@ label,
   padding-top: 6px !important;
   padding-bottom: 6px !important;
 }
+
+.settings-panel {
+  border: 1px solid #b1b5c2;
+  background: #ffffff;
+  padding: 1rem;
+}
+
+.settings-button {
+  display: inline-flex;
+  min-height: 36px;
+  align-items: center;
+  justify-content: center;
+  gap: 0.375rem;
+  border: 1px solid #b1b5c2;
+  padding: 0.5rem 0.85rem;
+  font-size: 10px;
+  font-weight: 900;
+  line-height: 1;
+  text-transform: uppercase;
+}
+
+.settings-button-primary {
+  border-color: #ea580c;
+  background: #ea580c;
+  color: #ffffff;
+}
+
+.settings-button-primary:hover {
+  background: #c2410c;
+}
+
+.settings-button-secondary {
+  background: #ffffff;
+  color: #1e222b;
+}
+
+.settings-button-secondary:hover {
+  border-color: #ea580c;
+  background: #fff7ed;
+}
+
+.settings-mini-button {
+  border: 1px solid #cbd5e1;
+  background: #ffffff;
+  padding: 0.35rem 0.5rem;
+  font-size: 9px;
+  font-weight: 900;
+  text-transform: uppercase;
+  color: #1e222b;
+}
+
+.settings-mini-button:hover {
+  border-color: #ea580c;
+  background: #fff7ed;
+}

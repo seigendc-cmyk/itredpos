@@ -10,7 +10,11 @@ import { db } from "../pos-new/firebase/firebaseApp";
 import {
   signInWithGooglePlaceholder
 } from "../pos-new/auth/firebaseAuthShell";
-import { readSciVendorOwnerSession } from "./StaffAuthService";
+import {
+  LEGACY_POS_ACTIVE_SESSION_KEY,
+  readSciVendorOwnerSession,
+  saveSciVendorOwnerSession
+} from "./StaffAuthService";
 import VendorOnboardingForm from "./VendorOnboardingForm";
 import PosStaffAccess from "../pos-new/pages/PosStaffAccess";
 
@@ -26,8 +30,6 @@ type VendorAuthGateProps = {
   children?: ReactNode;
 };
 
-const ACTIVE_SESSION_KEY = "itred_pos_active_session";
-
 function saveOwnerSession(vendor: Record<string, unknown>) {
   const vendorId = String(vendor.vendorId || "");
   const ownerName = String(
@@ -38,9 +40,7 @@ function saveOwnerSession(vendor: Record<string, unknown>) {
     vendor.businessName || vendor.tradingName || vendorId
   );
 
-  localStorage.setItem(
-    "sci_vendor_owner_session",
-    JSON.stringify({
+  saveSciVendorOwnerSession({
       vendorId,
       ownerName,
       ownerEmail,
@@ -58,8 +58,7 @@ function saveOwnerSession(vendor: Record<string, unknown>) {
       mode: vendor.mode ? String(vendor.mode) : "Demo",
       role: "Owner",
       signedInAt: new Date().toISOString()
-    })
-  );
+    });
 
   localStorage.setItem(
     "itred_pos_business_profile",
@@ -67,6 +66,7 @@ function saveOwnerSession(vendor: Record<string, unknown>) {
       legalName: businessName,
       tradingName: vendor.tradingName ? String(vendor.tradingName) : businessName,
       businessName,
+      vendorId,
       registeredBusinessName: businessName,
       ownerName,
       ownerFullName: ownerName,
@@ -164,6 +164,7 @@ export default function VendorAuthGate({ children }: VendorAuthGateProps) {
     try {
       const result = await signInWithGooglePlaceholder();
       if (!result.ok || !result.profile?.uid) {
+        console.error("[VendorAuthGate] Google authentication failed", result);
         setError(result.message || "Google sign-in could not be completed.");
         return;
       }
@@ -182,6 +183,10 @@ export default function VendorAuthGate({ children }: VendorAuthGateProps) {
 
       const vendor = await findVendorByGoogleAccount(profile);
       if (!vendor) {
+        console.error("[VendorAuthGate] No vendor resolved for Google account", {
+          uid: profile.uid,
+          email: profile.email
+        });
         setError(
           "No registered business was found for this Google account. Please choose Sign Up."
         );
@@ -202,8 +207,9 @@ export default function VendorAuthGate({ children }: VendorAuthGateProps) {
   }
 
   function handleStaffSuccess(session: unknown) {
+    void session;
     try {
-      localStorage.setItem(ACTIVE_SESSION_KEY, JSON.stringify(session));
+      localStorage.removeItem(LEGACY_POS_ACTIVE_SESSION_KEY);
     } catch {
       /* ignore persistence errors */
     }

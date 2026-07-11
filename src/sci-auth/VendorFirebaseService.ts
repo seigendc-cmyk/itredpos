@@ -5,13 +5,10 @@ import {
   where,
   limit,
   doc,
-  setDoc,
   writeBatch
 } from 'firebase/firestore';
 import { db } from '../pos-new/firebase/firebaseApp';
 import { FIRESTORE_COLLECTIONS } from '../shared/backend';
-import type { VendorRecord } from './VendorFirebaseService';
-import { createVendorAuditLog } from '../shared/backend';
 
 export interface VendorRecord {
   vendorId: string;
@@ -104,12 +101,14 @@ export async function createVendorAccount(
   const businessName = draft.businessName.trim() || 'New Business';
   const tradingName = draft.tradingName?.trim() || businessName;
   const ownerName = draft.ownerName.trim() || profile.displayName || profile.email?.split('@')[0] || 'Owner';
-  const ownerEmail = draft.ownerEmail.trim() || profile.email || '';
+  const ownerEmail = (draft.ownerEmail.trim() || profile.email || '').toLowerCase();
 
   const vendorRef = doc(db, FIRESTORE_COLLECTIONS.vendors, vendorId);
   const branchId = `${vendorId}_main_branch`;
   const warehouseId = `${vendorId}_main_warehouse`;
   const staffId = `${vendorId}_owner`;
+  const terminalId = `${vendorId}_main_terminal`;
+  const licenseId = `${vendorId}_demo_license`;
 
   const vendor = {
     vendorId,
@@ -125,7 +124,21 @@ export async function createVendorAccount(
     suburb: draft.suburb || '',
     physicalAddress: draft.physicalAddress || '',
     status: 'Active',
+    planCode: 'DEMO',
+    licenseStatus: 'DEMO',
     mode: 'Demo',
+    createdAt: now,
+    updatedAt: now
+  };
+
+  const vendorUser = {
+    uid: profile.uid,
+    vendorId,
+    email: ownerEmail,
+    displayName: ownerName,
+    role: 'Owner',
+    status: 'active',
+    permissions: ['*'],
     createdAt: now,
     updatedAt: now
   };
@@ -166,34 +179,80 @@ export async function createVendorAccount(
   };
 
   const staff = {
+    id: staffId,
     vendorId,
     staffId,
     branchId,
     name: ownerName,
+    displayName: ownerName,
     email: ownerEmail,
+    staffCode: 'OWNER',
+    roleId: 'owner',
+    roleName: 'Owner',
     phone: draft.phone || '',
     whatsapp: draft.whatsapp || '',
     role: 'Owner' as const,
     status: 'Active' as const,
+    pin: '040369',
+    pinCode: '040369',
+    permissions: ['*'],
+    assignedTerminalIds: [terminalId],
     source: 'simple-auth',
     createdAt: now,
     updatedAt: now
   };
 
-  const auditLog = createVendorAuditLog(
+  const terminal = {
+    terminalId,
     vendorId,
-    'VENDOR_SIGN_UP',
-    `Vendor account created via simple auth. Business: ${businessName}.`
-  );
+    branchId,
+    warehouseId,
+    terminalName: 'Main POS Terminal',
+    status: 'Active',
+    createdAt: now,
+    updatedAt: now
+  };
 
-  const batch = writeBatch(db);
-  batch.set(vendorRef, vendor);
-  batch.set(doc(db, FIRESTORE_COLLECTIONS.vendorBranches, branchId), branch);
-  batch.set(doc(db, FIRESTORE_COLLECTIONS.vendorWarehouses, warehouseId), warehouse);
-  batch.set(doc(db, FIRESTORE_COLLECTIONS.vendorStaff, staffId), staff);
-  batch.set(doc(db, FIRESTORE_COLLECTIONS.vendorAuditLogs, auditLog.auditLogId), auditLog);
+  const license = {
+    licenseId,
+    vendorId,
+    planCode: 'DEMO',
+    licenseStatus: 'DEMO',
+    licenseMode: 'demo',
+    status: 'Active',
+    createdAt: now,
+    updatedAt: now
+  };
 
-  await batch.commit();
+  const vendorSettings = {
+    vendorId,
+    vatEnabled: false,
+    vatRegistered: false,
+    vatNumber: '',
+    defaultVatRate: 0,
+    pricesIncludeVat: true,
+    outputTaxAccountId: '',
+    inputTaxAccountId: '',
+    exemptTaxCode: 'EXEMPT',
+    zeroRatedTaxCode: 'ZERO',
+    updatedAt: now,
+    updatedBy: profile.uid,
+    createdAt: now
+  };
+
+  const phase1Batch = writeBatch(db);
+  phase1Batch.set(vendorRef, vendor);
+  phase1Batch.set(doc(db, 'vendorUsers', profile.uid), vendorUser);
+  await phase1Batch.commit();
+
+  const phase2Batch = writeBatch(db);
+  phase2Batch.set(doc(db, 'branches', branchId), branch);
+  phase2Batch.set(doc(db, 'warehouses', warehouseId), warehouse);
+  phase2Batch.set(doc(db, 'staff', staffId), staff);
+  phase2Batch.set(doc(db, 'pos_terminals', terminalId), terminal);
+  phase2Batch.set(doc(db, 'licenses', licenseId), license);
+  phase2Batch.set(doc(db, 'vendor_settings', vendorId), vendorSettings);
+  await phase2Batch.commit();
 
   return mapVendorData(vendorId, vendor);
 }
@@ -220,6 +279,7 @@ export function saveVendorSessionFromFirebase(vendor: VendorRecord): void {
   localStorage.setItem('sci_vendor_owner_session', JSON.stringify(session));
 
   const businessProfile = {
+    vendorId: vendor.vendorId,
     legalName: vendor.businessName,
     tradingName: vendor.tradingName,
     ownerName: vendor.ownerName,

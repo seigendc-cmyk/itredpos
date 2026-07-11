@@ -1,43 +1,15 @@
 rules_version = '2';
 
-// ============================================================================
-// iTredPOS — Vendor-Rooted Firestore Security Rules (DRAFT for review)
-// Build: BUILD 08072026-FIRESTORE-RULES — STEP 2
-// ----------------------------------------------------------------------------
-// Tenant boundary = vendorId (the `vendors/{vendorId}` document).
-//
-// IMPORTANT ASSUMPTION (read before deploying):
-//   The app currently writes staff into the TOP-LEVEL collection
-//   `vendorStaff/{staffId}` keyed by staffId (e.g. `${vendorId}_owner`), NOT by
-//   Firebase auth uid, and there is no uid-indexed staff path. Browser rules
-//   cannot `get()` a document by an unknown id, so non-owner staff role
-//   resolution CANNOT be done purely in rules with that shape.
-//
-//   These rules therefore rely on a per-vendor, uid-keyed membership mirror:
-//       vendors/{vendorId}/businessUsers/{request.auth.uid}
-//   The app MUST also write that mirror (vendorId + role) when a staff member
-//   is created/signed in. Until that mirror exists, `isVendorStaffMember` is
-//   always false, so ONLY the vendor OWNER passes membership checks.
-//
-//   PRODUCTION RECOMMENDATION: resolve roles server-side via Cloud Functions /
-//   Admin SDK (see docs), and keep browser rules as a defensive second layer.
-//
-// Default behaviour: anything without an explicit `allow` is DENIED.
-// No `allow ... if true` is used anywhere in this draft.
-// ============================================================================
-
 service cloud.firestore {
   match /databases/{database}/documents {
-
-    // ----------------------------- Helpers --------------------------------
-    function isSignedIn() {
+    function signedIn() {
       return request.auth != null;
     }
 
-    function isValidId(id) {
+    function validId(id) {
       return id is string
         && id.size() > 0
-        && id.size() < 128
+        && id.size() < 160
         && id.matches('^[A-Za-z0-9_\\-]+$');
     }
 
@@ -45,283 +17,1729 @@ service cloud.firestore {
       return /databases/$(database)/documents/vendors/$(vendorId);
     }
 
+    function vendorUserPath() {
+      return /databases/$(database)/documents/vendorUsers/$(request.auth.uid);
+    }
+
     function vendorExists(vendorId) {
-      return isValidId(vendorId) && exists(vendorPath(vendorId));
+      return validId(vendorId) && exists(vendorPath(vendorId));
     }
 
-    // Path to the uid-keyed staff membership mirror under a vendor.
-    function vendorStaffPath(vendorId) {
-      return /databases/$(database)/documents/vendors/$(vendorId)/businessUsers;
+    function vendorExistsAfter(vendorId) {
+      return validId(vendorId) && existsAfter(vendorPath(vendorId));
     }
 
-    function isVendorOwner(vendorId) {
-      return isSignedIn()
-        && isValidId(vendorId)
+    function signedInEmail() {
+      return request.auth.token.email is string ? request.auth.token.email : '';
+    }
+
+    function ownerFromVendorDoc(vendorId) {
+      return signedIn()
         && vendorExists(vendorId)
-        && get(vendorPath(vendorId)).ownerUid == request.auth.uid;
+        && get(vendorPath(vendorId)).data.ownerUid == request.auth.uid;
     }
 
-    function isVendorStaffMember(vendorId) {
-      return isSignedIn()
-        && isValidId(vendorId)
-        && exists(/databases/$(database)/documents/vendors/$(vendorId)/businessUsers/$(request.auth.uid))
-        && get(/databases/$(database)/documents/vendors/$(vendorId)/businessUsers/$(request.auth.uid)).vendorId == vendorId;
+    function ownerFromVendorDocAfter(vendorId) {
+      return signedIn()
+        && vendorExistsAfter(vendorId)
+        && getAfter(vendorPath(vendorId)).data.ownerUid == request.auth.uid;
     }
 
-    function isVendorMember(vendorId) {
-      return isVendorOwner(vendorId) || isVendorStaffMember(vendorId);
+    function activeMemberStatus(status) {
+      return status in ['active', 'Active'];
     }
 
-    function getVendorRole(vendorId) {
-      return isVendorOwner(vendorId) ? 'Owner'
-        : (isVendorStaffMember(vendorId)
-            ? get(/databases/$(database)/documents/vendors/$(vendorId)/businessUsers/$(request.auth.uid)).role
-            : '');
+    function hasVendorUser(vendorId) {
+      return signedIn()
+        && validId(vendorId)
+        && exists(vendorUserPath())
+        && get(vendorUserPath()).data.vendorId == vendorId
+        && activeMemberStatus(get(vendorUserPath()).data.status);
     }
 
-    function hasVendorStaffRole(vendorId) {
-      return isVendorMember(vendorId)
-        && getVendorRole(vendorId) in ['Owner', 'Admin', 'Manager', 'Staff'];
+    function isOwner(vendorId) {
+      return hasVendorUser(vendorId) && get(vendorUserPath()).data.role == 'Owner';
     }
 
-    function belongsToVendor(vendorId) {
-      return isVendorMember(vendorId);
+    function isActiveVendorUser(vendorId) {
+      return hasVendorUser(vendorId);
     }
 
-    function isVendorAdmin(vendorId) {
-      return isVendorMember(vendorId)
-        && (isVendorOwner(vendorId) || getVendorRole(vendorId) == 'Admin');
+    function isManager(vendorId) {
+      return isOwner(vendorId)
+        || (hasVendorUser(vendorId) && get(vendorUserPath()).data.role in ['Admin', 'Manager']);
     }
 
-    // ----------------------------- Vendor root ----------------------------
+    function staffPath(staffId) {
+      return /databases/$(database)/documents/staff/$(staffId);
+    }
+
+    function recordStaffId(data) {
+      return data.staffId is string
+        ? data.staffId
+        : data.createdBy is string
+          ? data.createdBy
+          : data.requestedByStaffId is string
+            ? data.requestedByStaffId
+            : data.requestedBy is string
+              ? data.requestedBy
+              : data.receivedBy is string
+                ? data.receivedBy
+                : data.receivedByStaffId is string
+                  ? data.receivedByStaffId
+                  : data.createdByStaffId is string
+                    ? data.createdByStaffId
+                    : data.assignedByStaffId is string
+                      ? data.assignedByStaffId
+                      : data.confirmedByStaffId is string
+                        ? data.confirmedByStaffId
+                        : data.deliveryStaffId is string
+                          ? data.deliveryStaffId
+                          : data.receivingStaffId is string
+                            ? data.receivingStaffId
+                            : data.reportedBy is string
+                              ? data.reportedBy
+                              : data.inspectedBy is string
+                                ? data.inspectedBy
+                                : data.allocatedBy is string
+                                  ? data.allocatedBy
+                                  : data.generatedBy is string
+                                    ? data.generatedBy
+                                  : data.openedBy is string
+                                    ? data.openedBy
+                                    : data.recordedBy is string
+                                      ? data.recordedBy
+                                      : data.updatedByStaffId is string
+                                        ? data.updatedByStaffId
+                                        : data.updatedBy is string
+                                          ? data.updatedBy
+                                          : data.reviewedBy is string
+                                            ? data.reviewedBy
+                                            : data.paidBy is string
+                                              ? data.paidBy
+                                              : '';
+    }
+
+    function isActiveStaff(vendorId, staffId) {
+      return isOwner(vendorId)
+        || (
+          staffId is string
+          && validId(staffId)
+          && exists(staffPath(staffId))
+          && get(staffPath(staffId)).data.vendorId == vendorId
+          && activeMemberStatus(get(staffPath(staffId)).data.status)
+        );
+    }
+
+    function hasPermission(vendorId, permission) {
+      return isOwner(vendorId)
+        || (
+          hasVendorUser(vendorId)
+          && get(vendorUserPath()).data.permissions is list
+          && get(vendorUserPath()).data.permissions.hasAny(['*', permission])
+        );
+    }
+
+    function hasActiveStaffForRecord(vendorId, data) {
+      return isActiveStaff(vendorId, recordStaffId(data));
+    }
+
+    function canCreateForVendor(vendorId) {
+      return isActiveVendorUser(vendorId);
+    }
+
+    function canManageCreatedVendor(vendorId) {
+      return isManager(vendorId);
+    }
+
+    function createForVendor(vendorId) {
+      return signedIn()
+        && request.resource.data.vendorId == vendorId
+        && canCreateForVendor(vendorId);
+    }
+
+    function createForVendorStaff(vendorId) {
+      return createForVendor(vendorId)
+        && hasActiveStaffForRecord(vendorId, request.resource.data);
+    }
+
+    function updateForSameVendor(vendorId) {
+      return signedIn()
+        && resource.data.vendorId == vendorId
+        && request.resource.data.vendorId == vendorId
+        && isActiveVendorUser(vendorId);
+    }
+
+    function updateForSameVendorStaff(vendorId) {
+      return updateForSameVendor(vendorId)
+        && hasActiveStaffForRecord(vendorId, request.resource.data);
+    }
+
+    function shiftClosedStatus(status) {
+      return status in ['Closed', 'Force Closed', 'Locked'];
+    }
+
+    function cashMovementRestricted(data) {
+      return data.movementType in ['CASH_OUT', 'PETTY_CASH', 'SAFE_DROP', 'BANK_DEPOSIT', 'FLOAT_ADJUSTMENT', 'VARIANCE_ADJUSTMENT', 'REVERSAL']
+        || (data.movementType == 'CASH_REFUND' && data.amount > 100)
+        || (data.movementType == 'OPENING_FLOAT' && data.amount > 500);
+    }
+
+    function cashMovementApprovedOrAllowed(data) {
+      return !cashMovementRestricted(data)
+        || data.approvalStatus in ['Approved', 'Pending']
+        || hasPermission(data.vendorId, 'cashControl.approve')
+        || hasPermission(data.vendorId, 'approvals.approve');
+    }
+
+    function lockedBusinessDayImmutable() {
+      return resource.data.status != 'Locked'
+        || (
+          isManager(resource.data.vendorId)
+          && request.resource.data.status == 'Reopened'
+          && request.resource.data.businessDayId == resource.data.businessDayId
+          && request.resource.data.vendorId == resource.data.vendorId
+          && request.resource.data.branchId == resource.data.branchId
+          && request.resource.data.businessDate == resource.data.businessDate
+        );
+    }
+
+    function goodsReceiptPostedImmutable() {
+      return !(
+          resource.data.postingStatus == 'Posted'
+          || resource.data.receivingStatus in ['Posted', 'Partially Posted']
+          || resource.data.status in ['Posted', 'Partially Posted']
+        )
+        || (
+          request.resource.data.vendorId == resource.data.vendorId
+          && request.resource.data.goodsReceiptId == resource.data.goodsReceiptId
+          && request.resource.data.supplierId == resource.data.supplierId
+          && request.resource.data.purchaseOrderId == resource.data.purchaseOrderId
+          && request.resource.data.subtotal == resource.data.subtotal
+          && request.resource.data.vatTotal == resource.data.vatTotal
+          && request.resource.data.total == resource.data.total
+          && request.resource.data.postingStatus == resource.data.postingStatus
+        );
+    }
+
+    function inventoryMovementIsValid(data, movementId) {
+      return data.movementId == movementId
+        && data.vendorId is string
+        && data.branchId is string
+        && data.warehouseId is string
+        && data.productId is string
+        && data.movementType in [
+          'OPENING_BALANCE',
+          'GOODS_RECEIVED',
+          'SALE',
+          'SALES_RETURN',
+          'PURCHASE_RETURN',
+          'TRANSFER_OUT',
+          'TRANSFER_IN',
+          'STOCKTAKE_ADJUSTMENT',
+          'DAMAGE_WRITEOFF',
+          'EXPIRY_WRITEOFF',
+          'THEFT_LOSS',
+          'MANUAL_CORRECTION',
+          'PRODUCTION_IN',
+          'PRODUCTION_OUT',
+          'REVERSAL'
+        ]
+        && data.quantityIn is number
+        && data.quantityOut is number
+        && data.quantityIn >= 0
+        && data.quantityOut >= 0
+        && !(data.quantityIn > 0 && data.quantityOut > 0)
+        && (data.quantityIn > 0 || data.quantityOut > 0)
+        && data.balanceBefore is number
+        && data.balanceAfter is number
+        && data.balanceAfter == data.balanceBefore + data.quantityIn - data.quantityOut
+        && data.referenceType is string
+        && data.referenceId is string;
+    }
+
+    function inventoryBalanceIsValid(data, balanceId) {
+      return data.balanceId == balanceId
+        && data.vendorId is string
+        && data.branchId is string
+        && data.warehouseId is string
+        && data.productId is string
+        && data.quantityOnHand is number
+        && data.quantityReserved is number
+        && data.quantityAvailable is number
+        && data.quantityInTransit is number
+        && data.quantityAvailable == data.quantityOnHand - data.quantityReserved;
+    }
+
+    function balanceRebuildAllowed(vendorId) {
+      return isManager(vendorId)
+        || hasPermission(vendorId, 'inventory.rebuildBalance')
+        || hasPermission(vendorId, 'inventory.balance.rebuild');
+    }
+
+    function stocktakeEditable() {
+      return !(resource.data.status in ['Posted', 'Closed'])
+        || (
+          request.resource.data.status == resource.data.status
+          && request.resource.data.vendorId == resource.data.vendorId
+          && request.resource.data.stocktakeId == resource.data.stocktakeId
+        );
+    }
+
+    function transferEditable() {
+      return !(resource.data.status in ['Completed', 'Fully Received', 'Closed With Outstanding', 'Cancelled'])
+        || isManager(resource.data.vendorId)
+        || hasPermission(resource.data.vendorId, 'stockTransfers.reopen');
+    }
+
+    function highRiskAdjustmentAllowed(vendorId, data) {
+      return !(data.riskLevel in ['High', 'Critical'] || data.approvalRequired == true)
+        || hasPermission(vendorId, 'inventory.approveAdjustment')
+        || hasPermission(vendorId, 'approvals.approve')
+        || isManager(vendorId);
+    }
+
+    function returnReferencesAccessibleReceipt(data) {
+      return data.goodsReceiptId is string
+        && exists(/databases/$(database)/documents/goods_receipts/$(data.goodsReceiptId))
+        && get(/databases/$(database)/documents/goods_receipts/$(data.goodsReceiptId)).data.vendorId == data.vendorId;
+    }
+
+    function customerCreditApprovalAllowed(vendorId) {
+      return isManager(vendorId)
+        || hasPermission(vendorId, 'customers.credit.approve')
+        || hasPermission(vendorId, 'approvals.approve');
+    }
+
+    function customerCreditBlockAllowed(vendorId) {
+      return isManager(vendorId)
+        || hasPermission(vendorId, 'customers.credit.block')
+        || hasPermission(vendorId, 'customers.credit.approve');
+    }
+
+    function customerAdjustmentAllowed(vendorId) {
+      return isManager(vendorId)
+        || hasPermission(vendorId, 'customers.adjust')
+        || hasPermission(vendorId, 'approvals.approve');
+    }
+
+    function customerWriteOffAllowed(vendorId) {
+      return isOwner(vendorId)
+        || hasPermission(vendorId, 'customers.writeoff')
+        || hasPermission(vendorId, 'approvals.approve');
+    }
+
+    function customerCreditApplicationIdMatches(id, data) {
+      return data.creditApplicationId == id || data.applicationId == id;
+    }
+
+    function customerPaymentIdMatches(id, data) {
+      return data.customerPaymentId == id || data.paymentId == id;
+    }
+
+    function postedPaymentMutable() {
+      return !(
+        resource.data.status in ['Posted', 'Synchronized']
+        || resource.data.postingStatus == 'Posted'
+      );
+    }
+
+    function statementSnapshotMutable() {
+      return resource.data.status != 'Issued';
+    }
+
+    function supplierPaymentAllowed(vendorId) {
+      return isManager(vendorId)
+        || hasPermission(vendorId, 'supplierPayments.create')
+        || hasPermission(vendorId, 'supplierPayments.manage');
+    }
+
+    function supplierPaymentApprovalAllowed(vendorId) {
+      return isManager(vendorId)
+        || hasPermission(vendorId, 'supplierPayments.manage')
+        || hasPermission(vendorId, 'approvals.approve');
+    }
+
+    function supplierAdjustmentAllowed(vendorId) {
+      return isManager(vendorId)
+        || hasPermission(vendorId, 'supplierAccounts.adjust')
+        || hasPermission(vendorId, 'supplierReturns.approve')
+        || hasPermission(vendorId, 'approvals.approve');
+    }
+
+    function supplierPaymentIdMatches(id, data) {
+      return data.supplierPaymentId == id || data.paymentId == id;
+    }
+
+    function supplierPaymentMutable() {
+      return !(
+        resource.data.status in ['Paid', 'Posted', 'Reversed']
+        || resource.data.approvalStatus in ['Approved', 'Rejected']
+      );
+    }
+
+    function supplierReconciliationMutable() {
+      return resource.data.status != 'Approved';
+    }
+
+    function deliveryStatusFinal(status) {
+      return status in ['Completed', 'Cancelled'];
+    }
+
+    function deliveryPermission(vendorId, permission) {
+      return isManager(vendorId) || hasPermission(vendorId, permission);
+    }
+
+    function deliveryMutationAllowed(vendorId) {
+      return deliveryPermission(vendorId, 'delivery.create')
+        || deliveryPermission(vendorId, 'delivery.assign')
+        || deliveryPermission(vendorId, 'delivery.dispatch')
+        || deliveryPermission(vendorId, 'delivery.track')
+        || deliveryPermission(vendorId, 'delivery.verifyCode')
+        || deliveryPermission(vendorId, 'delivery.complete')
+        || deliveryPermission(vendorId, 'delivery.cancel')
+        || deliveryPermission(vendorId, 'delivery.collectCash')
+        || deliveryPermission(vendorId, 'delivery.cashHandover')
+        || deliveryPermission(vendorId, 'delivery.cashReview');
+    }
+
+    function assignedDeliveryDriver(data) {
+      return signedIn()
+        && data.assignedDriverUid is string
+        && data.assignedDriverUid == request.auth.uid
+        && deliveryPermission(data.vendorId, 'delivery.track');
+    }
+
+    function customerTrackingTokenRead(data) {
+      return signedIn()
+        && data.customerTrackingTokenHash is string
+        && request.auth.token.deliveryTrackingTokenHash == data.customerTrackingTokenHash;
+    }
+
+    function deliveryReadAllowed(data) {
+      return isManager(data.vendorId)
+        || deliveryPermission(data.vendorId, 'delivery.view')
+        || assignedDeliveryDriver(data)
+        || customerTrackingTokenRead(data);
+    }
+
+    function deliveryCompletedLimitedEdit() {
+      return !deliveryStatusFinal(resource.data.status)
+        || request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'updatedAt',
+          'reviewNotes',
+          'internalReviewNote',
+          'disputeStatus'
+        ]);
+    }
+
+    function deliveryDocPath(deliveryId) {
+      return /databases/$(database)/documents/deliveries/$(deliveryId);
+    }
+
+    function deliveryOpenForChild(data) {
+      return data.deliveryId is string
+        && exists(deliveryDocPath(data.deliveryId))
+        && get(deliveryDocPath(data.deliveryId)).data.vendorId == data.vendorId
+        && !deliveryStatusFinal(get(deliveryDocPath(data.deliveryId)).data.status);
+    }
+
+    function deliveryOpenForChildAfter(data) {
+      return data.deliveryId is string
+        && existsAfter(deliveryDocPath(data.deliveryId))
+        && getAfter(deliveryDocPath(data.deliveryId)).data.vendorId == data.vendorId
+        && !deliveryStatusFinal(getAfter(deliveryDocPath(data.deliveryId)).data.status);
+    }
+
+    function deliveryChildReadAllowed(data) {
+      return data.deliveryId is string
+        && exists(deliveryDocPath(data.deliveryId))
+        && get(deliveryDocPath(data.deliveryId)).data.vendorId == data.vendorId
+        && deliveryReadAllowed(get(deliveryDocPath(data.deliveryId)).data);
+    }
+
+    function deliveryCashHandoverAllowed(vendorId) {
+      return deliveryPermission(vendorId, 'delivery.cashHandover')
+        || deliveryPermission(vendorId, 'delivery.cashReview')
+        || hasPermission(vendorId, 'cashControl.deliveryCash.confirm')
+        || hasPermission(vendorId, 'cashControl.approve');
+    }
+
     match /vendors/{vendorId} {
-      allow create: if isSignedIn()
-        && isValidId(vendorId)
-        && request.resource.data.ownerUid == request.auth.uid;
+      allow create: if signedIn()
+        && validId(vendorId)
+        && request.resource.data.vendorId == vendorId
+        && request.resource.data.ownerUid == request.auth.uid
+        && request.resource.data.ownerEmail is string
+        && request.resource.data.ownerName is string
+        && request.resource.data.businessName is string
+        && request.resource.data.status == 'Active'
+        && request.resource.data.planCode == 'DEMO'
+        && request.resource.data.licenseStatus == 'DEMO'
+        && request.resource.data.createdAt is string
+        && request.resource.data.updatedAt is string;
 
-      allow get: if isVendorOwner(vendorId) || isVendorStaffMember(vendorId);
+      allow get, list: if signedIn()
+        && validId(vendorId)
+        && (
+          resource.data.ownerUid == request.auth.uid
+          || resource.data.ownerEmail == signedInEmail()
+          || isActiveVendorUser(vendorId)
+        );
 
-      allow list: if isSignedIn()
-        && (request.query.where('ownerUid', '==', request.auth.uid)
-            || (request.auth.token.email is string
-                && request.query.where('ownerEmail', '==', request.auth.token.email)));
+      allow update: if isOwner(vendorId)
+        && request.resource.data.vendorId == vendorId
+        && request.resource.data.ownerUid == resource.data.ownerUid;
 
-      allow update: if isVendorOwner(vendorId) || isVendorAdmin(vendorId);
-
-      allow delete: if isVendorOwner(vendorId);
-
-      // Nested sub-collections under the vendor tenant:
-      // sessionAuditEvents, salesReceipts, productMaster, stockAdjustments,
-      // deliveryRequests, biEvents, branches
-      match /{subcollection}/{docId} {
-        allow read: if isVendorMember(vendorId)
-          && isValidId(subcollection) && isValidId(docId);
-
-        allow create: if isVendorMember(vendorId)
-          && isValidId(subcollection) && isValidId(docId)
-          && request.resource.data.vendorId == vendorId;
-
-        // Mutable operational records: branch + BI source data
-        allow update: if subcollection in ['branches', 'salesReceipts', 'productMaster', 'stockAdjustments', 'deliveryRequests']
-          && isVendorAdmin(vendorId)
-          && request.resource.data.vendorId == vendorId;
-
-        // Immutable audit/BI-like records: update denied (default deny applies)
-        // sessionAuditEvents, biEvents are intentionally NOT updatable.
-
-        allow delete: if subcollection in ['branches', 'salesReceipts', 'productMaster', 'stockAdjustments', 'deliveryRequests']
-          && isVendorAdmin(vendorId);
-        // sessionAuditEvents, biEvents delete denied (default deny applies)
-      }
+      allow delete: if isOwner(vendorId);
     }
 
-    // ----------------------- Vendor-scoped collections --------------------
-    match /vendorStaff/{staffId} {
-      allow read: if isVendorMember(resource.data.vendorId);
+    match /vendorUsers/{uid} {
+      allow get: if signedIn()
+        && uid == request.auth.uid
+        && activeMemberStatus(resource.data.status);
 
-      allow create: if isVendorAdmin(request.resource.data.vendorId)
-        && isValidId(staffId)
-        && request.resource.data.vendorId is string;
+      allow list: if false;
 
-      allow update: if isVendorAdmin(resource.data.vendorId)
-        && request.resource.data.vendorId == resource.data.vendorId;
-
-      allow delete: if isVendorOwner(resource.data.vendorId) || isVendorAdmin(resource.data.vendorId);
-    }
-
-    match /vendorBranches/{branchId} {
-      allow read: if isVendorMember(resource.data.vendorId);
-      allow create, update: if isVendorMember(request.resource.data.vendorId)
-        && isValidId(branchId)
+      allow create: if signedIn()
+        && uid == request.auth.uid
+        && request.resource.data.uid == request.auth.uid
         && request.resource.data.vendorId is string
-        && request.resource.data.vendorId == resource.data.vendorId;
-      allow delete: if isVendorAdmin(resource.data.vendorId);
-    }
+        && request.resource.data.email is string
+        && request.resource.data.displayName is string
+        && request.resource.data.role == 'Owner'
+        && request.resource.data.status == 'active'
+        && request.resource.data.permissions is list
+        && request.resource.data.permissions.size() == 1
+        && request.resource.data.permissions[0] == '*'
+        && request.resource.data.createdAt is string
+        && request.resource.data.updatedAt is string
+        && ownerFromVendorDocAfter(request.resource.data.vendorId);
 
-    match /vendorWarehouses/{warehouseId} {
-      allow read: if isVendorMember(resource.data.vendorId);
-      allow create, update: if isVendorMember(request.resource.data.vendorId)
-        && isValidId(warehouseId)
-        && request.resource.data.vendorId is string
-        && request.resource.data.vendorId == resource.data.vendorId;
-      allow delete: if isVendorAdmin(resource.data.vendorId);
-      // NOTE: warehouse is an independent inventory entry point; it is NOT
-      // derived from branch count. No branchId-based restriction is applied.
-    }
-
-    match /vendorLicenses/{vendorId} {
-      // doc id == vendorId
-      allow read: if isVendorOwner(vendorId) || isVendorAdmin(vendorId);
-      // Strict owner/admin write for now. PRODUCTION: issue/modify via
-      // Cloud Function / Admin SDK; browser writes should be removed.
-      allow create, update: if isVendorOwner(vendorId) || isVendorAdmin(vendorId);
-      allow delete: if isVendorOwner(vendorId);
-    }
-
-    match /vendorPlans/{vendorId} {
-      // doc id == vendorId
-      allow read: if isVendorOwner(vendorId) || isVendorAdmin(vendorId);
-      allow create, update: if isVendorOwner(vendorId) || isVendorAdmin(vendorId);
-      allow delete: if isVendorOwner(vendorId);
-      // PRODUCTION: write via Cloud Function / Admin SDK.
-    }
-
-    match /vendorRegistrations/{vendorId} {
-      // doc id == vendorId
-      allow create: if isSignedIn()
-        && isValidId(vendorId)
-        && request.resource.data.ownerUid == request.auth.uid;
-      allow read, update: if isVendorOwner(vendorId) || isVendorAdmin(vendorId);
-      allow update: if request.resource.data.ownerUid == resource.data.ownerUid;
-      allow delete: if isVendorOwner(vendorId);
-    }
-
-    // ----------------------- Tokens / codes ------------------------------
-    match /activationTokens/{tokenId} {
-      // Normal vendor STAFF must NOT read tokens.
-      allow read: if isSignedIn()
-        && isValidId(tokenId)
-        && (isVendorOwner(resource.data.vendorId) || isVendorAdmin(resource.data.vendorId));
-      // Dev-only: owner/admin may write. PRODUCTION: issuance via Admin SDK.
-      allow create, update: if (isVendorOwner(request.resource.data.vendorId) || isVendorAdmin(request.resource.data.vendorId))
-        && request.resource.data.vendorId is string;
-      allow delete: if isVendorOwner(resource.data.vendorId);
-    }
-
-    match /activationCodes/{codeId} {
-      // CURRENTLY UNUSED in app code (declared in FIRESTORE_COLLECTIONS only).
-      // Mirrors activationTokens for safety; tighten/remove once usage is confirmed.
-      allow read: if isSignedIn()
-        && isValidId(codeId)
-        && (isVendorOwner(resource.data.vendorId) || isVendorAdmin(resource.data.vendorId));
-      allow create, update: if (isVendorOwner(request.resource.data.vendorId) || isVendorAdmin(request.resource.data.vendorId))
-        && request.resource.data.vendorId is string;
-      allow delete: if isVendorOwner(resource.data.vendorId);
-    }
-
-    // ----------------------- Invoices / payments --------------------------
-    match /vendorInvoices/{invoiceId} {
-      allow read: if isVendorMember(resource.data.vendorId);
-      allow create, update: if isVendorMember(request.resource.data.vendorId)
-        && request.resource.data.vendorId is string
+      allow update: if signedIn()
         && request.resource.data.vendorId == resource.data.vendorId
-        && (request.resource.data.total == null || request.resource.data.total >= 0)
-        && (request.resource.data.subtotal == null || request.resource.data.subtotal >= 0);
-      allow delete: if isVendorAdmin(resource.data.vendorId);
+        && (
+          uid == request.auth.uid
+          || isOwner(resource.data.vendorId)
+        );
+
+      allow delete: if signedIn() && isOwner(resource.data.vendorId);
     }
 
-    match /vendorPayments/{paymentId} {
-      allow read: if isVendorMember(resource.data.vendorId);
-      allow create: if isVendorMember(request.resource.data.vendorId)
+    match /branches/{branchId} {
+      allow read: if isActiveVendorUser(resource.data.vendorId);
+      allow create: if canManageCreatedVendor(request.resource.data.vendorId)
         && request.resource.data.vendorId is string
-        && request.resource.data.amount > 0;
-      allow update, delete: if isVendorAdmin(resource.data.vendorId);
-    }
-
-    // ----------------------- Audit / events ------------------------------
-    match /vendorAuditLogs/{logId} {
-      allow read: if isVendorMember(resource.data.vendorId);
-      allow create: if isVendorMember(request.resource.data.vendorId)
-        && request.resource.data.vendorId is string
-        && request.resource.data.eventType is string
-        && request.resource.data.eventType.size() > 0;
-      allow update, delete: if false;
-    }
-
-    match /commerceEvents/{eventId} {
-      allow read: if isVendorMember(resource.data.vendorId);
-      allow create: if isVendorMember(request.resource.data.vendorId)
-        && request.resource.data.vendorId is string
-        && request.resource.data.eventType is string
-        && request.resource.data.eventType.size() > 0;
-      allow update, delete: if false;
-    }
-
-    match /auditLogs/{logId} {
-      // Separate top-level audit collection (distinct from vendorAuditLogs).
-      // RECOMMENDATION: reconcile auditLogs with vendorAuditLogs later.
-      allow read: if isSignedIn()
-        && resource.data.vendorId is string
-        && isVendorMember(resource.data.vendorId);
-      allow create: if isSignedIn()
-        && request.resource.data.vendorId is string
-        && isVendorMember(request.resource.data.vendorId)
-        && request.resource.data.eventType is string
-        && request.resource.data.eventType.size() > 0;
-      allow update, delete: if false;
-    }
-
-    // ----------------------- Plans catalogue -----------------------------
-    match /plans/{planId} {
-      // Global, public-readable plan catalogue.
-      allow read: if true;
-      // Catalogue writes are server-side only (Admin SDK / Cloud Function).
-      allow write: if false;
-    }
-
-    // ----------------------- Product transformations ----------------------
-    match /productTransformations/{docId} {
-      allow read: if isVendorMember(resource.data.vendorId);
-      allow create, update: if isVendorMember(request.resource.data.vendorId)
-        && request.resource.data.vendorId is string
+        && request.resource.data.branchId == branchId;
+      allow update: if isManager(resource.data.vendorId)
         && request.resource.data.vendorId == resource.data.vendorId;
-      allow delete: if isVendorAdmin(resource.data.vendorId);
+      allow delete: if isOwner(resource.data.vendorId);
     }
 
-    match /productTransformationInputLines/{docId} {
-      allow read: if isVendorMember(resource.data.vendorId);
-      allow create, update: if isVendorMember(request.resource.data.vendorId)
+    match /warehouses/{warehouseId} {
+      allow read: if isActiveVendorUser(resource.data.vendorId);
+      allow create: if canManageCreatedVendor(request.resource.data.vendorId)
         && request.resource.data.vendorId is string
+        && request.resource.data.warehouseId == warehouseId;
+      allow update: if isManager(resource.data.vendorId)
         && request.resource.data.vendorId == resource.data.vendorId;
-      allow delete: if isVendorAdmin(resource.data.vendorId);
-    }
-
-    match /productTransformationOutputLines/{docId} {
-      allow read: if isVendorMember(resource.data.vendorId);
-      allow create, update: if isVendorMember(request.resource.data.vendorId)
-        && request.resource.data.vendorId is string
-        && request.resource.data.vendorId == resource.data.vendorId;
-      allow delete: if isVendorAdmin(resource.data.vendorId);
+      allow delete: if isOwner(resource.data.vendorId);
     }
 
     match /staff/{staffId} {
-      allow get: if isSignedIn() && resource.data.vendorId is string && isVendorOwner(resource.data.vendorId);
-
-      allow list: if isSignedIn() && request.query.limit <= 100;
-
-      allow create: if isSignedIn()
-        && request.resource.data.ownerUid == request.auth.uid
-        && request.resource.data.vendorId is string;
-
-      allow update: if isSignedIn() && resource.data.vendorId is string && isVendorOwner(resource.data.vendorId);
-
-      allow delete: if isSignedIn() && resource.data.vendorId is string && isVendorOwner(resource.data.vendorId);
+      allow read: if isActiveVendorUser(resource.data.vendorId);
+      allow create: if canManageCreatedVendor(request.resource.data.vendorId)
+        && request.resource.data.vendorId is string
+        && request.resource.data.staffId == staffId;
+      allow update: if isManager(resource.data.vendorId)
+        && request.resource.data.vendorId == resource.data.vendorId;
+      allow delete: if isOwner(resource.data.vendorId);
     }
 
-    // ----------------------- Explicit default deny -----------------------
+    match /pos_terminals/{terminalId} {
+      allow read: if isActiveVendorUser(resource.data.vendorId);
+      allow create: if canManageCreatedVendor(request.resource.data.vendorId)
+        && request.resource.data.vendorId is string
+        && request.resource.data.terminalId == terminalId;
+      allow update: if isManager(resource.data.vendorId)
+        && request.resource.data.vendorId == resource.data.vendorId;
+      allow delete: if isOwner(resource.data.vendorId);
+    }
+
+    match /licenses/{licenseId} {
+      allow read: if isActiveVendorUser(resource.data.vendorId);
+      allow create: if canManageCreatedVendor(request.resource.data.vendorId)
+        && request.resource.data.vendorId is string
+        && request.resource.data.licenseId == licenseId;
+      allow update: if isOwner(resource.data.vendorId)
+        && request.resource.data.vendorId == resource.data.vendorId;
+      allow delete: if isOwner(resource.data.vendorId);
+    }
+
+    match /vendor_settings/{vendorId} {
+      allow read: if isActiveVendorUser(vendorId);
+      allow create: if canManageCreatedVendor(vendorId)
+        && request.resource.data.vendorId == vendorId;
+      allow update: if isOwner(vendorId)
+        && request.resource.data.vendorId == vendorId;
+      allow delete: if isOwner(vendorId);
+    }
+
+    match /customers/{customerId} {
+      allow read: if isActiveVendorUser(resource.data.vendorId);
+      allow create: if createForVendorStaff(request.resource.data.vendorId)
+        && request.resource.data.customerId == customerId
+        && request.resource.data.customerName is string
+        && request.resource.data.customerType in ['WalkIn', 'Individual', 'Business', 'Government', 'Staff', 'Other']
+        && request.resource.data.status in ['Active', 'Inactive', 'Pending Approval', 'Duplicate', 'Suspended']
+        && request.resource.data.currentBalance == 0
+        && request.resource.data.overdueBalance == 0;
+      allow update: if updateForSameVendorStaff(resource.data.vendorId)
+        && request.resource.data.customerId == resource.data.customerId
+        && request.resource.data.currentBalance == resource.data.currentBalance
+        && request.resource.data.overdueBalance == resource.data.overdueBalance
+        && (
+          request.resource.data.creditStatus == resource.data.creditStatus
+          || customerCreditApprovalAllowed(resource.data.vendorId)
+          || customerCreditBlockAllowed(resource.data.vendorId)
+        );
+      allow delete: if false;
+    }
+
+    match /customer_credit_applications/{creditApplicationId} {
+      allow read: if isActiveVendorUser(resource.data.vendorId);
+      allow create: if createForVendorStaff(request.resource.data.vendorId)
+        && customerCreditApplicationIdMatches(creditApplicationId, request.resource.data)
+        && request.resource.data.customerId is string
+        && (
+          request.resource.data.requestedLimit > 0
+          || request.resource.data.requestedCreditLimit > 0
+        )
+        && (
+          request.resource.data.requestedTermsDays > 0
+          || request.resource.data.requestedPaymentTermsDays > 0
+        )
+        && request.resource.data.status in ['Draft', 'Submitted', 'UnderReview', 'PendingReview', 'Approved', 'Rejected', 'Suspended', 'Expired'];
+      allow update: if updateForSameVendorStaff(resource.data.vendorId)
+        && customerCreditApplicationIdMatches(creditApplicationId, request.resource.data)
+        && customerCreditApplicationIdMatches(creditApplicationId, resource.data)
+        && request.resource.data.customerId == resource.data.customerId
+        && (
+          request.resource.data.status == resource.data.status
+          || (
+            request.resource.data.status in ['Approved', 'Rejected', 'Suspended']
+            && customerCreditApprovalAllowed(resource.data.vendorId)
+          )
+          || request.resource.data.status in ['Draft', 'Submitted', 'UnderReview', 'PendingReview', 'Expired']
+        );
+      allow delete: if false;
+    }
+
+    match /customer_accounts/{entryId} {
+      allow read: if isActiveVendorUser(resource.data.vendorId);
+      allow create: if createForVendorStaff(request.resource.data.vendorId)
+        && request.resource.data.entryId == entryId
+        && request.resource.data.customerId is string
+        && request.resource.data.branchId is string
+        && request.resource.data.entryType in ['CREDIT_SALE', 'PAYMENT', 'CREDIT_NOTE', 'SALES_RETURN', 'OPENING_BALANCE', 'ADJUSTMENT', 'INTEREST', 'WRITE_OFF', 'REVERSAL']
+        && request.resource.data.referenceType is string
+        && request.resource.data.referenceId is string
+        && request.resource.data.debit >= 0
+        && request.resource.data.credit >= 0
+        && request.resource.data.debit + request.resource.data.credit > 0;
+      allow update, delete: if false;
+    }
+
+    match /customer_payments/{customerPaymentId} {
+      allow read: if isActiveVendorUser(resource.data.vendorId);
+      allow create: if createForVendorStaff(request.resource.data.vendorId)
+        && customerPaymentIdMatches(customerPaymentId, request.resource.data)
+        && request.resource.data.customerId is string
+        && request.resource.data.branchId is string
+        && request.resource.data.terminalId is string
+        && request.resource.data.amount > 0
+        && request.resource.data.paymentMethod in ['Cash', 'Mobile Money', 'Card', 'Bank Transfer', 'Other'];
+      allow update: if updateForSameVendorStaff(resource.data.vendorId)
+        && customerPaymentIdMatches(customerPaymentId, request.resource.data)
+        && customerPaymentIdMatches(customerPaymentId, resource.data)
+        && request.resource.data.customerId == resource.data.customerId
+        && request.resource.data.amount == resource.data.amount
+        && postedPaymentMutable();
+      allow delete: if false;
+    }
+
+    match /customer_payment_allocations/{allocationId} {
+      allow read: if isActiveVendorUser(resource.data.vendorId);
+      allow create: if createForVendorStaff(request.resource.data.vendorId)
+        && request.resource.data.allocationId == allocationId
+        && request.resource.data.customerPaymentId is string
+        && request.resource.data.customerId is string
+        && request.resource.data.accountEntryId is string
+        && request.resource.data.amountAllocated > 0;
+      allow update, delete: if false;
+    }
+
+    match /customer_statements/{statementId} {
+      allow read: if isActiveVendorUser(resource.data.vendorId);
+      allow create: if createForVendorStaff(request.resource.data.vendorId)
+        && request.resource.data.statementId == statementId
+        && request.resource.data.customerId is string
+        && request.resource.data.status in ['Draft', 'Issued', 'PreparedToSend', 'Cancelled'];
+      allow update: if updateForSameVendorStaff(resource.data.vendorId)
+        && request.resource.data.statementId == resource.data.statementId
+        && request.resource.data.customerId == resource.data.customerId
+        && statementSnapshotMutable();
+      allow delete: if false;
+    }
+
+    match /customer_collection_actions/{collectionActionId} {
+      allow read: if isActiveVendorUser(resource.data.vendorId);
+      allow create: if createForVendorStaff(request.resource.data.vendorId)
+        && request.resource.data.collectionActionId == collectionActionId
+        && request.resource.data.customerId is string
+        && request.resource.data.actionType in ['PHONE_CALL', 'WHATSAPP', 'EMAIL', 'VISIT', 'REMINDER', 'PROMISE_TO_PAY', 'DISPUTE', 'ESCALATION', 'CREDIT_BLOCK', 'WRITE_OFF_REVIEW']
+        && (
+          request.resource.data.actionType != 'CREDIT_BLOCK'
+          || customerCreditBlockAllowed(request.resource.data.vendorId)
+        );
+      allow update, delete: if false;
+    }
+
+    match /customer_promises/{promiseId} {
+      allow read: if isActiveVendorUser(resource.data.vendorId);
+      allow create: if createForVendorStaff(request.resource.data.vendorId)
+        && request.resource.data.promiseId == promiseId
+        && request.resource.data.customerId is string
+        && request.resource.data.promisedAmount > 0
+        && request.resource.data.promiseDate is string
+        && request.resource.data.status in ['Active', 'PartiallyFulfilled', 'Fulfilled', 'Broken', 'Cancelled'];
+      allow update: if updateForSameVendorStaff(resource.data.vendorId)
+        && request.resource.data.promiseId == resource.data.promiseId
+        && request.resource.data.customerId == resource.data.customerId
+        && request.resource.data.promisedAmount == resource.data.promisedAmount;
+      allow delete: if false;
+    }
+
+    match /customer_disputes/{disputeId} {
+      allow read: if isActiveVendorUser(resource.data.vendorId);
+      allow create: if createForVendorStaff(request.resource.data.vendorId)
+        && request.resource.data.disputeId == disputeId
+        && request.resource.data.customerId is string
+        && request.resource.data.referenceId is string
+        && request.resource.data.disputedAmount > 0
+        && request.resource.data.status in ['Open', 'UnderReview', 'Resolved', 'Rejected', 'Escalated'];
+      allow update: if updateForSameVendorStaff(resource.data.vendorId)
+        && request.resource.data.disputeId == resource.data.disputeId
+        && request.resource.data.customerId == resource.data.customerId
+        && request.resource.data.disputedAmount == resource.data.disputedAmount
+        && (
+          request.resource.data.status == resource.data.status
+          || customerAdjustmentAllowed(resource.data.vendorId)
+        );
+      allow delete: if false;
+    }
+
+    match /customer_credit_notes/{creditNoteId} {
+      allow read: if isActiveVendorUser(resource.data.vendorId);
+      allow create: if createForVendorStaff(request.resource.data.vendorId)
+        && request.resource.data.creditNoteId == creditNoteId
+        && request.resource.data.customerId is string
+        && request.resource.data.referenceSaleId is string
+        && request.resource.data.amount > 0
+        && request.resource.data.vatAmount >= 0
+        && request.resource.data.status in ['Draft', 'Approved', 'Posted', 'Cancelled', 'Reversed']
+        && (
+          request.resource.data.status == 'Draft'
+          || customerAdjustmentAllowed(request.resource.data.vendorId)
+        );
+      allow update: if updateForSameVendorStaff(resource.data.vendorId)
+        && request.resource.data.creditNoteId == resource.data.creditNoteId
+        && request.resource.data.customerId == resource.data.customerId
+        && request.resource.data.amount == resource.data.amount
+        && (
+          request.resource.data.status == resource.data.status
+          || customerAdjustmentAllowed(resource.data.vendorId)
+        );
+      allow delete: if false;
+    }
+
+    match /customer_writeoffs/{writeOffId} {
+      allow read: if isActiveVendorUser(resource.data.vendorId);
+      allow create: if createForVendorStaff(request.resource.data.vendorId)
+        && request.resource.data.writeOffId == writeOffId
+        && request.resource.data.customerId is string
+        && request.resource.data.amount > 0
+        && request.resource.data.reason is string
+        && request.resource.data.status in ['Requested', 'Approved', 'Posted', 'Rejected']
+        && customerWriteOffAllowed(request.resource.data.vendorId);
+      allow update: if updateForSameVendorStaff(resource.data.vendorId)
+        && request.resource.data.writeOffId == resource.data.writeOffId
+        && request.resource.data.customerId == resource.data.customerId
+        && request.resource.data.amount == resource.data.amount
+        && customerWriteOffAllowed(resource.data.vendorId);
+      allow delete: if false;
+    }
+
+    match /pos_sales/{saleId} {
+      allow read: if isActiveVendorUser(resource.data.vendorId);
+      allow create: if createForVendor(request.resource.data.vendorId)
+        && request.resource.data.saleId == saleId
+        && request.resource.data.branchId is string
+        && request.resource.data.warehouseId is string
+        && request.resource.data.terminalId is string
+        && request.resource.data.staffId is string;
+      allow update: if updateForSameVendor(resource.data.vendorId)
+        && request.resource.data.saleId == resource.data.saleId
+        && request.resource.data.staffId == resource.data.staffId
+        && (
+          resource.data.saleStatus != 'Completed'
+          || (
+            request.resource.data.subtotal == resource.data.subtotal
+            && request.resource.data.discountTotal == resource.data.discountTotal
+            && request.resource.data.taxableAmount == resource.data.taxableAmount
+            && request.resource.data.vatTotal == resource.data.vatTotal
+            && request.resource.data.grandTotal == resource.data.grandTotal
+            && request.resource.data.amountPaid == resource.data.amountPaid
+            && request.resource.data.balanceDue == resource.data.balanceDue
+            && request.resource.data.saleStatus == resource.data.saleStatus
+          )
+        );
+      allow delete: if false;
+    }
+
+    match /pos_sale_items/{saleLineId} {
+      allow read: if isActiveVendorUser(resource.data.vendorId);
+      allow create: if createForVendor(request.resource.data.vendorId)
+        && request.resource.data.saleLineId == saleLineId
+        && request.resource.data.saleId is string
+        && request.resource.data.productId is string
+        && request.resource.data.branchId is string
+        && request.resource.data.warehouseId is string;
+      allow update, delete: if false;
+    }
+
+    match /pos_payments/{paymentId} {
+      allow read: if isActiveVendorUser(resource.data.vendorId);
+      allow create: if createForVendor(request.resource.data.vendorId)
+        && request.resource.data.paymentId == paymentId
+        && request.resource.data.saleId is string
+        && request.resource.data.branchId is string
+        && request.resource.data.terminalId is string
+        && request.resource.data.staffId is string;
+      allow update, delete: if false;
+    }
+
+    match /deliveries/{deliveryId} {
+      allow read: if resource.data.vendorId is string
+        && deliveryReadAllowed(resource.data);
+      allow create: if createForVendorStaff(request.resource.data.vendorId)
+        && request.resource.data.deliveryId == deliveryId
+        && request.resource.data.branchId is string
+        && request.resource.data.warehouseId is string
+        && request.resource.data.terminalId is string
+        && request.resource.data.createdBy is string
+        && request.resource.data.customerName is string
+        && request.resource.data.deliveryAddress is string
+        && request.resource.data.status in ['Draft', 'AwaitingAssignment', 'Assigned', 'ReadyForDispatch', 'Dispatched', 'InTransit', 'Arrived', 'PartiallyDelivered', 'Delivered', 'DeliveryFailed', 'Cancelled', 'AwaitingCustomerConfirmation', 'AwaitingCashHandover', 'Completed', 'Disputed']
+        && deliveryMutationAllowed(request.resource.data.vendorId);
+      allow update: if updateForSameVendorStaff(resource.data.vendorId)
+        && request.resource.data.deliveryId == resource.data.deliveryId
+        && request.resource.data.vendorId == resource.data.vendorId
+        && deliveryMutationAllowed(resource.data.vendorId)
+        && deliveryCompletedLimitedEdit();
+      allow delete: if false;
+    }
+
+    match /delivery_lines/{deliveryLineId} {
+      allow read: if deliveryChildReadAllowed(resource.data);
+      allow create: if createForVendor(request.resource.data.vendorId)
+        && (request.resource.data.deliveryLineId == deliveryLineId || request.resource.data.lineId == deliveryLineId)
+        && request.resource.data.productId is string
+        && request.resource.data.quantityOrdered > 0
+        && request.resource.data.quantityDispatched <= request.resource.data.quantityOrdered
+        && request.resource.data.quantityDelivered <= request.resource.data.quantityDispatched
+        && deliveryMutationAllowed(request.resource.data.vendorId)
+        && deliveryOpenForChildAfter(request.resource.data);
+      allow update: if updateForSameVendor(resource.data.vendorId)
+        && request.resource.data.vendorId == resource.data.vendorId
+        && (request.resource.data.deliveryLineId == resource.data.deliveryLineId || request.resource.data.lineId == resource.data.lineId)
+        && request.resource.data.quantityDispatched <= request.resource.data.quantityOrdered
+        && request.resource.data.quantityDelivered + request.resource.data.quantityRejected <= request.resource.data.quantityDispatched
+        && deliveryMutationAllowed(resource.data.vendorId)
+        && deliveryOpenForChild(resource.data);
+      allow delete: if false;
+    }
+
+    match /delivery_addresses/{addressId} {
+      allow read: if isActiveVendorUser(resource.data.vendorId);
+      allow create: if createForVendor(request.resource.data.vendorId)
+        && request.resource.data.addressId == addressId
+        && request.resource.data.customerId is string
+        && request.resource.data.addressLine is string
+        && request.resource.data.contactPhone is string
+        && deliveryPermission(request.resource.data.vendorId, 'delivery.create');
+      allow update: if updateForSameVendor(resource.data.vendorId)
+        && request.resource.data.addressId == resource.data.addressId
+        && request.resource.data.customerId == resource.data.customerId
+        && deliveryPermission(resource.data.vendorId, 'delivery.create');
+      allow delete: if false;
+    }
+
+    match /delivery_assignments/{assignmentId} {
+      allow read: if deliveryChildReadAllowed(resource.data);
+      allow create: if createForVendorStaff(request.resource.data.vendorId)
+        && request.resource.data.assignmentId == assignmentId
+        && request.resource.data.deliveryId is string
+        && request.resource.data.assignedByStaffId is string
+        && request.resource.data.status in ['Active', 'Superseded', 'Cancelled', 'Accepted']
+        && deliveryPermission(request.resource.data.vendorId, 'delivery.assign')
+        && deliveryOpenForChildAfter(request.resource.data);
+      allow update: if updateForSameVendorStaff(resource.data.vendorId)
+        && request.resource.data.assignmentId == resource.data.assignmentId
+        && request.resource.data.deliveryId == resource.data.deliveryId
+        && deliveryPermission(resource.data.vendorId, 'delivery.assign')
+        && deliveryOpenForChild(resource.data);
+      allow delete: if false;
+    }
+
+    match /delivery_tracking/{trackingId} {
+      allow read: if deliveryChildReadAllowed(resource.data);
+      allow create: if createForVendorStaff(request.resource.data.vendorId)
+        && (request.resource.data.trackingId == trackingId || request.resource.data.trackingEventId == trackingId)
+        && request.resource.data.deliveryId is string
+        && request.resource.data.recordedAt is string
+        && request.resource.data.source is string
+        && deliveryPermission(request.resource.data.vendorId, 'delivery.track')
+        && deliveryOpenForChildAfter(request.resource.data);
+      allow update, delete: if false;
+    }
+
+    match /delivery_confirmations/{confirmationId} {
+      allow read: if deliveryChildReadAllowed(resource.data);
+      allow create: if createForVendor(request.resource.data.vendorId)
+        && (request.resource.data.confirmationId == confirmationId || request.resource.data.codeId == confirmationId)
+        && request.resource.data.deliveryId is string
+        && request.resource.data.codeHash is string
+        && request.resource.data.status in ['Issued', 'Verified', 'Expired', 'Locked', 'Cancelled', 'Code Sent', 'Code Pending', 'Code Verified', 'Code Failed', 'Manual Override Required']
+        && deliveryMutationAllowed(request.resource.data.vendorId)
+        && deliveryOpenForChildAfter(request.resource.data);
+      allow update: if updateForSameVendor(resource.data.vendorId)
+        && request.resource.data.vendorId == resource.data.vendorId
+        && request.resource.data.deliveryId == resource.data.deliveryId
+        && request.resource.data.codeHash == resource.data.codeHash
+        && deliveryPermission(resource.data.vendorId, 'delivery.verifyCode')
+        && deliveryOpenForChild(resource.data);
+      allow delete: if false;
+    }
+
+    match /proof_of_delivery/{proofId} {
+      allow read: if deliveryChildReadAllowed(resource.data);
+      allow create: if createForVendorStaff(request.resource.data.vendorId)
+        && request.resource.data.proofId == proofId
+        && request.resource.data.deliveryId is string
+        && request.resource.data.receivedByName is string
+        && request.resource.data.confirmedByStaffId is string
+        && request.resource.data.status in ['Pending', 'Captured', 'Rejected', 'Locked']
+        && deliveryPermission(request.resource.data.vendorId, 'delivery.complete')
+        && deliveryOpenForChildAfter(request.resource.data);
+      allow update: if updateForSameVendorStaff(resource.data.vendorId)
+        && request.resource.data.proofId == resource.data.proofId
+        && request.resource.data.deliveryId == resource.data.deliveryId
+        && resource.data.status != 'Locked'
+        && get(deliveryDocPath(resource.data.deliveryId)).data.status != 'Completed'
+        && deliveryPermission(resource.data.vendorId, 'delivery.complete');
+      allow delete: if false;
+    }
+
+    match /delivery_cash_collections/{collectionId} {
+      allow read: if deliveryChildReadAllowed(resource.data);
+      allow create: if createForVendorStaff(request.resource.data.vendorId)
+        && (request.resource.data.collectionId == collectionId || request.resource.data.cashCollectionId == collectionId)
+        && request.resource.data.deliveryId is string
+        && request.resource.data.saleId is string
+        && request.resource.data.amountExpected >= 0
+        && request.resource.data.amountCollected >= 0
+        && deliveryPermission(request.resource.data.vendorId, 'delivery.collectCash')
+        && deliveryOpenForChildAfter(request.resource.data);
+      allow update: if updateForSameVendorStaff(resource.data.vendorId)
+        && request.resource.data.vendorId == resource.data.vendorId
+        && request.resource.data.deliveryId == resource.data.deliveryId
+        && deliveryCashHandoverAllowed(resource.data.vendorId)
+        && deliveryOpenForChild(resource.data);
+      allow delete: if false;
+    }
+
+    match /delivery_cash_handovers/{handoverId} {
+      allow read: if deliveryChildReadAllowed(resource.data);
+      allow create: if createForVendorStaff(request.resource.data.vendorId)
+        && request.resource.data.handoverId == handoverId
+        && request.resource.data.deliveryId is string
+        && request.resource.data.deliveryStaffId is string
+        && request.resource.data.receivingStaffId is string
+        && request.resource.data.amountExpected >= 0
+        && request.resource.data.amountCounted >= 0
+        && (
+          request.resource.data.status in ['Pending', 'Declared', 'Counting', 'Accepted', 'Rejected', 'VarianceReview', 'Reconciled']
+          || request.resource.data.handoverStatus in ['Pending', 'Confirmed', 'Queried', 'Rejected', 'Declared', 'Counting', 'Accepted', 'VarianceReview', 'Reconciled']
+        )
+        && deliveryCashHandoverAllowed(request.resource.data.vendorId)
+        && deliveryOpenForChildAfter(request.resource.data);
+      allow update: if updateForSameVendorStaff(resource.data.vendorId)
+        && request.resource.data.handoverId == resource.data.handoverId
+        && request.resource.data.deliveryId == resource.data.deliveryId
+        && deliveryCashHandoverAllowed(resource.data.vendorId)
+        && deliveryOpenForChild(resource.data);
+      allow delete: if false;
+    }
+
+    match /delivery_failures/{failureId} {
+      allow read: if deliveryChildReadAllowed(resource.data);
+      allow create: if createForVendorStaff(request.resource.data.vendorId)
+        && request.resource.data.failureId == failureId
+        && request.resource.data.deliveryId is string
+        && request.resource.data.reason is string
+        && request.resource.data.reportedBy is string
+        && deliveryPermission(request.resource.data.vendorId, 'delivery.cancel')
+        && deliveryOpenForChildAfter(request.resource.data);
+      allow update: if updateForSameVendorStaff(resource.data.vendorId)
+        && request.resource.data.failureId == resource.data.failureId
+        && request.resource.data.deliveryId == resource.data.deliveryId
+        && deliveryPermission(resource.data.vendorId, 'delivery.assign');
+      allow delete: if false;
+    }
+
+    match /delivery_returns/{returnId} {
+      allow read: if deliveryChildReadAllowed(resource.data);
+      allow create: if createForVendorStaff(request.resource.data.vendorId)
+        && request.resource.data.returnId == returnId
+        && request.resource.data.deliveryId is string
+        && request.resource.data.deliveryLineId is string
+        && request.resource.data.quantityReturned > 0
+        && request.resource.data.inspectedBy is string
+        && deliveryPermission(request.resource.data.vendorId, 'delivery.complete');
+      allow update, delete: if false;
+    }
+
+    match /delivery_partners/{partnerId} {
+      allow read: if isActiveVendorUser(resource.data.vendorId);
+      allow create: if createForVendorStaff(request.resource.data.vendorId)
+        && (request.resource.data.partnerId == partnerId || request.resource.data.providerId == partnerId)
+        && (request.resource.data.partnerName is string || request.resource.data.providerName is string)
+        && request.resource.data.status in ['Active', 'Approved', 'Pending', 'Inactive', 'Suspended']
+        && deliveryPermission(request.resource.data.vendorId, 'delivery.providerManage');
+      allow update: if updateForSameVendorStaff(resource.data.vendorId)
+        && deliveryPermission(resource.data.vendorId, 'delivery.providerManage');
+      allow delete: if false;
+    }
+
+    match /delivery_performance/{performanceId} {
+      allow read: if isActiveVendorUser(resource.data.vendorId)
+        && deliveryPermission(resource.data.vendorId, 'delivery.performance');
+      allow create: if createForVendorStaff(request.resource.data.vendorId)
+        && request.resource.data.vendorId is string
+        && request.resource.data.periodStart is string
+        && request.resource.data.periodEnd is string
+        && deliveryPermission(request.resource.data.vendorId, 'delivery.performance');
+      allow update: if updateForSameVendorStaff(resource.data.vendorId)
+        && request.resource.data.periodStart is string
+        && request.resource.data.periodEnd is string
+        && deliveryPermission(resource.data.vendorId, 'delivery.performance');
+      allow delete: if false;
+    }
+
+    match /pos_shifts/{shiftId} {
+      allow read: if isActiveVendorUser(resource.data.vendorId);
+      allow create: if createForVendorStaff(request.resource.data.vendorId)
+        && request.resource.data.shiftId == shiftId
+        && request.resource.data.branchId is string
+        && request.resource.data.terminalId is string
+        && request.resource.data.staffId is string
+        && request.resource.data.status in ['Open', 'Counting', 'PendingApproval', 'Closed', 'Suspended', 'Reopened'];
+      allow update: if updateForSameVendorStaff(resource.data.vendorId)
+        && request.resource.data.shiftId == resource.data.shiftId
+        && request.resource.data.branchId == resource.data.branchId
+        && request.resource.data.terminalId == resource.data.terminalId
+        && request.resource.data.staffId == resource.data.staffId
+        && (
+          !shiftClosedStatus(resource.data.status)
+          || (
+            isManager(resource.data.vendorId)
+            && request.resource.data.status == 'Reopened'
+          )
+        );
+      allow delete: if false;
+    }
+
+    match /pos_cash_movements/{cashMovementId} {
+      allow read: if isActiveVendorUser(resource.data.vendorId);
+      allow create: if createForVendorStaff(request.resource.data.vendorId)
+        && request.resource.data.cashMovementId == cashMovementId
+        && request.resource.data.branchId is string
+        && request.resource.data.terminalId is string
+        && request.resource.data.shiftId is string
+        && request.resource.data.staffId is string
+        && request.resource.data.amount > 0
+        && request.resource.data.movementType in ['OPENING_FLOAT', 'CASH_SALE', 'CASH_REFUND', 'CASH_IN', 'CASH_OUT', 'PETTY_CASH', 'SAFE_DROP', 'BANK_DEPOSIT', 'FLOAT_ADJUSTMENT', 'VARIANCE_ADJUSTMENT', 'REVERSAL']
+        && cashMovementApprovedOrAllowed(request.resource.data);
+      allow update, delete: if false;
+    }
+
+    match /cash_counts/{cashCountId} {
+      allow read: if isActiveVendorUser(resource.data.vendorId);
+      allow create: if createForVendorStaff(request.resource.data.vendorId)
+        && request.resource.data.cashCountId == cashCountId
+        && request.resource.data.shiftId is string
+        && request.resource.data.branchId is string
+        && request.resource.data.terminalId is string
+        && request.resource.data.staffId is string
+        && request.resource.data.countedCash >= 0
+        && request.resource.data.expectedCash >= 0;
+      allow update: if updateForSameVendorStaff(resource.data.vendorId)
+        && request.resource.data.cashCountId == resource.data.cashCountId
+        && request.resource.data.shiftId == resource.data.shiftId
+        && (
+          !(resource.data.status in ['Final', 'Approved'])
+          || hasPermission(resource.data.vendorId, 'cashControl.count.correct')
+          || hasPermission(resource.data.vendorId, 'cashControl.approve')
+        );
+      allow delete: if false;
+    }
+
+    match /cash_variances/{varianceId} {
+      allow read: if isActiveVendorUser(resource.data.vendorId);
+      allow create: if createForVendorStaff(request.resource.data.vendorId)
+        && request.resource.data.varianceId == varianceId
+        && request.resource.data.shiftId is string
+        && request.resource.data.terminalId is string
+        && request.resource.data.staffId is string
+        && request.resource.data.status in ['Exact', 'Over', 'Short', 'PendingReview', 'Explained', 'Approved', 'Escalated'];
+      allow update: if updateForSameVendorStaff(resource.data.vendorId)
+        && request.resource.data.varianceId == resource.data.varianceId
+        && request.resource.data.shiftId == resource.data.shiftId
+        && (
+          request.resource.data.status == resource.data.status
+          || hasPermission(resource.data.vendorId, 'cashControl.approve')
+          || hasPermission(resource.data.vendorId, 'approvals.approve')
+        );
+      allow delete: if false;
+    }
+
+    match /business_days/{businessDayId} {
+      allow read: if isActiveVendorUser(resource.data.vendorId);
+      allow create: if createForVendorStaff(request.resource.data.vendorId)
+        && request.resource.data.businessDayId == businessDayId
+        && request.resource.data.branchId is string
+        && request.resource.data.businessDate is string
+        && request.resource.data.status in ['Open', 'Closing', 'PendingReview', 'Locked', 'Reopened'];
+      allow update: if updateForSameVendorStaff(resource.data.vendorId)
+        && request.resource.data.businessDayId == resource.data.businessDayId
+        && request.resource.data.branchId == resource.data.branchId
+        && request.resource.data.businessDate == resource.data.businessDate
+        && lockedBusinessDayImmutable();
+      allow delete: if false;
+    }
+
+    match /payment_reconciliations/{reconciliationId} {
+      allow read: if isActiveVendorUser(resource.data.vendorId);
+      allow create: if createForVendorStaff(request.resource.data.vendorId)
+        && request.resource.data.reconciliationId == reconciliationId
+        && request.resource.data.branchId is string
+        && request.resource.data.businessDate is string
+        && request.resource.data.method in ['Cash', 'Mobile Money', 'Card', 'Bank Transfer', 'Credit', 'Other'];
+      allow update: if updateForSameVendorStaff(resource.data.vendorId)
+        && request.resource.data.reconciliationId == resource.data.reconciliationId
+        && (
+          request.resource.data.status == resource.data.status
+          || hasPermission(resource.data.vendorId, 'cashControl.reconcile')
+          || hasPermission(resource.data.vendorId, 'cashControl.approve')
+        );
+      allow delete: if false;
+    }
+
+    match /bankbook_entries/{bankbookEntryId} {
+      allow read: if isActiveVendorUser(resource.data.vendorId);
+      allow create: if createForVendorStaff(request.resource.data.vendorId)
+        && request.resource.data.bankbookEntryId == bankbookEntryId
+        && request.resource.data.branchId is string
+        && request.resource.data.businessDate is string
+        && request.resource.data.amount > 0
+        && (
+          hasPermission(request.resource.data.vendorId, 'cashControl.bankDeposit')
+          || hasPermission(request.resource.data.vendorId, 'cashControl.approve')
+          || isManager(request.resource.data.vendorId)
+        );
+      allow update: if updateForSameVendorStaff(resource.data.vendorId)
+        && request.resource.data.bankbookEntryId == resource.data.bankbookEntryId
+        && (
+          request.resource.data.status == resource.data.status
+          || hasPermission(resource.data.vendorId, 'cashControl.bankDeposit')
+          || hasPermission(resource.data.vendorId, 'cashControl.approve')
+        );
+      allow delete: if false;
+    }
+
+    match /held_sales/{heldSaleId} {
+      allow read: if isActiveVendorUser(resource.data.vendorId);
+      allow create: if createForVendor(request.resource.data.vendorId)
+        && request.resource.data.heldSaleId == heldSaleId
+        && request.resource.data.branchId is string
+        && request.resource.data.warehouseId is string
+        && request.resource.data.terminalId is string
+        && request.resource.data.staffId is string;
+      allow update: if updateForSameVendor(resource.data.vendorId)
+        && request.resource.data.heldSaleId == resource.data.heldSaleId;
+      allow delete: if false;
+    }
+
+    match /returns/{returnId} {
+      allow read: if isActiveVendorUser(resource.data.vendorId);
+      allow create: if isManager(request.resource.data.vendorId)
+        && request.resource.data.returnId == returnId
+        && request.resource.data.originalSaleId is string
+        && request.resource.data.reason is string;
+      allow update, delete: if false;
+    }
+
+    match /audit_logs/{auditLogId} {
+      allow read: if isActiveVendorUser(resource.data.vendorId);
+      allow create: if createForVendorStaff(request.resource.data.vendorId)
+        && request.resource.data.auditLogId == auditLogId
+        && request.resource.data.eventType is string
+        && request.resource.data.referenceId is string;
+      allow update, delete: if false;
+    }
+
+    match /biEvents/{eventId} {
+      allow read: if isActiveVendorUser(resource.data.vendorId);
+      allow create: if createForVendorStaff(request.resource.data.vendorId)
+        && request.resource.data.eventId == eventId
+        && request.resource.data.eventType is string
+        && request.resource.data.sourceRecordType is string
+        && request.resource.data.sourceRecordId is string;
+      allow update, delete: if false;
+    }
+
+    match /bi_rules/{ruleId} {
+      allow read: if isActiveVendorUser(resource.data.vendorId);
+      allow create: if isManager(request.resource.data.vendorId)
+        && request.resource.data.vendorId is string
+        && request.resource.data.ruleId == ruleId;
+      allow update: if isManager(resource.data.vendorId)
+        && request.resource.data.vendorId == resource.data.vendorId
+        && request.resource.data.ruleId == resource.data.ruleId;
+      allow delete: if isOwner(resource.data.vendorId);
+    }
+
+    match /bi_warnings/{warningId} {
+      allow read: if isActiveVendorUser(resource.data.vendorId);
+      allow create: if isManager(request.resource.data.vendorId)
+        && request.resource.data.warningId == warningId
+        && request.resource.data.sourceEventId is string;
+      allow update: if updateForSameVendorStaff(resource.data.vendorId)
+        && request.resource.data.warningId == resource.data.warningId
+        && (resource.data.severity != 'Critical' || isManager(resource.data.vendorId));
+      allow delete: if false;
+    }
+
+    match /bi_insights/{insightId} {
+      allow read: if isActiveVendorUser(resource.data.vendorId);
+      allow create: if isManager(request.resource.data.vendorId)
+        && request.resource.data.insightId == insightId;
+      allow update, delete: if false;
+    }
+
+    match /bi_action_routes/{routeId} {
+      allow read: if isActiveVendorUser(resource.data.vendorId);
+      allow create: if isManager(request.resource.data.vendorId)
+        && request.resource.data.routeId == routeId;
+      allow update: if updateForSameVendorStaff(resource.data.vendorId)
+        && request.resource.data.routeId == resource.data.routeId;
+      allow delete: if false;
+    }
+
+    match /tasks/{taskId} {
+      allow read: if isActiveVendorUser(resource.data.vendorId);
+      allow create: if createForVendorStaff(request.resource.data.vendorId)
+        && request.resource.data.taskId == taskId;
+      allow update: if updateForSameVendorStaff(resource.data.vendorId)
+        && request.resource.data.taskId == resource.data.taskId
+        && (isManager(resource.data.vendorId) || request.resource.data.assignedTo == resource.data.assignedTo);
+      allow delete: if false;
+    }
+
+    match /bi_resolutions/{resolutionId} {
+      allow read: if isActiveVendorUser(resource.data.vendorId);
+      allow create: if createForVendorStaff(request.resource.data.vendorId)
+        && request.resource.data.resolutionId == resolutionId
+        && request.resource.data.warningId is string;
+      allow update, delete: if false;
+    }
+
+    match /business_risk_scores/{scoreId} {
+      allow read: if isActiveVendorUser(resource.data.vendorId);
+      allow create: if isManager(request.resource.data.vendorId)
+        && request.resource.data.vendorId is string;
+      allow update, delete: if false;
+    }
+
+    match /daily_business_briefs/{briefId} {
+      allow read: if isActiveVendorUser(resource.data.vendorId);
+      allow create: if isManager(request.resource.data.vendorId)
+        && request.resource.data.vendorId is string;
+      allow update, delete: if false;
+    }
+
+    match /products/{productId} {
+      allow read: if isActiveVendorUser(resource.data.vendorId);
+      allow create: if createForVendorStaff(request.resource.data.vendorId)
+        && request.resource.data.productId == productId
+        && request.resource.data.vendorId is string;
+      allow update: if updateForSameVendorStaff(resource.data.vendorId)
+        && request.resource.data.productId == resource.data.productId;
+      allow delete: if isManager(resource.data.vendorId);
+    }
+
+    match /suppliers/{supplierId} {
+      allow read: if isActiveVendorUser(resource.data.vendorId);
+      allow create: if createForVendorStaff(request.resource.data.vendorId)
+        && request.resource.data.supplierId == supplierId
+        && request.resource.data.status in ['active', 'inactive', 'suspended', 'under_review']
+        && request.resource.data.paymentTermsDays is number
+        && request.resource.data.currentBalance == 0;
+      allow update: if updateForSameVendorStaff(resource.data.vendorId)
+        && request.resource.data.supplierId == resource.data.supplierId
+        && request.resource.data.currentBalance == resource.data.currentBalance;
+      allow delete: if isOwner(resource.data.vendorId);
+    }
+
+    match /purchase_requests/{requestId} {
+      allow read: if isActiveVendorUser(resource.data.vendorId);
+      allow create: if createForVendorStaff(request.resource.data.vendorId)
+        && request.resource.data.requestId == requestId
+        && request.resource.data.branchId is string
+        && request.resource.data.warehouseId is string
+        && request.resource.data.lines is list;
+      allow update: if updateForSameVendorStaff(resource.data.vendorId)
+        && request.resource.data.requestId == resource.data.requestId
+        && (
+          request.resource.data.approvalStatus == resource.data.approvalStatus
+          || hasPermission(resource.data.vendorId, 'approvals.approve')
+        );
+      allow delete: if isManager(resource.data.vendorId);
+    }
+
+    match /purchase_orders/{purchaseOrderId} {
+      allow read: if isActiveVendorUser(resource.data.vendorId);
+      allow create: if createForVendorStaff(request.resource.data.vendorId)
+        && request.resource.data.purchaseOrderId == purchaseOrderId
+        && request.resource.data.branchId is string
+        && request.resource.data.warehouseId is string
+        && request.resource.data.supplierId is string
+        && request.resource.data.postingStatus in ['Not Posted', 'Draft'];
+      allow update: if updateForSameVendorStaff(resource.data.vendorId)
+        && request.resource.data.purchaseOrderId == resource.data.purchaseOrderId
+        && resource.data.status in ['Draft', 'Pending Approval', 'Approved', 'Sent To Supplier', 'Partially Received']
+        && (
+          request.resource.data.approvalStatus == resource.data.approvalStatus
+          || hasPermission(resource.data.vendorId, 'approvals.approve')
+          || hasPermission(resource.data.vendorId, 'purchaseOrders.approve')
+        );
+      allow delete: if false;
+    }
+
+    match /purchase_order_lines/{purchaseOrderLineId} {
+      allow read: if isActiveVendorUser(resource.data.vendorId);
+      allow create: if createForVendorStaff(request.resource.data.vendorId)
+        && request.resource.data.purchaseOrderLineId == purchaseOrderLineId
+        && request.resource.data.purchaseOrderId is string
+        && request.resource.data.warehouseId is string
+        && request.resource.data.productId is string;
+      allow update: if updateForSameVendorStaff(resource.data.vendorId)
+        && request.resource.data.purchaseOrderLineId == resource.data.purchaseOrderLineId
+        && request.resource.data.quantityReceived == resource.data.quantityReceived;
+      allow delete: if false;
+    }
+
+    match /inventory_ledger/{movementId} {
+      allow read: if isActiveVendorUser(resource.data.vendorId);
+      allow create: if createForVendorStaff(request.resource.data.vendorId)
+        && inventoryMovementIsValid(request.resource.data, movementId);
+      allow update, delete: if false;
+    }
+
+    match /inventory_balances/{balanceId} {
+      allow read: if isActiveVendorUser(resource.data.vendorId);
+      allow create: if createForVendorStaff(request.resource.data.vendorId)
+        && inventoryBalanceIsValid(request.resource.data, balanceId);
+      allow update: if updateForSameVendorStaff(resource.data.vendorId)
+        && inventoryBalanceIsValid(request.resource.data, balanceId)
+        && (
+          request.resource.data.lastMovementId != resource.data.lastMovementId
+          || balanceRebuildAllowed(resource.data.vendorId)
+        );
+      allow delete: if false;
+    }
+
+    match /goods_receipts/{goodsReceiptId} {
+      allow read: if isActiveVendorUser(resource.data.vendorId);
+      allow create: if createForVendorStaff(request.resource.data.vendorId)
+        && request.resource.data.goodsReceiptId == goodsReceiptId
+        && request.resource.data.branchId is string
+        && request.resource.data.warehouseId is string
+        && request.resource.data.supplierId is string
+        && request.resource.data.status in ['Draft', 'Pending Approval', 'Posted', 'Partially Posted'];
+      allow update: if updateForSameVendorStaff(resource.data.vendorId)
+        && request.resource.data.goodsReceiptId == resource.data.goodsReceiptId
+        && goodsReceiptPostedImmutable();
+      allow delete: if false;
+    }
+
+    match /goods_receipt_lines/{goodsReceiptLineId} {
+      allow read: if isActiveVendorUser(resource.data.vendorId);
+      allow create: if createForVendorStaff(request.resource.data.vendorId)
+        && request.resource.data.goodsReceiptLineId == goodsReceiptLineId
+        && request.resource.data.goodsReceiptId is string
+        && request.resource.data.productId is string
+        && request.resource.data.quantityAccepted >= 0
+        && request.resource.data.quantityRejected >= 0;
+      allow update: if updateForSameVendorStaff(resource.data.vendorId)
+        && request.resource.data.goodsReceiptLineId == resource.data.goodsReceiptLineId
+        && (
+          !exists(/databases/$(database)/documents/goods_receipts/$(resource.data.goodsReceiptId))
+          || get(/databases/$(database)/documents/goods_receipts/$(resource.data.goodsReceiptId)).data.postingStatus != 'Posted'
+        );
+      allow delete: if false;
+    }
+
+    match /purchase_returns/{purchaseReturnId} {
+      allow read: if isActiveVendorUser(resource.data.vendorId);
+      allow create: if createForVendorStaff(request.resource.data.vendorId)
+        && request.resource.data.purchaseReturnId == purchaseReturnId
+        && request.resource.data.supplierId is string
+        && returnReferencesAccessibleReceipt(request.resource.data);
+      allow update: if updateForSameVendorStaff(resource.data.vendorId)
+        && request.resource.data.purchaseReturnId == resource.data.purchaseReturnId
+        && returnReferencesAccessibleReceipt(request.resource.data)
+        && (
+          request.resource.data.approvalStatus == resource.data.approvalStatus
+          || hasPermission(resource.data.vendorId, 'approvals.approve')
+          || hasPermission(resource.data.vendorId, 'supplierReturns.approve')
+        );
+      allow delete: if false;
+    }
+
+    match /purchase_return_lines/{purchaseReturnLineId} {
+      allow read: if isActiveVendorUser(resource.data.vendorId);
+      allow create: if createForVendorStaff(request.resource.data.vendorId)
+        && request.resource.data.purchaseReturnLineId == purchaseReturnLineId
+        && request.resource.data.purchaseReturnId is string
+        && request.resource.data.goodsReceiptLineId is string
+        && request.resource.data.quantityReturned >= 0;
+      allow update, delete: if false;
+    }
+
+    match /supplier_accounts/{entryId} {
+      allow read: if isActiveVendorUser(resource.data.vendorId);
+      allow create: if createForVendorStaff(request.resource.data.vendorId)
+        && request.resource.data.entryId == entryId
+        && request.resource.data.supplierId is string
+        && request.resource.data.branchId is string
+        && request.resource.data.entryType in ['PURCHASE', 'PAYMENT', 'PURCHASE_RETURN', 'CREDIT_NOTE', 'DEBIT_NOTE', 'OPENING_BALANCE', 'ADJUSTMENT', 'INTEREST', 'REVERSAL']
+        && request.resource.data.referenceType is string
+        && request.resource.data.referenceId is string
+        && request.resource.data.debit >= 0
+        && request.resource.data.credit >= 0
+        && request.resource.data.debit + request.resource.data.credit > 0;
+      allow update, delete: if false;
+    }
+
+    match /supplier_payments/{supplierPaymentId} {
+      allow read: if isActiveVendorUser(resource.data.vendorId);
+      allow create: if createForVendorStaff(request.resource.data.vendorId)
+        && supplierPaymentIdMatches(supplierPaymentId, request.resource.data)
+        && request.resource.data.supplierId is string
+        && request.resource.data.branchId is string
+        && request.resource.data.terminalId is string
+        && request.resource.data.amount > 0
+        && request.resource.data.paymentMethod in ['Cash', 'Bank', 'Mobile Money', 'Other', 'Bank Transfer', 'COGS Reserve']
+        && supplierPaymentAllowed(request.resource.data.vendorId);
+      allow update: if updateForSameVendorStaff(resource.data.vendorId)
+        && supplierPaymentIdMatches(supplierPaymentId, request.resource.data)
+        && supplierPaymentIdMatches(supplierPaymentId, resource.data)
+        && request.resource.data.supplierId == resource.data.supplierId
+        && request.resource.data.amount == resource.data.amount
+        && supplierPaymentMutable()
+        && (
+          request.resource.data.approvalStatus == resource.data.approvalStatus
+          || supplierPaymentApprovalAllowed(resource.data.vendorId)
+        );
+      allow delete: if false;
+    }
+
+    match /supplier_payment_allocations/{allocationId} {
+      allow read: if isActiveVendorUser(resource.data.vendorId);
+      allow create: if createForVendorStaff(request.resource.data.vendorId)
+        && request.resource.data.allocationId == allocationId
+        && request.resource.data.supplierPaymentId is string
+        && request.resource.data.supplierId is string
+        && request.resource.data.supplierAccountEntryId is string
+        && request.resource.data.amountAllocated > 0;
+      allow update, delete: if false;
+    }
+
+    match /supplier_payment_schedules/{scheduleId} {
+      allow read: if isActiveVendorUser(resource.data.vendorId);
+      allow create: if createForVendorStaff(request.resource.data.vendorId)
+        && request.resource.data.scheduleId == scheduleId
+        && request.resource.data.supplierId is string
+        && request.resource.data.scheduledAmount > 0
+        && request.resource.data.priority in ['Critical', 'High', 'Normal', 'Low']
+        && request.resource.data.status in ['Draft', 'Planned', 'PendingApproval', 'Approved', 'PartiallyPaid', 'Paid', 'Deferred', 'Cancelled'];
+      allow update: if updateForSameVendorStaff(resource.data.vendorId)
+        && request.resource.data.scheduleId == resource.data.scheduleId
+        && request.resource.data.supplierId == resource.data.supplierId
+        && request.resource.data.scheduledAmount == resource.data.scheduledAmount
+        && (
+          request.resource.data.status == resource.data.status
+          || supplierPaymentApprovalAllowed(resource.data.vendorId)
+          || request.resource.data.status in ['Deferred', 'Cancelled']
+        );
+      allow delete: if false;
+    }
+
+    match /supplier_statements/{statementId} {
+      allow read: if isActiveVendorUser(resource.data.vendorId);
+      allow create: if createForVendorStaff(request.resource.data.vendorId)
+        && request.resource.data.statementId == statementId
+        && request.resource.data.supplierId is string
+        && request.resource.data.status in ['Draft', 'Issued', 'Reconciled', 'Cancelled'];
+      allow update: if updateForSameVendorStaff(resource.data.vendorId)
+        && request.resource.data.statementId == resource.data.statementId
+        && request.resource.data.supplierId == resource.data.supplierId
+        && resource.data.status != 'Reconciled';
+      allow delete: if false;
+    }
+
+    match /supplier_reconciliations/{reconciliationId} {
+      allow read: if isActiveVendorUser(resource.data.vendorId);
+      allow create: if createForVendorStaff(request.resource.data.vendorId)
+        && request.resource.data.reconciliationId == reconciliationId
+        && request.resource.data.supplierId is string
+        && request.resource.data.status in ['Draft', 'DifferenceFound', 'UnderReview', 'Reconciled', 'Approved', 'Reopened'];
+      allow update: if updateForSameVendorStaff(resource.data.vendorId)
+        && request.resource.data.reconciliationId == resource.data.reconciliationId
+        && request.resource.data.supplierId == resource.data.supplierId
+        && supplierReconciliationMutable()
+        && (
+          request.resource.data.status == resource.data.status
+          || supplierAdjustmentAllowed(resource.data.vendorId)
+        );
+      allow delete: if false;
+    }
+
+    match /supplier_credit_notes/{supplierCreditNoteId} {
+      allow read: if isActiveVendorUser(resource.data.vendorId);
+      allow create: if createForVendorStaff(request.resource.data.vendorId)
+        && request.resource.data.supplierCreditNoteId == supplierCreditNoteId
+        && request.resource.data.supplierId is string
+        && request.resource.data.amount > 0
+        && request.resource.data.vatAmount >= 0
+        && request.resource.data.status in ['Draft', 'Approved', 'Posted', 'Cancelled', 'Reversed']
+        && (
+          request.resource.data.status == 'Draft'
+          || supplierAdjustmentAllowed(request.resource.data.vendorId)
+        );
+      allow update: if updateForSameVendorStaff(resource.data.vendorId)
+        && request.resource.data.supplierCreditNoteId == resource.data.supplierCreditNoteId
+        && request.resource.data.supplierId == resource.data.supplierId
+        && request.resource.data.amount == resource.data.amount
+        && (
+          request.resource.data.status == resource.data.status
+          || supplierAdjustmentAllowed(resource.data.vendorId)
+        );
+      allow delete: if false;
+    }
+
+    match /supplier_debit_notes/{debitNoteId} {
+      allow read: if isActiveVendorUser(resource.data.vendorId);
+      allow create: if createForVendorStaff(request.resource.data.vendorId)
+        && request.resource.data.debitNoteId == debitNoteId
+        && request.resource.data.supplierId is string
+        && request.resource.data.amount > 0
+        && request.resource.data.vatAmount >= 0
+        && request.resource.data.status in ['Draft', 'Approved', 'Posted', 'Cancelled', 'Reversed']
+        && (
+          request.resource.data.status == 'Draft'
+          || supplierAdjustmentAllowed(request.resource.data.vendorId)
+        );
+      allow update: if updateForSameVendorStaff(resource.data.vendorId)
+        && request.resource.data.debitNoteId == resource.data.debitNoteId
+        && request.resource.data.supplierId == resource.data.supplierId
+        && request.resource.data.amount == resource.data.amount
+        && (
+          request.resource.data.status == resource.data.status
+          || supplierAdjustmentAllowed(resource.data.vendorId)
+        );
+      allow delete: if false;
+    }
+
+    match /supplier_disputes/{disputeId} {
+      allow read: if isActiveVendorUser(resource.data.vendorId);
+      allow create: if createForVendorStaff(request.resource.data.vendorId)
+        && request.resource.data.disputeId == disputeId
+        && request.resource.data.supplierId is string
+        && request.resource.data.referenceId is string
+        && request.resource.data.disputedAmount > 0
+        && request.resource.data.status in ['Open', 'UnderReview', 'Resolved', 'Rejected', 'Escalated'];
+      allow update: if updateForSameVendorStaff(resource.data.vendorId)
+        && request.resource.data.disputeId == resource.data.disputeId
+        && request.resource.data.supplierId == resource.data.supplierId
+        && request.resource.data.disputedAmount == resource.data.disputedAmount
+        && (
+          request.resource.data.status == resource.data.status
+          || supplierAdjustmentAllowed(resource.data.vendorId)
+        );
+      allow delete: if false;
+    }
+
+    match /approval_requests/{approvalId} {
+      allow read: if isActiveVendorUser(resource.data.vendorId);
+      allow create: if createForVendorStaff(request.resource.data.vendorId)
+        && request.resource.data.approvalId == approvalId
+        && request.resource.data.referenceId is string
+        && request.resource.data.requestType is string;
+      allow update: if updateForSameVendorStaff(resource.data.vendorId)
+        && request.resource.data.approvalId == resource.data.approvalId
+        && (
+          request.resource.data.status == resource.data.status
+          || hasPermission(resource.data.vendorId, 'approvals.approve')
+        );
+      allow delete: if false;
+    }
+
+    match /stock_transfers/{transferId} {
+      allow read: if isActiveVendorUser(resource.data.vendorId);
+      allow create: if createForVendorStaff(request.resource.data.vendorId)
+        && request.resource.data.transferId == transferId
+        && request.resource.data.sourceBranchId is string
+        && request.resource.data.sourceWarehouseId is string
+        && request.resource.data.destinationBranchId is string
+        && request.resource.data.destinationWarehouseId is string
+        && request.resource.data.sourceWarehouseId != request.resource.data.destinationWarehouseId;
+      allow update: if updateForSameVendorStaff(resource.data.vendorId)
+        && request.resource.data.transferId == resource.data.transferId
+        && transferEditable();
+      allow delete: if false;
+    }
+
+    match /stock_transfer_lines/{transferLineId} {
+      allow read: if isActiveVendorUser(resource.data.vendorId);
+      allow create: if createForVendorStaff(request.resource.data.vendorId)
+        && request.resource.data.transferLineId == transferLineId
+        && request.resource.data.transferId is string
+        && request.resource.data.productId is string
+        && request.resource.data.quantityRequested > 0;
+      allow update: if updateForSameVendorStaff(resource.data.vendorId)
+        && request.resource.data.transferLineId == resource.data.transferLineId
+        && request.resource.data.quantityReceived <= request.resource.data.quantityDispatched;
+      allow delete: if false;
+    }
+
+    match /stocktakes/{stocktakeId} {
+      allow read: if isActiveVendorUser(resource.data.vendorId);
+      allow create: if createForVendorStaff(request.resource.data.vendorId)
+        && request.resource.data.stocktakeId == stocktakeId
+        && request.resource.data.branchId is string
+        && request.resource.data.warehouseId is string;
+      allow update: if updateForSameVendorStaff(resource.data.vendorId)
+        && request.resource.data.stocktakeId == resource.data.stocktakeId
+        && stocktakeEditable();
+      allow delete: if false;
+    }
+
+    match /stocktake_lines/{stocktakeLineId} {
+      allow read: if isActiveVendorUser(resource.data.vendorId);
+      allow create: if createForVendorStaff(request.resource.data.vendorId)
+        && request.resource.data.stocktakeLineId == stocktakeLineId
+        && request.resource.data.stocktakeId is string
+        && request.resource.data.productId is string
+        && request.resource.data.expectedQty is number;
+      allow update: if updateForSameVendorStaff(resource.data.vendorId)
+        && request.resource.data.stocktakeLineId == resource.data.stocktakeLineId
+        && !(resource.data.status in ['Posted', 'Closed']);
+      allow delete: if false;
+    }
+
+    match /stock_adjustments/{adjustmentId} {
+      allow read: if isActiveVendorUser(resource.data.vendorId);
+      allow create: if createForVendorStaff(request.resource.data.vendorId)
+        && request.resource.data.adjustmentId == adjustmentId
+        && request.resource.data.branchId is string
+        && request.resource.data.warehouseId is string
+        && request.resource.data.reason is string
+        && highRiskAdjustmentAllowed(request.resource.data.vendorId, request.resource.data);
+      allow update: if updateForSameVendorStaff(resource.data.vendorId)
+        && request.resource.data.adjustmentId == resource.data.adjustmentId
+        && highRiskAdjustmentAllowed(resource.data.vendorId, request.resource.data);
+      allow delete: if false;
+    }
+
+    match /stock_losses/{lossId} {
+      allow read: if isActiveVendorUser(resource.data.vendorId);
+      allow create: if createForVendorStaff(request.resource.data.vendorId)
+        && request.resource.data.lossId == lossId
+        && request.resource.data.branchId is string
+        && request.resource.data.warehouseId is string
+        && request.resource.data.productId is string
+        && request.resource.data.quantity > 0
+        && request.resource.data.reason is string;
+      allow update: if updateForSameVendorStaff(resource.data.vendorId)
+        && request.resource.data.lossId == resource.data.lossId
+        && (
+          request.resource.data.approvalStatus == resource.data.approvalStatus
+          || hasPermission(resource.data.vendorId, 'inventory.loss.approve')
+          || hasPermission(resource.data.vendorId, 'approvals.approve')
+        );
+      allow delete: if false;
+    }
+
+    match /stock_reservations/{reservationId} {
+      allow read: if isActiveVendorUser(resource.data.vendorId);
+      allow create: if createForVendorStaff(request.resource.data.vendorId)
+        && request.resource.data.reservationId == reservationId
+        && request.resource.data.branchId is string
+        && request.resource.data.warehouseId is string
+        && request.resource.data.productId is string
+        && request.resource.data.quantityReserved > 0;
+      allow update: if updateForSameVendorStaff(resource.data.vendorId)
+        && request.resource.data.reservationId == resource.data.reservationId
+        && request.resource.data.quantityReserved == resource.data.quantityReserved;
+      allow delete: if false;
+    }
+
+    match /reorder_recommendations/{recommendationId} {
+      allow read: if isActiveVendorUser(resource.data.vendorId);
+      allow create, update: if createForVendorStaff(request.resource.data.vendorId)
+        && request.resource.data.recommendationId == recommendationId
+        && request.resource.data.warehouseId is string
+        && request.resource.data.productId is string;
+      allow delete: if false;
+    }
+
+    match /inventory_reconciliations/{reconciliationId} {
+      allow read: if isActiveVendorUser(resource.data.vendorId);
+      allow create: if createForVendorStaff(request.resource.data.vendorId)
+        && request.resource.data.reconciliationId == reconciliationId
+        && request.resource.data.warehouseId is string
+        && request.resource.data.productId is string;
+      allow update: if updateForSameVendorStaff(resource.data.vendorId)
+        && request.resource.data.reconciliationId == resource.data.reconciliationId
+        && balanceRebuildAllowed(resource.data.vendorId);
+      allow delete: if false;
+    }
+
     match /{document=**} {
       allow read, write: if false;
     }
   }
 }
-

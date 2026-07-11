@@ -71,7 +71,7 @@ export default function ReceiptPrintDocument({ preview, mode = 'screen', instruc
       <div className="receipt-print-totals">
         <div><span>Subtotal</span><strong>{formatReceiptCurrency(receipt.subtotal)}</strong></div>
         <div><span>Discount</span><strong>{formatReceiptCurrency(receipt.discountTotal)}</strong></div>
-        <div><span>VAT / Tax</span><strong>{formatReceiptCurrency(receipt.vatTotal)}</strong></div>
+        {receipt.businessDetails.vatRegistered && <div><span>VAT / Tax</span><strong>{formatReceiptCurrency(receipt.vatTotal)}</strong></div>}
         <div><span>Total</span><strong>{formatReceiptCurrency(receipt.grandTotal)}</strong></div>
         <div><span>Paid</span><strong>{formatReceiptCurrency(paid)}</strong></div>
         <div><span>{changeDue > 0 ? 'Change Due' : 'Balance'}</span><strong>{formatReceiptCurrency(changeDue > 0 ? changeDue : balanceDue)}</strong></div>

@@ -349,12 +349,16 @@ export type PermissionKey =
   | 'delivery.view'
   | 'delivery.create'
   | 'delivery.assign'
+  | 'delivery.dispatch'
   | 'delivery.track'
   | 'delivery.verifyCode'
   | 'delivery.complete'
   | 'delivery.cancel'
+  | 'delivery.collectCash'
+  | 'delivery.cashHandover'
   | 'delivery.cashReview'
   | 'delivery.providerManage'
+  | 'delivery.performance'
   | 'delivery.export'
   | 'audit.view'
   | 'audit.export'
@@ -591,7 +595,7 @@ const ROLE_PERMISSIONS: Record<Role, PermissionKey[]> = {
     'stocktake.view', 'stocktake.create', 'stocktake.count', 'stocktake.submit', 'stocktake.post',
     'stockTransfers.view', 'stockTransfers.create', 'stockTransfers.edit', 'stockTransfers.dispatch', 'stockTransfers.receive', 'stockTransfers.postReceipt', 'stockTransfers.export',
     'delivery.broadcast', 'delivery.review',
-    'delivery.view', 'delivery.assign', 'delivery.track', 'delivery.verifyCode', 'delivery.complete', 'delivery.cashReview',
+    'delivery.view', 'delivery.assign', 'delivery.dispatch', 'delivery.track', 'delivery.verifyCode', 'delivery.complete', 'delivery.collectCash', 'delivery.cashHandover', 'delivery.cashReview', 'delivery.performance',
     'tasks.view', 'tasks.assign', 'tasks.close',
     'taskDesk.view', 'taskDesk.create', 'taskDesk.viewDetail', 'taskDesk.startReview', 'taskDesk.addNote', 'taskDesk.reassign',
     'taskDesk.pendingInfo', 'taskDesk.escalate', 'taskDesk.complete', 'taskDesk.close', 'taskDesk.createApproval',
@@ -660,7 +664,7 @@ const ROLE_PERMISSIONS: Record<Role, PermissionKey[]> = {
     'productImport.view', 'productImport.create', 'productImport.map', 'productImport.validate'
   ],
   'Delivery Staff': [
-    'delivery.view', 'delivery.track', 'delivery.verifyCode', 'delivery.complete', 'delivery.cashReview',
+    'delivery.view', 'delivery.track', 'delivery.verifyCode', 'delivery.complete', 'delivery.collectCash', 'delivery.cashReview',
     'cashControl.deliveryCash.view', 'cashControl.deliveryCash.confirm',
     'customers.view',
     'tasks.view',
@@ -686,6 +690,7 @@ const ROLE_PERMISSIONS: Record<Role, PermissionKey[]> = {
     'cashControl.view', 'cashControl.reconcile', 'cashControl.count', 'cashControl.varianceReview',
     'cashControl.expense.create', 'cashControl.cashDrop.create', 'cashControl.debtorPayments.view',
     'cashControl.debtorPayments.linkDrawer', 'cashControl.deliveryCash.view', 'cashControl.print', 'cashControl.export',
+    'delivery.view', 'delivery.cashHandover', 'delivery.cashReview', 'delivery.performance',
     'approvals.view', 'approvals.viewDetail', 'approvals.startReview', 'approvals.requestInfo',
     'approvals.liveChat.view', 'approvals.liveChat.send', 'approvals.openRelatedRecord',
     'approvals.print', 'approvals.export', 'approvals.notificationOutbox.view', 'approvals.audit.view',

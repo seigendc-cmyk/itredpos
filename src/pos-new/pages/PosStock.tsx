@@ -2758,6 +2758,7 @@ export default function PosStock({
           stocktakePreselectToken={stocktakePreselectToken}
           productLimitReached={productLimitReached}
           productLimitMessage={productLimitMessage}
+          session={session}
         />
       ) : (
         <>

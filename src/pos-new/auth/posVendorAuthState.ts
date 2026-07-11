@@ -9,6 +9,8 @@ export type PosAuthStage =
 
 import type { ResolvedVendorSummary } from './tenantResolutionTypes';
 
+// Legacy compatibility state only. The runtime auth router is src/sci-auth/VendorAuthGate.tsx,
+// and the POS staff authority is sci_pos_staff_session from StaffAuthService.
 export type PosVendorAuthContext = {
   stage: PosAuthStage;
   googleUid?: string;
@@ -25,6 +27,7 @@ export type PosVendorAuthContext = {
   selectedByUid?: string;
   branchId?: string;
   warehouseId?: string;
+  terminalId?: string;
   staffId?: string;
   staffRole?: string;
   planCode?: string;
@@ -33,6 +36,8 @@ export type PosVendorAuthContext = {
   activationStatus?: string;
   accountStatus?: string;
   verificationStatus?: string;
+  /** Enables owner-only access to internal platform diagnostics. */
+  developerMode?: boolean;
   trialStartedAt?: string;
   trialExpiresAt?: string;
   activatedAt?: string;

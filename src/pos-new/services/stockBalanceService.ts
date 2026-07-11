@@ -202,7 +202,7 @@ export async function updateStockBalanceFromMovement(movement: InventoryMovement
     balance.productId === movement.productId &&
     (balance.branchId === movement.branchId || balance.branchName === movement.branchId) &&
     (balance.warehouseId === movement.warehouseId || balance.warehouseName === movement.warehouseId)
-  ) || balances.find((balance) => balance.productId === movement.productId && balance.locationType === 'Main Warehouse');
+  );
 
   if (!matching) {
     const qtyOnHand = Math.max(0, qtyDelta);

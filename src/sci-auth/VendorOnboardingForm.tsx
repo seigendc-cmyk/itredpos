@@ -1,16 +1,10 @@
 import { useState } from "react";
 import {
-  collection,
   doc,
-  setDoc,
   writeBatch
 } from "firebase/firestore";
 import { db } from "../pos-new/firebase/firebaseApp";
 import { getCurrentFirebaseUserProfile } from "../pos-new/auth/firebaseAuthShell";
-import {
-  readPosAuthContext,
-  savePosAuthContext
-} from "../pos-new/auth/posVendorAuthState";
 
 export type VendorBusinessProfileDraft = {
   businessName: string;
@@ -49,6 +43,27 @@ const BUSINESS_TYPES = [
 ];
 
 const CURRENCIES = ["USD", "ZWL", "ZAR", "BWP", "ZMW", "MZN"];
+
+type FirebaseProvisioningError = Error & {
+  code?: string;
+};
+
+function formatProvisioningError(error: unknown): string {
+  const firebaseError = error as Partial<FirebaseProvisioningError>;
+  const code = typeof firebaseError.code === "string" ? firebaseError.code : "unknown";
+  const message =
+    error instanceof Error
+      ? error.message
+      : typeof firebaseError.message === "string"
+        ? firebaseError.message
+        : "Unknown Firestore provisioning error.";
+
+  if (import.meta.env.DEV) {
+    return `Vendor provisioning failed (${code}): ${message}`;
+  }
+
+  return "Vendor provisioning failed. Please try again.";
+}
 
 const emptyProfile: VendorBusinessProfileDraft = {
   businessName: "",
@@ -94,7 +109,7 @@ export default function VendorOnboardingForm({
 
     const businessName = profile.businessName.trim();
     const ownerName = profile.ownerName.trim();
-    const ownerEmail = profile.ownerEmail.trim();
+    const ownerEmail = profile.ownerEmail.trim().toLowerCase();
 
     if (!businessName) {
       setError("Business Name is required to finish onboarding.");
@@ -111,7 +126,7 @@ export default function VendorOnboardingForm({
 
     const resolvedUid = googleUid || getCurrentFirebaseUserProfile()?.uid;
     const resolvedEmail =
-      googleEmail || getCurrentFirebaseUserProfile()?.email || "";
+      (googleEmail || getCurrentFirebaseUserProfile()?.email || "").toLowerCase();
 
     if (!resolvedUid || !resolvedEmail) {
       setError(
@@ -136,6 +151,7 @@ export default function VendorOnboardingForm({
       const warehouseId = `${vendorId}_main_warehouse`;
       const staffId = `${vendorId}_owner`;
       const terminalId = `${vendorId}_main_terminal`;
+      const licenseId = `${vendorId}_demo_license`;
 
       const phone = profile.phone.trim();
       const whatsapp = profile.whatsapp.trim();
@@ -149,13 +165,13 @@ export default function VendorOnboardingForm({
 
       const vendorDoc = {
         vendorId,
+        ownerUid: resolvedUid,
+        ownerEmail,
+        ownerName,
         businessName,
         tradingName,
         businessType,
         currency,
-        ownerUid: resolvedUid,
-        ownerEmail,
-        ownerName,
         phone,
         whatsapp,
         country,
@@ -164,21 +180,22 @@ export default function VendorOnboardingForm({
         physicalAddress,
         status: "Active",
         mode: "Demo",
+        planCode: "DEMO",
         licenseStatus: "DEMO",
         createdAt: now,
         updatedAt: now
       };
 
       const vendorUserDoc = {
-        vendorUserId: `${resolvedUid}`,
-        vendorId,
         uid: resolvedUid,
-        email: resolvedEmail,
-        ownerEmail,
+        vendorId,
+        email: resolvedEmail || ownerEmail,
+        displayName: ownerName,
         role: "Owner",
-        ownerName,
-        linkedAt: now,
-        status: "Active"
+        status: "active",
+        permissions: ["*"],
+        createdAt: now,
+        updatedAt: now
       };
 
       const branchDoc = {
@@ -217,16 +234,25 @@ export default function VendorOnboardingForm({
       };
 
       const staffDoc = {
+        id: staffId,
         staffId,
         vendorId,
         branchId,
         name: ownerName,
+        displayName: ownerName,
         email: ownerEmail,
+        staffCode: "OWNER",
+        roleId: "owner",
+        roleName: "Owner",
         role: "Owner",
+        permissions: ["*"],
         pin: OWNER_PIN,
-        pass: OWNER_PIN,
+        pinCode: OWNER_PIN,
         status: "Active",
         ownerUid: resolvedUid,
+        assignedTerminalIds: [terminalId],
+        createdBy: resolvedUid,
+        updatedBy: resolvedUid,
         createdAt: now,
         updatedAt: now
       };
@@ -237,6 +263,7 @@ export default function VendorOnboardingForm({
         branchId,
         warehouseId,
         name: "Main POS Terminal",
+        terminalName: "Main POS Terminal",
         type: "POS",
         status: "Active",
         createdAt: now,
@@ -244,7 +271,7 @@ export default function VendorOnboardingForm({
       };
 
       const licenseDoc = {
-        licenseId: `${vendorId}_license`,
+        licenseId,
         vendorId,
         planCode: "DEMO",
         licenseStatus: "DEMO",
@@ -254,81 +281,115 @@ export default function VendorOnboardingForm({
         updatedAt: now
       };
 
-      const batch = writeBatch(db);
+      const vendorSettingsDoc = {
+        vendorId,
+        vatEnabled: false,
+        vatRegistered: false,
+        vatNumber: "",
+        defaultVatRate: 0,
+        pricesIncludeVat: true,
+        outputTaxAccountId: "",
+        inputTaxAccountId: "",
+        exemptTaxCode: "EXEMPT",
+        zeroRatedTaxCode: "ZERO",
+        preventNegativeStock: true,
+        updatedAt: now,
+        updatedBy: resolvedUid,
+        createdAt: now
+      };
+
+      const phase1Batch = writeBatch(db);
 
       console.log('[VendorOnboardingForm] Firestore WRITE', {
         operation: 'batch.set',
-        path: 'vendors',
+        phase: 'phase-1',
+        path: `vendors/${vendorId}`,
         vendorId,
         uid: resolvedUid
       });
 
-      batch.set(doc(db, "vendors", vendorId), vendorDoc);
+      phase1Batch.set(doc(db, "vendors", vendorId), vendorDoc);
 
       console.log('[VendorOnboardingForm] Firestore WRITE', {
         operation: 'batch.set',
-        path: `vendors/${vendorId}/businessUsers/${resolvedUid}`,
+        phase: 'phase-1',
+        path: `vendorUsers/${resolvedUid}`,
         vendorId,
         uid: resolvedUid
       });
 
-      batch.set(doc(db, "vendors", vendorId, "businessUsers", resolvedUid), vendorUserDoc);
+      phase1Batch.set(doc(db, "vendorUsers", resolvedUid), vendorUserDoc);
 
-      console.log('[VendorOnboardingForm] Firestore WRITE', {
-        operation: 'batch.set',
-        path: `vendorBranches/${branchId}`,
+      await phase1Batch.commit();
+      console.log('[VendorOnboardingForm] Firestore PHASE 1 committed', {
+        collections: ['vendors', 'vendorUsers'],
         vendorId,
         uid: resolvedUid
       });
 
-      batch.set(doc(db, "vendorBranches", branchId), branchDoc);
+      const phase2Batch = writeBatch(db);
 
       console.log('[VendorOnboardingForm] Firestore WRITE', {
         operation: 'batch.set',
-        path: `vendorWarehouses/${warehouseId}`,
+        phase: 'phase-2',
+        path: `branches/${branchId}`,
         vendorId,
         uid: resolvedUid
       });
 
-      batch.set(doc(db, "vendorWarehouses", warehouseId), warehouseDoc);
+      phase2Batch.set(doc(db, "branches", branchId), branchDoc);
 
       console.log('[VendorOnboardingForm] Firestore WRITE', {
         operation: 'batch.set',
-        path: `vendorStaff/${staffId}`,
+        phase: 'phase-2',
+        path: `warehouses/${warehouseId}`,
         vendorId,
         uid: resolvedUid
       });
 
-      batch.set(doc(db, "vendorStaff", staffId), staffDoc);
+      phase2Batch.set(doc(db, "warehouses", warehouseId), warehouseDoc);
 
       console.log('[VendorOnboardingForm] Firestore WRITE', {
         operation: 'batch.set',
+        phase: 'phase-2',
         path: `staff/${staffId}`,
         vendorId,
         uid: resolvedUid
       });
 
-      batch.set(doc(db, "staff", staffId), staffDoc);
+      phase2Batch.set(doc(db, "staff", staffId), staffDoc);
 
       console.log('[VendorOnboardingForm] Firestore WRITE', {
         operation: 'batch.set',
-        path: `vendors/${vendorId}/pos_terminals/${terminalId}`,
+        phase: 'phase-2',
+        path: `pos_terminals/${terminalId}`,
         vendorId,
         uid: resolvedUid
       });
 
-      batch.set(doc(db, "vendors", vendorId, "pos_terminals", terminalId), terminalDoc);
+      phase2Batch.set(doc(db, "pos_terminals", terminalId), terminalDoc);
 
       console.log('[VendorOnboardingForm] Firestore WRITE', {
         operation: 'batch.set',
-        path: `vendorLicenses/${vendorId}`,
+        phase: 'phase-2',
+        path: `licenses/${licenseId}`,
         vendorId,
         uid: resolvedUid
       });
 
-      batch.set(doc(db, "vendorLicenses", vendorId), { ...licenseDoc, licenseId: vendorId });
+      phase2Batch.set(doc(db, "licenses", licenseId), licenseDoc);
 
-      await batch.commit();
+      console.log('[VendorOnboardingForm] Firestore WRITE', {
+        operation: 'batch.set',
+        phase: 'phase-2',
+        path: `vendor_settings/${vendorId}`,
+        vendorId,
+        uid: resolvedUid
+      });
+
+      phase2Batch.set(doc(db, "vendor_settings", vendorId), vendorSettingsDoc);
+
+      await phase2Batch.commit();
 
       localStorage.setItem(
         "sci_vendor_owner_session",
@@ -362,6 +423,7 @@ export default function VendorOnboardingForm({
           ownerFullName: ownerName,
           ownerEmail,
           email: ownerEmail,
+          vendorId,
           ownerContact: phone,
           ownerPhone: phone,
           ownerWhatsApp: whatsapp,
@@ -382,29 +444,10 @@ export default function VendorOnboardingForm({
         })
       );
 
-      const existing = readPosAuthContext();
-      savePosAuthContext({
-        ...(existing || {}),
-        googleUid: resolvedUid,
-        googleEmail: resolvedEmail,
-        vendorId,
-        vendorName: businessName,
-        branchId,
-        warehouseId,
-        staffId,
-        staffRole: "Owner",
-        licenseStatus: "Demo",
-        stage: "staffAccessRequired"
-      });
-
       onComplete?.(profile);
     } catch (error) {
-      console.error(error);
-      setError(
-        error instanceof Error
-          ? error.message
-          : "Failed to write vendor data to Firestore. Please try again."
-      );
+      console.error("Vendor provisioning failed", error);
+      setError(formatProvisioningError(error));
     } finally {
       setIsSaving(false);
     }

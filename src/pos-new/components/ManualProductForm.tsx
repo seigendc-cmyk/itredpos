@@ -9,6 +9,8 @@ import {
   ProductCreationStatus,
   ProductMasterRecord
 } from '../types';
+import { getCachedVendorTaxSettings } from '../services/vendorTaxSettingsService';
+import { getActiveVendorId } from '../utils/vendorDataMode';
 
 type ManualProductTab = 'Product Identity' | 'Sector Attributes' | 'Pricing' | 'Supplier Link' | 'Stock Setup' | 'Validation' | 'Activity';
 
@@ -123,6 +125,7 @@ export default function ManualProductForm({
   const [activeTab, setActiveTab] = useState<ManualProductTab>('Product Identity');
   const [isMinimized, setIsMinimized] = useState(false);
   const [isMaximized, setIsMaximized] = useState(false);
+  const defaultVatRate = getCachedVendorTaxSettings(draft.vendorId || getActiveVendorId()).defaultVatRate;
   const hasErrors = validationIssues.some((issue) => issue.severity === 'Error');
   const margin = useMemo(() => {
     const selling = Number(draft.sellingPrice || 0);
@@ -270,7 +273,7 @@ export default function ManualProductForm({
                       <Input label="Cost Price" type="number" value={String(draft.costPrice ?? '')} onChange={(value) => setNumber('costPrice', value)} />
                       <Input label="Selling Price" type="number" value={String(draft.sellingPrice ?? '')} onChange={(value) => setNumber('sellingPrice', value)} />
                       <Select label="VAT / Tax Category" value={draft.taxMode || 'VAT Registered'} options={['VAT Registered', 'VAT Exempt', 'Zero Rated', 'Inclusive VAT']} onChange={(value) => onChange({ taxMode: value })} />
-                      <Input label="VAT Rate" type="number" value={String(draft.vatRate ?? 15)} onChange={(value) => setNumber('vatRate', value)} />
+                      <Input label="VAT Rate" type="number" value={String(draft.vatRate ?? defaultVatRate)} onChange={(value) => setNumber('vatRate', value)} />
                       <ReadOnly label="Margin" value={`${margin}%`} />
                       <ReadOnly label="Markup" value={`${markup}%`} />
                       <Input label="Price Effective Date" type="date" value={draft.priceEffectiveDate || ''} onChange={(value) => onChange({ priceEffectiveDate: value })} />

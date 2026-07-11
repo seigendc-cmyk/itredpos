@@ -150,17 +150,21 @@ export default function SupplierReturnForm({
   };
 
   const handlePost = async () => {
-    if (!canPost) {
-      setFeedback('You do not have permission to perform this action.');
-      return;
+    try {
+      if (!canPost) {
+        setFeedback('You do not have permission to perform this action.');
+        return;
+      }
+      const result = await postSupplierReturn(record.supplierReturnId, staffName);
+      if (!result) {
+        setFeedback('Only Draft or Approved Supplier Returns can be posted.');
+        return;
+      }
+      setFeedback(result.message);
+      onPosted(result);
+    } catch (error) {
+      setFeedback(error instanceof Error ? error.message : 'Supplier Return could not be posted.');
     }
-    const result = await postSupplierReturn(record.supplierReturnId, staffName);
-    if (!result) {
-      setFeedback('Only Draft or Approved Supplier Returns can be posted.');
-      return;
-    }
-    setFeedback(result.message);
-    onPosted(result);
   };
 
   const handleDispatch = async () => {

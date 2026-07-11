@@ -22,6 +22,7 @@ import PosCustomerDesk from './pages/PosCustomerDesk';
 import PosCreditors from './pages/PosCreditors';
 import PosPurchaseDiscipline from './pages/PosPurchaseDiscipline';
 import PosHelpDesk from './pages/PosHelpDesk';
+import { calculateExpectedCash } from './services/cashMovementService';
 import { 
   Product, 
   Transaction, 
@@ -61,6 +62,12 @@ import { loadLocalProducts, POS_PRODUCT_STORE_EVENT, saveLocalProducts, updateLo
 import { ENABLE_MOCK_SEED_DATA, getVendorScopedStorageKey, initializeEmptyVendorOperationalStores } from './utils/vendorDataMode';
 import { firebaseReady } from './firebase/firebaseApp';
 import {
+  SCI_POS_STAFF_SESSION_KEY,
+  LEGACY_POS_ACTIVE_SESSION_KEY,
+  adaptSciStaffSessionToPosSession,
+  readSciPosStaffSession
+} from '../sci-auth/StaffAuthService';
+import {
   mergeVendorLicenseIntoAuthContext,
   readSavedVendorLicenseSnapshot,
   subscribeToVendorLicense,
@@ -73,6 +80,13 @@ import {
   isLimitReached,
   type PlanFeatureAccess
 } from './auth/planFeatureGate';
+import {
+  getVendorTaxSettings,
+  saveVendorTaxSettings,
+  posTaxSettingToVendorTaxSettings,
+  vendorTaxSettingsToPosTaxSetting
+} from './services/vendorTaxSettingsService';
+import type { POSActivationSnapshotLocal } from '../shared/backend';
 import UpgradeRequiredPanel, { type UpgradeRequiredVendorContext } from './components/UpgradeRequiredPanel';
 import {
   getDeviceId,
@@ -220,7 +234,7 @@ function resolveStoredTerminalName(terminalId?: string, fallback?: string): stri
 
 function resolveStoredWarehouseName(warehouseId?: string, fallback?: string): string {
   const id = displayText(warehouseId);
-  if (!id) return displayText(fallback) || 'demo-warehouse';
+  if (!id) return displayText(fallback) || 'Main Warehouse';
   const warehouses = readStoredValue<WarehouseSetting[]>('itred_pos_warehouses', []);
   return warehouses.find((warehouse) => warehouse.id === id)?.name || displayText(fallback) || id;
 }
@@ -231,16 +245,16 @@ function normalizeSessionForVendorRuntime(
   vendorAuth?: ReturnType<typeof readPosAuthContext>
 ): PosSession {
   const isOnboardedVendorSession = Boolean(vendorAuth?.vendorId && vendorAuth?.vendorName);
-  const branchId = vendorAuth?.branchId || session.branchId || 'demo-branch';
-  const terminalId = session.terminalId || (isOnboardedVendorSession ? 'TERM-MAIN-001' : undefined);
-  const warehouseId = session.warehouseId || (isOnboardedVendorSession ? 'demo-warehouse' : undefined);
+  const branchId = session.branchId || vendorAuth?.branchId;
+  const terminalId = session.terminalId || vendorAuth?.terminalId;
+  const warehouseId = session.warehouseId || vendorAuth?.warehouseId;
   const planId = vendorAuth?.planCode || session.planId || (isOnboardedVendorSession ? 'DEMO' : undefined);
   const licenseMode = vendorAuth?.licenseMode || session.licenseMode || (isOnboardedVendorSession ? 'demo' : undefined);
 
   return {
     ...session,
     vendor: resolveVendorDisplayName(businessProfile, vendorAuth, session),
-    vendorId: vendorAuth?.vendorId || session.vendorId,
+    vendorId: session.vendorId || vendorAuth?.vendorId,
     branchId,
     branch: resolveStoredBranchName(branchId, session.branch),
     terminalId,
@@ -289,7 +303,7 @@ function buildUpgradeVendorContext(
 export default function PosPrototypeApp() {
   const [activePage, setActivePage] = useState<PosPageId>('DASHBOARD');
 
-  // POS Activation Layer
+  // Legacy activation compatibility state. It no longer gates POS runtime startup.
   const [posActivated, setPosActivated] = useState<boolean | null>(null);
   const [activationSnapshot, setActivationSnapshot] = useState<POSActivationSnapshotLocal | null>(null);
   const [activationLoading, setActivationLoading] = useState(true);
@@ -318,8 +332,6 @@ export default function PosPrototypeApp() {
       savePosAuthContext(context);
     }
 
-    createTenantSessionFromPOSActivationSnapshot(snapshot);
-
     const cached = readSavedVendorLicenseSnapshot(snapshot.vendorId);
     if (cached) {
       setRuntimeLicense(cached);
@@ -327,80 +339,25 @@ export default function PosPrototypeApp() {
   };
 
   useEffect(() => {
-    let active = true;
-    const checkActivation = async () => {
-      const hasActivation = await hasValidPOSActivation();
-      if (!active) return;
-      if (hasActivation) {
-        const snapshot = readLocalActivation();
-        setActivationSnapshot(snapshot);
-        setPosActivated(true);
-        if (snapshot) {
-          createTenantSessionFromPOSActivationSnapshot(snapshot);
-          const cached = readSavedVendorLicenseSnapshot(snapshot.vendorId);
-          if (cached) {
-            setRuntimeLicense(cached);
-          }
-          let context = readPosAuthContext();
-          if (!context) {
-            context = {
-              stage: 'staffAccessRequired',
-              vendorId: snapshot.vendorId,
-              vendorName: snapshot.vendorName,
-              planCode: snapshot.planCode,
-              licenseMode: snapshot.licenseMode,
-              licenseStatus: 'Pending'
-            };
-            savePosAuthContext(context);
-          }
-        }
-      } else {
-        setPosActivated(false);
-      }
-      setActivationLoading(false);
-    };
-    void checkActivation();
-    return () => {
-      active = false;
-    };
+    setActivationLoading(false);
+    setPosActivated(null);
   }, []);
 
   function createPosSessionFromVendorAuthContext(): PosSession | null {
-    const vendorAuth = readPosAuthContext();
-    if (!vendorAuth || vendorAuth.stage !== 'posReady') {
-      return null;
-    }
-    const storedBusinessProfile = readStoredValue<BusinessProfile | null>('itred_pos_business_profile', null);
-    const branchId = vendorAuth.branchId || 'demo-branch';
-    const terminalId = 'TERM-MAIN-001';
-    const warehouseId = 'demo-warehouse';
-    return normalizeSessionForVendorRuntime({
-      staffId: vendorAuth.staffId || 'owner-staff',
-      staffName: 'Owner',
-      role: (vendorAuth.staffRole || 'Owner') as PosSession['role'],
-      vendor: resolveVendorDisplayName(storedBusinessProfile, vendorAuth),
-      branch: resolveStoredBranchName(branchId),
-      terminal: resolveStoredTerminalName(terminalId),
-      warehouse: resolveStoredWarehouseName(warehouseId),
-      vendorId: vendorAuth.vendorId || 'demo-vendor',
-      branchId,
-      terminalId,
-      warehouseId,
-      licenseId: `${vendorAuth.vendorId || 'vendor'}-license`,
-      planId: vendorAuth.planCode || 'DEMO',
-      licenseMode: vendorAuth.licenseMode || 'demo',
-      storageMode: resolveRuntimeStorageMode(),
-      activationId: `${vendorAuth.vendorId || 'vendor'}-activation`,
-      dashboardType: 'POS',
-      openedAt: new Date().toISOString(),
-      googleEmail: vendorAuth.googleEmail || ''
-    }, storedBusinessProfile, vendorAuth);
+    const staffSession = readSciPosStaffSession();
+    if (!staffSession) return null;
+    return normalizeSessionForVendorRuntime(
+      adaptSciStaffSessionToPosSession(staffSession),
+      readStoredValue<BusinessProfile | null>('itred_pos_business_profile', null),
+      readPosAuthContext()
+    );
   }
 
   const [activeSession, setActiveSession] = useState<PosSession | null>(() => {
     const vendorAuth = readPosAuthContext();
     const storedBusinessProfile = readStoredValue<BusinessProfile | null>('itred_pos_business_profile', null);
-    const storedSession = readStoredValue<PosSession | null>('itred_pos_active_session', null);
+    const sciStaffSession = readSciPosStaffSession();
+    const storedSession = sciStaffSession ? adaptSciStaffSessionToPosSession(sciStaffSession) : null;
     if (storedSession) {
       return normalizeSessionForVendorRuntime(storedSession, storedBusinessProfile, vendorAuth);
     }
@@ -418,32 +375,15 @@ export default function PosPrototypeApp() {
   useEffect(() => {
     if (activeSession) return;
 
+    const staffSession = readSciPosStaffSession();
+    if (!staffSession) return;
     const vendorAuth = readPosAuthContext();
-
-    if (!vendorAuth || vendorAuth.stage !== 'posReady') return;
     const storedBusinessProfile = readStoredValue<BusinessProfile | null>('itred_pos_business_profile', null);
-    const branchId = vendorAuth.branchId || 'main-branch';
-    const terminalId = 'TERM-MAIN-001';
-
-    const bridgedSession: PosSession = normalizeSessionForVendorRuntime({
-      staffId: vendorAuth.staffId || 'owner-staff',
-      staffName: 'Owner',
-      role: (vendorAuth.staffRole || 'Owner') as PosSession['role'],
-      vendor: resolveVendorDisplayName(storedBusinessProfile, vendorAuth),
-      branch: resolveStoredBranchName(branchId),
-      terminal: resolveStoredTerminalName(terminalId),
-      vendorId: vendorAuth.vendorId || 'demo-vendor',
-      branchId,
-      terminalId,
-      licenseId: `${vendorAuth.vendorId || 'vendor'}-license`,
-      planId: vendorAuth.planCode || 'DEMO',
-      licenseMode: vendorAuth.licenseMode || 'demo',
-      storageMode: resolveRuntimeStorageMode(),
-      activationId: `${vendorAuth.vendorId || 'vendor'}-activation`,
-      dashboardType: 'POS',
-      openedAt: new Date().toISOString(),
-      googleEmail: vendorAuth.googleEmail || ''
-    }, storedBusinessProfile, vendorAuth);
+    const bridgedSession = normalizeSessionForVendorRuntime(
+      adaptSciStaffSessionToPosSession(staffSession),
+      storedBusinessProfile,
+      vendorAuth
+    );
 
     setActiveSession(bridgedSession);
   }, [activeSession]);
@@ -568,11 +508,24 @@ export default function PosPrototypeApp() {
 
   const [taxSetting, setTaxSetting] = useState<TaxSetting>(() => {
     return readStoredValue<TaxSetting>('itred_pos_tax_setting', {
-      vatRatePct: 10,
-      surtaxPct: 2,
+      vatRatePct: 0,
+      surtaxPct: 0,
       inclusive: true
     });
   });
+
+  useEffect(() => {
+    if (!activeSession?.vendorId) return;
+    let active = true;
+    getVendorTaxSettings(activeSession.vendorId)
+      .then((settings) => {
+        if (active) setTaxSetting(vendorTaxSettingsToPosTaxSetting(settings));
+      })
+      .catch((error) => console.error('[PosPrototypeApp] VAT settings load failed', error));
+    return () => {
+      active = false;
+    };
+  }, [activeSession?.vendorId]);
 
   const [receiptSetting, setReceiptSetting] = useState<ReceiptSetting>(() => {
     return {
@@ -646,11 +599,11 @@ export default function PosPrototypeApp() {
   useEffect(() => {
     if (activeSession) {
       initializeEmptyVendorOperationalStores(activeSession.vendorId);
-      writeStoredValue('itred_pos_active_session', activeSession);
+      removeStoredValue(LEGACY_POS_ACTIVE_SESSION_KEY);
       setActiveOperatorName(activeSession.staffName);
       setTerminalUnit(activeSession.terminal);
     } else {
-      removeStoredValue('itred_pos_active_session');
+      removeStoredValue(LEGACY_POS_ACTIVE_SESSION_KEY);
     }
   }, [activeSession]);
 
@@ -779,6 +732,15 @@ export default function PosPrototypeApp() {
     );
   };
 
+  const handleUpdateTaxSetting = (nextTaxSetting: TaxSetting) => {
+    setTaxSetting(nextTaxSetting);
+    if (!activeSession?.vendorId) return;
+    void saveVendorTaxSettings(
+      activeSession.vendorId,
+      posTaxSettingToVendorTaxSettings(activeSession.vendorId, nextTaxSetting, activeSession.staffId || activeSession.staffName || 'POS')
+    ).catch((error) => console.error('[PosPrototypeApp] VAT settings save failed', error));
+  };
+
   const handleAddProduct = (newProd: Omit<Product, 'id'>) => {
     if (productLimitReached) {
       setPlanLimitNotice(productLimitMessage);
@@ -815,19 +777,6 @@ export default function PosPrototypeApp() {
       });
     }
 
-    // Write cash log row automated if the payment was CASH! Let's link it!
-    if (completeTx.paymentMethod === 'CASH') {
-      const logId = 'CL-' + Math.floor(Math.random() * 8999 + 1000);
-      const cashLogData: CashLog = {
-        id: logId,
-        timestamp: date,
-        type: 'PAY_IN',
-        amount: completeTx.total,
-        reason: `AUTO SALE CASH_FLOW INVOICE: [${invoiceNo}]`,
-        operator: completeTx.operator
-      };
-      setCashLogs(prev => [...prev, cashLogData]);
-    }
   };
 
   const handleLogBiEvent = (
@@ -866,8 +815,8 @@ export default function PosPrototypeApp() {
   };
 
   // Shift gates functions
-  const handleOpenShift = (operatorName: string, startingFloat: number) => {
-    const id = 'SHIFT-' + new Date().toISOString().substring(0, 10) + '-' + Math.floor(Math.random() * 90 + 10);
+  const handleOpenShift = (operatorName: string, startingFloat: number, shiftId?: string) => {
+    const id = shiftId || 'SHIFT-' + new Date().toISOString().substring(0, 10) + '-' + Math.floor(Math.random() * 90 + 10);
     const newShift: Shift = {
       id,
       operator: operatorName,
@@ -905,18 +854,11 @@ export default function PosPrototypeApp() {
     );
   };
 
-  const handleCloseShift = (actualFloat: number) => {
+  const handleCloseShift = async (actualFloat: number) => {
     if (!activeShift) return;
 
-    // Calculate actual drawer cash sales
-    const todayCashSales = transactions
-      .filter(t => t.status === 'COMPLETED' && t.paymentMethod === 'CASH')
-      .reduce((sum, t) => sum + t.total, 0);
-
-    const payInEvents = cashLogs.filter(l => l.type === 'PAY_IN').reduce((sum, l) => sum + l.amount, 0);
-    const payOutEvents = cashLogs.filter(l => l.type === 'PAY_OUT' || l.type === 'SAFE_DROP').reduce((sum, l) => sum + l.amount, 0);
-
-    const computedExpected = activeShift.startingCash + todayCashSales + payInEvents - payOutEvents;
+    const movementCash = await calculateExpectedCash(activeShift.id, activeSession?.vendorId);
+    const computedExpected = movementCash.expectedCash || activeShift.expectedCash || activeShift.startingCash;
     const difference = actualFloat - computedExpected;
 
     const finalizedShift: Shift = {
@@ -991,6 +933,8 @@ export default function PosPrototypeApp() {
       removeStoredValue(key);
       removeStoredValue(getVendorScopedStorageKey(key, activeSession?.vendorId));
     });
+    removeStoredValue(SCI_POS_STAFF_SESSION_KEY);
+    removeStoredValue(LEGACY_POS_ACTIVE_SESSION_KEY);
 
     setProducts(INITIAL_PRODUCTS);
     setTransactions(INITIAL_TRANSACTIONS);
@@ -1012,8 +956,8 @@ export default function PosPrototypeApp() {
       drawerSignal: '12VDC_ELECTRO_M_PULSE'
     });
     setTaxSetting({
-      vatRatePct: 10,
-      surtaxPct: 2,
+      vatRatePct: 0,
+      surtaxPct: 0,
       inclusive: true
     });
     setReceiptSetting({
@@ -1029,7 +973,8 @@ export default function PosPrototypeApp() {
     setRuntimeLicense(null);
     localStorage.removeItem('itred_pos_tenant_session');
     localStorage.removeItem('itred_pos_tenant_session_claims');
-    localStorage.removeItem('itred_pos_active_session');
+    localStorage.removeItem(SCI_POS_STAFF_SESSION_KEY);
+    localStorage.removeItem(LEGACY_POS_ACTIVE_SESSION_KEY);
     localStorage.removeItem('sci_pos_vendor_auth_context');
     setPosActivated(null);
     setActivationSnapshot(null);
@@ -1038,8 +983,8 @@ export default function PosPrototypeApp() {
     setActivePage('DASHBOARD');
   };
 
-  // Activation is now controlled by PosVendorAuthGate.
-  // PosPrototypeApp only runs after Google Auth + Activation + Vendor Auth stages.
+  // Auth is controlled by src/sci-auth/VendorAuthGate.tsx.
+  // PosPrototypeApp only runs after Google owner auth and Staff Access stages.
 
   // Guard the operational register with Staff Access
   if (!activeSession) {
@@ -1215,6 +1160,7 @@ export default function PosPrototypeApp() {
           onAddTransaction={handleAddTransaction}
           onNavigate={(page) => setActivePage(page as PosPageId)}
           activeShiftOperator={activeShift ? activeShift.operator : null}
+          activeShift={activeShift}
           session={activeSession}
           taxSetting={taxSetting}
         />
@@ -1349,7 +1295,7 @@ export default function PosPrototypeApp() {
           hardwareSetting={hardwareSetting}
           onUpdateHardwareSetting={setHardwareSetting}
           taxSetting={taxSetting}
-          onUpdateTaxSetting={setTaxSetting}
+          onUpdateTaxSetting={handleUpdateTaxSetting}
           receiptSetting={receiptSetting}
           onUpdateReceiptSetting={setReceiptSetting}
           receiptHeader={receiptHeader}

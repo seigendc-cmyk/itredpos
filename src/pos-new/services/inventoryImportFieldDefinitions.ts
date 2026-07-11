@@ -35,7 +35,7 @@ export const inventoryImportFieldDefinitions: InventoryImportFieldDefinition[] =
   field('barcode', 'Barcode', 'Recommended', false, 'Text', 'Product', ['Barcode', 'UPC', 'EAN'], '6001234567890', 'Barcode or scan code.'),
   field('description', 'Description', 'Optional', false, 'Text', 'Product', ['Description', 'Long Description', 'Item Description'], 'Product description', 'Extended product description.'),
   field('shelfLocation', 'Shelf / Bin', 'Recommended', false, 'Text', 'Location', ['Attribute', 'Shelf', 'Shelf Location', 'Location', 'Bin', 'Bin Location', 'Rack', 'shelfLocation'], 'A1-S4', 'Shelf or bin location.'),
-  field('taxCode', 'Tax Code', 'Recommended', false, 'Enum', 'Tax', ['Tax Code', 'VAT Code', 'Tax Category'], 'VAT15', 'Tax mapping.'),
+  field('taxCode', 'Tax Code', 'Recommended', false, 'Enum', 'Tax', ['Tax Code', 'VAT Code', 'Tax Category'], 'STANDARD', 'Tax mapping.'),
   field('reorderPoint', 'Reorder Point', 'Optional', false, 'Quantity', 'Stock', ['Reorder Point', 'Min Stock', 'Minimum Qty'], '2', 'Minimum stock trigger.'),
   field('brand', 'Brand', 'Recommended', false, 'Text', 'Product', ['Brand', 'Make Brand'], 'Vendor Brand', 'Brand or label.'),
   field('partNumber', 'Part Number', 'MotorSpares', false, 'Text', 'MotorSpares', ['Part Number', 'Part No', 'OEM No', 'OEM Number'], 'PART-001', 'Automotive part number.'),

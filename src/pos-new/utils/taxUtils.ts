@@ -1,27 +1,49 @@
 import { ReceiptLine, ReceiptTaxSummary, VATMode } from '../types/posTypes';
+import {
+  calculateDocumentTax,
+  calculateLineTax,
+  type VendorTaxSettings
+} from '../services/vendorTaxSettingsService';
 
-export function calculateVATInclusive(grossAmount: number, vatRate = 15): { netAmount: number; vatAmount: number; grossAmount: number } {
-  const vatAmount = grossAmount - grossAmount / (1 + vatRate / 100);
+function settingsFromMode(vatMode: VATMode, vatRate: number): VendorTaxSettings {
   return {
-    netAmount: grossAmount - vatAmount,
-    vatAmount,
+    vendorId: '',
+    vatEnabled: vatMode !== 'Not VAT Registered',
+    vatRegistered: vatMode !== 'Not VAT Registered',
+    vatNumber: '',
+    defaultVatRate: vatMode === 'Not VAT Registered' ? 0 : vatRate,
+    pricesIncludeVat: vatMode !== 'Exclusive',
+    outputTaxAccountId: '',
+    inputTaxAccountId: '',
+    exemptTaxCode: 'EXEMPT',
+    zeroRatedTaxCode: 'ZERO',
+    updatedAt: '',
+    updatedBy: ''
+  };
+}
+
+export function calculateVATInclusive(grossAmount: number, vatRate = 0): { netAmount: number; vatAmount: number; grossAmount: number } {
+  const line = calculateLineTax({ lineAmount: grossAmount }, settingsFromMode('Inclusive', vatRate));
+  return {
+    netAmount: line.netAmount,
+    vatAmount: line.vatAmount,
     grossAmount
   };
 }
 
-export function calculateVATExclusive(netAmount: number, vatRate = 15): { netAmount: number; vatAmount: number; grossAmount: number } {
-  const vatAmount = netAmount * (vatRate / 100);
+export function calculateVATExclusive(netAmount: number, vatRate = 0): { netAmount: number; vatAmount: number; grossAmount: number } {
+  const line = calculateLineTax({ lineAmount: netAmount }, settingsFromMode('Exclusive', vatRate));
   return {
     netAmount,
-    vatAmount,
-    grossAmount: netAmount + vatAmount
+    vatAmount: line.vatAmount,
+    grossAmount: line.total
   };
 }
 
 export function calculateReceiptTaxSummary(
   lines: ReceiptLine[],
   vatMode: VATMode,
-  vatRate = 15
+  vatRate = 0
 ): ReceiptTaxSummary {
   const receiptNumber = lines[0]?.receiptNumber || 'DRAFT';
   const total = lines.reduce((sum, line) => sum + line.lineTotal, 0);
@@ -38,28 +60,18 @@ export function calculateReceiptTaxSummary(
     };
   }
 
-  if (vatMode === 'Exclusive') {
-    const tax = calculateVATExclusive(total, vatRate);
-    return {
-      receiptNumber,
-      vatMode,
-      vatRate,
-      taxableAmount: tax.netAmount,
-      vatAmount: tax.vatAmount,
-      nonTaxableAmount: 0,
-      taxLabel: `VAT ${vatRate}% exclusive`
-    };
-  }
-
-  const tax = calculateVATInclusive(total, vatRate);
+  const tax = calculateDocumentTax(
+    lines.map((line) => ({ lineAmount: line.lineTotal })),
+    settingsFromMode(vatMode, vatRate)
+  );
   return {
     receiptNumber,
     vatMode,
     vatRate,
-    taxableAmount: tax.netAmount,
+    taxableAmount: tax.taxableAmount,
     vatAmount: tax.vatAmount,
-    nonTaxableAmount: 0,
-    taxLabel: `VAT ${vatRate}% inclusive`
+    nonTaxableAmount: tax.nonTaxableAmount,
+    taxLabel: `VAT ${vatRate}% ${vatMode === 'Exclusive' ? 'exclusive' : 'inclusive'}`
   };
 }
 

@@ -4,6 +4,9 @@ export type VendorDataMode = 'liveVendorEmpty' | 'mockSeed';
 
 const AUTH_CONTEXT_KEY = 'sci_pos_vendor_auth_context';
 const BUSINESS_PROFILE_KEY = 'itred_pos_business_profile';
+const ACTIVE_POS_SESSION_KEY = 'sci_pos_staff_session';
+const TENANT_SESSION_KEY = 'itred_pos_tenant_session';
+const ACTIVATION_SNAPSHOT_KEY = 'itred_pos_activation_snapshot';
 
 const OPERATIONAL_LIST_STORE_KEYS = [
   'itred_pos_products',
@@ -51,11 +54,25 @@ const OPERATIONAL_LIST_STORE_KEYS = [
   'itred_pos_reorder_protection_rules_v1',
   'itred_pos_purchase_discipline_activity_v1',
   'itred_pos_purchasing_discipline_bi_rules_v1',
+  'itred_pos_purchase_requests_v1',
+  'itred_pos_purchase_orders_v1',
+  'itred_pos_purchase_order_lines_v1',
+  'itred_pos_purchase_order_activity_v1',
+  'itred_pos_goods_receiving_notes_v1',
+  'itred_pos_goods_receiving_lines_v1',
+  'itred_pos_goods_receiving_activity_v1',
+  'itred_pos_supplier_records_v1',
+  'itred_pos_supplier_activity_v1',
   'itred_pos_supplier_credit_profiles_v1',
   'itred_pos_supplier_bills_v1',
   'itred_pos_supplier_payments_v1',
   'itred_pos_supplier_payment_allocations_v1',
   'itred_pos_supplier_statements_v1',
+  'itred_pos_supplier_accounts_v1',
+  'itred_pos_supplier_returns_v1',
+  'itred_pos_supplier_return_lines_v1',
+  'itred_pos_supplier_return_credit_notes_v1',
+  'itred_pos_supplier_return_activity_v1',
   'sci_pos_purchase_orders_v2',
   'sci_pos_purchase_order_lines_v2',
   'sci_pos_purchase_order_activity_v2',
@@ -118,8 +135,9 @@ export function seedRows<T>(rows: T[]): T[] {
 
 export function getActiveVendorId(fallback = 'unassigned-vendor'): string {
   const auth = readObject(AUTH_CONTEXT_KEY);
+  const activeSession = readObject(ACTIVE_POS_SESSION_KEY);
   const profile = readObject(BUSINESS_PROFILE_KEY);
-  const vendorId = asText(auth?.vendorId) || asText(profile?.vendorId) || fallback;
+  const vendorId = asText(auth?.vendorId) || asText(activeSession?.vendorId) || asText(profile?.vendorId) || fallback;
   return storageSafeId(vendorId) || fallback;
 }
 
@@ -135,10 +153,6 @@ const NON_TENANT_VENDOR_IDS: ReadonlySet<string> = new Set([
   'test-vendor-001',
   'unassigned-vendor'
 ]);
-
-const ACTIVE_POS_SESSION_KEY = 'itred_pos_active_session';
-const TENANT_SESSION_KEY = 'itred_pos_tenant_session';
-const ACTIVATION_SNAPSHOT_KEY = 'itred_pos_activation_snapshot';
 
 function isRealVendorId(value: string): boolean {
   const candidate = asText(value);
@@ -156,7 +170,7 @@ function isRealVendorId(value: string): boolean {
  *
  * Tenant lookup priority:
  *   1. POS auth context vendorId (`sci_pos_vendor_auth_context`)
- *   2. Active POS session vendorId (`itred_pos_active_session`)
+ *   2. Active POS staff session vendorId (`sci_pos_staff_session`)
  *   3. Tenant session vendorId (`itred_pos_tenant_session`, excluding build-dev sessions)
  *   4. Business profile vendorId (`itred_pos_business_profile`)
  *   5. Local activation snapshot vendorId (`itred_pos_activation_snapshot`)

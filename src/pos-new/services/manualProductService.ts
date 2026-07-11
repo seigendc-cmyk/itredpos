@@ -14,6 +14,7 @@ import { postInventoryMovement } from './inventoryMovementService';
 import { createOperationalApproval } from './approvalService';
 import { enqueueOfflineAction, getNetworkStatus } from './offlineSyncService';
 import { getActiveVendorId, readVendorScopedList, writeVendorScopedList } from '../utils/vendorDataMode';
+import { getCachedVendorTaxSettings } from './vendorTaxSettingsService';
 
 const SUPPLIER_LINK_KEY = 'itred_pos_manual_product_supplier_links_v1';
 const PRICE_RECORD_KEY = 'itred_pos_manual_product_price_records_v1';
@@ -85,6 +86,8 @@ function compactNotes(rows: Array<[string, string | number | boolean | undefined
 }
 
 function toProductMasterPayload(payload: ManualProductDraft, status: 'Draft' | 'Active' | 'Pending Review' | 'Blocked' | 'Inactive' = 'Draft'): Omit<ProductMasterRecord, 'productId' | 'createdAt' | 'updatedAt'> {
+  const vendorId = payload.vendorId || getActiveVendorId();
+  const defaultVatRate = getCachedVendorTaxSettings(vendorId).defaultVatRate;
   const productName = payload.productName.trim() || 'Manual Product Draft';
   const sku = payload.sku?.trim() || payload.barcode?.trim() || payload.alu?.trim() || payload.vendorSku?.trim() || `MAN-${Date.now()}`;
   const cost = moneyNumber(payload.costPrice) || 0;
@@ -99,7 +102,7 @@ function toProductMasterPayload(payload: ManualProductDraft, status: 'Draft' | '
     ['Storage Requirement', payload.storageRequirement]
   ]);
   return {
-    vendorId: payload.vendorId || getActiveVendorId(),
+    vendorId,
     productCode: sku,
     sku,
     barcode: payload.barcode || undefined,
@@ -132,9 +135,9 @@ function toProductMasterPayload(payload: ManualProductDraft, status: 'Draft' | '
     partNumber: payload.partNumber || undefined,
     oemNumber: payload.oemNumber || undefined,
     tags: payload.tags?.length ? payload.tags : ['Manual Product'],
-    taxCode: 'VAT15',
+    taxCode: defaultVatRate > 0 ? 'STANDARD' : 'EXEMPT',
     taxMode: payload.taxMode || 'VAT Registered',
-    vatRate: moneyNumber(payload.vatRate) ?? 15,
+    vatRate: moneyNumber(payload.vatRate) ?? defaultVatRate,
     defaultSellingPrice: selling,
     defaultCostPrice: cost,
     reorderLevel: moneyNumber(payload.reorderLevel) || 0,
@@ -355,6 +358,7 @@ export async function createSupplierLinkFromProduct(productId: string, payload: 
 export async function createPriceRecordFromProduct(productId: string, payload: Partial<ManualProductDraft>): Promise<ProductPriceRecord> {
   const cost = moneyNumber(payload.costPrice) ?? 0;
   const selling = moneyNumber(payload.sellingPrice) ?? 0;
+  const defaultVatRate = getCachedVendorTaxSettings(payload.vendorId || getActiveVendorId()).defaultVatRate;
   const price: ProductPriceRecord = {
     priceId: makeId('PPR'),
     productId,
@@ -364,7 +368,7 @@ export async function createPriceRecordFromProduct(productId: string, payload: P
     marginPercent: calculateMargin(selling, cost),
     markupPercent: cost > 0 ? Math.round(((selling - cost) / cost) * 100) : 0,
     taxMode: payload.taxMode || 'VAT Registered',
-    vatRate: moneyNumber(payload.vatRate) ?? 15,
+    vatRate: moneyNumber(payload.vatRate) ?? defaultVatRate,
     currency: 'USD',
     effectiveFrom: payload.priceEffectiveDate || now().slice(0, 10),
     status: 'Active'

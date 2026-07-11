@@ -38,6 +38,7 @@ import {
 } from '../services/purchaseOrderProductService';
 import { canPerformAction } from '../utils/posPermissions';
 import { getActiveVendorId } from '../utils/vendorDataMode';
+import { calculateDocumentTax, getCachedVendorTaxSettings } from '../services/vendorTaxSettingsService';
 
 type WindowState = 'normal' | 'minimized' | 'maximized';
 
@@ -360,10 +361,12 @@ export default function PurchaseOrderForm({
     const lineCount = formLines.length;
     const totalQty = formLines.reduce((sum, line) => sum + (Number(line.qtyOrdered) || 0), 0);
     const subtotal = formLines.reduce((sum, line) => sum + ((Number(line.qtyOrdered) || 0) * (Number(line.estimatedUnitCost) || 0)), 0);
-    const tax = subtotal * 0.15;
-    const grand = subtotal + tax + deliveryCostEstimate;
+    const taxSettings = getCachedVendorTaxSettings(order?.vendorId || getActiveVendorId());
+    const taxResult = calculateDocumentTax([{ lineAmount: subtotal }], { ...taxSettings, pricesIncludeVat: false });
+    const tax = taxResult.vatAmount;
+    const grand = taxResult.total + deliveryCostEstimate;
     return { lineCount, totalQty, subtotal, tax, grand };
-  }, [deliveryCostEstimate, formLines]);
+  }, [deliveryCostEstimate, formLines, order?.vendorId]);
 
   const sizeClass = windowState === 'maximized'
     ? 'w-[calc(100vw-32px)] h-[calc(100vh-32px)]'
@@ -717,82 +720,103 @@ export default function PurchaseOrderForm({
   });
 
   const saveDraft = async (): Promise<PurchaseOrder | null> => {
-    if (!validateLines(false)) return null;
-    if (!(await ensureSupplierLinked())) return null;
-    if (!canCreate && !canEdit) {
-      setFeedback('You do not have permission to perform this action.');
+    try {
+      if (!validateLines(false)) return null;
+      if (!(await ensureSupplierLinked())) return null;
+      if (!canCreate && !canEdit) {
+        setFeedback('You do not have permission to perform this action.');
+        return null;
+      }
+      const payload = buildPayload();
+      const saved = poId
+        ? await updatePurchaseOrderDraft(poId, payload)
+        : await createPurchaseOrder(payload);
+      if (!saved) {
+        setFeedback('This Purchase Order is locked and cannot be edited.');
+        return null;
+      }
+      setPoId(saved.poId);
+      setPoNumber(saved.poNumber);
+      setStatus(saved.status);
+      setFeedback(`${saved.poNumber} saved. No stock, accounting or cashbook posting was created.`);
+      onChanged('Purchase Order saved.');
+      return saved;
+    } catch (error) {
+      setFeedback(error instanceof Error ? error.message : 'Purchase Order could not be saved.');
       return null;
     }
-    const payload = buildPayload();
-    const saved = poId
-      ? await updatePurchaseOrderDraft(poId, payload)
-      : await createPurchaseOrder(payload);
-    if (!saved) {
-      setFeedback('This Purchase Order is locked and cannot be edited.');
-      return null;
-    }
-    setPoId(saved.poId);
-    setPoNumber(saved.poNumber);
-    setStatus(saved.status);
-    setFeedback(`${saved.poNumber} saved. No stock, accounting or cashbook posting was created.`);
-    onChanged('Purchase Order saved.');
-    return saved;
   };
 
   const handleSubmitForApproval = async () => {
-    if (!validateLines(true)) return;
-    if (!(await ensureSupplierLinked())) return;
-    const saved = poId ? await saveDraft() : await saveDraft();
-    if (!saved) return;
-    const submitted = await submitPurchaseOrderForApproval(saved.poId);
-    if (!submitted) {
-      setFeedback('Submit for Approval failed. Check supplier and line values.');
-      return;
+    try {
+      if (!validateLines(true)) return;
+      if (!(await ensureSupplierLinked())) return;
+      const saved = poId ? await saveDraft() : await saveDraft();
+      if (!saved) return;
+      const submitted = await submitPurchaseOrderForApproval(saved.poId);
+      if (!submitted) {
+        setFeedback('Submit for Approval failed. Check supplier and line values.');
+        return;
+      }
+      setStatus(submitted.status);
+      setFeedback(`${submitted.poNumber} submitted for approval. No stock movement or financial posting was created.`);
+      onChanged('Purchase Order submitted for approval.');
+    } catch (error) {
+      setFeedback(error instanceof Error ? error.message : 'Purchase Order could not be submitted.');
     }
-    setStatus(submitted.status);
-    setFeedback(`${submitted.poNumber} submitted for approval. No stock movement or financial posting was created.`);
-    onChanged('Purchase Order submitted for approval.');
   };
 
   const handleApprove = async () => {
-    if (!canApprove) {
-      setFeedback('You do not have permission to perform this action.');
-      return;
-    }
-    const targetPoId = poId || order?.poId;
-    if (!(await ensureSupplierLinked())) return;
-    if (!targetPoId) return;
-    const approved = await approvePurchaseOrder(targetPoId, staffId || staffName, 'Owner/authorized approval.');
-    if (approved) {
-      setStatus(approved.status);
-      setFeedback(`${approved.poNumber} approved. It remains a memo only until Goods Receiving posts quantities.`);
-      onChanged('Purchase Order approved.');
+    try {
+      if (!canApprove) {
+        setFeedback('You do not have permission to perform this action.');
+        return;
+      }
+      const targetPoId = poId || order?.poId;
+      if (!(await ensureSupplierLinked())) return;
+      if (!targetPoId) return;
+      const approved = await approvePurchaseOrder(targetPoId, staffId || staffName, 'Owner/authorized approval.');
+      if (approved) {
+        setStatus(approved.status);
+        setFeedback(`${approved.poNumber} approved. It remains a memo only until Goods Receiving posts quantities.`);
+        onChanged('Purchase Order approved.');
+      }
+    } catch (error) {
+      setFeedback(error instanceof Error ? error.message : 'Purchase Order could not be approved.');
     }
   };
 
   const handleMarkSent = async () => {
-    const targetPoId = poId || order?.poId;
-    if (!(await ensureSupplierLinked())) return;
-    if (!targetPoId) return;
-    const sent = await markPurchaseOrderSent(targetPoId, staffId || staffName);
-    if (sent) {
-      setStatus(sent.status);
-      setFeedback(`${sent.poNumber} marked Sent To Supplier. No accounting or stock posting was created.`);
-      onChanged('Purchase Order marked sent.');
+    try {
+      const targetPoId = poId || order?.poId;
+      if (!(await ensureSupplierLinked())) return;
+      if (!targetPoId) return;
+      const sent = await markPurchaseOrderSent(targetPoId, staffId || staffName);
+      if (sent) {
+        setStatus(sent.status);
+        setFeedback(`${sent.poNumber} marked Sent To Supplier. No accounting or stock posting was created.`);
+        onChanged('Purchase Order marked sent.');
+      }
+    } catch (error) {
+      setFeedback(error instanceof Error ? error.message : 'Purchase Order could not be marked sent.');
     }
   };
 
   const handleExport = async () => {
-    if (!canExport) {
-      setFeedback('You do not have permission to perform this action.');
-      return;
+    try {
+      if (!canExport) {
+        setFeedback('You do not have permission to perform this action.');
+        return;
+      }
+      const targetPoId = poId || order?.poId;
+      if (!(await ensureSupplierLinked())) return;
+      if (!targetPoId) return;
+      const result = await exportPurchaseOrderPlaceholder(targetPoId);
+      setFeedback(result.message);
+      onChanged(result.message);
+    } catch (error) {
+      setFeedback(error instanceof Error ? error.message : 'Purchase Order export could not be prepared.');
     }
-    const targetPoId = poId || order?.poId;
-    if (!(await ensureSupplierLinked())) return;
-    if (!targetPoId) return;
-    const result = await exportPurchaseOrderPlaceholder(targetPoId);
-    setFeedback(result.message);
-    onChanged(result.message);
   };
 
   return (
@@ -858,7 +882,7 @@ export default function PurchaseOrderForm({
                     </div>
                     {supplierId && (
                       <div className="text-[8px] uppercase font-black text-emerald-700 border border-emerald-200 bg-emerald-50 px-2 py-1">
-                        Linked supplier: {supplierCode || supplierId}
+                        Linked supplier: {supplierCode || supplierName}
                       </div>
                     )}
                     {!supplierId && supplierName.trim() && (

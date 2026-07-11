@@ -11,6 +11,8 @@ import {
   ProductImportRow,
   ProductImportSource
 } from '../types';
+import { getCachedVendorTaxSettings } from '../services/vendorTaxSettingsService';
+import { getActiveVendorId } from '../utils/vendorDataMode';
 
 interface ProductImportFormProps {
   batch: ProductImportBatch | null;
@@ -59,6 +61,7 @@ export default function ProductImportForm(props: ProductImportFormProps) {
   const [notes, setNotes] = useState(props.batch?.notes || '');
 
   const selectedTemplate = useMemo(() => props.templates.find((template) => template.industrialSectorCode === (props.batch?.industrialSectorCode || sector)) || props.templates[0], [props.templates, props.batch?.industrialSectorCode, sector]);
+  const defaultVatRate = getCachedVendorTaxSettings(props.batch?.vendorId || getActiveVendorId()).defaultVatRate;
   const validationIssues = props.rows.flatMap((row) => row.validationIssues);
   const duplicateRows = props.rows.filter((row) => row.status === 'Duplicate' || row.duplicateProductId);
   const currentBatchId = props.batch?.batchId || '';
@@ -106,7 +109,7 @@ export default function ProductImportForm(props: ProductImportFormProps) {
                     <Field label="Default Subcategory" value={selectedTemplate?.defaultSubcategoryOptions[0] || 'Standard'} readOnly />
                     <Field label="Default Unit Of Measure" value="pcs" readOnly />
                     <Field label="Default Tax Mode" value="VAT Registered" readOnly />
-                    <Field label="Default VAT Rate" value="15" readOnly />
+                    <Field label="Default VAT Rate" value={String(defaultVatRate)} readOnly />
                   </div>
                   <label className="block text-[9px] uppercase font-black text-slate-500">Notes<textarea className="w-full border border-[#b1b5c2] p-3 text-xs min-h-16" value={notes} onChange={(event) => setNotes(event.target.value)} /></label>
                   <label className="block text-[9px] uppercase font-black text-slate-500">CSV Text Paste Area<textarea className="w-full border border-[#b1b5c2] p-3 text-xs min-h-36 font-mono" value={csvText} onChange={(event) => setCsvText(event.target.value)} /></label>

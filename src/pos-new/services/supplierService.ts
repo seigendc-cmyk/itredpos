@@ -9,7 +9,9 @@ import { createOperationalApproval } from './approvalService';
 import { createBIAdviceFromTrigger } from './biAdviceService';
 import { ensureSupplierCreditProfileFromSupplier, getSupplierCreditProfiles } from './creditorsService';
 import { createTask } from './taskService';
-import { getActiveVendorId } from '../utils/vendorDataMode';
+import { getActiveVendorId, readVendorScopedList, writeVendorScopedList } from '../utils/vendorDataMode';
+import { getSupplierBalance } from './supplierAccountService';
+import { assertCanonicalSupplierContext, type CanonicalSupplierContext } from './supplierContextService';
 
 const SUPPLIER_KEY = 'itred_pos_supplier_records_v1';
 const SUPPLIER_ACTIVITY_KEY = 'itred_pos_supplier_activity_v1';
@@ -31,6 +33,7 @@ export interface SupplierSearchFilters {
 }
 
 export interface SupplierCreatePayload {
+  vendorId?: string;
   supplierName: string;
   tradingName?: string;
   contactPerson?: string;
@@ -57,7 +60,7 @@ export interface SupplierCreatePayload {
 
 export interface SupplierDuplicateMatch {
   supplier: SupplierRecord;
-  reason: 'Supplier name exact match' | 'Supplier phone match' | 'Supplier email match' | 'Similar supplier name match';
+  reason: 'Supplier name exact match' | 'Supplier phone match' | 'Supplier tax number match' | 'Supplier email match' | 'Similar supplier name match';
 }
 
 export interface SupplierValidationResult {
@@ -78,35 +81,12 @@ function makeId(prefix: string): string {
   return `${prefix}-${Date.now()}-${Math.floor(1000 + Math.random() * 9000)}`;
 }
 
-function readList<T>(key: string, fallback: T[] = []): T[] {
-  if (typeof localStorage === 'undefined') return fallback;
-  try {
-    const raw = localStorage.getItem(key);
-    if (!raw) {
-      localStorage.setItem(key, JSON.stringify(fallback));
-      return fallback;
-    }
-    const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed as T[] : fallback;
-  } catch {
-    try {
-      localStorage.setItem(key, JSON.stringify(fallback));
-    } catch {
-      // Local/mock storage can be unavailable in restricted browser modes.
-    }
-    return fallback;
-  }
+function readList<T>(key: string, fallback: T[] = [], vendorId = getActiveVendorId()): T[] {
+  return readVendorScopedList<T>(key, fallback, vendorId);
 }
 
-function saveList<T>(key: string, value: T[]): T[] {
-  if (typeof localStorage !== 'undefined') {
-    try {
-      localStorage.setItem(key, JSON.stringify(value));
-    } catch {
-      // Local/mock storage can fail without blocking the UI.
-    }
-  }
-  return value;
+function saveList<T>(key: string, value: T[], vendorId = getActiveVendorId()): T[] {
+  return writeVendorScopedList(key, value, vendorId);
 }
 
 function normalize(value = ''): string {
@@ -143,19 +123,26 @@ function supplierHaystack(supplier: SupplierRecord): string {
   ].filter(Boolean).join(' ');
 }
 
-function suppliersFromCreditProfiles(): SupplierRecord[] {
+function suppliersFromCreditProfiles(vendorId = getActiveVendorId()): SupplierRecord[] {
   return getSupplierCreditProfiles().map((profile) => ({
     supplierId: profile.supplierId,
+    vendorId,
     supplierCode: profile.supplierCode,
     supplierName: profile.supplierName,
     contactPerson: '',
     phone: '',
     email: '',
     address: '',
+    city: '',
     supplierType: 'Trade Supplier',
     paymentTermsDays: profile.paymentTermsDays,
     creditLimit: profile.supplierCreditLimit,
+    currentBalance: getSupplierBalance(vendorId, profile.supplierId),
+    overdueBalance: 0,
+    riskLevel: 'Low',
     creditStatus: profile.creditStatus,
+    status: profile.creditStatus === 'Suspended' || profile.creditStatus === 'CreditBlocked' ? 'suspended' : 'active',
+    preferred: profile.preferredSupplier,
     preferredSupplier: profile.preferredSupplier,
     active: true,
     notes: profile.notes,
@@ -166,22 +153,43 @@ function suppliersFromCreditProfiles(): SupplierRecord[] {
   }));
 }
 
-function getSupplierRows(): SupplierRecord[] {
-  const fallback = suppliersFromCreditProfiles();
-  const rows = readList<SupplierRecord>(SUPPLIER_KEY, fallback);
+function getSupplierRows(session?: CanonicalSupplierContext | null): SupplierRecord[] {
+  const context = assertCanonicalSupplierContext(session);
+  const vendorId = context.vendorId;
+  const fallback = suppliersFromCreditProfiles(vendorId);
+  const rows = readList<SupplierRecord>(SUPPLIER_KEY, fallback, vendorId);
   const seen = new Set<string>();
   const merged = [...rows, ...fallback].filter((supplier) => {
     if (!supplier?.supplierId || seen.has(supplier.supplierId)) return false;
     seen.add(supplier.supplierId);
     return true;
-  });
-  if (merged.length !== rows.length) saveList(SUPPLIER_KEY, merged);
-  return merged;
+  }).map((supplier) => normalizeSupplierRecord(supplier, vendorId));
+  if (merged.length !== rows.length || merged.some((supplier) => supplier.vendorId !== vendorId)) saveList(SUPPLIER_KEY, merged, vendorId);
+  return merged.filter((supplier) => supplier.vendorId === vendorId);
 }
 
-export function generateSupplierCode(supplierName: string): string {
+function normalizeSupplierRecord(supplier: SupplierRecord, vendorId = getActiveVendorId()): SupplierRecord {
+  const active = supplier.active !== false && supplier.status !== 'inactive' && supplier.status !== 'suspended';
+  const currentBalance = getSupplierBalance(supplier.vendorId || vendorId, supplier.supplierId);
+  return {
+    ...supplier,
+    vendorId: supplier.vendorId || vendorId,
+    city: supplier.city || supplier.cityTown,
+    paymentTermsDays: Number.isFinite(Number(supplier.paymentTermsDays)) ? Number(supplier.paymentTermsDays) : 0,
+    creditLimit: Number.isFinite(Number(supplier.creditLimit)) ? Number(supplier.creditLimit) : 0,
+    currentBalance,
+    overdueBalance: supplier.overdueBalance || 0,
+    riskLevel: supplier.riskLevel || (currentBalance > 0 ? 'Medium' : 'Low'),
+    status: supplier.status || (active ? 'active' : 'inactive'),
+    preferred: supplier.preferred ?? supplier.preferredSupplier,
+    preferredSupplier: supplier.preferredSupplier ?? Boolean(supplier.preferred),
+    active
+  };
+}
+
+export function generateSupplierCode(supplierName: string, session?: CanonicalSupplierContext | null): string {
   const letters = supplierName.replace(/[^a-zA-Z0-9 ]/g, '').split(/\s+/).filter(Boolean).map((part) => part[0]).join('').slice(0, 4).toUpperCase() || 'SUP';
-  const existing = getSupplierRows();
+  const existing = getSupplierRows(session);
   const next = existing.reduce((max, supplier) => {
     const match = supplier.supplierCode.match(/-(\d+)$/);
     return match ? Math.max(max, Number(match[1])) : max;
@@ -189,16 +197,16 @@ export function generateSupplierCode(supplierName: string): string {
   return `${letters}-${String(next).padStart(3, '0')}`;
 }
 
-export function getSuppliers(filters: SupplierSearchFilters = {}): SupplierRecord[] {
-  return getSupplierRows()
+export function getSuppliers(filters: SupplierSearchFilters = {}, session?: CanonicalSupplierContext | null): SupplierRecord[] {
+  return getSupplierRows(session)
     .filter((supplier) => anyOrderMatch(supplierHaystack(supplier), filters.search || ''))
     .filter((supplier) => filters.active === undefined || filters.active === 'ALL' || supplier.active === filters.active)
     .filter((supplier) => !filters.creditStatus || filters.creditStatus === 'ALL' || supplier.creditStatus === filters.creditStatus)
     .sort((a, b) => a.supplierName.localeCompare(b.supplierName));
 }
 
-export function getSupplierById(supplierId: string): SupplierRecord | null {
-  return getSupplierRows().find((supplier) => supplier.supplierId === supplierId) || null;
+export function getSupplierById(supplierId: string, session?: CanonicalSupplierContext | null): SupplierRecord | null {
+  return getSupplierRows(session).find((supplier) => supplier.supplierId === supplierId) || null;
 }
 
 export function searchSuppliers(query: string): SupplierRecord[] {
@@ -206,16 +214,18 @@ export function searchSuppliers(query: string): SupplierRecord[] {
   return getSuppliers({ search: query, active: true }).slice(0, 12);
 }
 
-export function findSupplierByNameOrContact(payload: Partial<Pick<SupplierRecord, 'supplierName' | 'phone' | 'email' | 'contactPerson'>>): SupplierDuplicateMatch[] {
+export function findSupplierByNameOrContact(payload: Partial<Pick<SupplierRecord, 'supplierName' | 'phone' | 'email' | 'contactPerson'>>, session?: CanonicalSupplierContext | null): SupplierDuplicateMatch[] {
   const name = normalize(payload.supplierName);
   const phone = normalize(payload.phone);
   const email = normalize(payload.email);
+  const taxNumber = normalize((payload as Partial<Pick<SupplierRecord, 'taxNumber'>>).taxNumber);
   const nameWords = words(payload.supplierName);
   const matches: SupplierDuplicateMatch[] = [];
-  getSupplierRows().forEach((supplier) => {
+  getSupplierRows(session).forEach((supplier) => {
     const supplierName = normalize(supplier.supplierName);
     if (name && supplierName === name) matches.push({ supplier, reason: 'Supplier name exact match' });
     else if (phone && normalize(supplier.phone) === phone) matches.push({ supplier, reason: 'Supplier phone match' });
+    else if (taxNumber && normalize(supplier.taxNumber) === taxNumber) matches.push({ supplier, reason: 'Supplier tax number match' });
     else if (email && normalize(supplier.email) === email) matches.push({ supplier, reason: 'Supplier email match' });
     else if (nameWords.length >= 2 && nameWords.filter((word) => supplierName.includes(word)).length >= Math.min(2, nameWords.length)) matches.push({ supplier, reason: 'Similar supplier name match' });
   });
@@ -227,19 +237,23 @@ export function findSupplierByNameOrContact(payload: Partial<Pick<SupplierRecord
   });
 }
 
-export function validateSupplierPayload(payload: SupplierCreatePayload): SupplierValidationResult {
+export function validateSupplierPayload(payload: SupplierCreatePayload, session?: CanonicalSupplierContext | null): SupplierValidationResult {
   const errors: string[] = [];
   if (!payload.supplierName.trim()) errors.push('Supplier name is required.');
   if (payload.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(payload.email)) errors.push('Supplier email format is invalid.');
   if ((payload.paymentTermsDays ?? 30) < 0) errors.push('Payment terms days cannot be negative.');
+  if (payload.paymentTermsDays === undefined || payload.paymentTermsDays === null) errors.push('Credit terms must be explicit.');
   if ((payload.creditLimit ?? 0) < 0) errors.push('Credit limit cannot be negative.');
-  return { valid: errors.length === 0, errors, duplicates: findSupplierByNameOrContact(payload) };
+  return { valid: errors.length === 0, errors, duplicates: findSupplierByNameOrContact(payload, session) };
 }
 
-export function recordSupplierActivity(eventType: SupplierActivityEventType, message: string, staffId: string, supplierId?: string, relatedRecordId?: string) {
-  const events = readList<Array<{ id: string }>[number] & Record<string, string | undefined>>(SUPPLIER_ACTIVITY_KEY, []);
+export function recordSupplierActivity(eventType: SupplierActivityEventType, message: string, staffId: string, supplierId?: string, relatedRecordId?: string, session?: CanonicalSupplierContext | null) {
+  const context = assertCanonicalSupplierContext(session);
+  const vendorId = context.vendorId;
+  const events = readList<Array<{ id: string }>[number] & Record<string, string | undefined>>(SUPPLIER_ACTIVITY_KEY, [], vendorId);
   const next = {
     id: makeId('SUP-ACT'),
+    vendorId,
     eventType,
     supplierId,
     relatedRecordId,
@@ -247,7 +261,7 @@ export function recordSupplierActivity(eventType: SupplierActivityEventType, mes
     staffId,
     createdAt: nowIso()
   };
-  saveList(SUPPLIER_ACTIVITY_KEY, [next, ...events].slice(0, 160));
+  saveList(SUPPLIER_ACTIVITY_KEY, [next, ...events].slice(0, 160), vendorId);
 }
 
 async function createSupplierProfileSideEffects(supplier: SupplierRecord, poId?: string) {
@@ -303,7 +317,7 @@ async function createSupplierWarningsAndTasks(supplier: SupplierRecord, poId?: s
   }
   if (supplier.paymentTermsDays > 0 || supplier.creditLimit > 0) {
     await createOperationalApproval({
-      vendorId: getActiveVendorId(),
+      vendorId: supplier.vendorId || getActiveVendorId(),
       branchId: 'main-branch',
       branch: 'Main Branch',
       category: 'Purchase Order',
@@ -321,13 +335,19 @@ async function createSupplierWarningsAndTasks(supplier: SupplierRecord, poId?: s
 }
 
 export async function createSupplier(payload: SupplierCreatePayload): Promise<SupplierRecord> {
-  const validation = validateSupplierPayload(payload);
+  const context = assertCanonicalSupplierContext();
+  const validation = validateSupplierPayload(payload, context);
   if (!validation.valid) throw new Error(validation.errors.join(' '));
-  const rows = getSupplierRows();
+  if (validation.duplicates.length > 0) {
+    throw new Error(`Possible duplicate supplier: ${validation.duplicates[0].supplier.supplierName}.`);
+  }
+  const vendorId = context.vendorId;
+  const rows = getSupplierRows(context);
   const createdAt = nowIso();
   const supplier: SupplierRecord = {
     supplierId: makeId('SUP'),
-    supplierCode: generateSupplierCode(payload.supplierName),
+    vendorId,
+    supplierCode: generateSupplierCode(payload.supplierName, context),
     supplierName: payload.supplierName.trim(),
     tradingName: payload.tradingName?.trim(),
     contactPerson: payload.contactPerson?.trim() || '',
@@ -335,6 +355,7 @@ export async function createSupplier(payload: SupplierCreatePayload): Promise<Su
     whatsapp: payload.whatsapp?.trim(),
     email: payload.email?.trim() || '',
     address: payload.address?.trim() || '',
+    city: payload.cityTown?.trim(),
     cityTown: payload.cityTown?.trim(),
     district: payload.district?.trim(),
     suburb: payload.suburb?.trim(),
@@ -343,17 +364,22 @@ export async function createSupplier(payload: SupplierCreatePayload): Promise<Su
     vatStatus: payload.vatStatus || 'Unknown',
     paymentTermsDays: payload.paymentTermsDays ?? 30,
     creditLimit: payload.creditLimit ?? 0,
+    currentBalance: 0,
+    overdueBalance: 0,
+    riskLevel: 'Low',
     creditStatus: payload.creditStatus || 'UnderReview',
+    status: payload.active === false ? 'inactive' : payload.creditStatus === 'CreditBlocked' || payload.creditStatus === 'Suspended' ? 'suspended' : 'active',
+    preferred: payload.preferredSupplier ?? false,
     preferredSupplier: payload.preferredSupplier ?? false,
     active: payload.active ?? true,
     notes: payload.notes || '',
     createdFrom: payload.createdFrom || 'Manual',
     createdFromRecordId: payload.createdFromRecordId,
-    createdBy: payload.createdBy || 'System',
+    createdBy: payload.createdBy || context.staffId,
     createdAt,
     updatedAt: createdAt
   };
-  saveList(SUPPLIER_KEY, [supplier, ...rows]);
+  saveList(SUPPLIER_KEY, [supplier, ...rows.filter((row) => row.vendorId === vendorId)], vendorId);
   await createSupplierProfileSideEffects(supplier, payload.createdFromRecordId);
   if (supplier.createdFrom !== 'PurchaseOrder') {
     await createSupplierWarningsAndTasks(supplier, payload.createdFromRecordId);
@@ -362,13 +388,18 @@ export async function createSupplier(payload: SupplierCreatePayload): Promise<Su
 }
 
 export function updateSupplier(supplierId: string, patch: Partial<SupplierRecord>): SupplierRecord | null {
-  const rows = getSupplierRows();
+  const context = assertCanonicalSupplierContext();
+  const vendorId = context.vendorId;
+  const rows = getSupplierRows(context);
   let updated: SupplierRecord | null = null;
+  const safePatch: Partial<SupplierRecord> = { ...patch };
+  delete safePatch.currentBalance;
+  delete safePatch.vendorId;
   saveList(SUPPLIER_KEY, rows.map((supplier) => {
-    if (supplier.supplierId !== supplierId) return supplier;
-    updated = { ...supplier, ...patch, supplierId, updatedAt: nowIso() };
+    if (supplier.vendorId !== vendorId || supplier.supplierId !== supplierId) return supplier;
+    updated = normalizeSupplierRecord({ ...supplier, ...safePatch, supplierId, updatedAt: nowIso() }, vendorId);
     return updated;
-  }));
+  }), vendorId);
   return updated;
 }
 

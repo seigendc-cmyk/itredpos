@@ -45,9 +45,9 @@ interface PosDeliveryDeskProps {
   session?: PosSession;
 }
 
-type DeliveryTab = 'Delivery Queue' | 'iDeliver Broadcasts' | 'Vendor Deliveries' | 'Tracking' | 'Cash Collection' | 'Failed / Returned' | 'Providers' | 'Delivery Activity';
+type DeliveryTab = 'Requests' | 'Assignments' | 'Live Tracking' | 'Proof of Delivery' | 'Cash Collection' | 'Cash Handover' | 'Failed Deliveries' | 'Delivery Partners' | 'Performance' | 'Delivery Activity';
 
-const tabs: DeliveryTab[] = ['Delivery Queue', 'iDeliver Broadcasts', 'Vendor Deliveries', 'Tracking', 'Cash Collection', 'Failed / Returned', 'Providers', 'Delivery Activity'];
+const tabs: DeliveryTab[] = ['Requests', 'Assignments', 'Live Tracking', 'Proof of Delivery', 'Cash Collection', 'Cash Handover', 'Failed Deliveries', 'Delivery Partners', 'Performance', 'Delivery Activity'];
 
 const emptySummary: DeliverySummary = {
   pendingAssignment: 0,
@@ -72,8 +72,8 @@ function humanize(value: string): string {
 
 export default function PosDeliveryDesk({ session }: PosDeliveryDeskProps) {
   const role = (session?.role || 'Owner') as Role;
-  const staffId = session?.staffName || 'Admin User';
-  const [activeTab, setActiveTab] = useState<DeliveryTab>('Delivery Queue');
+  const staffId = session?.staffId || session?.staffName || 'Admin User';
+  const [activeTab, setActiveTab] = useState<DeliveryTab>('Requests');
   const [filters, setFilters] = useState<DeliveryFilterState>({ deliveryMethod: 'ALL', deliveryStatus: 'ALL', cashStatus: 'ALL', confirmationStatus: 'ALL', priority: 'ALL' });
   const [requests, setRequests] = useState<DeliveryRequest[]>([]);
   const [summary, setSummary] = useState<DeliverySummary>(emptySummary);
@@ -139,19 +139,25 @@ export default function PosDeliveryDesk({ session }: PosDeliveryDeskProps) {
   };
 
   const visibleRequests = useMemo(() => {
-    if (activeTab === 'iDeliver Broadcasts') return requests.filter((row) => row.deliveryMethod === 'iDeliver Service');
-    if (activeTab === 'Vendor Deliveries') return requests.filter((row) => row.deliveryMethod === 'Vendor Delivery');
-    if (activeTab === 'Tracking') return requests.filter((row) => ['Picked Up', 'In Transit', 'Arrived'].includes(row.deliveryStatus));
+    if (activeTab === 'Assignments') return requests.filter((row) => ['Pending Assignment', 'Broadcast To iDeliver', 'Provider Selected', 'Assigned', 'Accepted By Driver'].includes(row.deliveryStatus) || ['AwaitingAssignment', 'Assigned', 'ReadyForDispatch'].includes(row.status || 'Draft'));
+    if (activeTab === 'Live Tracking') return requests.filter((row) => ['Picked Up', 'In Transit', 'Arrived'].includes(row.deliveryStatus) || ['Dispatched', 'InTransit', 'Arrived'].includes(row.status || 'Draft'));
+    if (activeTab === 'Proof of Delivery') return requests.filter((row) => row.proofStatus !== 'Captured' || ['Delivered', 'Cash Pending Review', 'Completed'].includes(row.deliveryStatus));
     if (activeTab === 'Cash Collection') return requests.filter((row) => row.cashStatus !== 'Not Required');
-    if (activeTab === 'Failed / Returned') return requests.filter((row) => ['Delivery Failed', 'Returned To Vendor', 'Cancelled'].includes(row.deliveryStatus));
+    if (activeTab === 'Cash Handover') return requests.filter((row) => row.cashToCollect > 0 && !['Closed', 'Confirmed By Vendor', 'HandedOver', 'Reconciled'].includes(row.cashStatus));
+    if (activeTab === 'Failed Deliveries') return requests.filter((row) => ['Delivery Failed', 'Returned To Vendor', 'Cancelled'].includes(row.deliveryStatus) || ['DeliveryFailed', 'Cancelled', 'Disputed'].includes(row.status || 'Draft'));
+    if (activeTab === 'Performance') return requests;
     return requests.filter((row) => row.deliveryMethod !== 'No Delivery' && row.deliveryMethod !== 'Customer Collection');
   }, [activeTab, requests]);
 
   const runAction = async (permission: Parameters<typeof canPerformAction>[1], action: () => Promise<void>, message: string) => {
     if (!allowed(permission)) return;
-    await action();
-    await refreshSelected();
-    show(message);
+    try {
+      await action();
+      await refreshSelected();
+      show(message);
+    } catch (error) {
+      show(error instanceof Error ? error.message : 'Delivery action failed.');
+    }
   };
 
   return (
@@ -174,16 +180,14 @@ export default function PosDeliveryDesk({ session }: PosDeliveryDeskProps) {
 
       <div className="grid grid-cols-2 md:grid-cols-5 xl:grid-cols-10 gap-3">
         {[
-          ['Pending Assignment', summary.pendingAssignment],
-          ['Broadcast To iDeliver', summary.broadcastToIDeliver],
-          ['Assigned', summary.assigned],
+          ['Awaiting Assignment', summary.pendingAssignment],
+          ['Ready for Dispatch', summary.readyForDispatch || summary.assigned],
           ['In Transit', summary.inTransit],
-          ['Delivered Today', summary.deliveredToday],
-          ['Failed Deliveries', summary.failedDeliveries],
-          ['Cash Pending Review', summary.cashPendingReview],
-          ['Code Verification Pending', summary.codeVerificationPending],
-          ['Returned To Vendor', summary.returnedToVendor],
-          ['Urgent Deliveries', summary.urgentDeliveries]
+          ['Arrived', summary.arrived || 0],
+          ['Awaiting Confirmation', summary.awaitingConfirmation || summary.codeVerificationPending],
+          ['Awaiting Cash Handover', summary.awaitingCashHandover || summary.cashPendingReview],
+          ['Completed Today', summary.completedToday || summary.deliveredToday],
+          ['Failed Today', summary.failedToday || summary.failedDeliveries]
         ].map(([label, value]) => <Metric key={label} label={String(label)} value={String(value)} />)}
       </div>
 
@@ -212,7 +216,7 @@ export default function PosDeliveryDesk({ session }: PosDeliveryDeskProps) {
         </div>
       </div>
 
-      {activeTab === 'Providers' ? (
+      {activeTab === 'Delivery Partners' ? (
         <Panel title="Delivery Providers">
           <Table headers={['Provider ID', 'Provider Name', 'Provider Type', 'Phone', 'Vehicle / Bike', 'Active', 'Rating', 'Completed', 'Failed', 'Cash Variance', 'Action']}>
             {providers.map((provider) => (
@@ -224,6 +228,13 @@ export default function PosDeliveryDesk({ session }: PosDeliveryDeskProps) {
             {providers.length === 0 && <EmptyTableRow colSpan={11} label="No delivery providers captured yet." />}
           </Table>
           <button type="button" onClick={() => show('Add provider form opened.')} className="mt-3 px-3 py-2 bg-orange-600 text-white font-black uppercase text-[9px]">Add Provider</button>
+        </Panel>
+      ) : activeTab === 'Performance' ? (
+        <Panel title="Performance">
+          <Table headers={['Delivery No.', 'Status', 'Driver / Team', 'Proof', 'Cash Status', 'Requested At', 'Completed At']}>
+            {visibleRequests.map((request) => <tr key={request.deliveryId} className="border-t border-[#d6d9e0]"><Td strong>{request.deliveryNumber}</Td><Td><Badge value={request.status || request.deliveryStatus} /></Td><Td>{request.driverName || request.providerName || '-'}</Td><Td><Badge value={request.proofStatus || 'Pending'} /></Td><Td><Badge value={request.cashStatus} /></Td><Td>{request.requestedAt}</Td><Td>{request.completedAt || '-'}</Td></tr>)}
+            {visibleRequests.length === 0 && <EmptyTableRow colSpan={7} label="No delivery performance rows yet." />}
+          </Table>
         </Panel>
       ) : activeTab === 'Delivery Activity' ? (
         <Panel title="Delivery Activity">
@@ -253,10 +264,10 @@ export default function PosDeliveryDesk({ session }: PosDeliveryDeskProps) {
                 <Td>
                   <div className="flex flex-wrap gap-1">
                     <ActionButton label="View" onClick={() => void openRequest(request)} />
-                    <ActionButton label="Broadcast To iDeliver" onClick={() => runAction('delivery.broadcast', async () => { await broadcastToIDeliver(request.deliveryId, staffId); }, 'iDeliver broadcast prepared.')} />
-                    <ActionButton label="Assign Driver" onClick={() => runAction('delivery.assign', async () => { await assignVendorDriver(request.deliveryId, providers[0]?.providerId || 'DPROV-001', staffId); }, 'Vendor driver assigned.')} />
-                    <ActionButton label="Track" onClick={() => runAction('delivery.track', async () => { await addTrackingEvent(request.deliveryId, { status: 'En Route', locationText: 'Tracking update', notes: 'Tracking update recorded.', updatedByStaffId: staffId }); }, 'Tracking update added.')} />
-                    <ActionButton label="Cancel" onClick={() => runAction('delivery.cancel', async () => { await cancelDelivery(request.deliveryId, staffId, 'Cancelled from Delivery Queue.'); }, 'Delivery cancelled.')} />
+                    <ActionButton label="Broadcast To iDeliver" onClick={() => runAction('delivery.broadcast', async () => { await broadcastToIDeliver(request.deliveryId, staffId, session); }, 'iDeliver broadcast prepared.')} />
+                    <ActionButton label="Assign Driver" onClick={() => runAction('delivery.assign', async () => { await assignVendorDriver(request.deliveryId, providers[0]?.providerId || '', staffId, session); }, 'Vendor driver assigned.')} />
+                    <ActionButton label="Track" onClick={() => runAction('delivery.track', async () => { await addTrackingEvent(request.deliveryId, { status: 'En Route', locationText: 'Tracking update', notes: 'Tracking update recorded.', updatedByStaffId: staffId }, session); }, 'Tracking update added.')} />
+                    <ActionButton label="Cancel" onClick={() => runAction('delivery.cancel', async () => { await cancelDelivery(request.deliveryId, staffId, 'Cancelled from Delivery Queue.', session); }, 'Delivery cancelled.')} />
                   </div>
                 </Td>
               </tr>
@@ -277,20 +288,20 @@ export default function PosDeliveryDesk({ session }: PosDeliveryDeskProps) {
           activity={activity.filter((event) => event.deliveryId === selectedRequest.deliveryId)}
           canSeeFullCode={role === 'Owner' || role === 'Manager' || role === 'Supervisor'}
           onClose={() => setSelectedRequest(null)}
-          onBroadcast={() => runAction('delivery.broadcast', async () => { await broadcastToIDeliver(selectedRequest.deliveryId, staffId); }, 'iDeliver broadcast prepared.')}
-          onSelectProvider={(providerId) => runAction('delivery.assign', async () => { await selectDeliveryProvider(selectedRequest.deliveryId, providerId, staffId); }, 'Delivery provider selected.')}
-          onAssignDriver={(providerId) => runAction('delivery.assign', async () => { await assignVendorDriver(selectedRequest.deliveryId, providerId, staffId); }, 'Vendor driver assigned.')}
-          onAccept={() => runAction('delivery.track', async () => { await acceptDelivery(selectedRequest.deliveryId, staffId); }, 'Driver acceptance recorded.')}
-          onPickedUp={() => runAction('delivery.track', async () => { await markPickedUp(selectedRequest.deliveryId, staffId); }, 'Delivery marked picked up.')}
-          onInTransit={() => runAction('delivery.track', async () => { await addTrackingEvent(selectedRequest.deliveryId, { status: 'En Route', locationText: 'Delivery en route', notes: 'Delivery tracking update recorded.', updatedByStaffId: staffId }); }, 'Delivery tracking set to in transit.')}
-          onArrived={() => runAction('delivery.track', async () => { await markArrived(selectedRequest.deliveryId, staffId); }, 'Delivery marked arrived.')}
-          onVerifyCode={(code) => runAction('delivery.verifyCode', async () => { await verifyDeliveryCode(selectedRequest.deliveryId, code, staffId); }, 'Delivery code verification processed.')}
-          onMarkDelivered={() => runAction('delivery.complete', async () => { await markDelivered(selectedRequest.deliveryId, staffId, { overrideCode: role === 'Owner' || role === 'Supervisor', notes: 'Completed from Delivery Fulfilment form.' }); }, 'Delivery completion processed.')}
-          onRecordFailure={(reason) => runAction('delivery.cancel', async () => { await recordDeliveryFailure(selectedRequest.deliveryId, staffId, reason); }, 'Delivery failure recorded.')}
-          onCancel={(reason) => runAction('delivery.cancel', async () => { await cancelDelivery(selectedRequest.deliveryId, staffId, reason); }, 'Delivery cancelled locally.')}
-          onCashCollected={(amount, notes) => runAction('delivery.cashReview', async () => { await recordCashCollectedByDriver(selectedRequest.deliveryId, staffId, amount, notes); }, 'Driver cash collection recorded for EOD review.')}
-          onCashConfirmed={(amount, notes) => runAction('delivery.cashReview', async () => { await confirmDeliveryCashReceived(selectedRequest.deliveryId, staffId, amount, notes); }, 'Delivery cash confirmation recorded for EOD review.')}
-          onPrepareMessage={(messageType) => runAction('delivery.create', async () => { await createWhatsAppMessageDraft(selectedRequest.deliveryId, messageType); }, 'WhatsApp delivery message draft prepared.')}
+          onBroadcast={() => runAction('delivery.broadcast', async () => { await broadcastToIDeliver(selectedRequest.deliveryId, staffId, session); }, 'iDeliver broadcast prepared.')}
+          onSelectProvider={(providerId) => runAction('delivery.assign', async () => { await selectDeliveryProvider(selectedRequest.deliveryId, providerId, staffId, session); }, 'Delivery provider selected.')}
+          onAssignDriver={(providerId) => runAction('delivery.assign', async () => { await assignVendorDriver(selectedRequest.deliveryId, providerId, staffId, session); }, 'Vendor driver assigned.')}
+          onAccept={() => runAction('delivery.track', async () => { await acceptDelivery(selectedRequest.deliveryId, staffId, session); }, 'Driver acceptance recorded.')}
+          onPickedUp={() => runAction('delivery.dispatch', async () => { await markPickedUp(selectedRequest.deliveryId, staffId, session); }, 'Delivery dispatched.')}
+          onInTransit={() => runAction('delivery.track', async () => { await addTrackingEvent(selectedRequest.deliveryId, { status: 'En Route', locationText: 'Delivery en route', notes: 'Delivery tracking update recorded.', updatedByStaffId: staffId }, session); }, 'Delivery tracking set to in transit.')}
+          onArrived={() => runAction('delivery.track', async () => { await markArrived(selectedRequest.deliveryId, staffId, session); }, 'Delivery marked arrived.')}
+          onVerifyCode={(code) => runAction('delivery.verifyCode', async () => { await verifyDeliveryCode(selectedRequest.deliveryId, code, staffId, session); }, 'Delivery code verification processed.')}
+          onMarkDelivered={() => runAction('delivery.complete', async () => { await markDelivered(selectedRequest.deliveryId, staffId, { overrideCode: role === 'Owner' || role === 'Supervisor', notes: 'Completed from Delivery Fulfilment form.' }, session); }, 'Delivery completion processed.')}
+          onRecordFailure={(reason) => runAction('delivery.cancel', async () => { await recordDeliveryFailure(selectedRequest.deliveryId, staffId, reason, session); }, 'Delivery failure recorded.')}
+          onCancel={(reason) => runAction('delivery.cancel', async () => { await cancelDelivery(selectedRequest.deliveryId, staffId, reason, session); }, 'Delivery cancelled locally.')}
+          onCashCollected={(amount, notes) => runAction('delivery.cashReview', async () => { await recordCashCollectedByDriver(selectedRequest.deliveryId, staffId, amount, notes, session); }, 'Driver cash collection recorded for handover.')}
+          onCashConfirmed={(amount, notes) => runAction('delivery.cashReview', async () => { await confirmDeliveryCashReceived(selectedRequest.deliveryId, staffId, amount, notes, session); }, 'Delivery cash handover recorded.')}
+          onPrepareMessage={(messageType) => runAction('delivery.create', async () => { await createWhatsAppMessageDraft(selectedRequest.deliveryId, messageType, session); }, 'Delivery message preview prepared.')}
           onExport={() => runAction('delivery.export', async () => { await exportDeliveryPlaceholder(filters); }, 'Delivery export prepared.')}
         />
       )}

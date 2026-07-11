@@ -3,6 +3,7 @@ import type { ReactNode } from 'react';
 import SimpleAuthLandingPage from './SimpleAuthLandingPage';
 import { readSimpleAuthContext, clearSimpleAuthContext } from './simpleAuthStorage';
 
+// Deprecated: retained for reference only. App.tsx now routes through src/sci-auth/VendorAuthGate.tsx.
 interface SimpleAuthGateProps {
   children: ReactNode;
 }

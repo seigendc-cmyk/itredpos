@@ -16,6 +16,7 @@ import { createBIAdviceFromTrigger } from './biAdviceService';
 import { releaseReserveForSupplierPayment, validateCOGSReserveForSupplierPayment } from './cogsReserveService';
 import { recordSupplierPaymentCashImpact } from './cashControlService';
 import { getActiveVendorId, readVendorScopedList, writeVendorScopedList } from '../utils/vendorDataMode';
+import { recordSupplierAccountPayment, recordSupplierAccountPurchase } from './supplierAccountService';
 
 const PROFILE_KEY = 'itred_pos_supplier_credit_profiles_v1';
 const BILL_KEY = 'itred_pos_supplier_bills_v1';
@@ -222,6 +223,13 @@ export async function createManualSupplierBill(payload: Omit<SupplierBill, 'bill
     const existing = bills.find((bill) => bill.grnId === payload.grnId && bill.status !== 'Reversed' && bill.status !== 'Cancelled');
     if (existing) return existing;
   }
+  const duplicateInvoice = bills.find((bill) =>
+    bill.supplierId === payload.supplierId
+    && bill.supplierInvoiceNumber.trim().toLowerCase() === payload.supplierInvoiceNumber.trim().toLowerCase()
+    && bill.status !== 'Reversed'
+    && bill.status !== 'Cancelled'
+  );
+  if (duplicateInvoice) throw new Error(`Duplicate supplier invoice detected: ${payload.supplierInvoiceNumber}.`);
   const paidAmount = Math.max(0, payload.paidAmount || 0);
   const ageing = calculateSupplierBillAgeing({ dueDate: payload.dueDate });
   const bill: SupplierBill = {
@@ -263,6 +271,21 @@ export async function postSupplierBill(billId: string): Promise<SupplierBill | n
   if (updated) {
     refreshProfiles();
     await createAccountingPostingPlaceholder({ source: 'Manual Placeholder', sourceReference: updated.billNumber, branch: updated.branchId, amount: updated.originalAmount });
+    recordSupplierAccountPurchase({
+      vendorId: getActiveVendorId(),
+      supplierId: updated.supplierId,
+      referenceType: 'SUPPLIER_BILL',
+      referenceId: updated.billId,
+      amount: updated.originalAmount,
+      dueDate: updated.dueDate,
+      createdBy: updated.createdBy,
+      createdAt: updated.postedAt || nowIso(),
+      branchId: updated.branchId,
+      supplierInvoiceNumber: updated.supplierInvoiceNumber,
+      purchaseOrderId: updated.purchaseOrderId,
+      goodsReceiptId: updated.grnId,
+      notes: `Supplier bill ${updated.billNumber} posted.`
+    });
   }
   return updated;
 }
@@ -361,6 +384,16 @@ export async function markSupplierPaymentPaid(paymentId: string, staffId: string
       await recordSupplierPaymentCashImpact({ staffId, staffName: staffId, amount: updated.source === 'CashDrawer' ? updated.amount : updated.nonReserveAmount, paymentId: updated.paymentId, paymentNumber: updated.paymentNumber, supplierId: updated.supplierId, supplierName: updated.supplierName });
     }
     await createAccountingPostingPlaceholder({ source: 'Manual Placeholder', sourceReference: updated.paymentNumber, branch: 'Local Branch', amount: updated.amount });
+    recordSupplierAccountPayment({
+      vendorId: getActiveVendorId(),
+      supplierId: updated.supplierId,
+      referenceType: 'SUPPLIER_PAYMENT',
+      referenceId: updated.paymentId,
+      amount: updated.amount,
+      createdBy: staffId,
+      createdAt: updated.paidAt || nowIso(),
+      notes: `Supplier payment ${updated.paymentNumber} posted.`
+    });
   }
   return updated;
 }

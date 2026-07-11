@@ -1,10 +1,11 @@
 import { useState, useEffect } from 'react';
 import PosPrototypeApp from './pos-new/PosPrototypeApp';
-import PosVendorAuthGate from './pos-new/auth/PosVendorAuthGate';
+import VendorAuthGate from './sci-auth/VendorAuthGate';
 
 import FirebaseReadinessPage from './platform/FirebaseReadinessPage';
 import VendorVerificationQueuePage from './platform/VendorVerificationQueuePage';
 import ActivationTokenManagerPage from './platform/ActivationTokenManagerPage';
+import SystemDiagnosticsPage from './platform/SystemDiagnosticsPage';
 import { Cpu, ShieldCheck, Power, RefreshCw } from 'lucide-react';
 
 export default function App() {
@@ -60,9 +61,9 @@ export default function App() {
 
   if (currentPath === '/sci-auth-test' || currentPath === '/pos-prototype') {
     return (
-      <PosVendorAuthGate>
+      <VendorAuthGate>
         <PosPrototypeApp />
-      </PosVendorAuthGate>
+      </VendorAuthGate>
     );
   }
 
@@ -76,6 +77,10 @@ export default function App() {
 
   if (currentPath === '/platform/activation-tokens') {
     return <ActivationTokenManagerPage />;
+  }
+
+  if (currentPath === '/platform/system-diagnostics') {
+    return <SystemDiagnosticsPage />;
   }
 
 

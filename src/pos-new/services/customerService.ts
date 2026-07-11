@@ -24,16 +24,20 @@ import {
   CustomerSource,
   CustomerSummary,
   CustomerType,
+  PosSession,
   Role,
   Transaction
 } from '../types';
 import { createOperationalApproval } from './approvalService';
+import { assertCanonicalCustomerContext, type CanonicalCustomerContext } from './customerContextService';
 import { getActiveVendorId, getVendorScopedStorageKey, readVendorScopedList, writeVendorScopedList } from '../utils/vendorDataMode';
 
 const CUSTOMER_KEY = 'itred_pos_customers_v1';
 const CUSTOMER_HISTORY_KEY = 'itred_pos_customer_purchase_history_v1';
 const CUSTOMER_NOTES_KEY = 'itred_pos_customer_notes_v1';
 const CUSTOMER_ACTIVITY_KEY = 'itred_pos_customer_activity_v1';
+
+export const CUSTOMERS_COLLECTION = 'customers';
 
 export function realRecordsExist(): boolean {
   if (typeof localStorage === 'undefined') return false;
@@ -92,12 +96,12 @@ export interface CustomerCreatePayload {
   notes?: string;
 }
 
-function readList<T>(key: string, fallback: T[]): T[] {
-  return readVendorScopedList<T>(key, fallback);
+function readList<T>(key: string, fallback: T[], vendorId?: string): T[] {
+  return readVendorScopedList<T>(key, fallback, vendorId);
 }
 
-function saveList<T>(key: string, value: T[]): T[] {
-  return writeVendorScopedList(key, value);
+function saveList<T>(key: string, value: T[], vendorId?: string): T[] {
+  return writeVendorScopedList(key, value, vendorId);
 }
 
 function nowIso(): string {
@@ -168,18 +172,19 @@ function matchesFilters(customer: CustomerRecord, filters: CustomerFilterState =
   return true;
 }
 
-async function recordCustomerActivity(event: Omit<CustomerActivityEvent, 'id' | 'dateTime'>): Promise<CustomerActivityEvent[]> {
-  const events = readList<CustomerActivityEvent>(CUSTOMER_ACTIVITY_KEY, mockCustomerActivityEvents);
+async function recordCustomerActivity(event: Omit<CustomerActivityEvent, 'id' | 'dateTime'>, vendorId?: string): Promise<CustomerActivityEvent[]> {
+  const events = readList<CustomerActivityEvent>(CUSTOMER_ACTIVITY_KEY, mockCustomerActivityEvents, vendorId);
   const next: CustomerActivityEvent = {
     ...event,
     id: makeId('CAE'),
     dateTime: nowIso()
   };
-  return saveList(CUSTOMER_ACTIVITY_KEY, [next, ...events].slice(0, 100));
+  return saveList(CUSTOMER_ACTIVITY_KEY, [next, ...events].slice(0, 100), vendorId);
 }
 
-export async function getCustomers(filters: CustomerFilterState = {}): Promise<CustomerRecord[]> {
-  let list = readList<CustomerRecord>(CUSTOMER_KEY, mockCustomers);
+export async function getCustomers(filters: CustomerFilterState = {}, session?: PosSession | CanonicalCustomerContext | null): Promise<CustomerRecord[]> {
+  const context = assertCanonicalCustomerContext(session);
+  let list = readList<CustomerRecord>(CUSTOMER_KEY, mockCustomers, context.vendorId);
   if (realRecordsExist()) {
     const mockIds = [
       'CUST-TAPIWA', 'CUST-RUDO', 'CUST-FARAI', 'CUST-MEMORY',
@@ -188,11 +193,14 @@ export async function getCustomers(filters: CustomerFilterState = {}): Promise<C
     ];
     list = list.filter((c) => c.customerId === 'CUST-WALKIN' || !mockIds.includes(c.customerId));
   }
-  return list.filter((customer) => matchesFilters(customer, filters));
+  return list
+    .filter((customer) => customer.vendorId === context.vendorId)
+    .filter((customer) => matchesFilters(customer, filters));
 }
 
-export async function getCustomerById(customerId: string): Promise<CustomerRecord | null> {
-  let list = readList<CustomerRecord>(CUSTOMER_KEY, mockCustomers);
+export async function getCustomerById(customerId: string, session?: PosSession | CanonicalCustomerContext | null): Promise<CustomerRecord | null> {
+  const context = assertCanonicalCustomerContext(session);
+  let list = readList<CustomerRecord>(CUSTOMER_KEY, mockCustomers, context.vendorId);
   if (realRecordsExist()) {
     const mockIds = [
       'CUST-TAPIWA', 'CUST-RUDO', 'CUST-FARAI', 'CUST-MEMORY',
@@ -201,7 +209,7 @@ export async function getCustomerById(customerId: string): Promise<CustomerRecor
     ];
     list = list.filter((c) => c.customerId === 'CUST-WALKIN' || !mockIds.includes(c.customerId));
   }
-  return list.find((customer) => customer.customerId === customerId) || null;
+  return list.find((customer) => customer.vendorId === context.vendorId && customer.customerId === customerId) || null;
 }
 
 export async function searchCustomers(query: string, filters: CustomerFilterState = {}): Promise<CustomerRecord[]> {
@@ -209,11 +217,12 @@ export async function searchCustomers(query: string, filters: CustomerFilterStat
 }
 
 export async function getCustomerSummary(filters: CustomerFilterState = {}): Promise<CustomerSummary> {
-  const customers = await getCustomers(filters);
+  const context = assertCanonicalCustomerContext();
+  const customers = await getCustomers(filters, context);
   let history: { customerId: string }[] = [];
   if (realRecordsExist()) {
     try {
-      const raw = localStorage.getItem(getVendorScopedStorageKey('itred_pos_transactions'));
+      const raw = localStorage.getItem(getVendorScopedStorageKey('itred_pos_transactions', context.vendorId));
       if (raw) {
         const txs = JSON.parse(raw);
         if (Array.isArray(txs)) {
@@ -222,7 +231,7 @@ export async function getCustomerSummary(filters: CustomerFilterState = {}): Pro
       }
     } catch {}
   } else {
-    history = readList<CustomerPurchaseHistoryRow>(CUSTOMER_HISTORY_KEY, mockCustomerPurchaseHistory);
+    history = readList<CustomerPurchaseHistoryRow>(CUSTOMER_HISTORY_KEY, mockCustomerPurchaseHistory, context.vendorId);
   }
   return {
     totalCustomers: customers.length,
@@ -256,13 +265,25 @@ export function validateCustomerPayload(payload: Partial<CustomerCreatePayload>)
 }
 
 export async function createCustomer(payload: CustomerCreatePayload, staffId: string): Promise<CustomerRecord> {
+  const context = assertCanonicalCustomerContext();
   const errors = validateCustomerPayload(payload);
   if (errors.length) throw new Error(errors.join(' '));
-  const customers = readList<CustomerRecord>(CUSTOMER_KEY, mockCustomers);
+  const customers = readList<CustomerRecord>(CUSTOMER_KEY, mockCustomers, context.vendorId);
+  const duplicate = customers.find((customer) =>
+    customer.vendorId === context.vendorId
+    && (
+      (payload.phone && customer.phone === payload.phone.trim())
+      || (payload.whatsapp && customer.whatsapp === payload.whatsapp.trim())
+      || (payload.email && customer.email.toLowerCase() === payload.email.trim().toLowerCase())
+      || (payload.taxNumber && customer.taxNumber.toLowerCase() === payload.taxNumber.trim().toLowerCase())
+      || normalize(customer.customerName) === normalize(payload.customerName)
+    )
+  );
+  if (duplicate) throw new Error(`Possible duplicate customer: ${duplicate.customerName}.`);
   const timestamp = nowIso();
   const customer: CustomerRecord = {
     customerId: makeId('CUST'),
-    vendorId: getActiveVendorId(),
+    vendorId: context.vendorId,
     customerCode: nextCustomerCode(customers),
     customerName: payload.customerName.trim(),
     customerType: payload.customerType,
@@ -273,26 +294,31 @@ export async function createCustomer(payload: CustomerCreatePayload, staffId: st
     billingAddress: payload.billingAddress?.trim() || '',
     deliveryAddress: payload.deliveryAddress?.trim() || payload.billingAddress?.trim() || '',
     cityTown: payload.cityTown?.trim() || '',
+    city: payload.cityTown?.trim() || '',
     district: payload.district?.trim() || '',
     suburb: payload.suburb?.trim() || '',
     source: payload.source || 'Sales Terminal',
     status: 'Active',
     creditStatus: payload.creditStatus || 'Cash Only',
+    creditEnabled: payload.creditStatus === 'Credit Allowed' || payload.creditStatus === 'Approved',
     creditLimit: payload.creditLimit,
-    currentBalance: payload.currentBalance || 0,
+    currentBalance: 0,
+    overdueBalance: 0,
+    paymentTermsDays: 30,
+    riskLevel: 'Low',
     notes: payload.notes?.trim() || '',
-    createdByStaffId: staffId,
-    approvedByStaffId: staffId,
+    createdByStaffId: context.staffId || staffId,
+    approvedByStaffId: context.staffId || staffId,
     createdAt: timestamp,
     updatedAt: timestamp
   };
-  saveList(CUSTOMER_KEY, [customer, ...customers]);
+  saveList(CUSTOMER_KEY, [customer, ...customers], context.vendorId);
   await recordCustomerActivity({
     customerId: customer.customerId,
     eventType: 'CUSTOMER_CREATED',
     user: staffId,
     notes: 'Customer created directly in Customer Centre.'
-  });
+  }, context.vendorId);
   return customer;
 }
 
@@ -313,16 +339,22 @@ export async function createCustomerRequest(payload: {
   requestedByStaffName: string;
   requestedByRole: Role;
 }, staffId = payload.requestedByStaffName): Promise<CustomerRecord> {
-  const customers = readList<CustomerRecord>(CUSTOMER_KEY, mockCustomers);
+  const context = assertCanonicalCustomerContext();
+  const customers = readList<CustomerRecord>(CUSTOMER_KEY, mockCustomers, context.vendorId);
   const timestamp = nowIso();
   const duplicate = customers.find((customer) =>
-    (payload.phone && customer.phone === payload.phone)
-    || (payload.whatsapp && customer.whatsapp === payload.whatsapp)
-    || normalize(customer.customerName) === normalize(payload.customerName)
+    customer.vendorId === context.vendorId
+    && (
+      (payload.phone && customer.phone === payload.phone)
+      || (payload.whatsapp && customer.whatsapp === payload.whatsapp)
+      || (payload.email && customer.email.toLowerCase() === payload.email.trim().toLowerCase())
+      || (payload.taxNumber && customer.taxNumber.toLowerCase() === payload.taxNumber.trim().toLowerCase())
+      || normalize(customer.customerName) === normalize(payload.customerName)
+    )
   );
   const customer: CustomerRecord = {
     customerId: makeId('CUST'),
-    vendorId: getActiveVendorId(),
+    vendorId: context.vendorId,
     customerCode: `PEND-${String(customers.length + 1).padStart(4, '0')}`,
     customerName: payload.customerName || 'Pending Customer',
     customerType: 'Individual',
@@ -343,17 +375,17 @@ export async function createCustomerRequest(payload: {
     createdAt: timestamp,
     updatedAt: timestamp
   };
-  saveList(CUSTOMER_KEY, [customer, ...customers]);
+  saveList(CUSTOMER_KEY, [customer, ...customers], context.vendorId);
   await recordCustomerActivity({
     customerId: customer.customerId,
     eventType: 'CUSTOMER_CREATED_PENDING',
     user: staffId,
     notes: duplicate ? `Possible duplicate: ${duplicate.customerCode}.` : 'Customer request created and sent for approval.'
-  });
+  }, context.vendorId);
   await createOperationalApproval({
-    vendorId: getActiveVendorId(),
-    branchId: 'main-branch',
-    branch: 'Main Branch',
+    vendorId: context.vendorId,
+    branchId: context.branchId,
+    branch: context.branchId,
     category: 'NEW_CUSTOMER',
     requestedBy: payload.requestedByStaffName,
     requestedByRole: payload.requestedByRole,
@@ -368,16 +400,17 @@ export async function createCustomerRequest(payload: {
 }
 
 async function patchCustomer(customerId: string, patch: Partial<CustomerRecord>, eventType?: CustomerActivityEvent['eventType'], staffId = 'Admin User', notes = ''): Promise<CustomerRecord | null> {
-  const customers = readList<CustomerRecord>(CUSTOMER_KEY, mockCustomers);
+  const context = assertCanonicalCustomerContext();
+  const customers = readList<CustomerRecord>(CUSTOMER_KEY, mockCustomers, context.vendorId);
   let updatedCustomer: CustomerRecord | null = null;
   const updated = customers.map((customer) => {
-    if (customer.customerId !== customerId) return customer;
+    if (customer.vendorId !== context.vendorId || customer.customerId !== customerId) return customer;
     updatedCustomer = { ...customer, ...patch, updatedAt: nowIso() };
     return updatedCustomer;
   });
-  saveList(CUSTOMER_KEY, updated);
+  saveList(CUSTOMER_KEY, updated, context.vendorId);
   if (updatedCustomer && eventType) {
-    await recordCustomerActivity({ customerId, eventType, user: staffId, notes });
+    await recordCustomerActivity({ customerId, eventType, user: staffId, notes }, context.vendorId);
   }
   return updatedCustomer;
 }

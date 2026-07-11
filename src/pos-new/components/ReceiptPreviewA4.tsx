@@ -93,7 +93,9 @@ export default function ReceiptPreviewA4({ preview, onExport }: ReceiptPreviewA4
         <div className="border border-[#b1b5c2] p-3 space-y-1">
           <div className="flex justify-between"><span>Subtotal</span><strong>USD {receipt.subtotal.toFixed(2)}</strong></div>
           <div className="flex justify-between"><span>Discount</span><strong>USD {receipt.discountTotal.toFixed(2)}</strong></div>
-          <div className="flex justify-between"><span>{taxSummary.taxLabel}</span><strong>USD {taxSummary.vatAmount.toFixed(2)}</strong></div>
+          {taxSummary.vatMode !== 'Not VAT Registered' && (
+            <div className="flex justify-between"><span>{taxSummary.taxLabel}</span><strong>USD {taxSummary.vatAmount.toFixed(2)}</strong></div>
+          )}
           <div className="flex justify-between text-sm font-black border-t border-slate-300 pt-2"><span>Total</span><span>USD {receipt.grandTotal.toFixed(2)}</span></div>
         </div>
       </div>

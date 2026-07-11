@@ -22,21 +22,14 @@ import SalesProfitSnapshotCard from '../components/SalesProfitSnapshotCard';
 import MiscellaneousSaleModal, { MiscellaneousSalePayload } from '../components/MiscellaneousSaleModal';
 import { mockProducts, mockRecentSales } from '../mock/mockPosData';
 import { ENABLE_MOCK_SEED_DATA } from '../utils/vendorDataMode';
-import { createAccountingPostingPlaceholder } from '../services/accountingService';
 import { biEventService } from '../services/biEventService';
-import { createReceiptFromSale, getReceiptPreview } from '../services/receiptService';
-import { postSaleMovement } from '../services/inventoryMovementService';
-import { createDeliveryRequestFromReceipt } from '../services/deliveryService';
-import { recordPaymentReportEvent } from '../services/paymentReportService';
-import { recordCOGSRecoveryFromSale } from '../services/cogsReserveService';
+import { getReceiptPreview } from '../services/receiptService';
 import { canSellInventoryItems as canSellInventoryItemsForSession, logTerminalControlEvent, runTerminalControlCheck } from '../services/terminalControlService';
 import { createMiscellaneousSaleAdvice } from '../services/biAdviceService';
 import { routeBIAdviceToDesk } from '../services/biAdviceRoutingService';
 import {
   canCustomerBuyOnCredit,
   createCustomerCreditApprovalRequest,
-  createCustomerCreditBIAdvice,
-  createCustomerDebtFromCreditSale,
   type CreditDecision
 } from '../services/customerCreditService';
 import {
@@ -62,19 +55,20 @@ import {
 import {
   CartItem,
   CustomerRecord,
-  PaymentMode,
   PosSession,
   Product,
   ReceiptPrintPreview,
   Role,
   Sale,
+  Shift,
   TaxSetting,
   TerminalControlCheck,
   VATMode
 } from '../types';
 import { canPerformAction } from '../utils/posPermissions';
 import { matchesFreeOrderSearch } from '../utils/searchUtils';
-import { calculateVATExclusive, calculateVATInclusive } from '../utils/taxUtils';
+import { calculateDocumentTax, posTaxSettingToVendorTaxSettings } from '../services/vendorTaxSettingsService';
+import { completeSale } from '../services/salesCheckoutService';
 
 interface PosSalesProps {
   products: Product[];
@@ -82,6 +76,7 @@ interface PosSalesProps {
   onAddTransaction: (transaction: Omit<Sale, 'id' | 'invoiceNo' | 'date'>) => void;
   onNavigate: (page: string) => void;
   activeShiftOperator: string | null;
+  activeShift?: Shift | null;
   session?: PosSession | null;
   taxSetting: TaxSetting;
 }
@@ -96,7 +91,6 @@ interface SalesAuditEvent {
 type SalesWorkspaceDrawer = 'recentReceipts' | 'heldSales' | 'activityFeed' | null;
 
 const DEFAULT_PRODUCTS = ENABLE_MOCK_SEED_DATA ? mockProducts : [];
-const DEFAULT_VENDOR_ID = 'unassigned-vendor';
 const SHIFT_START_INTENT_KEY = 'itred_pos_open_shift_start_wizard_v1';
 const SELECTED_CUSTOMER_FOR_SALE_KEY = 'itred-pos-selected-customer-for-sale';
 const SELECTED_CUSTOMER_FOR_SALE_SESSION_KEY = 'itred_pos_selected_customer_for_sale_v1';
@@ -146,22 +140,6 @@ function branchIdFromName(branchName: string): string {
   return branchName.toLowerCase().includes('bulawayo') ? 'BR-BYO' : 'BR-HARARE';
 }
 
-function receiptPaymentMode(method: SalesPaymentMethod): PaymentMode {
-  if (method === 'Credit / Account') return 'Credit Sale';
-  if (method === 'Card') return 'Swipe';
-  if (method === 'Mixed Payment') return 'Split Payment';
-  if (method === 'Already Paid' || method === 'No Payment Due') return 'Cash';
-  if (method === 'Innbucks' || method === 'Mukuru' || method === 'ZIPIT') return 'Bank Transfer';
-  return method;
-}
-
-function salePaymentMethod(method: SalesPaymentMethod): Sale['paymentMethod'] {
-  if (method === 'Cash') return 'CASH';
-  if (method === 'Mixed Payment') return 'SPLIT';
-  if (method === 'Credit / Account') return 'Credit Sale';
-  return 'CARD';
-}
-
 function cartLineTotal(item: CartItem): number {
   const base = (item.overriddenPrice ?? productPrice(item.product)) * item.quantity;
   return base - base * (item.discount / 100);
@@ -198,16 +176,21 @@ export default function PosSales({
   onProductStockChange,
   onAddTransaction,
   onNavigate,
+  activeShift,
   session,
   taxSetting
 }: PosSalesProps) {
-  const staffName = session?.staffName || 'Admin User';
+  const staffName = session?.staffName || 'Staff';
+  const staffId = session?.staffId || '';
   const roleName = (session?.role || 'Owner') as Role;
   const branchName = session?.branch || 'Main Branch';
+  const branchId = session?.branchId || branchIdFromName(branchName);
   const terminalName = session?.terminal || 'POS-01';
+  const terminalId = session?.terminalId || terminalName;
   const vendorName = session?.vendor || 'Business';
-  const vendorId = session?.vendorId || DEFAULT_VENDOR_ID;
-  const warehouseName = 'Main Warehouse';
+  const vendorId = session?.vendorId || '';
+  const warehouseName = session?.warehouse || 'Main Warehouse';
+  const warehouseId = session?.warehouseId || warehouseName;
 
   const [localProducts, setLocalProducts] = useState<Product[]>(products.length > 0 ? products : DEFAULT_PRODUCTS);
   const [cart, setCart] = useState<CartItem[]>([]);
@@ -271,6 +254,7 @@ export default function PosSales({
   const [creditDecision, setCreditDecision] = useState<CreditDecision | null>(null);
   const [pendingBridgeCustomer, setPendingBridgeCustomer] = useState<SelectedCustomerForSaleBridge | null>(null);
   const [bridgeCustomerChecked, setBridgeCustomerChecked] = useState(false);
+  const [isCompletingSale, setIsCompletingSale] = useState(false);
 
   useEffect(() => {
     const baseProducts = products.length > 0 ? products : DEFAULT_PRODUCTS;
@@ -307,13 +291,25 @@ export default function PosSales({
   const parsedDeliveryFee = Math.max(0, Number(deliveryFee) || 0);
   const parsedVatRate = Math.max(0, Number(vatRate) || 0);
   const taxableSubtotal = Math.max(0, subtotal - cartDiscountAmount);
-  // TODO: Surtax requires a separate line-level tax model before adding to cart totals.
-  const taxTotal = useMemo(() => {
-    if (vatMode === 'Not VAT Registered') return 0;
-    if (vatMode === 'Exclusive') return calculateVATExclusive(taxableSubtotal, parsedVatRate).vatAmount;
-    return calculateVATInclusive(taxableSubtotal, parsedVatRate).vatAmount;
-  }, [parsedVatRate, taxableSubtotal, vatMode]);
-  const grandTotalBeforeCredit = vatMode === 'Exclusive' ? taxableSubtotal + taxTotal + parsedDeliveryFee : taxableSubtotal + parsedDeliveryFee;
+  const taxDocument = useMemo(() => calculateDocumentTax(
+    [{ lineAmount: taxableSubtotal }],
+    {
+      vendorId,
+      vatEnabled: vatMode !== 'Not VAT Registered',
+      vatRegistered: vatMode !== 'Not VAT Registered',
+      vatNumber: '',
+      defaultVatRate: parsedVatRate,
+      pricesIncludeVat: vatMode !== 'Exclusive',
+      outputTaxAccountId: '',
+      inputTaxAccountId: '',
+      exemptTaxCode: 'EXEMPT',
+      zeroRatedTaxCode: 'ZERO',
+      updatedAt: '',
+      updatedBy: ''
+    }
+  ), [parsedVatRate, taxableSubtotal, vatMode, vendorId]);
+  const taxTotal = taxDocument.vatAmount;
+  const grandTotalBeforeCredit = taxDocument.total + parsedDeliveryFee;
   const grandTotal = Math.max(0, grandTotalBeforeCredit - creditRedemptionAmount - loyaltyRedemptionAmount);
   const paymentReceived = payments.reduce((sum, payment) => sum + payment.amount, 0);
   const nonCreditPaymentReceived = payments.filter((payment) => payment.method !== 'Credit / Account').reduce((sum, payment) => sum + payment.amount, 0);
@@ -363,10 +359,10 @@ export default function PosSales({
     let cancelled = false;
     runTerminalControlCheck({
       vendorId,
-      branchId: branchIdFromName(branchName),
-      terminalId: terminalName,
+      branchId,
+      terminalId,
       terminalName,
-      staffId: staffName,
+      staffId: staffId || staffName,
       staffName,
       role: roleName,
       requiresCashDrawer: true
@@ -379,7 +375,7 @@ export default function PosSales({
     return () => {
       cancelled = true;
     };
-  }, [branchName, roleName, staffName, terminalName]);
+  }, [branchId, roleName, staffId, staffName, terminalId, terminalName, vendorId]);
 
   useEffect(() => {
     logEvent('CART_HEADER_RENDERED', `Cart header rendered for ${staffName} at ${terminalName}.`);
@@ -1010,6 +1006,9 @@ export default function PosSales({
   };
 
   const validateSale = (): string | null => {
+    if (!session?.vendorId || !session.branchId || !session.warehouseId || !session.terminalId || !session.staffId) {
+      return 'POS session is incomplete. Please sign in again.';
+    }
     if (!canPerformAction(roleName, 'sales.complete')) return 'You do not have permission to complete a sale.';
     if (cart.length === 0) return 'Cart is empty.';
     const insufficientLine = cart.find((item) => {
@@ -1034,6 +1033,7 @@ export default function PosSales({
 
   const handleCompleteSale = async (): Promise<boolean> => {
     collapseProductFieldsForOperation('Complete Sale');
+    if (isCompletingSale) return false;
     setPreparedReceiptPreview(null);
     setReceiptOutputPreview(null);
     const validationMessage = validateSale();
@@ -1048,10 +1048,10 @@ export default function PosSales({
     const hasMiscellaneousLines = cart.some((item) => item.lineType === 'MiscellaneousItem' || item.biFlagged);
     const controlCheck = await runTerminalControlCheck({
       vendorId,
-      branchId: branchIdFromName(branchName),
-      terminalId: terminalName,
+      branchId,
+      terminalId,
       terminalName,
-      staffId: staffName,
+      staffId: staffId || staffName,
       staffName,
       role: roleName,
       requiresCashDrawer
@@ -1062,9 +1062,9 @@ export default function PosSales({
       logEvent('SALE_BLOCKED_SHIFT_OR_TERMINAL', reason);
       await logTerminalControlEvent({
         vendorId,
-        branchId: branchIdFromName(branchName),
-        terminalId: terminalName,
-        staffId: staffName,
+        branchId,
+        terminalId,
+        staffId: staffId || staffName,
         staffName,
         eventType: 'SALE_BLOCKED_SHIFT_OR_TERMINAL',
         message: reason,
@@ -1084,99 +1084,84 @@ export default function PosSales({
       return false;
     }
 
-    const now = new Date().toISOString();
-    const invoiceNo = `INV-${Date.now().toString().slice(-8)}`;
-    const sale: Sale = {
-      id: makeId('TXN'),
-      invoiceNo,
-      date: now,
-      operator: staffName,
-      customerName,
-      customerId: selectedCustomerId || undefined,
-      customerCode: selectedCustomer?.customerCode,
-      customerPhone: customerPhone || selectedCustomer?.phone,
-      branch: branchName,
-      terminal: terminalName,
-      items: cart.map((item) => ({
-        productId: item.product.id,
-        name: productName(item.product),
-        code: item.sku || productSku(item.product),
-        quantity: item.quantity,
-        price: item.overriddenPrice ?? productPrice(item.product),
-        total: cartLineTotal(item),
-        unitCost: item.product.costPrice ?? item.product.cost,
-        costPrice: item.product.costPrice ?? item.product.cost,
-        lineType: item.lineType,
-        isInventoryAsset: item.isInventoryAsset !== false,
-        requiresManagementReview: item.requiresManagementReview,
-        biFlagged: item.biFlagged
-      })),
-      subtotal,
-      tax: taxTotal,
-      discount: lineDiscountTotal + cartDiscountAmount + creditRedemptionAmount + loyaltyRedemptionAmount,
-      total: grandTotal,
-      paymentMethod: salePaymentMethod(payments[0]?.method || paymentMethod),
-      cashReceived: paymentReceived,
-      changeGiven: changeDue,
-      status: 'COMPLETED'
-    };
-    let saleQueuedLocally = false;
-    let deliveryQueuedLocally = false;
-
+    setIsCompletingSale(true);
     try {
-      onAddTransaction({
-        operator: sale.operator,
-        customerName: sale.customerName,
-        customerId: sale.customerId,
-        customerCode: sale.customerCode,
-        customerPhone: sale.customerPhone,
-        branch: sale.branch,
-        terminal: sale.terminal,
-        items: sale.items,
-        subtotal: sale.subtotal,
-        tax: sale.tax,
-        discount: sale.discount,
-        total: sale.total,
-        paymentMethod: sale.paymentMethod,
-        cashReceived: sale.cashReceived,
-        changeGiven: sale.changeGiven,
-        status: sale.status
+      const checkoutTaxSettings = posTaxSettingToVendorTaxSettings(
+        vendorId,
+        {
+          vatRatePct: vatMode === 'Not VAT Registered' ? 0 : parsedVatRate,
+          surtaxPct: 0,
+          inclusive: vatMode !== 'Exclusive'
+        },
+        staffId || staffName
+      );
+      const selectedCustomerRecord = activeCustomers.find((customer) => customer.customerId === selectedCustomerId);
+      const result = await completeSale({
+        session,
+        customer: {
+          customerId: selectedCustomerId || 'WALK-IN',
+          customerName,
+          customerMode,
+          phone: customerPhone || selectedCustomerRecord?.phone,
+          whatsapp: customerWhatsApp || selectedCustomerRecord?.whatsapp,
+          taxNumber: customerTaxNumber || selectedCustomerRecord?.taxNumber,
+          billingAddress: selectedCustomerRecord?.billingAddress || customerAddress,
+          deliveryAddress: deliveryAddress || selectedCustomerRecord?.deliveryAddress || customerAddress,
+          record: selectedCustomerRecord,
+          creditDecision,
+          creditOverrideApproved: creditSaleOverrideAllowed
+        },
+        cartLines: cart,
+        paymentLines: payments,
+        selectedPaymentMethod: paymentMethod,
+        taxSettings: checkoutTaxSettings,
+        adjustments: {
+          cartDiscountAmount,
+          creditRedemptionAmount,
+          loyaltyRedemptionAmount,
+          deliveryFee: parsedDeliveryFee
+        },
+        notes: [cartInternalNote, receiptNote].filter(Boolean).join(' | '),
+        deliveryDetails: {
+          mode: deliveryMode,
+          address: deliveryAddress,
+          whatsApp: deliveryWhatsApp || customerWhatsApp || customerPhone,
+          notes: deliveryNotes,
+          priority: deliveryPriority,
+          paymentMode: deliveryPaymentMode
+        },
+        activeShiftId: activeShift?.id,
+        drawerId: activeShift ? `DRAWER-${terminalId}` : undefined,
+        permissions: {
+          canCompleteSale: canPerformAction(roleName, 'sales.complete'),
+          canDiscount: canPerformAction(roleName, 'sales.discount'),
+          canPriceOverride: canPerformAction(roleName, 'sales.priceChange'),
+          canCreditSale: canPerformAction(roleName, 'sales.creditSale') || canPerformAction(roleName, 'sales.accountSale'),
+          canCreditOverride: canPerformAction(roleName, 'sales.creditSale.override') || ['Owner', 'SysAdmin', 'Manager'].includes(roleName),
+          canNegativeStockOverride: canPerformAction(roleName, 'inventory.negativeStock.override') || ['Owner', 'SysAdmin', 'Manager'].includes(roleName),
+          role: roleName
+        },
+        allowNegativeStock: false
       });
 
-      await Promise.all(cart.filter((item) => item.lineType !== 'MiscellaneousItem' && item.isInventoryAsset !== false && item.stockMovementRequired !== false).map((item) => {
-        const currentProduct = localProducts.find((product) => product.id === item.product.id) || item.product;
-        const balanceBefore = productStock(currentProduct);
-        return postSaleMovement({
-          vendorId,
-          branchId: currentProduct.branchId || branchIdFromName(branchName),
-          warehouseId: currentProduct.warehouseId || currentProduct.warehouse || warehouseName,
-          productId: currentProduct.id,
-          sku: productSku(currentProduct),
-          alu: currentProduct.alu,
-          productNumericNumber: currentProduct.productNumericNumber,
-          productName: productName(currentProduct),
-          shelfLocation: currentProduct.shelfLocation,
-          qtyIn: 0,
-          qtyOut: item.quantity,
-          balanceBefore,
-          balanceAfter: Math.max(0, balanceBefore - item.quantity),
-          unitCost: currentProduct.costPrice ?? currentProduct.cost,
-          sellingPrice: item.overriddenPrice ?? productPrice(currentProduct),
-          salesAccountCOA: currentProduct.salesAccountCOA,
-          assetAccountCOA: currentProduct.assetAccountCOA,
-          staffId: staffName,
-          staffName,
-          terminalId: terminalName,
-          movementDate: now,
-          referenceNumber: invoiceNo,
-          notes: 'Sale completed from Sales Terminal.',
-          riskFlag: 'None',
-          approvalRequired: false,
-          status: 'Posted'
-        });
-      }));
-
-      await recordCOGSRecoveryFromSale(sale);
+      onAddTransaction({
+        operator: result.sale.operator,
+        customerName: result.sale.customerName,
+        customerId: result.sale.customerId,
+        customerCode: result.sale.customerCode,
+        customerPhone: result.sale.customerPhone,
+        branch: result.sale.branch,
+        terminal: result.sale.terminal,
+        items: result.sale.items,
+        subtotal: result.sale.subtotal,
+        tax: result.sale.tax,
+        discount: result.sale.discount,
+        total: result.sale.total,
+        paymentMethod: result.sale.paymentMethod,
+        cashReceived: result.sale.cashReceived,
+        changeGiven: result.sale.changeGiven,
+        status: result.sale.status
+      });
 
       cart.filter((item) => item.lineType !== 'MiscellaneousItem' && item.isInventoryAsset !== false && item.stockMovementRequired !== false).forEach((item) => onProductStockChange(item.product.id, item.quantity));
       setLocalProducts((current) => current.map((product) => {
@@ -1189,155 +1174,10 @@ export default function PosSales({
         } : product;
       }));
 
-      const selectedCustomer = activeCustomers.find((customer) => customer.customerId === selectedCustomerId);
-      const nonCreditPaymentLines = payments.filter((payment) => payment.method !== 'Credit / Account');
-      const receiptPaymentLines = creditSaleRequested
-        ? [
-            ...nonCreditPaymentLines.map((payment) => ({ method: payment.method, amount: payment.amount, reference: payment.reference })),
-            { method: 'Credit / Account', amount: 0, reference: `Balance due ${money(creditDebtAmount)}` }
-          ]
-        : payments.length > 0
-          ? payments.map((payment) => ({ method: payment.method, amount: payment.amount, reference: payment.reference }))
-          : [{ method: paymentMethod, amount: grandTotal, reference: paymentReference.trim() || undefined }];
-      const receipt = await createReceiptFromSale({
-        sale,
-        vendorId,
-        businessVendor: vendorName,
-        branchId: branchIdFromName(branchName),
-        branch: branchName,
-        terminalId: terminalName,
-        terminal: terminalName,
-        cashierId: staffName,
-        cashier: staffName,
-        customerId: selectedCustomer?.customerId,
-        customerName,
-        customerPhone,
-        customerWhatsApp,
-        customerTaxNumber,
-        customerBillingAddress: selectedCustomer?.billingAddress || customerAddress,
-        customerDeliveryAddress: deliveryAddress || selectedCustomer?.deliveryAddress || customerAddress,
-        customerCreditStatus: selectedCustomer?.creditStatus,
-        paymentMode: creditSaleRequested ? 'Credit Sale' : receiptPaymentMode(payments[0]?.method || paymentMethod),
-        paymentLines: receiptPaymentLines,
-        creditDetails: creditSaleRequested && creditDecision ? {
-          paymentType: 'Account / Credit',
-          paidAmount: nonCreditPaymentReceived,
-          balanceDue: creditDebtAmount,
-          dueDate: creditDecision.dueDate,
-          creditTermsDays: creditDecision.profile.paymentTermsDays,
-          outstandingAccountBalance: creditDecision.newBalance,
-          reminderNote: 'Please settle your account balance by the due date.'
-        } : undefined,
-        vatMode,
-        vatRate: parsedVatRate
-      });
-      if (creditSaleRequested && selectedCustomer && creditDebtAmount > 0 && creditDecision) {
-        await createCustomerDebtFromCreditSale({
-          customerId: selectedCustomer.customerId,
-          customerName,
-          receiptId: receipt.id,
-          receiptNumber: receipt.receiptNumber,
-          saleId: sale.id,
-          saleDate: now,
-          saleTotal: grandTotal,
-          paidAmount: nonCreditPaymentReceived,
-          creditAmount: creditDebtAmount,
-          branchId: branchIdFromName(branchName),
-          branchName,
-          terminalId: terminalName,
-          cashierStaffId: staffName,
-          paymentTermsDays: creditDecision.profile.paymentTermsDays,
-          notes: creditSaleOverrideAllowed ? 'Credit sale completed with manager override.' : 'Credit sale completed within account rules.'
-        });
-        if (creditSaleOverrideAllowed) {
-          await createCustomerCreditApprovalRequest({
-            customerName,
-            requestedBy: staffName,
-            requestedByRole: roleName,
-            approvalType: creditDecision.reasonList.some((reason) => reason.toLowerCase().includes('overdue')) ? 'OVERDUE_CUSTOMER_OVERRIDE' : 'CREDIT_SALE_OVERRIDE',
-            branchId: branchIdFromName(branchName),
-            branch: branchName,
-            relatedRecord: receipt.receiptNumber,
-            amountOrValue: money(creditDebtAmount),
-            risk: 'High',
-            reason: 'Credit override used at Sales Terminal.',
-            context: creditDecision.reasonList.join(' ')
-          });
-        }
-        if (creditDecision.profile.overdueBalance > 0) {
-          await createCustomerCreditBIAdvice('OVERDUE_CUSTOMER_TRYING_TO_BUY', customerName, `${customerName} has overdue balance before new credit sale.`, 'High');
-        }
-      }
-      const network = await getNetworkStatus();
-      const shouldQueueOffline = network === 'Offline' || network === 'Unstable';
-      const queueStatus = shouldQueueOffline ? 'Queued' : 'Ready To Sync';
-      await enqueueOfflineAction({
-        vendorId,
-        branchId: branchIdFromName(branchName),
-        terminalId: terminalName,
-        staffId: staffName,
-        staffName,
-        entityType: 'Receipt',
-        entityId: receipt.id,
-        entityNumber: receipt.receiptNumber,
-        operationType: 'CREATE_RECEIPT',
-        payload: { receiptNumber: receipt.receiptNumber, invoiceNo, total: grandTotal, paymentMode: receiptPaymentMode(payments[0]?.method || paymentMethod), offlineCompleted: shouldQueueOffline },
-        status: queueStatus,
-        notes: shouldQueueOffline ? 'Sale completed and queued for sync.' : 'Sale completed and ready for sync.'
-      });
-      await enqueueOfflineAction({
-        vendorId,
-        branchId: branchIdFromName(branchName),
-        terminalId: terminalName,
-        staffId: staffName,
-        staffName,
-        entityType: 'Payment',
-        entityId: receipt.receiptNumber,
-        entityNumber: receipt.receiptNumber,
-        operationType: 'CREATE_PAYMENT',
-        payload: { receiptNumber: receipt.receiptNumber, amount: creditSaleRequested ? nonCreditPaymentReceived : grandTotal, paymentMode: creditSaleRequested ? 'Credit Sale' : receiptPaymentMode(payments[0]?.method || paymentMethod), payments: receiptPaymentLines },
-        status: queueStatus,
-        notes: 'Payment queued for sync.'
-      });
-      await enqueueOfflineAction({
-        vendorId,
-        branchId: branchIdFromName(branchName),
-        terminalId: terminalName,
-        staffId: staffName,
-        staffName,
-        entityType: 'BI Event',
-        entityId: `BI-${receipt.receiptNumber}`,
-        entityNumber: receipt.receiptNumber,
-        operationType: 'CREATE_BI_EVENT',
-        payload: { eventType: shouldQueueOffline ? 'SALE_COMPLETED_OFFLINE' : 'SALE_COMPLETED', receiptNumber: receipt.receiptNumber, total: grandTotal },
-        status: queueStatus,
-        notes: 'Sales activity queued for sync.'
-      });
-      saleQueuedLocally = shouldQueueOffline;
-      try {
-        await createAccountingPostingPlaceholder({
-          sourceReference: invoiceNo,
-          source: 'Sale',
-          branch: branchName,
-          amount: grandTotal
-        });
-        await recordPaymentReportEvent('PAYMENT_BREAKDOWN_VIEWED', staffName);
-        await biEventService.recordBIEvent({
-          eventType: 'SALE_COMPLETED',
-          operator: staffName,
-          terminal: terminalName,
-          severity: 'INFO',
-          payload: {
-            invoiceNo,
-            total: grandTotal,
-            customerName,
-            paymentMethod: creditSaleRequested ? 'Credit Sale' : receiptPaymentMode(payments[0]?.method || paymentMethod)
-          }
-        });
-        if (hasMiscellaneousLines) {
-          await Promise.all(cart.filter((item) => item.lineType === 'MiscellaneousItem' || item.biFlagged).map(async (item) => {
-            const advice = await createMiscellaneousSaleAdvice({
-            receiptNo: invoiceNo,
+      if (hasMiscellaneousLines) {
+        await Promise.all(cart.filter((item) => item.lineType === 'MiscellaneousItem' || item.biFlagged).map(async (item) => {
+          const advice = await createMiscellaneousSaleAdvice({
+            receiptNo: result.receipt.receiptNumber,
             description: productName(item.product),
             amount: cartLineTotal(item),
             quantity: item.quantity,
@@ -1346,92 +1186,27 @@ export default function PosSales({
             terminalName,
             branchName,
             notes: item.miscNotes
-            });
-            await routeBIAdviceToDesk(advice);
-          }));
-        }
-      } catch {
-        logEvent('SALE_COMPLETION_SERVICE_PENDING', 'Optional accounting, payment, or business insight update was skipped safely.');
+          });
+          await routeBIAdviceToDesk(advice);
+        }));
       }
-      const preview = await getReceiptPreview(receipt.receiptNumber, '80mm');
-      if (!preview || preview.receipt.receiptNumber !== receipt.receiptNumber) {
-        throw new Error('Receipt preview could not be created for the completed sale.');
-      }
-      if (deliveryMode !== 'No Delivery') {
-        const deliveryRequest = await createDeliveryRequestFromReceipt({
-          vendorId,
-          receiptId: receipt.id,
-          receiptNumber: receipt.receiptNumber,
-          branchId: branchIdFromName(branchName),
-          branchName,
-          terminalId: terminalName,
-          cashierStaffId: staffName,
-          cashierStaffName: staffName,
-          customerId: selectedCustomer?.customerId,
-          customerName,
-          customerPhone,
-          customerWhatsapp: deliveryWhatsApp || customerWhatsApp || customerPhone,
-          deliveryMethod: deliveryMode,
-          priority: deliveryPriority,
-          deliveryAddress: deliveryAddress || selectedCustomer?.deliveryAddress || customerAddress,
-          deliveryNotes,
-          deliveryFee: parsedDeliveryFee,
-          paymentMode: deliveryPaymentMode,
-          totalReceiptAmount: grandTotal,
-          cashToCollect: deliveryPaymentMode === 'Cash On Delivery' ? grandTotal : deliveryPaymentMode === 'Delivery Fee Cash' ? parsedDeliveryFee : 0,
-          lines: cart.map((item) => ({
-            productId: item.product.id,
-            sku: productSku(item.product),
-            productName: productName(item.product),
-            qty: item.quantity
-          }))
-        });
-        if (deliveryRequest) {
-          logEvent('DELIVERY_REQUEST_CREATED', `${deliveryRequest.deliveryNumber} prepared for ${receipt.receiptNumber}.`);
-          if (shouldQueueOffline) {
-            await enqueueOfflineAction({
-              vendorId,
-              branchId: branchIdFromName(branchName),
-              terminalId: terminalName,
-              staffId: staffName,
-              staffName,
-              entityType: 'Delivery Request',
-              entityId: deliveryRequest.deliveryId,
-              entityNumber: deliveryRequest.deliveryNumber,
-              operationType: 'CREATE_DELIVERY_REQUEST',
-              payload: { deliveryId: deliveryRequest.deliveryId, deliveryNumber: deliveryRequest.deliveryNumber, receiptNumber: receipt.receiptNumber, deliveryMethod: deliveryMode },
-              status: 'Queued',
-              notes: 'Delivery request queued for sync. WhatsApp draft prepared.'
-            });
-            deliveryQueuedLocally = true;
-          }
-          try {
-            await biEventService.recordBIEvent({
-              eventType: deliveryMode === 'iDeliver Service' ? 'IDELIVER_BROADCAST_PREPARED' : 'DELIVERY_REQUEST_CREATED',
-              operator: staffName,
-              terminal: terminalName,
-              severity: 'INFO',
-              payload: { deliveryId: deliveryRequest.deliveryId, deliveryNumber: deliveryRequest.deliveryNumber, receiptNumber: receipt.receiptNumber, deliveryMethod: deliveryMode }
-            });
-          } catch {
-            logEvent('DELIVERY_BI_SKIPPED', 'Delivery business insight update was skipped safely.');
-          }
-        }
-      }
-      const completedSaleForReceipts = { ...sale, invoiceNo: receipt.receiptNumber };
-      setPreparedReceiptPreview(preview);
-      setReceiptOutputPreview(preview);
+
+      const completedSaleForReceipts = result.sale;
+      setPreparedReceiptPreview(result.receiptPreview);
+      setReceiptOutputPreview(result.receiptPreview);
       setRecentSales((current) => [completedSaleForReceipts, ...current].slice(0, 6));
       clearCartState();
-      setStatusMessage('Sale completed successfully.');
-      logEvent('SALE_COMPLETED', `Sale ${invoiceNo} completed for ${money(grandTotal)}.`);
-      if (hasMiscellaneousLines) logEvent('SALE_COMPLETED_WITH_MISCELLANEOUS_LINE', `Sale ${invoiceNo} included miscellaneous non-inventory line(s).`);
-      logEvent('RECEIPT_GENERATED', `Receipt ${receipt.receiptNumber} generated for completed sale.`);
-      if (saleQueuedLocally || deliveryQueuedLocally) logEvent('SALE_COMPLETED_SYNC_QUEUE', 'Completed sale sync queue updated.');
+      setStatusMessage(result.message);
+      logEvent('SALE_COMPLETED', `Sale ${result.receipt.receiptNumber} completed for ${money(result.sale.total)}.`);
+      if (hasMiscellaneousLines) logEvent('SALE_COMPLETED_WITH_MISCELLANEOUS_LINE', `Sale ${result.receipt.receiptNumber} included miscellaneous non-inventory line(s).`);
+      logEvent('RECEIPT_GENERATED', `Receipt ${result.receipt.receiptNumber} generated for completed sale.`);
+      if (result.offlineQueued) logEvent('SALE_COMPLETED_SYNC_QUEUE', 'Sale saved offline and waiting to synchronize.');
       return true;
     } catch (error) {
       setStatusMessage(error instanceof Error ? error.message : 'Sale completion failed.');
       return false;
+    } finally {
+      setIsCompletingSale(false);
     }
   };
 
@@ -1837,9 +1612,9 @@ export default function PosSales({
             <History size={17} aria-hidden="true" />
             Sales History
           </button>}
-          <button type="button" className="sci-pos-button sci-pos-button--primary" onClick={handleCompleteSale} disabled={!canCompleteWithPermission} title={disableCompleteReason}>
+          <button type="button" className="sci-pos-button sci-pos-button--primary" onClick={handleCompleteSale} disabled={!canCompleteWithPermission || isCompletingSale} title={disableCompleteReason}>
             <ShieldCheck size={17} aria-hidden="true" />
-            Complete
+            {isCompletingSale ? 'Completing...' : 'Complete'}
           </button>
         </div>
       </header>
@@ -1847,7 +1622,7 @@ export default function PosSales({
       {statusMessage && (
         <div className="sci-pos-alert" role="status">
           <span>{statusMessage}</span>
-          {preparedReceiptPreview && statusMessage === 'Sale completed successfully.' && (
+          {preparedReceiptPreview && (
             <button
               type="button"
               className="sci-pos-button sci-pos-button--primary"
@@ -1982,7 +1757,7 @@ export default function PosSales({
           availableCredit={availableCustomerCredit}
           creditDecision={creditDecision}
           availableLoyaltyPoints={availableLoyaltyPoints}
-          canComplete={canCompleteWithPermission}
+          canComplete={canCompleteWithPermission && !isCompletingSale}
           canReceivePayment={canPerformAction(roleName, 'payment.capture') || canPerformAction(roleName, 'sales.complete')}
           canApplyDiscount={canPerformAction(roleName, 'sales.discount')}
           canRedeemCredit={canPerformAction(roleName, 'sales.creditRedeem') || canPerformAction(roleName, 'customers.creditView')}
@@ -2230,6 +2005,7 @@ export default function PosSales({
         open={miscSaleOpen}
         onSubmit={(payload) => void handleAddMiscellaneousSale(payload)}
         onCancel={() => setMiscSaleOpen(false)}
+        defaultVatRate={parsedVatRate}
       />
     </div>
   );

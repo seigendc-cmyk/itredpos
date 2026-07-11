@@ -16,6 +16,10 @@ import type { Role } from '../types';
 
 const STAFF_COLLECTION = 'staff';
 
+function isActiveStatus(status: unknown): boolean {
+  return String(status || '').trim().toLowerCase() === 'active';
+}
+
 export function mapStaffRecordToStaffSetting(record: StaffRecord): StaffSetting {
   return {
     id: record.id,
@@ -71,11 +75,12 @@ export async function getActiveStaffByVendorAndBranch(vendorId: string, branchId
     const q = query(
       collection(db, STAFF_COLLECTION),
       where('vendorId', '==', vendorId),
-      where('branchId', '==', branchId),
-      where('status', '==', 'active')
+      where('branchId', '==', branchId)
     );
     const snap = await getDocs(q);
-    return snap.docs.map(d => ({ id: d.id, ...(d.data() as Omit<StaffRecord, 'id'>) }));
+    return snap.docs
+      .map(d => ({ id: d.id, ...(d.data() as Omit<StaffRecord, 'id'>) }))
+      .filter((record) => isActiveStatus(record.status));
   } catch {
     return [];
   }
@@ -134,7 +139,7 @@ export async function ensureDefaultOwnerStaff(
   const defaultOwner: StaffRecord = {
     id: staffId,
     vendorId,
-    branchId: 'demo-branch',
+    branchId: `${vendorId}_main_branch`,
     staffCode: 'OWNER',
     displayName: ownerName || 'Owner',
     email: '',
@@ -180,7 +185,7 @@ export async function suspendStaff(staffId: string, updatedBy: string): Promise<
 export async function validateStaffPin(staffId: string, pin: string): Promise<StaffRecord | null> {
   const record = await getStaffById(staffId);
   if (!record) return null;
-  if (record.status !== 'active') return null;
+  if (!isActiveStatus(record.status)) return null;
   if (record.pinHash && record.pinHash === pin) return record;
   if (record.pinCode && record.pinCode === pin) return record;
   return null;

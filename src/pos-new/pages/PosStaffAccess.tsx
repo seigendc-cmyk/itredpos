@@ -1,18 +1,18 @@
 import React, { useState, FormEvent, useEffect } from 'react';
-import {
-  collection,
-  getDocs,
-  query,
-  where
-} from 'firebase/firestore';
 import { ShieldCheck, KeyRound, Server, Building2, Users, MonitorSmartphone, ArrowRight, ShieldAlert, Cpu } from 'lucide-react';
 import { PosSession } from '../types';
-import { db } from '../firebase/firebaseApp';
-import { createOwnerPosSession, readSciVendorOwnerSession } from '../../sci-auth/StaffAuthService';
-import { getActiveStaffByVendorAndBranch, validateStaffPin, ensureDefaultOwnerStaff } from '../services/staffFirestoreService';
+import {
+  adaptSciStaffSessionToPosSession,
+  authenticateStaffAccess,
+  loadStaffAccessData,
+  readSciVendorOwnerSession,
+  saveSciPosStaffSession,
+  type StaffAccessBranch,
+  type StaffAccessStaff,
+  type StaffAccessTerminal,
+  type StaffAccessWarehouse
+} from '../../sci-auth/StaffAuthService';
 import { recordStaffAuditEvent } from '../services/staffAuditService';
-import { mapStaffRecordToStaffSetting } from '../services/staffFirestoreService';
-import type { StaffSetting } from '../types';
 
 
 interface PosStaffAccessProps {
@@ -30,18 +30,20 @@ export default function PosStaffAccess({
   const session = readSciVendorOwnerSession();
   const vendorId = session?.vendorId || '';
 
-  const [staffList, setStaffList] = useState<StaffSetting[]>([]);
+  const [staffList, setStaffList] = useState<StaffAccessStaff[]>([]);
+  const [branches, setBranches] = useState<StaffAccessBranch[]>([]);
+  const [warehouses, setWarehouses] = useState<StaffAccessWarehouse[]>([]);
+  const [terminals, setTerminals] = useState<StaffAccessTerminal[]>([]);
   const [staffLoading, setStaffLoading] = useState<boolean>(true);
   const [staffError, setStaffError] = useState<string>('');
 
   const vendors = vendorId ? [{ id: vendorId, name: session?.vendorName || 'Current Vendor' }] : [];
-  const branches = [{ id: 'demo-branch', name: 'Demo Branch', location: 'Demo Branch' }];
-  const terminals = [{ id: 'TERM-MAIN-001', name: 'Main POS Terminal', branchId: 'demo-branch', type: 'POS' }];
 
   const [selectedVendor, setSelectedVendor] = useState<string>(vendors[0]?.name || '');
-  const [selectedBranchId, setSelectedBranchId] = useState<string>(branches[0]?.id || '');
+  const [selectedBranchId, setSelectedBranchId] = useState<string>('');
+  const [selectedWarehouseId, setSelectedWarehouseId] = useState<string>('');
   const [selectedStaffId, setSelectedStaffId] = useState<string>('');
-  const [selectedTerminalId, setSelectedTerminalId] = useState<string>(terminals[0]?.id || '');
+  const [selectedTerminalId, setSelectedTerminalId] = useState<string>('');
   const [password, setPassword] = useState<string>('');
 
   useEffect(() => {
@@ -50,30 +52,39 @@ export default function PosStaffAccess({
     setStaffError('');
 
     const loadStaff = async () => {
-      if (!db || !vendorId) {
+      if (!vendorId) {
         if (active) {
+          setStaffError('Vendor session missing');
           setStaffList([]);
+          setBranches([]);
+          setWarehouses([]);
+          setTerminals([]);
           setSelectedStaffId('');
           setStaffLoading(false);
         }
         return;
       }
       try {
-        const records = await getActiveStaffByVendorAndBranch(vendorId, selectedBranchId || branches[0]?.id || '');
-        let list = records.map(mapStaffRecordToStaffSetting);
-        if (list.length === 0 && vendorId) {
-          const defaultOwner = await ensureDefaultOwnerStaff(vendorId, session?.ownerName || 'Owner');
-          list = [mapStaffRecordToStaffSetting(defaultOwner)];
-        }
+        const data = await loadStaffAccessData(vendorId);
         if (active) {
-          setStaffList(list);
-          setSelectedStaffId(list.length > 0 ? list[0].id : '');
+          setStaffList(data.staff);
+          setBranches(data.branches);
+          setWarehouses(data.warehouses);
+          setTerminals(data.terminals);
+          setSelectedBranchId(data.branches[0]?.branchId || '');
+          setSelectedWarehouseId(data.warehouses.find((warehouse) => warehouse.branchId === data.branches[0]?.branchId)?.warehouseId || data.warehouses[0]?.warehouseId || '');
+          setSelectedTerminalId(data.terminals.find((terminal) => terminal.branchId === data.branches[0]?.branchId)?.terminalId || data.terminals[0]?.terminalId || '');
+          setSelectedStaffId(data.staff.length > 0 ? data.staff[0].staffId : '');
         }
       } catch (err) {
         const message = err instanceof Error ? err.message : 'Failed to load staff from database.';
         if (active) {
+          console.error('[PosStaffAccess] Staff access load failed', err);
           setStaffError(message);
           setStaffList([]);
+          setBranches([]);
+          setWarehouses([]);
+          setTerminals([]);
           setSelectedStaffId('');
         }
       } finally {
@@ -86,6 +97,18 @@ export default function PosStaffAccess({
       active = false;
     };
   }, [vendorId]);
+
+  useEffect(() => {
+    if (!selectedBranchId) return;
+    const branchWarehouses = warehouses.filter((warehouse) => warehouse.branchId === selectedBranchId);
+    const branchTerminals = terminals.filter((terminal) => terminal.branchId === selectedBranchId);
+    if (branchWarehouses.length > 0 && !branchWarehouses.some((warehouse) => warehouse.warehouseId === selectedWarehouseId)) {
+      setSelectedWarehouseId(branchWarehouses[0].warehouseId);
+    }
+    if (branchTerminals.length > 0 && !branchTerminals.some((terminal) => terminal.terminalId === selectedTerminalId)) {
+      setSelectedTerminalId(branchTerminals[0].terminalId);
+    }
+  }, [selectedBranchId, selectedTerminalId, selectedWarehouseId, terminals, warehouses]);
 
   const [errorMsg, setErrorMsg] = useState<string>('');
   const [isAuthenticating, setIsAuthenticating] = useState<boolean>(false);
@@ -117,43 +140,54 @@ export default function PosStaffAccess({
     setIsAuthenticating(true);
 
     try {
-      const matched = await validateStaffPin(selectedStaffId, password.trim());
-      if (!matched) {
-        setErrorMsg('ACCESS PERMISSION DENIED: Incorrect PIN or staff record is suspended.');
+      if (!session) {
+        setErrorMsg('Vendor session missing');
         setIsAuthenticating(false);
         return;
       }
 
-      const staffSession = createOwnerPosSession();
-      const enrichedSession: PosSession = {
-        ...staffSession,
-        staffId: matched.id,
-        staffName: matched.displayName,
-        role: matched.roleName,
-        branchId: matched.branchId,
-        branch: branches.find(b => b.id === matched.branchId)?.name || matched.branchId,
+      const result = authenticateStaffAccess({
+        vendorSession: session,
+        staffId: selectedStaffId,
+        pin: password.trim(),
+        branchId: selectedBranchId,
+        warehouseId: selectedWarehouseId,
         terminalId: selectedTerminalId,
-        terminal: terminals.find(t => t.id === selectedTerminalId)?.name || selectedTerminalId,
-      };
+        staff: staffList,
+        branches,
+        warehouses,
+        terminals
+      });
+
+      if (!result.ok || !result.session) {
+        setErrorMsg(result.message);
+        setIsAuthenticating(false);
+        return;
+      }
+
+      saveSciPosStaffSession(result.session);
+      const enrichedSession: PosSession = adaptSciStaffSessionToPosSession(result.session);
 
       await recordStaffAuditEvent({
-        vendorId: matched.vendorId,
-        branchId: matched.branchId,
+        vendorId: result.session.vendorId,
+        branchId: result.session.branchId,
         terminalId: selectedTerminalId,
-        staffId: matched.id,
-        roleId: matched.roleId,
+        staffId: result.session.staffId,
+        roleId: result.session.role,
         eventType: 'STAFF_LOGIN_SUCCESS',
         timestamp: new Date().toISOString(),
-        metadata: { displayName: matched.displayName, roleName: matched.roleName }
+        metadata: { displayName: result.session.staffName, roleName: result.session.role }
       });
 
       onLoginSuccess(enrichedSession);
     } catch (err) {
+      console.error('[PosStaffAccess] Staff login failed', err);
       const message = err instanceof Error ? err.message : 'Authentication failed.';
       setErrorMsg(message);
       await recordStaffAuditEvent({
-        vendorId: '',
-        branchId: '',
+        vendorId,
+        branchId: selectedBranchId,
+        terminalId: selectedTerminalId,
         staffId: selectedStaffId,
         roleId: '',
         eventType: 'STAFF_LOGIN_FAILED',
@@ -211,7 +245,7 @@ export default function PosStaffAccess({
             <select
               value={selectedVendor}
               onChange={(e) => setSelectedVendor(e.target.value)}
-              disabled={true}
+              disabled={staffLoading || branches.length === 0}
 
               className="w-full bg-slate-950 text-emerald-400 border border-slate-800 focus:border-[#00f0ff] px-3 py-2 outline-none rounded-none text-xs font-bold transition-colors cursor-pointer"
             >
@@ -235,24 +269,50 @@ export default function PosStaffAccess({
                 setSelectedBranchId(e.target.value);
                 setErrorMsg('');
               }}
-              disabled={true}
+              disabled={staffLoading || branches.length === 0}
 
               className="w-full bg-slate-950 text-slate-200 border border-slate-800 focus:border-[#00f0ff] px-3 py-2 outline-none rounded-none text-xs transition-colors cursor-pointer"
             >
               {branches.map((b) => (
-                <option key={b.id} value={b.id}>
-                  {b.name}
+                <option key={b.branchId} value={b.branchId}>
+                  {b.branchName}
                 </option>
               ))}
             </select>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            {/* Warehouse Selector */}
+            <div className="space-y-1.5">
+              <label className="flex items-center gap-2 text-[10px] text-slate-500 font-bold uppercase tracking-wider">
+                <Server className="w-3.5 h-3.5 text-indigo-400" />
+                3. Warehouse
+              </label>
+              <select
+                value={selectedWarehouseId}
+                onChange={(e) => {
+                  setSelectedWarehouseId(e.target.value);
+                  setErrorMsg('');
+                }}
+                disabled={staffLoading || warehouses.length === 0}
+
+                className="w-full bg-slate-950 text-slate-200 border border-slate-800 focus:border-[#00f0ff] px-3 py-2 outline-none rounded-none text-xs transition-colors cursor-pointer"
+              >
+                {warehouses
+                  .filter((warehouse) => !selectedBranchId || warehouse.branchId === selectedBranchId)
+                  .map((warehouse) => (
+                    <option key={warehouse.warehouseId} value={warehouse.warehouseId}>
+                      {warehouse.warehouseName}
+                    </option>
+                  ))}
+              </select>
+            </div>
+
             {/* Terminal Selector */}
             <div className="space-y-1.5">
               <label className="flex items-center gap-2 text-[10px] text-slate-500 font-bold uppercase tracking-wider">
                 <MonitorSmartphone className="w-3.5 h-3.5 text-emerald-400" />
-                3. Terminal Unit
+                4. Terminal Unit
               </label>
               <select
                 value={selectedTerminalId}
@@ -260,15 +320,17 @@ export default function PosStaffAccess({
                   setSelectedTerminalId(e.target.value);
                   setErrorMsg('');
                 }}
-                disabled={true}
+                disabled={staffLoading || terminals.length === 0}
 
                 className="w-full bg-slate-950 text-slate-200 border border-slate-800 focus:border-[#00f0ff] px-3 py-2 outline-none rounded-none text-xs transition-colors cursor-pointer"
               >
-                {terminals.map((t) => (
-                  <option key={t.id} value={t.id}>
-                    {t.name}
-                  </option>
-                ))}
+                {terminals
+                  .filter((terminal) => !selectedBranchId || terminal.branchId === selectedBranchId)
+                  .map((t) => (
+                    <option key={t.terminalId} value={t.terminalId}>
+                      {t.terminalName}
+                    </option>
+                  ))}
               </select>
             </div>
 
@@ -276,7 +338,7 @@ export default function PosStaffAccess({
             <div className="space-y-1.5">
               <label className="flex items-center gap-2 text-[10px] text-slate-500 font-bold uppercase tracking-wider">
                 <Users className="w-3.5 h-3.5 text-[#00f0ff]" />
-                4. Staff Member
+                5. Staff Member
               </label>
               <select
                 value={selectedStaffId}
@@ -294,8 +356,8 @@ export default function PosStaffAccess({
                   <option value="">No active staff found</option>
                 ) : (
                   staffList.map((s) => (
-                    <option key={s.id} value={s.id}>
-                      {s.displayName} ({s.roleName})
+                    <option key={s.staffId} value={s.staffId}>
+                      {s.staffName} ({s.role})
                     </option>
                   ))
                 )}
@@ -315,7 +377,7 @@ export default function PosStaffAccess({
             <div className="flex justify-between items-center text-[10px]">
               <label className="flex items-center gap-2 text-slate-500 font-bold uppercase tracking-wider">
                 <KeyRound className="w-3.5 h-3.5 text-amber-500" />
-                5. Authentication Password / PIN
+                6. Authentication Password / PIN
               </label>
             </div>
             <input

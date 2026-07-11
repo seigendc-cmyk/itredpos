@@ -16,7 +16,10 @@ export function saveInventoryMovements(movements: InventoryMovement[]): Inventor
 }
 
 export function addInventoryMovement(movement: InventoryMovement): InventoryMovement {
-  const next = [movement, ...loadInventoryMovements()];
+  const existing = loadInventoryMovements();
+  const duplicate = existing.find((row) => row.movementId === movement.movementId);
+  if (duplicate) return duplicate;
+  const next = [movement, ...existing];
   saveInventoryMovements(next);
   return movement;
 }

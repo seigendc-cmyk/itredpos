@@ -4,6 +4,7 @@ import { createDefaultOwnerProfile } from './simpleOwnerProvisioningService';
 import { saveSimpleAuthContext, readSimpleAuthContext } from './simpleAuthStorage';
 import type { SimpleAuthStage, SimpleOwnerAuthContext } from './simpleAuthTypes';
 
+// Deprecated: retained for reference only. App.tsx now routes through src/sci-auth/VendorAuthGate.tsx.
 export default function SimpleAuthLandingPage() {
   const [stage, setStage] = useState<SimpleAuthStage>(() => {
     const existing = readSimpleAuthContext();

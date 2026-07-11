@@ -21,11 +21,14 @@ import {
   mockPurchaseOrders
 } from '../mock/mockPosData';
 import { createOperationalApproval } from './approvalService';
-import { postGoodsReceivedMovement } from './inventoryMovementService';
+import { receiveStock } from './inventorySyncService';
 import { createSupplierBillFromGRN, createSupplierPayment, markSupplierPaymentPaid } from './creditorsService';
 import { publishCommerceEvent, writeAuditLog, CommerceOperationContext } from '../../commerce-integration';
 import { getVendorDocumentIdentity } from '../vendor/vendorBootstrapModel';
 import { readVendorScopedList, writeVendorScopedList } from '../utils/vendorDataMode';
+import { calculateDocumentTax, getCachedVendorTaxSettings } from './vendorTaxSettingsService';
+import { recordSupplierAccountPayment, recordSupplierAccountPurchase } from './supplierAccountService';
+import { assertCanonicalPurchaseSession, type CanonicalPurchaseSession } from './purchaseSessionService';
 
 const GRN_KEY = 'itred_pos_goods_receiving_notes_v1';
 const GRN_LINE_KEY = 'itred_pos_goods_receiving_lines_v1';
@@ -56,6 +59,10 @@ function nowIso(): string {
 
 function makeId(prefix: string): string {
   return `${prefix}-${Date.now()}-${Math.floor(1000 + Math.random() * 9000)}`;
+}
+
+function safeId(value: string): string {
+  return value.replace(/[^A-Za-z0-9_-]/g, '_');
 }
 
 function nextGRNNumber(notes: GoodsReceivingNote[]): string {
@@ -150,8 +157,55 @@ function normalizeLine(line: GoodsReceivingLine): GoodsReceivingLine {
   };
   return {
     ...normalized,
+    goodsReceiptLineId: normalized.goodsReceiptLineId || normalized.lineId,
+    goodsReceiptId: normalized.goodsReceiptId || normalized.grnId,
+    purchaseOrderId: normalized.purchaseOrderId || normalized.poId,
+    purchaseOrderLineId: normalized.purchaseOrderLineId || normalized.poLineId,
+    quantityReceived: qtyReceivedNow,
+    quantityAccepted: qtyAccepted,
+    quantityRejected: qtyRejected,
+    unitCost: normalized.receivedUnitCost,
     lineStatus: calculateLineStatus(normalized)
   };
+}
+
+function calculatePostedLineTax(note: GoodsReceivingNote, lines: GoodsReceivingLine[]) {
+  const settings = {
+    ...getCachedVendorTaxSettings(note.vendorId),
+    pricesIncludeVat: getCachedVendorTaxSettings(note.vendorId).pricesIncludeVat
+  };
+  const tax = calculateDocumentTax(lines.map((line) => ({
+    quantity: line.qtyAccepted,
+    unitPrice: line.receivedUnitCost
+  })), settings);
+  const byLineId = new Map<string, { netUnitCost: number; vatRate: number; vatAmount: number; lineTotal: number }>();
+  lines.forEach((line, index) => {
+    const taxLine = tax.lines[index];
+    const netUnitCost = line.qtyAccepted > 0 ? Number((taxLine.netAmount / line.qtyAccepted).toFixed(4)) : 0;
+    byLineId.set(line.lineId, {
+      netUnitCost,
+      vatRate: taxLine.vatRate,
+      vatAmount: taxLine.vatAmount,
+      lineTotal: taxLine.total
+    });
+  });
+  return { tax, byLineId };
+}
+
+function grnMovementId(note: GoodsReceivingNote, line: GoodsReceivingLine): string {
+  return safeId(`${note.vendorId}_GOODS_RECEIPT_${note.grnId}_${line.lineId}_GOODS_RECEIVED`);
+}
+
+function duplicateSupplierDocumentExists(note: GoodsReceivingNote): boolean {
+  const invoice = note.supplierInvoiceNumber.trim().toLowerCase();
+  if (!invoice) return false;
+  return getGRNs().some((item) => (
+    item.grnId !== note.grnId
+    && item.vendorId === note.vendorId
+    && item.supplierId === note.supplierId
+    && item.supplierInvoiceNumber.trim().toLowerCase() === invoice
+    && !['Cancelled', 'Rejected', 'Reversed'].includes(item.receivingStatus)
+  ));
 }
 
 async function recordActivity(input: Omit<GoodsReceivingActivityEvent, 'id' | 'createdAt'>): Promise<GoodsReceivingActivityEvent[]> {
@@ -205,7 +259,13 @@ function syncPOFromPostedGRNs(poId: string, operator: string): PurchaseOrder | n
     : totalReceived >= totalOrdered
       ? 'Fully Received'
       : 'Partially Received';
-  const updatedOrder: PurchaseOrder = { ...order, status, updatedAt: nowIso() };
+  const updatedOrder: PurchaseOrder = {
+    ...order,
+    status,
+    approvalStatus: order.approvalStatus || 'Approved',
+    postingStatus: status === 'Fully Received' ? 'Closed' : status === 'Partially Received' ? 'Partially Posted' : order.postingStatus || 'Not Posted',
+    updatedAt: nowIso()
+  };
   savePOs(orders.map((item) => item.poId === poId ? updatedOrder : item));
 
   if (status === 'Fully Received') {
@@ -292,8 +352,11 @@ export async function getPOReceivingSummary(poId: string): Promise<POReceivingSu
 }
 
 export async function createGRNDraftFromPO(poId: string, staffId: string): Promise<GoodsReceivingNote | null> {
+  const session = assertCanonicalPurchaseSession();
   const order = getPOs().find((item) => item.poId === poId);
   if (!order) return null;
+  if (order.vendorId !== session.vendorId) return null;
+  if (!['Approved', 'Sent To Supplier', 'Partially Received'].includes(order.status)) return null;
   const summary = await getPOReceivingSummary(poId);
   const outstandingLines = (summary?.lineStates || []).filter((line) => line.qtyOutstanding > 0);
   if (outstandingLines.length === 0) return null;
@@ -303,23 +366,28 @@ export async function createGRNDraftFromPO(poId: string, staffId: string): Promi
   const grnId = makeId('GRN-ID');
   const note: GoodsReceivingNote = {
     grnId,
+    goodsReceiptId: grnId,
     grnNumber: nextGRNNumber(notes),
-    vendorId: order.vendorId,
+    goodsReceiptNumber: nextGRNNumber(notes),
+    vendorId: session.vendorId,
     poId: order.poId,
     poNumber: order.poNumber,
-    branchId: order.deliveryBranchId,
-    warehouseId: order.deliveryWarehouseId,
+    branchId: session.branchId,
+    warehouseId: session.warehouseId,
     supplierId: order.supplierId,
     supplierName: order.supplierName,
-    receivedByStaffId: staffId,
-    receivedByStaffName: staffId,
+    receivedByStaffId: session.staffId || staffId,
+    receivedByStaffName: session.staffName,
     receivedDate: createdAt.slice(0, 10),
+    receivedAt: createdAt,
     supplierInvoiceNumber: '',
     supplierInvoiceDate: '',
     supplierInvoiceAmount: 0,
     deliveryNoteNumber: '',
     vehicleOrCourierReference: '',
     receivingStatus: 'Draft',
+    status: 'Draft',
+    postingStatus: 'Draft',
     approvalRequired: false,
     notes: 'Draft GRN created from outstanding PO lines. No stock is updated until posting.',
     createdAt,
@@ -331,9 +399,13 @@ export async function createGRNDraftFromPO(poId: string, staffId: string): Promi
     const poLine = poLines.find((line) => line.lineId === state.poLineId);
     const base: GoodsReceivingLine = {
       lineId: makeId('GRN-LINE'),
+      goodsReceiptLineId: '',
       grnId,
+      goodsReceiptId: grnId,
       poId: order.poId,
+      purchaseOrderId: order.poId,
       poLineId: state.poLineId,
+      purchaseOrderLineId: state.poLineId,
       productId: state.productId,
       sku: state.sku,
       productName: state.productName,
@@ -344,11 +416,18 @@ export async function createGRNDraftFromPO(poId: string, staffId: string): Promi
       qtyPreviouslyReceived: state.qtyPostedReceived,
       qtyOutstandingBeforeGRN: state.qtyOutstanding,
       qtyReceivedNow: state.qtyOutstanding,
+      quantityReceived: state.qtyOutstanding,
       qtyAccepted: state.qtyOutstanding,
+      quantityAccepted: state.qtyOutstanding,
       qtyRejected: 0,
+      quantityRejected: 0,
       qtyOutstandingAfterGRN: 0,
       previousCostPrice: poLine?.lastCostPrice || poLine?.estimatedUnitCost || 0,
       receivedUnitCost: poLine?.estimatedUnitCost || 0,
+      unitCost: poLine?.estimatedUnitCost || 0,
+      vatRate: 0,
+      vatAmount: 0,
+      lineTotal: Number((state.qtyOutstanding * (poLine?.estimatedUnitCost || 0)).toFixed(2)),
       sellingPrice: poLine?.currentSellingPrice || 0,
       shelfLocation: poLine?.shelfLocation || '',
       varianceType: 'None',
@@ -474,6 +553,9 @@ export async function validateGRNBeforePost(grnId: string, options: { allowMissi
     approvalRequired = !options.allowMissingSupplierInvoice;
     await recordActivity({ grnId, grnNumber: note.grnNumber, poId: note.poId, poNumber: note.poNumber, eventType: 'GRN_SUPPLIER_INVOICE_MISSING', message: 'Supplier invoice missing before posting.', operator: note.receivedByStaffName });
   }
+  if (note && duplicateSupplierDocumentExists(note)) {
+    errors.push('Duplicate supplier invoice number for this supplier.');
+  }
 
   lines.forEach((line) => {
     if (line.qtyReceivedNow < 0) errors.push(`${line.sku}: received quantity cannot be negative.`);
@@ -498,20 +580,22 @@ export async function validateGRNBeforePost(grnId: string, options: { allowMissi
 }
 
 export async function submitGRNForApproval(grnId: string): Promise<GoodsReceivingNote | null> {
+  const session = assertCanonicalPurchaseSession();
   const note = await getGoodsReceivingNoteById(grnId);
   if (!note || note.receivingStatus !== 'Draft') return null;
+  if (note.vendorId !== session.vendorId) return null;
   const validation = await validateGRNBeforePost(grnId);
   if (!validation.valid) return null;
   const notes = getGRNs();
-  const updated = { ...note, receivingStatus: 'Pending Approval' as const, approvalRequired: true, updatedAt: nowIso() };
+  const updated = { ...note, receivingStatus: 'Pending Approval' as const, status: 'Pending Approval' as const, postingStatus: 'Pending' as const, approvalRequired: true, updatedAt: nowIso() };
   saveGRNs(notes.map((item) => item.grnId === grnId ? updated : item));
   await createOperationalApproval({
     vendorId: note.vendorId,
     branchId: note.branchId,
     branch: note.branchId,
     category: 'Goods Receiving',
-    requestedBy: note.receivedByStaffName,
-    requestedByRole: 'Stock Controller',
+    requestedBy: session.staffName,
+    requestedByRole: session.role,
     relatedRecord: note.grnNumber,
     amountOrValue: `${note.supplierInvoiceAmount.toFixed(2)} invoice reference`,
     risk: 'High',
@@ -519,17 +603,19 @@ export async function submitGRNForApproval(grnId: string): Promise<GoodsReceivin
     context: `${note.grnNumber} has receiving variances. Draft/pending GRNs do not update stock.`,
     requiredPermission: 'approvals.approve'
   });
-  await recordActivity({ grnId, grnNumber: note.grnNumber, poId: note.poId, poNumber: note.poNumber, eventType: 'GRN_SUBMITTED_FOR_APPROVAL', message: `${note.grnNumber} submitted for approval. Stock not updated.`, operator: note.receivedByStaffName });
+  await recordActivity({ grnId, grnNumber: note.grnNumber, poId: note.poId, poNumber: note.poNumber, eventType: 'GRN_SUBMITTED_FOR_APPROVAL', message: `${note.grnNumber} submitted for approval. Stock not updated.`, operator: session.staffName });
   return updated;
 }
 
 export async function approveGRN(grnId: string, staffId: string, notesText = ''): Promise<GoodsReceivingNote | null> {
+  const session = assertCanonicalPurchaseSession();
   const notes = getGRNs();
   const note = notes.find((item) => item.grnId === grnId);
   if (!note || note.receivingStatus !== 'Pending Approval') return null;
-  const updated = { ...note, receivingStatus: 'Draft' as const, approvedByStaffId: staffId, approvedByStaffName: staffId, approvalRequired: false, notes: `${note.notes}\nApproval note: ${notesText}`.trim(), updatedAt: nowIso() };
+  if (note.vendorId !== session.vendorId) return null;
+  const updated = { ...note, receivingStatus: 'Draft' as const, status: 'Draft' as const, postingStatus: 'Draft' as const, approvedByStaffId: session.staffId || staffId, approvedByStaffName: session.staffName, approvalRequired: false, notes: `${note.notes}\nApproval note: ${notesText}`.trim(), updatedAt: nowIso() };
   saveGRNs(notes.map((item) => item.grnId === grnId ? updated : item));
-  await recordActivity({ grnId, grnNumber: note.grnNumber, poId: note.poId, poNumber: note.poNumber, eventType: 'GRN_APPROVED', message: `${note.grnNumber} approved for posting.`, operator: staffId });
+  await recordActivity({ grnId, grnNumber: note.grnNumber, poId: note.poId, poNumber: note.poNumber, eventType: 'GRN_APPROVED', message: `${note.grnNumber} approved for posting.`, operator: session.staffName });
   return updated;
 }
 
@@ -538,8 +624,12 @@ export async function postGRN(
   staffId: string,
   options: GoodsReceivingPostOptions = { acquisitionType: 'Supplier Credit' },
   context?: CommerceOperationContext): Promise<GoodsReceivingPostingResult | null> {
+  const session = assertCanonicalPurchaseSession();
   const note = await getGoodsReceivingNoteById(grnId);
   if (!note || note.receivingStatus !== 'Draft') return null;
+  if (note.vendorId !== session.vendorId || note.branchId !== session.branchId || note.warehouseId !== session.warehouseId) {
+    throw new Error('Your POS session is incomplete. Please sign in again.');
+  }
   const validation = await validateGRNBeforePost(grnId, { allowMissingSupplierInvoice: options.acquisitionType === 'Invoice Pending' });
   if (!validation.valid) {
     return { grnId, grnNumber: note.grnNumber, status: note.receivingStatus, stockPosted: false, approvalRequired: validation.approvalRequired, postedLines: [], skippedLines: await getGoodsReceivingLines(grnId), acquisitionType: options.acquisitionType, message: validation.errors.join(' ') };
@@ -551,38 +641,70 @@ export async function postGRN(
 
   const lines = (await getGoodsReceivingLines(grnId)).map(normalizeLine);
   const postedLines = lines.filter((line) => !line.removeFromCurrentGRN && line.lineStatus !== 'Not Supplied' && line.lineStatus !== 'Cancelled' && line.qtyAccepted > 0);
-  const postingStaffId = context?.staffId || staffId;
+  const postingStaffId = context?.staffId || session.staffId || staffId;
+  const postingStaffName = session.staffName || postingStaffId;
   const skippedLines = lines.filter((line) => !postedLines.some((posted) => posted.lineId === line.lineId));
-  await Promise.all(postedLines.map((line) => postGoodsReceivedMovement({
-    vendorId: note.vendorId,
-    branchId: note.branchId,
-    warehouseId: note.warehouseId,
-    productId: line.productId,
-    sku: line.sku,
-    productName: line.productName,
-    shelfLocation: line.shelfLocation,
-    qtyIn: line.qtyAccepted,
-    qtyOut: 0,
-    balanceBefore: line.qtyPreviouslyReceived,
-    unitCost: line.receivedUnitCost,
-    sellingPrice: line.sellingPrice,
-    staffId: postingStaffId,
-    staffName: postingStaffId,
-    movementDate: nowIso(),
-    referenceNumber: note.grnNumber,
-    notes: `Posted GRN ${note.grnNumber}. Supplier invoice captured for accounting review only; no cashbook payment posted.`,
-    riskFlag: line.varianceType === 'None' ? 'None' : 'Medium',
-    approvalRequired: false,
-    status: 'Posted'
-  })));
+  const lineTax = calculatePostedLineTax(note, postedLines);
+  const taxByLineId = lineTax.byLineId;
+  const postedAt = nowIso();
+
+  for (const line of postedLines) {
+    const taxLine = taxByLineId.get(line.lineId);
+    await receiveStock({
+      movementId: grnMovementId(note, line),
+      vendorId: note.vendorId,
+      branchId: note.branchId,
+      warehouseId: note.warehouseId,
+      productId: line.productId,
+      sku: line.sku,
+      productName: line.productName,
+      shelfLocation: line.shelfLocation,
+      quantityIn: line.qtyAccepted,
+      quantityOut: 0,
+      unitCost: taxLine?.netUnitCost ?? line.receivedUnitCost,
+      sellingPrice: line.sellingPrice,
+      staffId: postingStaffId,
+      staffName: postingStaffName,
+      terminalId: context?.terminalId || session.terminalId,
+      createdAt: postedAt,
+      referenceType: 'GOODS_RECEIPT',
+      referenceId: note.grnId,
+      notes: `Posted goods receipt ${note.grnNumber}. Rejected goods excluded from stock. Cost policy: vendor VAT settings with recoverable VAT excluded from inventory cost.`
+    });
+  }
 
   const nextStatus: GoodsReceivingStatus = skippedLines.some((line) => line.qtyOutstandingAfterGRN > 0) ? 'Partially Posted' : 'Posted';
-  const updatedNote = { ...note, receivingStatus: nextStatus, approvalRequired: false, postedAt: nowIso(), updatedAt: nowIso() };
+  const updatedLines = lines.map((line) => {
+    const taxLine = taxByLineId.get(line.lineId);
+    return taxLine ? {
+      ...line,
+      vatRate: taxLine.vatRate,
+      vatAmount: taxLine.vatAmount,
+      lineTotal: taxLine.lineTotal,
+      unitCost: taxLine.netUnitCost
+    } : line;
+  });
+  const updatedNote = {
+    ...note,
+    goodsReceiptId: note.grnId,
+    goodsReceiptNumber: note.grnNumber,
+    supplierDocumentNumber: note.supplierInvoiceNumber || note.deliveryNoteNumber,
+    receivedAt: note.receivedAt || postedAt,
+    subtotal: lineTax.tax.subtotal,
+    vatTotal: lineTax.tax.vatAmount,
+    total: lineTax.tax.total,
+    receivingStatus: nextStatus,
+    status: nextStatus,
+    postingStatus: 'Posted' as const,
+    approvalRequired: false,
+    postedAt,
+    updatedAt: postedAt
+  };
   saveGRNs(getGRNs().map((item) => item.grnId === grnId ? updatedNote : item));
-  saveGRNLines(getGRNLines().map((line) => line.grnId === grnId ? (lines.find((updated) => updated.lineId === line.lineId) || line) : line));
+  saveGRNLines(getGRNLines().map((line) => line.grnId === grnId ? (updatedLines.find((updated) => updated.lineId === line.lineId) || line) : line));
 
   if (note.poId) syncPOFromPostedGRNs(note.poId, postingStaffId);
-  await recordActivity({ grnId, grnNumber: note.grnNumber, poId: note.poId, poNumber: note.poNumber, eventType: 'GRN_POSTED_TO_STOCK', message: `${note.grnNumber} posted accepted quantities to stock. No cashbook, payment, tax payment or COGS posted.`, operator: postingStaffId });
+  await recordActivity({ grnId, grnNumber: note.grnNumber, poId: note.poId, poNumber: note.poNumber, eventType: 'GRN_POSTED_TO_STOCK', message: `${note.grnNumber} posted accepted quantities to stock. Rejected goods did not update inventory. Supplier liability or payment is handled by the selected acquisition type.`, operator: postingStaffId });
   await recordActivity({ grnId, grnNumber: note.grnNumber, poId: note.poId, poNumber: note.poNumber, eventType: 'GOODS_RECEIVED_POSTED', message: `${postedLines.length} accepted lines posted to inventory movements.`, operator: postingStaffId });
   try {
     const discipline = await import('./purchaseDisciplineService');
@@ -600,15 +722,19 @@ export async function postGRN(
     // Purchase discipline checks are local/mock and must not block stock posting.
   }
 
-  const purchaseValue = Number((postedLines.reduce((sum, line) => sum + line.qtyAccepted * line.receivedUnitCost, 0)).toFixed(2));
+  const purchaseValue = lineTax.tax.total;
   let supplierBillId: string | undefined;
   let supplierBillNumber: string | undefined;
   let supplierPaymentId: string | undefined;
   let supplierPaymentNumber: string | undefined;
   let creditorMessage = 'No supplier payable created.';
 
-  if (options.acquisitionType === 'Supplier Credit' || options.acquisitionType === 'Part Paid + Supplier Credit') {
-    const paidAmount = options.acquisitionType === 'Part Paid + Supplier Credit' ? Math.min(Math.max(0, options.paidAmount || 0), purchaseValue) : 0;
+  if (options.acquisitionType === 'Supplier Credit' || options.acquisitionType === 'Part Paid + Supplier Credit' || options.acquisitionType === 'Paid Cash') {
+    const paidAmount = options.acquisitionType === 'Paid Cash'
+      ? purchaseValue
+      : options.acquisitionType === 'Part Paid + Supplier Credit'
+        ? Math.min(Math.max(0, options.paidAmount || 0), purchaseValue)
+        : 0;
     const bill = await createSupplierBillFromGRN({
       supplierId: note.supplierId,
       supplierName: note.supplierName,
@@ -619,6 +745,7 @@ export async function postGRN(
       purchaseOrderNumber: note.poNumber,
       grnDate: note.receivedDate,
       amount: purchaseValue,
+      vatAmount: lineTax.tax.vatAmount,
       branchId: note.branchId,
       warehouseId: note.warehouseId,
       createdBy: postingStaffId,
@@ -627,6 +754,21 @@ export async function postGRN(
     });
     supplierBillId = bill.billId;
     supplierBillNumber = bill.billNumber;
+    recordSupplierAccountPurchase({
+      vendorId: note.vendorId,
+      supplierId: note.supplierId,
+      referenceType: 'SUPPLIER_BILL',
+      referenceId: bill.billId,
+      amount: purchaseValue,
+      dueDate: bill.dueDate,
+      createdBy: postingStaffId,
+      createdAt: postedAt,
+      branchId: note.branchId,
+      supplierInvoiceNumber: bill.supplierInvoiceNumber,
+      purchaseOrderId: note.poId,
+      goodsReceiptId: note.grnId,
+      notes: `Goods receipt ${note.grnNumber} posted supplier liability.`
+    });
     creditorMessage = `${bill.billNumber} supplier bill posted.`;
     if (paidAmount > 0) {
       const payment = await createSupplierPayment({
@@ -635,34 +777,31 @@ export async function postGRN(
         paymentDate: note.receivedDate,
         amount: paidAmount,
         paymentMethod: options.paymentSource === 'CashDrawer' ? 'Cash' : options.paymentSource === 'BankPlaceholder' ? 'Bank Transfer' : options.paymentSource === 'MobileMoneyPlaceholder' ? 'Mobile Money' : options.paymentSource === 'OwnerFundsPlaceholder' ? 'Owner Funds' : 'COGS Reserve',
-        paymentReference: `${note.grnNumber}-PARTPAY`,
+        paymentReference: options.acquisitionType === 'Paid Cash' ? `${note.grnNumber}-PAID` : `${note.grnNumber}-PARTPAY`,
         source: options.paymentSource || 'COGSReserve',
         cogsReserveAmount: (options.paymentSource || 'COGSReserve') === 'COGSReserve' ? paidAmount : 0,
         nonReserveAmount: (options.paymentSource || 'COGSReserve') === 'COGSReserve' ? 0 : paidAmount,
         approvedBy: postingStaffId,
         paidBy: postingStaffId,
-        notes: `Part-paid GRN supplier payment for ${note.grnNumber}.`
+        notes: `${options.acquisitionType} GRN supplier payment for ${note.grnNumber}.`
       });
       await markSupplierPaymentPaid(payment.paymentId, postingStaffId);
+      recordSupplierAccountPayment({
+        vendorId: note.vendorId,
+        supplierId: note.supplierId,
+        referenceType: 'SUPPLIER_PAYMENT',
+        referenceId: payment.paymentId,
+        amount: paidAmount,
+        createdBy: postingStaffId,
+        createdAt: postedAt,
+        branchId: note.branchId,
+        notes: `Supplier payment allocated for ${note.grnNumber}.`
+      });
       supplierPaymentId = payment.paymentId;
       supplierPaymentNumber = payment.paymentNumber;
       creditorMessage = `${bill.billNumber} supplier bill posted and ${payment.paymentNumber} allocated.`;
     }
   } else if (options.acquisitionType === 'Invoice Pending') {
-    await createSupplierBillFromGRN({
-      supplierId: note.supplierId,
-      supplierName: note.supplierName,
-      grnId: note.grnId,
-      grnNumber: note.grnNumber,
-      purchaseOrderId: note.poId,
-      purchaseOrderNumber: note.poNumber,
-      grnDate: note.receivedDate,
-      amount: purchaseValue,
-      branchId: note.branchId,
-      warehouseId: note.warehouseId,
-      createdBy: postingStaffId,
-      acquisitionType: 'Invoice Pending'
-    });
     await recordActivity({ grnId, grnNumber: note.grnNumber, poId: note.poId, poNumber: note.poNumber, eventType: 'GRN_INVOICE_PENDING_FLAGGED', message: `${note.grnNumber} posted with invoice pending. Supplier bill not posted.`, operator: postingStaffId });
     creditorMessage = 'Invoice pending warning created. No posted supplier bill created.';
   } else if (options.acquisitionType === 'Already Invoiced') {
@@ -670,8 +809,41 @@ export async function postGRN(
   }
 
   await recordActivity({ grnId, grnNumber: note.grnNumber, poId: note.poId, poNumber: note.poNumber, eventType: 'GRN_SUPPLIER_BILL_CREATED', message: creditorMessage, operator: postingStaffId });
+  void writeAuditLog({
+    vendorId: note.vendorId,
+    branchId: note.branchId,
+    warehouseId: note.warehouseId,
+    terminalId: context?.terminalId || session.terminalId,
+    staffId: postingStaffId,
+    module: 'Purchasing',
+    action: 'GOODS_RECEIPT_POSTED',
+    entityType: 'goods_receipts',
+    entityId: note.grnId,
+    after: { grnNumber: note.grnNumber, total: purchaseValue, postedLines: postedLines.length },
+    correlationId: context?.correlationId
+  });
+  void publishCommerceEvent({
+    eventType: 'PurchaseReceived',
+    vendorId: note.vendorId,
+    branchId: note.branchId,
+    warehouseId: note.warehouseId,
+    terminalId: context?.terminalId || session.terminalId,
+    staffId: postingStaffId,
+    supplierId: note.supplierId,
+    sourceModule: 'Purchasing',
+    aggregateType: 'goods_receipts',
+    aggregateId: note.grnId,
+    correlationId: context?.correlationId,
+    payload: {
+      summary: `${note.grnNumber} posted accepted goods.`,
+      amount: purchaseValue,
+      quantity: postedLines.reduce((sum, line) => sum + line.qtyAccepted, 0),
+      currency: 'USD',
+      items: postedLines.map((line) => ({ productId: line.productId, sku: line.sku, quantity: line.qtyAccepted }))
+    }
+  });
 
-  return { grnId, grnNumber: note.grnNumber, status: nextStatus, stockPosted: true, approvalRequired: false, postedLines, skippedLines, supplierBillId, supplierBillNumber, supplierPaymentId, supplierPaymentNumber, acquisitionType: options.acquisitionType, message: `${note.grnNumber} posted. Accepted quantities updated inventory. ${creditorMessage}` };
+  return { grnId, grnNumber: note.grnNumber, status: nextStatus, stockPosted: true, approvalRequired: false, postedLines: updatedLines.filter((line) => postedLines.some((posted) => posted.lineId === line.lineId)), skippedLines, supplierBillId, supplierBillNumber, supplierPaymentId, supplierPaymentNumber, acquisitionType: options.acquisitionType, message: `${note.grnNumber} posted. Accepted quantities updated inventory. ${creditorMessage}` };
 }
 
 export async function cancelGRN(grnId: string, staffId: string, reason: string): Promise<GoodsReceivingNote | null> {

@@ -95,10 +95,13 @@ export default function PosCash({
 }: PosCashProps) {
   const roleName = (session?.role || 'Owner') as Role;
   const staffName = session?.staffName || activeOperator || 'Cashier';
-  const branchName = session?.branch || 'Main Branch';
-  const terminalName = session?.terminal || terminalId || 'POS-01';
-  const shiftId = activeShift?.id || 'SHIFT-CASH';
-  const drawerId = `DRAWER-${terminalName}`;
+  const branchId = session?.branchId || 'BR-LOCAL';
+  const branchName = session?.branch || session?.branchName || 'Main Branch';
+  const staffId = session?.staffId || staffName;
+  const terminalKey = session?.terminalId || terminalId || 'POS-01';
+  const terminalName = session?.terminal || session?.terminalName || terminalKey;
+  const shiftId = activeShift?.id || '';
+  const drawerId = `DRAWER-${terminalKey}`;
   const [activeTab, setActiveTab] = useState<CashTab>('Cash Dashboard');
   const [summary, setSummary] = useState<CashControlSummary | null>(null);
   const [movements, setMovements] = useState<CashDrawerMovement[]>([]);
@@ -122,6 +125,21 @@ export default function PosCash({
   const canLinkDebtor = canPerformAction(roleName, 'cashControl.debtorPayments.linkDrawer');
 
   const load = async () => {
+    if (!shiftId) {
+      const emptySummary = await getCashControlSummary({ shiftId: '' });
+      setSummary(emptySummary);
+      setMovements([]);
+      setReconciliations([]);
+      setDebtorPayments([]);
+      setDebtorLinks([]);
+      setDeliveryHandovers([]);
+      setExpenses([]);
+      setDrops([]);
+      setVariances([]);
+      setCashAdvice([]);
+      setActivity([]);
+      return;
+    }
     const [nextSummary, nextMovements, nextReconciliations, nextLinks, nextDelivery, nextExpenses, nextDrops, nextVariances, nextAdvice, nextActivity] = await Promise.all([
       getCashControlSummary({ shiftId }),
       getCashDrawerMovements({ shiftId }),
@@ -155,6 +173,10 @@ export default function PosCash({
   const restricted = useMemo(() => !canView, [canView]);
 
   const createReconciliation = async (countedCash: number, notes: string, status: CashDrawerReconciliation['status']) => {
+    if (!shiftId) {
+      setNotice('No open shift.');
+      return;
+    }
     if (!canReconcile) {
       setNotice('You do not have permission to reconcile cash.');
       return;
@@ -162,8 +184,8 @@ export default function PosCash({
     const expectedCash = summary?.expectedCash || 0;
     await createCashDrawerReconciliation({
       shiftId,
-      branchId: 'BR-LOCAL',
-      terminalId: terminalName,
+      branchId,
+      terminalId: terminalKey,
       drawerId,
       openingFloat: summary?.openingFloat || 0,
       cashSales: summary?.cashSales || 0,
@@ -184,37 +206,49 @@ export default function PosCash({
   };
 
   const addExpense = async (amount: number, reason: string) => {
+    if (!shiftId) {
+      setNotice('No open shift.');
+      return;
+    }
     if (amount <= 0) {
       setNotice('Drawer expense amount must be above zero.');
       return;
     }
-    await createDrawerExpense({ shiftId, drawerId, amount, expenseType: 'Drawer Expense', reason: reason || 'Local drawer expense', paidTo: 'Local payee', notes: 'Build 19AM local expense.', createdBy: staffName });
+    await createDrawerExpense({ shiftId, drawerId, amount, expenseType: 'Drawer Expense', reason: reason || 'Drawer expense', paidTo: 'Local payee', notes: 'Drawer expense recorded at POS.', createdBy: staffName });
     onAddCashLog('PAY_OUT', amount, reason || 'Drawer expense');
     setNotice('Drawer expense recorded locally.');
     await load();
   };
 
   const addDrop = async (amount: number, handedTo: string) => {
+    if (!shiftId) {
+      setNotice('No open shift.');
+      return;
+    }
     if (amount <= 0) {
       setNotice('Cash drop amount must be above zero.');
       return;
     }
-    await createCashDrop({ shiftId, drawerId, amount, handedTo: handedTo || 'Safe Custodian', receivedBy: handedTo || 'Safe Custodian', reason: 'Cash drop / safe handover', notes: 'Build 19AM local cash drop.', createdBy: staffName });
+    await createCashDrop({ shiftId, drawerId, amount, handedTo: handedTo || 'Safe Custodian', receivedBy: handedTo || 'Safe Custodian', reason: 'Cash drop / safe handover', notes: 'Cash drop recorded at POS.', createdBy: staffName });
     onAddCashLog('SAFE_DROP', amount, 'Cash drop / safe handover');
     setNotice('Cash drop recorded locally.');
     await load();
   };
 
   const addMovement = async () => {
+    if (!shiftId) {
+      setNotice('No open shift.');
+      return;
+    }
     await createCashDrawerMovement({
       shiftId,
-      branchId: 'BR-LOCAL',
+      branchId,
       branchName,
-      terminalId: terminalName,
+      terminalId: terminalKey,
       terminalName,
       drawerId,
       drawerName: drawerId,
-      staffId: staffName,
+      staffId,
       staffName,
       type: 'CashCorrection',
       direction: 'In',

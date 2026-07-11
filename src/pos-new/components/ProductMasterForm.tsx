@@ -9,6 +9,7 @@ import {
   ProductStockBalance,
   ProductSupplierLink
 } from '../types';
+import { getCachedVendorTaxSettings } from '../services/vendorTaxSettingsService';
 
 type ProductMasterTab =
   | 'Product Details'
@@ -83,6 +84,7 @@ export default function ProductMasterForm({
   onExport
 }: ProductMasterFormProps) {
   const [activeTab, setActiveTab] = useState<ProductMasterTab>('Product Details');
+  const defaultVatRate = getCachedVendorTaxSettings(product.vendorId).defaultVatRate;
   const [isMinimized, setIsMinimized] = useState(false);
   const [isMaximized, setIsMaximized] = useState(false);
   const [draftName, setDraftName] = useState(product.productName);
@@ -189,7 +191,7 @@ export default function ProductMasterForm({
               <div className="lg:col-span-3 overflow-auto border border-[#d7dce5] bg-white">
                 <table className="w-full text-xs">
                   <thead className="bg-[#252a31] text-white"><tr><th className="p-2 text-left">Price List</th><th className="p-2 text-left">Sell</th><th className="p-2 text-left">Cost</th><th className="p-2 text-left">Tax</th><th className="p-2 text-left">VAT</th><th className="p-2 text-left">Margin</th><th className="p-2 text-left">Markup</th><th className="p-2 text-left">Status</th></tr></thead>
-                  <tbody>{prices.map((price) => <tr key={price.priceId} className="border-t"><td className="p-2">{price.priceListName}</td><td className="p-2">{money(price.sellingPrice)}</td><td className="p-2">{money(price.costPrice)}</td><td className="p-2">{price.taxMode || product.taxMode || 'VAT Registered'}</td><td className="p-2">{price.vatRate ?? product.vatRate ?? 15}%</td><td className="p-2">{price.marginPercent}%</td><td className="p-2">{price.markupPercent ?? Math.round(((price.sellingPrice - price.costPrice) / Math.max(1, price.costPrice)) * 100)}%</td><td className="p-2"><Badge value={price.status} /></td></tr>)}</tbody>
+                  <tbody>{prices.map((price) => <tr key={price.priceId} className="border-t"><td className="p-2">{price.priceListName}</td><td className="p-2">{money(price.sellingPrice)}</td><td className="p-2">{money(price.costPrice)}</td><td className="p-2">{price.taxMode || product.taxMode || 'VAT Registered'}</td><td className="p-2">{price.vatRate ?? product.vatRate ?? defaultVatRate}%</td><td className="p-2">{price.marginPercent}%</td><td className="p-2">{price.markupPercent ?? Math.round(((price.sellingPrice - price.costPrice) / Math.max(1, price.costPrice)) * 100)}%</td><td className="p-2"><Badge value={price.status} /></td></tr>)}</tbody>
                 </table>
               </div>
             </div>

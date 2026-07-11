@@ -22,7 +22,9 @@ import {
   mockStocktakeSessions
 } from '../mock/mockPosData';
 import { createOperationalApproval } from './approvalService';
-import { calculateRunningBalance, postStocktakeAdjustmentMovement } from './inventoryMovementService';
+import { calculateRunningBalance } from './inventoryMovementService';
+import { getAvailableStock } from './inventoryBalanceService';
+import { postInventoryMovement as postCanonicalInventoryMovement, type InventoryMovementRecord } from './inventorySyncService';
 import { getVendorDocumentIdentity } from '../vendor/vendorBootstrapModel';
 
 const SESSION_KEY = 'itred_pos_stocktake_sessions_v1';
@@ -102,6 +104,42 @@ function today(): string {
 
 function makeId(prefix: string): string {
   return `${prefix}-${Date.now()}-${Math.floor(1000 + Math.random() * 9000)}`;
+}
+
+function safeId(value: string): string {
+  return value.replace(/[^A-Za-z0-9_-]/g, '_');
+}
+
+function toLocalStocktakeMovement(record: InventoryMovementRecord, line: StocktakeLine, stocktakeNumber: string, staffId: string): InventoryMovement {
+  return {
+    movementId: record.movementId,
+    vendorId: record.vendorId,
+    branchId: record.branchId,
+    warehouseId: record.warehouseId,
+    productId: record.productId,
+    sku: record.sku || line.sku,
+    productName: record.productName || line.productName,
+    shelfLocation: record.shelfLocation,
+    movementType: line.varianceQty > 0 ? 'STOCKTAKE_GAIN' : 'STOCKTAKE_LOSS',
+    referenceType: 'STOCKTAKE',
+    referenceNumber: stocktakeNumber,
+    qtyIn: record.quantityIn,
+    qtyOut: record.quantityOut,
+    balanceBefore: record.balanceBefore,
+    balanceAfter: record.balanceAfter,
+    unitCost: record.unitCost,
+    sellingPrice: 0,
+    totalCostImpact: (record.quantityIn - record.quantityOut) * record.unitCost,
+    staffId,
+    staffName: staffId,
+    movementDate: record.createdAt,
+    notes: record.reason || `Stocktake ${stocktakeNumber} variance posted.`,
+    riskFlag: line.varianceRisk === 'None' ? 'Low' : line.varianceRisk,
+    approvalRequired: false,
+    status: 'Posted',
+    createdAt: record.createdAt,
+    updatedAt: record.createdAt
+  };
 }
 
 function getSessions(): StocktakeSession[] {
@@ -335,6 +373,9 @@ export async function getStocktakeSessionSummary(filters: StocktakeFilterState =
 }
 
 export async function createStocktakeSession(payload: StocktakeSessionPayload): Promise<StocktakeSession> {
+  if (!payload.warehouseId) {
+    throw new Error('Stocktake must be warehouse scoped.');
+  }
   const records = getSessions();
   const now = nowIso();
   const record: StocktakeSession = {
@@ -373,7 +414,16 @@ export async function generateStocktakeLinesFromScope(stocktakeId: string, _scop
   const record = await getStocktakeSessionById(stocktakeId);
   if (!record || record.status === 'Posted') return [];
   const existing = getLines().filter((line) => line.stocktakeId !== stocktakeId);
-  const generated = linesForScope(stocktakeId, record);
+  const generated = await Promise.all(linesForScope(stocktakeId, record).map(async (line) => {
+    if (!record.warehouseId) return line;
+    const availability = await getAvailableStock({
+      vendorId: record.vendorId,
+      branchId: record.branchId,
+      warehouseId: record.warehouseId,
+      productId: line.productId
+    }).catch(() => null);
+    return availability ? calculateStocktakeVariance({ ...line, systemQty: availability.quantityOnHand }) : line;
+  }));
   saveLines([...generated, ...existing]);
   return generated;
 }
@@ -590,38 +640,39 @@ export async function postStocktakeVariance(stocktakeId: string, staffId: string
   }
   const movements: InventoryMovement[] = [];
   const updatedLines: StocktakeLine[] = [];
+  if (!record.warehouseId) {
+    return { stocktakeId, stocktakeNumber: record.stocktakeNumber, status: record.status, stockPosted: false, postedLines: [], movements, message: 'Stocktake must be warehouse scoped.' };
+  }
   for (const line of lines) {
     if (line.lineStatus === 'Excluded' || line.countedQty === null || line.varianceQty === 0) continue;
-    const balanceBefore = (await calculateRunningBalance(line.productId, record.warehouseId || '')) || line.systemQty;
+    const balanceBefore = (await calculateRunningBalance(line.productId, record.warehouseId)) || line.systemQty;
     const balanceAfter = balanceBefore + line.varianceQty;
     if (balanceAfter < 0) {
       return { stocktakeId, stocktakeNumber: record.stocktakeNumber, status: record.status, stockPosted: false, postedLines: [], movements, message: `Negative resulting stock blocked for ${line.sku}.` };
     }
-    const movement = await postStocktakeAdjustmentMovement({
+    const movementRecord = await postCanonicalInventoryMovement({
+      movementId: safeId(`${record.vendorId}_${stocktakeId}_${line.lineId}_STOCKTAKE_ADJUSTMENT`),
       vendorId: record.vendorId,
       branchId: record.branchId,
-      warehouseId: record.warehouseId || 'Main Warehouse',
+      warehouseId: record.warehouseId,
       productId: line.productId,
       sku: line.sku,
       productName: line.productName,
       shelfLocation: line.shelfLocation,
-      movementType: line.varianceQty > 0 ? 'STOCKTAKE_GAIN' : 'STOCKTAKE_LOSS',
+      movementType: 'STOCKTAKE_ADJUSTMENT',
       referenceType: 'STOCKTAKE',
-      referenceNumber: record.stocktakeNumber,
-      qtyIn: line.varianceQty > 0 ? line.varianceQty : 0,
-      qtyOut: line.varianceQty < 0 ? Math.abs(line.varianceQty) : 0,
-      balanceBefore,
-      balanceAfter,
+      referenceId: stocktakeId,
+      quantityIn: line.varianceQty > 0 ? line.varianceQty : 0,
+      quantityOut: line.varianceQty < 0 ? Math.abs(line.varianceQty) : 0,
       unitCost: line.unitCost,
       sellingPrice: 0,
       staffId,
       staffName: staffId,
-      movementDate: nowIso(),
+      createdAt: nowIso(),
+      reason: `Stocktake ${record.stocktakeNumber} variance posted.`,
       notes: `Stocktake ${record.stocktakeNumber} variance posted. Pending Accounting Review Placeholder only; no cashbook, supplier payment, sales or COGS posting.`,
-      riskFlag: line.varianceRisk,
-      approvalRequired: false,
-      status: 'Posted'
     });
+    const movement = toLocalStocktakeMovement(movementRecord, line, record.stocktakeNumber, staffId);
     movements.push(movement);
     await recordActivity({
       stocktakeId,
