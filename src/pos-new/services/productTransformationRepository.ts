@@ -10,38 +10,39 @@ import {
 } from 'firebase/firestore';
 import { db, firebaseReady } from '../firebase/firebaseApp';
 import { isPOSFirebaseWritesAllowed } from '../auth/posActivationService';
+import { firestorePaths } from '../firebase/firestorePaths';
 import type {
   ProductTransformation,
   ProductTransformationInputLine,
   ProductTransformationOutputLine
 } from '../types';
 
-const TRANSFORMATION_COLLECTION = 'productTransformations';
-const INPUT_LINE_COLLECTION = 'productTransformationInputLines';
-const OUTPUT_LINE_COLLECTION = 'productTransformationOutputLines';
-
 export function canUseProductTransformationFirestore(): boolean {
   return Boolean(firebaseReady && db);
 }
 
-export async function readFirestoreTransformations(): Promise<ProductTransformation[]> {
+export async function readFirestoreTransformations(vendorId: string): Promise<ProductTransformation[]> {
   if (!canUseProductTransformationFirestore() || !db) return [];
+  if (!vendorId) throw new Error('A vendorId is required to read product transformations.');
 
-  const snapshot = await getDocs(collection(db, TRANSFORMATION_COLLECTION));
+  const snapshot = await getDocs(collection(db, firestorePaths.productTransformations(vendorId)));
   return snapshot.docs.map((row) => row.data() as ProductTransformation);
 }
 
 export async function writeFirestoreTransformation(record: ProductTransformation): Promise<void> {
-  if (!canUseProductTransformationFirestore() || !db || !isPOSFirebaseWritesAllowed()) return;
+  if (!canUseProductTransformationFirestore() || !db) throw new Error('Firestore is unavailable for product transformation persistence.');
+  if (!isPOSFirebaseWritesAllowed()) throw new Error('Product transformation Firestore writes are not allowed for this session.');
+  if (!record.vendorId || !record.branchId) throw new Error('Product transformation writes require vendorId and branchId.');
 
-  await setDoc(doc(db, TRANSFORMATION_COLLECTION, record.transformationId), record, { merge: true });
+  await setDoc(doc(db, firestorePaths.productTransformations(record.vendorId), record.transformationId), record, { merge: true });
 }
 
-export async function readFirestoreInputLines(transformationId: string): Promise<ProductTransformationInputLine[]> {
+export async function readFirestoreInputLines(vendorId: string, transformationId: string): Promise<ProductTransformationInputLine[]> {
   if (!canUseProductTransformationFirestore() || !db) return [];
+  if (!vendorId) throw new Error('A vendorId is required to read transformation input lines.');
 
   const q = query(
-    collection(db, INPUT_LINE_COLLECTION),
+    collection(db, firestorePaths.productTransformationInputLines(vendorId)),
     where('transformationId', '==', transformationId)
   );
 
@@ -50,16 +51,19 @@ export async function readFirestoreInputLines(transformationId: string): Promise
 }
 
 export async function writeFirestoreInputLine(record: ProductTransformationInputLine): Promise<void> {
-  if (!canUseProductTransformationFirestore() || !db || !isPOSFirebaseWritesAllowed()) return;
+  if (!canUseProductTransformationFirestore() || !db) throw new Error('Firestore is unavailable for transformation input persistence.');
+  if (!isPOSFirebaseWritesAllowed()) throw new Error('Transformation input Firestore writes are not allowed for this session.');
+  if (!record.vendorId || !record.branchId || !record.sourceWarehouseId) throw new Error('Transformation input writes require vendorId, branchId and sourceWarehouseId.');
 
-  await setDoc(doc(db, INPUT_LINE_COLLECTION, record.lineId), record, { merge: true });
+  await setDoc(doc(db, firestorePaths.productTransformationInputLines(record.vendorId), record.lineId), record, { merge: true });
 }
 
-export async function readFirestoreOutputLines(transformationId: string): Promise<ProductTransformationOutputLine[]> {
+export async function readFirestoreOutputLines(vendorId: string, transformationId: string): Promise<ProductTransformationOutputLine[]> {
   if (!canUseProductTransformationFirestore() || !db) return [];
+  if (!vendorId) throw new Error('A vendorId is required to read transformation output lines.');
 
   const q = query(
-    collection(db, OUTPUT_LINE_COLLECTION),
+    collection(db, firestorePaths.productTransformationOutputLines(vendorId)),
     where('transformationId', '==', transformationId)
   );
 
@@ -68,22 +72,29 @@ export async function readFirestoreOutputLines(transformationId: string): Promis
 }
 
 export async function writeFirestoreOutputLine(record: ProductTransformationOutputLine): Promise<void> {
-  if (!canUseProductTransformationFirestore() || !db || !isPOSFirebaseWritesAllowed()) return;
+  if (!canUseProductTransformationFirestore() || !db) throw new Error('Firestore is unavailable for transformation output persistence.');
+  if (!isPOSFirebaseWritesAllowed()) throw new Error('Transformation output Firestore writes are not allowed for this session.');
+  if (!record.vendorId || !record.branchId || !record.destinationWarehouseId) throw new Error('Transformation output writes require vendorId, branchId and destinationWarehouseId.');
 
-  await setDoc(doc(db, OUTPUT_LINE_COLLECTION, record.lineId), record, { merge: true });
+  await setDoc(doc(db, firestorePaths.productTransformationOutputLines(record.vendorId), record.lineId), record, { merge: true });
 }
-export async function deleteFirestoreInputLine(lineId: string): Promise<void> {
-  if (!canUseProductTransformationFirestore() || !db || !lineId || !isPOSFirebaseWritesAllowed()) return;
+export async function deleteFirestoreInputLine(vendorId: string, lineId: string): Promise<void> {
+  if (!canUseProductTransformationFirestore() || !db) throw new Error('Firestore is unavailable for transformation input deletion.');
+  if (!isPOSFirebaseWritesAllowed()) throw new Error('Transformation input Firestore deletes are not allowed for this session.');
+  if (!vendorId || !lineId) throw new Error('Transformation input deletion requires vendorId and lineId.');
 
-  await deleteDoc(doc(db, INPUT_LINE_COLLECTION, lineId));
+  await deleteDoc(doc(db, firestorePaths.productTransformationInputLines(vendorId), lineId));
 }
 
-export async function deleteFirestoreOutputLine(lineId: string): Promise<void> {
-  if (!canUseProductTransformationFirestore() || !db || !lineId || !isPOSFirebaseWritesAllowed()) return;
+export async function deleteFirestoreOutputLine(vendorId: string, lineId: string): Promise<void> {
+  if (!canUseProductTransformationFirestore() || !db) throw new Error('Firestore is unavailable for transformation output deletion.');
+  if (!isPOSFirebaseWritesAllowed()) throw new Error('Transformation output Firestore deletes are not allowed for this session.');
+  if (!vendorId || !lineId) throw new Error('Transformation output deletion requires vendorId and lineId.');
 
-  await deleteDoc(doc(db, OUTPUT_LINE_COLLECTION, lineId));
+  await deleteDoc(doc(db, firestorePaths.productTransformationOutputLines(vendorId), lineId));
 }
 export function subscribeToTransformations(
+  vendorId: string,
   callback: (rows: ProductTransformation[]) => void
 ): (() => void) | null {
   if (!canUseProductTransformationFirestore() || !db) {
@@ -91,7 +102,7 @@ export function subscribeToTransformations(
   }
 
   return onSnapshot(
-    collection(db, TRANSFORMATION_COLLECTION),
+    collection(db, firestorePaths.productTransformations(vendorId)),
     snapshot => {
       const rows = snapshot.docs.map(d => d.data() as ProductTransformation);
       callback(rows);
@@ -102,6 +113,7 @@ export function subscribeToTransformations(
   );
 }
 export function subscribeToInputLines(
+  vendorId: string,
   transformationId: string,
   callback: (rows: ProductTransformationInputLine[]) => void
 ): (() => void) | null {
@@ -111,7 +123,7 @@ export function subscribeToInputLines(
   }
 
   const q = query(
-    collection(db, INPUT_LINE_COLLECTION),
+    collection(db, firestorePaths.productTransformationInputLines(vendorId)),
     where('transformationId','==',transformationId)
   );
 
@@ -121,6 +133,7 @@ export function subscribeToInputLines(
 }
 
 export function subscribeToOutputLines(
+  vendorId: string,
   transformationId: string,
   callback: (rows: ProductTransformationOutputLine[]) => void
 ): (() => void) | null {
@@ -130,7 +143,7 @@ export function subscribeToOutputLines(
   }
 
   const q = query(
-    collection(db, OUTPUT_LINE_COLLECTION),
+    collection(db, firestorePaths.productTransformationOutputLines(vendorId)),
     where('transformationId','==',transformationId)
   );
 

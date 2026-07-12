@@ -3,8 +3,10 @@ import { BadgeCheck, Ban, Boxes, CheckCircle, CheckCircle2, Eye, FilePlus, Packa
 import {
   ProductTransformation,
   ProductTransformationInputLine,
-  ProductTransformationOutputLine
+  ProductTransformationOutputLine,
+  RecipeUsageRecord
 } from '../types';
+import { getActiveVendorId } from '../utils/vendorDataMode';
 import {
   addInputLine,
   addOutputLine,
@@ -120,20 +122,6 @@ export default function ProductTransformationPanel() {
     approvalNote?: string;
     approvalNoteCapturedAt?: string;
   } | null>(null);
-
-  interface RecipeUsageRecord {
-    templateId: string;
-    templateName: string;
-    templateType: string;
-    transformationId: string;
-    transformationNumber: string;
-    inputCount: number;
-    outputCount: number;
-    inputCost: number;
-    outputValue: number;
-    variance: number;
-    loadedAt: string;
-  }
 
   const LOCAL_STORAGE_KEY = 'sci_product_transformation_recipe_usage_history';
 
@@ -316,11 +304,13 @@ export default function ProductTransformationPanel() {
     setSelected(record);
 
     const inputUnsubscribe = subscribeToInputLines(
+      record.vendorId,
       record.transformationId,
       rows => setInputLines(rows)
     );
 
     const outputUnsubscribe = subscribeToOutputLines(
+      record.vendorId,
       record.transformationId,
       rows => setOutputLines(rows)
     );
@@ -346,7 +336,7 @@ export default function ProductTransformationPanel() {
     void refresh();
 
     const unsubscribe =
-      subscribeToTransformations((rows) => {
+      subscribeToTransformations(getActiveVendorId(''), (rows) => {
 
         setRecords(rows);
         setLastRefresh(new Date().toLocaleTimeString());
@@ -397,8 +387,8 @@ export default function ProductTransformationPanel() {
 
 
   const getManufacturingYieldPercent = () => {
-    const inputQty = Number(transformationInputQty || 0);
-    const outputQty = Number(transformationOutputQty || 0);
+    const inputQty = transformationYieldSummary.totalInputQty;
+    const outputQty = transformationYieldSummary.totalOutputQty;
 
     if (!inputQty || inputQty <= 0) {
       return 0;
@@ -618,9 +608,14 @@ export default function ProductTransformationPanel() {
   };
 
   const buildTransformationCostingIntelligence = () => {
-    const inputQty = Number(transformationInputQty || 0);
-    const outputQty = Number(transformationOutputQty || 0);
+    const inputQty = transformationYieldSummary.totalInputQty;
+    const outputQty = transformationYieldSummary.totalOutputQty;
     const yieldPercent = getManufacturingYieldPercent();
+    const inputCost = Number(transformationInputCost || 0);
+    const outputUnitCost = getTransformationOutputUnitCost();
+    const yieldLossCost = getTransformationYieldLossCost();
+    const totalTransformationCost = getTotalTransformationCost();
+    const marginImpact = getTransformationMarginImpact();
 
     return {
       buildCode: "Build 2K-13A",
@@ -631,6 +626,11 @@ export default function ProductTransformationPanel() {
       inputQty,
       outputQty,
       yieldPercent,
+      inputCost,
+      outputUnitCost,
+      yieldLossCost,
+      totalTransformationCost,
+      marginImpact,
       status: "COSTING_BASE_READY",
       message: "Transformation costing intelligence base is active.",
       createdAt: new Date().toISOString(),
@@ -638,7 +638,7 @@ export default function ProductTransformationPanel() {
   };
 
   const getTransformationOutputUnitCost = () => {
-    const outputQty = Number(transformationOutputQty || 0);
+    const outputQty = transformationYieldSummary.totalOutputQty;
 
     if (!outputQty || outputQty <= 0) {
       return 0;
@@ -648,8 +648,8 @@ export default function ProductTransformationPanel() {
   };
 
   const getTransformationYieldLossCost = () => {
-    const inputQty = Number(transformationInputQty || 0);
-    const outputQty = Number(transformationOutputQty || 0);
+    const inputQty = transformationYieldSummary.totalInputQty;
+    const outputQty = transformationYieldSummary.totalOutputQty;
     const inputCost = Number(transformationInputCost || 0);
 
     if (!inputQty || inputQty <= 0 || inputCost <= 0) {
@@ -667,7 +667,7 @@ export default function ProductTransformationPanel() {
   };
 
   const getTransformationMarginImpact = () => {
-    const outputQty = Number(transformationOutputQty || 0);
+    const outputQty = transformationYieldSummary.totalOutputQty;
     const sellingPrice = Number(transformationOutputSellingPrice || 0);
     const revenue = outputQty * sellingPrice;
     const totalCost = getTotalTransformationCost();
@@ -2824,7 +2824,7 @@ export default function ProductTransformationPanel() {
                   const quality = getYieldQualityStatus();
                   return (
                     <div className={`mb-2 border px-2 py-1.5 text-[8.5px] uppercase font-bold rounded-none ${quality.className}`}>
-                      <strong>{quality.label}</strong> — {quality.detail}
+                      <strong>{quality.label}</strong> â€” {quality.detail}
                     </div>
                   );
                 })()}

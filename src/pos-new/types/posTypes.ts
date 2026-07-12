@@ -2174,6 +2174,80 @@ export interface InventoryMovementSummary {
 export type InventoryMovementRecord = InventoryMovement;
 export type InventoryMovementFilterState = InventoryMovementFilters;
 
+export type ProductTransformationStatus =
+  | 'Draft'
+  | 'Pending Approval'
+  | 'Approved'
+  | 'Completed'
+  | 'Cancelled'
+  | 'Rejected';
+
+export interface ProductTransformationInputLine {
+  lineId: string;
+  transformationId: string;
+  vendorId: string;
+  branchId: string;
+  productId: string;
+  sku: string;
+  productName: string;
+  qtyConsumed: number;
+  unitCost: number;
+  totalCost: number;
+  sourceWarehouseId: string;
+  sourceShelfLocation?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ProductTransformationOutputLine {
+  lineId: string;
+  transformationId: string;
+  vendorId: string;
+  branchId: string;
+  productId: string;
+  sku: string;
+  productName: string;
+  qtyProduced: number;
+  unitCost: number;
+  totalValue: number;
+  destinationWarehouseId: string;
+  destinationShelfLocation?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ProductTransformation {
+  transformationId: string;
+  transformationNumber: string;
+  status: ProductTransformationStatus;
+  vendorId: string;
+  branchId: string;
+  transformationDate: string;
+  notes?: string;
+  requestedByStaffId: string;
+  requestedByStaffName: string;
+  approvedByStaffId?: string;
+  completedByStaffId?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface RecipeUsageRecord {
+  templateId: string;
+  templateName: string;
+  templateType: string;
+  transformationId: string;
+  transformationNumber: string;
+  inputCount: number;
+  outputCount: number;
+  inputCost: number;
+  outputValue: number;
+  variance: number;
+  loadedAt: string;
+  approvalNote?: string;
+  approvalNoteCapturedAt?: string;
+}
+
 export interface ProductLedgerRow {
   movementId: string;
   productId: string;

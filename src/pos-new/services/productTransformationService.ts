@@ -1,66 +1,28 @@
 import { CommerceOperationContext, publishCommerceEvent, writeAuditLog } from '../../commerce-integration';
 import { calculateRunningBalance, postInventoryMovement } from './inventoryMovementService';
 import {
+  deleteFirestoreInputLine,
+  deleteFirestoreOutputLine,
   readFirestoreInputLines,
   readFirestoreOutputLines,
-  readFirestoreTransformations
+  readFirestoreTransformations,
+  writeFirestoreInputLine,
+  writeFirestoreOutputLine,
+  writeFirestoreTransformation
 } from './productTransformationRepository';
+import type {
+  ProductTransformation,
+  ProductTransformationInputLine,
+  ProductTransformationOutputLine,
+  ProductTransformationStatus
+} from '../types';
+import { getActiveVendorId } from '../utils/vendorDataMode';
 
 /**
  * STATUS: DRAFT -> PENDING_APPROVAL -> APPROVED -> COMPLETED
  *       |                                        |
  *       +--------------------> CANCELLED <--------+
  */
-export type ProductTransformationStatus =
-  | 'Draft'
-  | 'Pending Approval'
-  | 'Approved'
-  | 'Completed'
-  | 'Cancelled'
-  | 'Rejected';
-
-export interface ProductTransformationInputLine {
-  lineId: string;
-  transformationId: string;
-  productId: string;
-  sku: string;
-  productName: string;
-  qtyConsumed: number;
-  unitCost: number;
-  totalCost: number;
-  sourceWarehouseId: string;
-  sourceShelfLocation?: string;
-}
-
-export interface ProductTransformationOutputLine {
-  lineId: string;
-  transformationId: string;
-  productId: string;
-  sku: string;
-  productName: string;
-  qtyProduced: number;
-  unitCost: number; // Can be calculated from sum of input costs
-  totalValue: number;
-  destinationWarehouseId: string;
-  destinationShelfLocation?: string;
-}
-
-export interface ProductTransformation {
-  transformationId: string;
-  transformationNumber: string;
-  status: ProductTransformationStatus;
-  vendorId: string;
-  branchId: string;
-  transformationDate: string;
-  notes?: string;
-  requestedByStaffId: string;
-  requestedByStaffName: string;
-  approvedByStaffId?: string;
-  completedByStaffId?: string;
-  createdAt: string;
-  updatedAt: string;
-}
-
 export interface ProductTransformationDraftPayload {
   vendorId: string;
   branchId: string;
@@ -114,7 +76,7 @@ function makeId(prefix: string): string {
   return `${prefix}-${Date.now()}-${Math.floor(1000 + Math.random() * 9000)}`;
 }
 
-function updateTransformation(transformationId: string, patch: Partial<ProductTransformation>): ProductTransformation | null {
+async function updateTransformation(transformationId: string, patch: Partial<ProductTransformation>): Promise<ProductTransformation | null> {
   let updated: ProductTransformation | null = null;
   const nextRecords = readList<ProductTransformation>(TRANSFORMATION_KEY, mockTransformations).map(record => {
     if (record.transformationId === transformationId) {
@@ -124,6 +86,7 @@ function updateTransformation(transformationId: string, patch: Partial<ProductTr
     return record;
   });
   if (updated) {
+    await writeFirestoreTransformation(updated);
     saveList(TRANSFORMATION_KEY, nextRecords);
   }
   return updated;
@@ -147,8 +110,8 @@ export async function createTransformationDraft(
     updatedAt: nowIso(),
     ...payload,
   };
+  await writeFirestoreTransformation(record);
   saveList(TRANSFORMATION_KEY, [record, ...records]);
-  void writeFirestoreTransformation(record);
 
 
   if (context) {
@@ -177,7 +140,7 @@ export async function createTransformationDraft(
  * Retrieves a list of product transformations, optionally filtered.
  */
 export async function getTransformations(filters: { status?: ProductTransformationStatus } = {}): Promise<ProductTransformation[]> {
-  const firestoreRecords = await readFirestoreTransformations();
+  const firestoreRecords = await readFirestoreTransformations(getActiveVendorId(''));
   const records = firestoreRecords.length > 0
     ? firestoreRecords
     : readList<ProductTransformation>(TRANSFORMATION_KEY, mockTransformations);
@@ -191,7 +154,7 @@ export async function getTransformations(filters: { status?: ProductTransformati
  * Retrieves a single product transformation by its ID.
  */
 export async function getTransformationById(transformationId: string): Promise<ProductTransformation | null> {
-  const firestoreRecords = await readFirestoreTransformations();
+  const firestoreRecords = await readFirestoreTransformations(getActiveVendorId(''));
   const records = firestoreRecords.length > 0
     ? firestoreRecords
     : readList<ProductTransformation>(TRANSFORMATION_KEY, mockTransformations);
@@ -212,8 +175,7 @@ export async function approveTransformation(
     return null;
   }
 
-  const updated = updateTransformation(transformationId, { status: 'Approved', approvedByStaffId: staffId });
-  if (updated) void writeFirestoreTransformation(updated);
+  const updated = await updateTransformation(transformationId, { status: 'Approved', approvedByStaffId: staffId });
 
   if (updated && context) {
     void writeAuditLog({
@@ -242,8 +204,7 @@ export async function cancelTransformation(
     return null;
   }
 
-  const updated = updateTransformation(transformationId, { status: 'Cancelled' });
-  if (updated) void writeFirestoreTransformation(updated);
+  const updated = await updateTransformation(transformationId, { status: 'Cancelled' });
 
   if (updated && context) {
     void publishCommerceEvent({
@@ -290,10 +251,25 @@ export async function postTransformation(
   const allocatedOutputUnitCost = totalOutputQty > 0 ? totalInputCost / totalOutputQty : 0;
 
   const staffId = context?.staffId || record.requestedByStaffId;
+  const inputBalances = await Promise.all(
+    inputLines.map(async (line) => ({
+      line,
+      balanceBefore: await calculateRunningBalance(line.productId, line.sourceWarehouseId)
+    }))
+  );
+  const insufficientInput = inputBalances.find(({ line, balanceBefore }) => balanceBefore < line.qtyConsumed);
+  if (insufficientInput) {
+    return {
+      transformationId,
+      transformationNumber: record.transformationNumber,
+      status: record.status,
+      stockPosted: false,
+      message: `Insufficient stock for ${insufficientInput.line.sku}. Transformation was not posted.`
+    };
+  }
 
   // Post movements for input lines (consumption)
-  for (const line of inputLines) {
-    const balanceBefore = await calculateRunningBalance(line.productId, line.sourceWarehouseId);
+  for (const { line, balanceBefore } of inputBalances) {
     await postInventoryMovement({
       vendorId: record.vendorId,
       branchId: record.branchId,
@@ -316,6 +292,8 @@ export async function postTransformation(
       staffName: staffId,
       movementDate: nowIso(),
       notes: `Input for transformation ${record.transformationNumber}.`,
+      riskFlag: 'None',
+      approvalRequired: false,
       status: 'Posted',
     });
   }
@@ -345,12 +323,13 @@ export async function postTransformation(
       staffName: staffId,
       movementDate: nowIso(),
       notes: `Output from transformation ${record.transformationNumber}.`,
+      riskFlag: 'None',
+      approvalRequired: false,
       status: 'Posted',
     });
   }
 
-  const updated = updateTransformation(transformationId, { status: 'Completed', completedByStaffId: staffId });
-  if (updated) void writeFirestoreTransformation(updated);
+  const updated = await updateTransformation(transformationId, { status: 'Completed', completedByStaffId: staffId });
 
   if (updated && context) {
     void publishCommerceEvent({
@@ -387,8 +366,7 @@ export async function rejectTransformation(
     return null;
   }
 
-  const updated = updateTransformation(transformationId, { status: 'Rejected' });
-  if (updated) void writeFirestoreTransformation(updated);
+  const updated = await updateTransformation(transformationId, { status: 'Rejected' });
 
   if (updated && context) {
     void writeAuditLog({
@@ -408,7 +386,9 @@ export async function rejectTransformation(
  * Retrieves all input lines for a given transformation.
  */
 export async function getInputLines(transformationId: string): Promise<ProductTransformationInputLine[]> {
-  const firestoreLines = await readFirestoreInputLines(transformationId);
+  const transformation = await getTransformationById(transformationId);
+  if (!transformation) return [];
+  const firestoreLines = await readFirestoreInputLines(transformation.vendorId, transformationId);
   if (firestoreLines.length > 0) return firestoreLines;
 
   return readList<ProductTransformationInputLine>(INPUT_LINE_KEY, mockInputLines)
@@ -419,7 +399,9 @@ export async function getInputLines(transformationId: string): Promise<ProductTr
  * Retrieves all output lines for a given transformation.
  */
 export async function getOutputLines(transformationId: string): Promise<ProductTransformationOutputLine[]> {
-  const firestoreLines = await readFirestoreOutputLines(transformationId);
+  const transformation = await getTransformationById(transformationId);
+  if (!transformation) return [];
+  const firestoreLines = await readFirestoreOutputLines(transformation.vendorId, transformationId);
   if (firestoreLines.length > 0) return firestoreLines;
 
   return readList<ProductTransformationOutputLine>(OUTPUT_LINE_KEY, mockOutputLines)
@@ -431,10 +413,10 @@ export async function getOutputLines(transformationId: string): Promise<ProductT
  */
 export async function addInputLine(
   transformationId: string,
-  payload: Omit<ProductTransformationInputLine, 'lineId' | 'transformationId' | 'totalCost'>
+  payload: Omit<ProductTransformationInputLine, 'lineId' | 'transformationId' | 'vendorId' | 'branchId' | 'totalCost' | 'createdAt' | 'updatedAt'>
 ): Promise<ProductTransformationInputLine | null> {
   const transformation = await getTransformationById(transformationId);
-  if (!transformation || transformation.status === 'Completed' || transformation.status === 'Cancelled') {
+  if (!transformation || transformation.status !== 'Draft') {
     return null; // Prevent changes to completed or cancelled transformations
   }
   if (payload.qtyConsumed <= 0 || payload.unitCost < 0) {
@@ -446,10 +428,14 @@ export async function addInputLine(
     ...payload,
     lineId: makeId('TRN-IN'),
     transformationId,
+    vendorId: transformation.vendorId,
+    branchId: transformation.branchId,
     totalCost: payload.qtyConsumed * payload.unitCost,
+    createdAt: nowIso(),
+    updatedAt: nowIso(),
   };
+  await writeFirestoreInputLine(record);
   saveList(INPUT_LINE_KEY, [record, ...records]);
-  void writeFirestoreInputLine(record);
 
   return record;
 }
@@ -460,10 +446,10 @@ export async function addInputLine(
 export async function updateInputLine(
   transformationId: string,
   lineId: string,
-  patch: Partial<Omit<ProductTransformationInputLine, 'lineId' | 'transformationId'>>
+  patch: Partial<Omit<ProductTransformationInputLine, 'lineId' | 'transformationId' | 'vendorId' | 'branchId' | 'createdAt' | 'updatedAt'>>
 ): Promise<ProductTransformationInputLine | null> {
   const transformation = await getTransformationById(transformationId);
-  if (!transformation || transformation.status === 'Completed' || transformation.status === 'Cancelled') {
+  if (!transformation || transformation.status !== 'Draft') {
     return null;
   }
   if ((patch.qtyConsumed !== undefined && patch.qtyConsumed <= 0) || (patch.unitCost !== undefined && patch.unitCost < 0)) {
@@ -478,6 +464,7 @@ export async function updateInputLine(
       updatedRecord = {
         ...base,
         totalCost: base.qtyConsumed * base.unitCost,
+        updatedAt: nowIso(),
       };
       return updatedRecord;
     }
@@ -485,8 +472,8 @@ export async function updateInputLine(
   });
 
   if (updatedRecord) {
+    await writeFirestoreInputLine(updatedRecord);
     saveList(INPUT_LINE_KEY, nextRecords);
-    void writeFirestoreInputLine(updatedRecord);
   }
   return updatedRecord;
 }
@@ -496,7 +483,7 @@ export async function updateInputLine(
  */
 export async function removeInputLine(transformationId: string, lineId: string): Promise<boolean> {
   const transformation = await getTransformationById(transformationId);
-  if (!transformation || transformation.status === 'Completed' || transformation.status === 'Cancelled') {
+  if (!transformation || transformation.status !== 'Draft') {
     return false;
   }
 
@@ -504,8 +491,8 @@ export async function removeInputLine(transformationId: string, lineId: string):
   const nextRecords = records.filter(line => !(line.transformationId === transformationId && line.lineId === lineId));
 
   if (nextRecords.length < records.length) {
+    await deleteFirestoreInputLine(transformation.vendorId, lineId);
     saveList(INPUT_LINE_KEY, nextRecords);
-    void deleteFirestoreInputLine(lineId);
     return true;
   }
   return false;
@@ -516,10 +503,10 @@ export async function removeInputLine(transformationId: string, lineId: string):
  */
 export async function addOutputLine(
   transformationId: string,
-  payload: Omit<ProductTransformationOutputLine, 'lineId' | 'transformationId' | 'totalValue'>
+  payload: Omit<ProductTransformationOutputLine, 'lineId' | 'transformationId' | 'vendorId' | 'branchId' | 'totalValue' | 'createdAt' | 'updatedAt'>
 ): Promise<ProductTransformationOutputLine | null> {
   const transformation = await getTransformationById(transformationId);
-  if (!transformation || transformation.status === 'Completed' || transformation.status === 'Cancelled') {
+  if (!transformation || transformation.status !== 'Draft') {
     return null;
   }
   if (payload.qtyProduced <= 0 || payload.unitCost < 0) {
@@ -531,10 +518,14 @@ export async function addOutputLine(
     ...payload,
     lineId: makeId('TRN-OUT'),
     transformationId,
+    vendorId: transformation.vendorId,
+    branchId: transformation.branchId,
     totalValue: payload.qtyProduced * payload.unitCost,
+    createdAt: nowIso(),
+    updatedAt: nowIso(),
   };
+  await writeFirestoreOutputLine(record);
   saveList(OUTPUT_LINE_KEY, [record, ...records]);
-  void writeFirestoreOutputLine(record);
 
   return record;
 }
@@ -545,10 +536,10 @@ export async function addOutputLine(
 export async function updateOutputLine(
   transformationId: string,
   lineId: string,
-  patch: Partial<Omit<ProductTransformationOutputLine, 'lineId' | 'transformationId'>>
+  patch: Partial<Omit<ProductTransformationOutputLine, 'lineId' | 'transformationId' | 'vendorId' | 'branchId' | 'createdAt' | 'updatedAt'>>
 ): Promise<ProductTransformationOutputLine | null> {
   const transformation = await getTransformationById(transformationId);
-  if (!transformation || transformation.status === 'Completed' || transformation.status === 'Cancelled') {
+  if (!transformation || transformation.status !== 'Draft') {
     return null;
   }
   if ((patch.qtyProduced !== undefined && patch.qtyProduced <= 0) || (patch.unitCost !== undefined && patch.unitCost < 0)) {
@@ -560,15 +551,15 @@ export async function updateOutputLine(
   const nextRecords = records.map(line => {
     if (line.transformationId === transformationId && line.lineId === lineId) {
       const base = { ...line, ...patch };
-      updatedRecord = { ...base, totalValue: base.qtyProduced * base.unitCost };
+      updatedRecord = { ...base, totalValue: base.qtyProduced * base.unitCost, updatedAt: nowIso() };
       return updatedRecord;
     }
     return line;
   });
 
   if (updatedRecord) {
+    await writeFirestoreOutputLine(updatedRecord);
     saveList(OUTPUT_LINE_KEY, nextRecords);
-    void writeFirestoreOutputLine(updatedRecord);
   }
   return updatedRecord;
 }
@@ -578,7 +569,7 @@ export async function updateOutputLine(
  */
 export async function removeOutputLine(transformationId: string, lineId: string): Promise<boolean> {
   const transformation = await getTransformationById(transformationId);
-  if (!transformation || transformation.status === 'Completed' || transformation.status === 'Cancelled') {
+  if (!transformation || transformation.status !== 'Draft') {
     return false;
   }
 
@@ -586,8 +577,8 @@ export async function removeOutputLine(transformationId: string, lineId: string)
   const nextRecords = records.filter(line => !(line.transformationId === transformationId && line.lineId === lineId));
 
   if (nextRecords.length < records.length) {
+    await deleteFirestoreOutputLine(transformation.vendorId, lineId);
     saveList(OUTPUT_LINE_KEY, nextRecords);
-    void deleteFirestoreOutputLine(lineId);
     return true;
   }
   return false;
