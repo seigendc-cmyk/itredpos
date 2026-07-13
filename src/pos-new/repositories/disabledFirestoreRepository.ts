@@ -12,10 +12,14 @@ const disabledOperation = <T>(): RepositoryOperationResult<T> => ({
 
 const disabledList = <T>(): RepositoryListResult<T> => ({
   ok: false,
+  success: false,
   rows: [],
+  records: [],
   status: 'Disabled',
   sourceMode: 'FirestoreDisabled',
   error: disabledMessage,
+  errorCode: 'REPOSITORY_DISABLED',
+  errorMessage: disabledMessage,
   warnings: ['Mock/local services remain active. Firestore reads and writes are not enabled.']
 });
 

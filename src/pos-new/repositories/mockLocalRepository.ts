@@ -71,7 +71,7 @@ export function createMockLocalRepository<T extends { id?: string; deleted?: boo
     list: async (queryOptions: RepositoryQueryOptions): Promise<RepositoryListResult<T>> => {
       const activeRows = loadRows().filter((row) => queryOptions.includeDeleted || !row.deleted);
       const limitedRows = queryOptions.limit ? activeRows.slice(0, queryOptions.limit) : activeRows;
-      return { ok: true, rows: limitedRows, status: 'Ready', sourceMode, warnings: [] };
+      return { ok: true, success: true, rows: limitedRows, records: limitedRows, status: 'Ready', sourceMode, warnings: [] };
     },
     create: async (data) => {
       const id = getId(data) || makeId(options.entityName);

@@ -2,6 +2,24 @@ export type RepositoryDataSourceMode = 'MockLocal' | 'LocalStorage' | 'Firestore
 export type RepositoryOperationStatus = 'Ready' | 'Disabled' | 'NotConfigured' | 'Error' | 'Pending';
 export type RepositoryHealthStatus = 'Healthy' | 'Warning' | 'Critical' | 'Disabled' | 'Unknown';
 
+export interface RepositoryResult<T> {
+  success: boolean;
+  data?: T;
+  errorCode?: string;
+  errorMessage?: string;
+}
+
+export interface RepositoryListResult<T> {
+  success: boolean;
+  records: T[];
+  errorCode?: string;
+  errorMessage?: string;
+}
+
+export interface RepositorySubscription {
+  unsubscribe: () => void;
+}
+
 export interface RepositoryOperationResult<T> {
   ok: boolean;
   data?: T;

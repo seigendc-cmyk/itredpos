@@ -6,8 +6,8 @@ const ROOT_VENDOR_MEMBERSHIPS = 'vendorMemberships';
 export const firestoreCollectionNames = {
   vendors: ROOT_VENDORS,
   branches: 'branches',
-  terminals: 'terminals',
   warehouses: 'warehouses',
+  terminals: 'terminals',
   shifts: 'shifts',
   cashDrawers: 'cashDrawers',
   productMaster: 'productMaster',
@@ -44,6 +44,7 @@ export const firestoreCollectionNames = {
   salesReceipts: 'salesReceipts',
   salesReceiptLines: 'salesReceiptLines',
   payments: 'payments',
+  posCashMovements: 'pos_cash_movements',
   deliveries: 'deliveries',
   deliveryLines: 'delivery_lines',
   deliveryAddresses: 'delivery_addresses',
@@ -61,7 +62,6 @@ export const firestoreCollectionNames = {
   deliveryProviders: 'deliveryProviders',
   deliveryTrackingEvents: 'deliveryTrackingEvents',
   approvalRequests: 'approval_requests',
-  posCashMovements: 'pos_cash_movements',
   auditLogs: 'audit_logs',
   approvals: 'approvals',
   tasks: 'tasks',
@@ -88,7 +88,7 @@ export const firestoreCollectionNames = {
   branchAccess: 'branchAccess',
   terminalAccess: 'terminalAccess',
   rolePermissionProfiles: 'rolePermissionProfiles',
-  sessionAuditEvents: 'sessionAuditEvents'
+  sessionAuditEvents: 'sessionAuditEvents',
 } as const;
 
 export function encodeFirestoreId(id: string | number): string {

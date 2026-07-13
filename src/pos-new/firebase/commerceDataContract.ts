@@ -33,8 +33,10 @@ export interface CommerceDocumentIdentity {
 export interface SharedCommerceDocument
   extends CommerceDocumentIdentity,
     CommerceAuditFields {
+  sciId: string;
   schemaVersion: number;
   status: string;
+  lastSyncAt?: string;
 }
 
 export const COMMERCE_SCHEMA_VERSION = 1 as const;
@@ -90,7 +92,17 @@ export interface SharedInventoryBalanceRecord extends SharedCommerceDocument {
   qtyAvailable: number;
   qtyReserved?: number;
   unitOfMeasure?: string;
-  status: string;
+}
+
+export interface SharedInventoryMovementRecord extends SharedCommerceDocument {
+  vendorId: string;
+  movementId: string;
+  productId: string;
+  warehouseId: string;
+  branchId?: string;
+  movementType: string;
+  qtyDelta: number;
+  reason?: string;
 }
 
 export interface SharedCustomerRecord extends SharedCommerceDocument {
@@ -99,18 +111,17 @@ export interface SharedCustomerRecord extends SharedCommerceDocument {
   customerName: string;
   phone?: string;
   email?: string;
-  status: string;
 }
 
 export interface SharedMarketplaceListingRecord extends SharedCommerceDocument {
   vendorId: string;
   listingId: string;
   productId: string;
+  branchId?: string;
   title: string;
   description?: string;
   price: number;
   currency: string;
-  status: string;
 }
 
 export interface SharedMarketplaceOrderRecord extends SharedCommerceDocument {
@@ -120,26 +131,38 @@ export interface SharedMarketplaceOrderRecord extends SharedCommerceDocument {
   customerName?: string;
   total: number;
   currency: string;
-  status: string;
 }
 
-export interface SharedBIEventRecord extends SharedCommerceDocument {
-  vendorId: string;
+export interface SharedBIEventRecord {
   eventId: string;
+  eventType: string;
+  vendorId: string;
+  branchId: string;
+  terminalId: string;
+  staffId: string;
+  sourceApp: CommerceSourceApp;
   entityType: string;
   entityId: string;
-  eventType: string;
-  severity?: string;
-  message: string;
+  timestamp: string;
+  severity: string;
+  actionRequired: boolean;
+  metadata: Record<string, unknown>;
+  schemaVersion?: number;
 }
 
-export interface SharedAuditRecord extends SharedCommerceDocument {
+export interface SharedAuditRecord {
   vendorId: string;
-  auditId: string;
-  actorStaffId?: string;
-  actorName?: string;
+  branchId: string;
+  terminalId: string;
+  staffId: string;
+  actorId: string;
+  actorRole: string;
   action: string;
-  affectedEntityType: string;
-  affectedEntityId: string;
-  message: string;
+  entityType: string;
+  entityId: string;
+  before: unknown;
+  after: unknown;
+  reason: string;
+  sourceApp: CommerceSourceApp;
+  createdAt: string;
 }
