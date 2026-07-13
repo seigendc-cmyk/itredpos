@@ -97,7 +97,7 @@ export async function createSupplierCreditNote(input: {
       entryId: `${note.supplierCreditNoteId}_LEDGER`
     }, context);
     await createAccountingPostingPlaceholder({
-      source: 'Manual Entry',
+      source: 'Manual Adjustment',
       sourceReference: note.supplierCreditNoteId,
       branch: context.branchId,
       amount

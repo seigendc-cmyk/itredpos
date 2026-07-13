@@ -96,7 +96,7 @@ export function createRelatedRecordLink(record: RelatedRecordLink | TaskRecord |
       sourceModule: 'Approvals',
       sourceRecordId: record.id,
       targetPage: routePageFor(module),
-      createdAt: record.createdAt || now()
+      createdAt: record.requestedAt || now()
     };
   }
 

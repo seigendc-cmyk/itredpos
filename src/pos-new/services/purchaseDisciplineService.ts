@@ -128,7 +128,7 @@ function saveList<T>(key: string, value: T[]): T[] {
   return writeVendorScopedList(key, value);
 }
 
-function nextNumber(prefix: string, rows: Array<Record<string, string>>, key: string): string {
+function nextNumber<T, K extends keyof T>(prefix: string, rows: readonly T[], key: K): string {
   const highest = rows.reduce((max, row) => {
     const match = String(row[key] || '').match(new RegExp(`${prefix}-(\\d+)`));
     return match ? Math.max(max, Number(match[1])) : max;

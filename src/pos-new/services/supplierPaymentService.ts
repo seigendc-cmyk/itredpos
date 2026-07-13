@@ -225,7 +225,7 @@ export async function recordSupplierPayment(input: {
       reason: reserveValidation.warnings.join(' ') || 'Supplier payment requires approval.',
       context: input.notes || 'Supplier payment approval request.',
       approvalType: 'SUPPLIER_PAYMENT_APPROVAL',
-      requiredPermission: 'supplierPayments.manage'
+      requiredPermission: 'approvals.approve'
     });
   }
 

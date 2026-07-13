@@ -260,7 +260,7 @@ export function calculateDocumentTax(
 
 export function posTaxSettingToVendorTaxSettings(
   vendorId: string,
-  input: { vatRatePct: number; inclusive: boolean },
+  input: { vatRatePct: number; surtaxPct?: number; inclusive: boolean },
   updatedBy = 'POS'
 ): VendorTaxSettings {
   const rate = normalizeRate(input.vatRatePct);

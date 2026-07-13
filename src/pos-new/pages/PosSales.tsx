@@ -1138,7 +1138,7 @@ export default function PosSales({
           canPriceOverride: canPerformAction(roleName, 'sales.priceChange'),
           canCreditSale: canPerformAction(roleName, 'sales.creditSale') || canPerformAction(roleName, 'sales.accountSale'),
           canCreditOverride: canPerformAction(roleName, 'sales.creditSale.override') || ['Owner', 'SysAdmin', 'Manager'].includes(roleName),
-          canNegativeStockOverride: canPerformAction(roleName, 'inventory.negativeStock.override') || ['Owner', 'SysAdmin', 'Manager'].includes(roleName),
+          canNegativeStockOverride: ['Owner', 'SysAdmin', 'Manager'].includes(roleName),
           role: roleName
         },
         allowNegativeStock: false

@@ -406,7 +406,7 @@ export const biService = {
     let completedDeliveries = 0;
 
     filteredDeliveries.forEach(d => {
-      if (d.deliveryStatus === 'COMPLETED' || d.deliveredAt) {
+      if (d.deliveryStatus === 'Completed' || d.deliveryStatus === 'Delivered' || d.deliveredAt) {
         completedDeliveries++;
         const reqTime = new Date(d.requestedAt).getTime();
         const delTime = new Date(d.deliveredAt || d.updatedAt).getTime();
@@ -442,8 +442,8 @@ export const biService = {
     const cashConfirmationLogs: BIDrillDownLog[] = [];
 
     filteredDeliveries.forEach(d => {
-      // If delivery request cash status is pending handover but status is COMPLETED
-      if (d.paymentMode === 'CASH' && (d.deliveryStatus === 'COMPLETED' || d.deliveryStatus === 'DELIVERED') && d.cashStatus !== 'Confirmed') {
+      // If cash-on-delivery is complete but vendor confirmation is still outstanding.
+      if (d.paymentMode === 'Cash On Delivery' && (d.deliveryStatus === 'Completed' || d.deliveryStatus === 'Delivered') && d.cashStatus !== 'Confirmed By Vendor') {
         missingHandoverCount++;
         cashConfirmationLogs.push({
           id: d.deliveryId,
@@ -471,7 +471,7 @@ export const biService = {
     // --- Rule: Branch Performance Summary ---
     const branchPerformance: BIDashboardMetrics['branchPerformance'] = branches.map(b => {
       // Calculate sales for this branch
-      const branchSales = filteredSales.filter(s => s.branch === b.branchName || s.branch === b.branchId);
+      const branchSales = filteredSales.filter(s => s.branch === b.name || s.branch === b.id);
       const totalSales = branchSales.reduce((sum, s) => sum + (s.total || 0), 0);
       const salesCount = branchSales.length;
 
@@ -489,8 +489,8 @@ export const biService = {
       else if (riskScore >= 15) riskLevel = 'MEDIUM';
 
       return {
-        branchId: b.branchId,
-        branchName: b.branchName,
+        branchId: b.id,
+        branchName: b.name,
         salesCount,
         totalSales: Number(totalSales.toFixed(2)),
         riskScore,

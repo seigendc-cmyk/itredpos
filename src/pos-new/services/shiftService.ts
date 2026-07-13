@@ -1,4 +1,4 @@
-import type { Shift, ShiftSessionControl } from '../types/posTypes';
+import type { PosSession, Shift, ShiftSessionControl } from '../types/posTypes';
 import type { CommerceOperationContext } from '../../commerce-integration';
 import { assertCanonicalCashSession, type CanonicalCashSession } from './cashSessionService';
 import { calculateExpectedCash, POS_SHIFT_STORE_KEY } from './cashMovementService';
@@ -95,6 +95,27 @@ function toLegacyShift(shift: ShiftSessionControl): Shift {
   };
 }
 
+function toTerminalSession(session: CanonicalCashSession): PosSession {
+  return {
+    vendor: session.vendorName,
+    vendorId: session.vendorId,
+    vendorName: session.vendorName,
+    branch: session.branchName,
+    branchId: session.branchId,
+    branchName: session.branchName,
+    terminal: session.terminalName,
+    terminalId: session.terminalId,
+    terminalName: session.terminalName,
+    warehouse: session.warehouseId,
+    warehouseId: session.warehouseId,
+    staffId: session.staffId,
+    staffName: session.staffName,
+    role: session.role,
+    permissions: session.permissions,
+    signedInAt: session.signedInAt
+  };
+}
+
 export function getOpenShiftForTerminal(vendorId: string, branchId: string, terminalId: string): CanonicalShiftRecord | null {
   const shift = readShifts(vendorId).find((row) =>
     row.vendorId === vendorId
@@ -128,7 +149,7 @@ export async function openPosShift(input: {
     staffName: session.staffName,
     openingFloat: input.openingFloat,
     notes: input.notes,
-    session
+    session: toTerminalSession(session)
   });
   return toCanonical(opened);
 }
@@ -138,7 +159,7 @@ export async function closePosShift(input: {
   countedCash: number;
 }, sessionInput?: CanonicalCashSession | null): Promise<CanonicalShiftRecord | null> {
   const session = assertCanonicalCashSession(sessionInput);
-  const closed = await closeTerminalShift(input.shiftId, input.countedCash, session.staffName, session);
+  const closed = await closeTerminalShift(input.shiftId, input.countedCash, session.staffName, toTerminalSession(session));
   return closed ? toCanonical(closed) : null;
 }
 

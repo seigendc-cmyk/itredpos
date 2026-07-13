@@ -64,7 +64,7 @@ const seedPayments: SupplierPayment[] = [
   { paymentId: 'SUP-PAY-DEV-001', paymentNumber: 'SP-0001', supplierId: 'SUP-LD', supplierName: 'Local Distributors', paymentDate: today(), amount: 250, paymentMethod: 'Cash', paymentReference: 'DRAWER-SP-0001', source: 'COGSReserve', cogsReserveAmount: 250, nonReserveAmount: 0, status: 'Paid', approvedBy: 'Owner', approvedAt: nowIso(), paidBy: 'Accountant', paidAt: nowIso(), notes: 'Supplier payment from COGS Reserve.' }
 ];
 
-function nextNumber(prefix: string, rows: Array<{ [key: string]: string }>, key: string): string {
+function nextNumber<T, K extends keyof T>(prefix: string, rows: readonly T[], key: K): string {
   const highest = rows.reduce((max, row) => {
     const match = String(row[key] || '').match(new RegExp(`${prefix}-(\\d+)`));
     return match ? Math.max(max, Number(match[1])) : max;

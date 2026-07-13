@@ -39,7 +39,7 @@ export interface PlanFeatureAccess {
   pageAccess: Record<PosPageId, PlanPageAccess>;
 }
 
-type LicenseLike = {
+type LicenseLike = (Partial<Record<PlanFeatureKey, boolean>> & {
   planCode?: string;
   planId?: string;
   featureFlags?: Partial<Record<PlanFeatureKey | 'creditControlEnabled', boolean>>;
@@ -48,8 +48,7 @@ type LicenseLike = {
   maxTerminals?: number | string;
   maxStaff?: number | string;
   maxProducts?: number | string;
-  [key: string]: unknown;
-} | null | undefined;
+}) | null | undefined;
 
 const DEFAULT_LIMITS: Record<string, PlanLimits> = {
   DEMO: { maxBranches: 1, maxWarehouses: 1, maxTerminals: 1, maxStaff: 2, maxProducts: 50 },

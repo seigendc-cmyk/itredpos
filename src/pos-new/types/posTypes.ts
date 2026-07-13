@@ -2927,6 +2927,7 @@ export type OperationalApprovalCategory =
   | 'Purchase Order'
   | 'Goods Receiving'
   | 'Supplier Return'
+  | 'Supplier Payment'
   | 'Delivery Provider Approval'
   | 'Customer Approval';
 

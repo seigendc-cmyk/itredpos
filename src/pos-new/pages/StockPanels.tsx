@@ -2341,7 +2341,7 @@ export default function StockPanels({
         setStockAdjustmentNotice('You do not have permission to perform this action.');
         return;
       }
-      await recordStockAdjustmentPlaceholderActivity(record.adjustmentId, staffName, 'STOCK_ADJUSTMENT_DUPLICATED_DRAFT', `${record.adjustmentNumber} duplicate as new draft prepared.`);
+      await recordStockAdjustmentPlaceholderActivity(record.adjustmentId, staffName, 'STOCK_ADJUSTMENT_DUPLICATED_PLACEHOLDER', `${record.adjustmentNumber} duplicate as new draft prepared.`);
       setStockAdjustmentNotice(`${record.adjustmentNumber} duplicate as new draft prepared.`);
     }
     await refreshStockAdjustments();

@@ -23,7 +23,7 @@ const PO_KEY = 'itred_pos_purchase_orders_v1';
 const PO_LINE_KEY = 'itred_pos_purchase_order_lines_v1';
 const PO_ACTIVITY_KEY = 'itred_pos_purchase_order_activity_v1';
 
-type PurchaseOrderCreatePayload = Omit<PurchaseOrder, 'poId' | 'poNumber' | 'createdAt' | 'updatedAt'> & {
+type PurchaseOrderCreatePayload = Omit<PurchaseOrder, 'poId' | 'poNumber' | 'createdAt' | 'updatedAt' | 'subtotalEstimate' | 'taxEstimate' | 'grandTotalEstimate'> & {
   poId?: string;
   poNumber?: string;
   lines: Array<Omit<PurchaseOrderLine, 'lineId' | 'poId' | 'qtyOutstanding' | 'estimatedLineTotal' | 'lineStatus'> & {
@@ -305,6 +305,9 @@ export async function createPurchaseOrder(payload: PurchaseOrderCreatePayload): 
     supplierContactPerson: supplier.contactPerson,
     paymentTermsDays: supplier.paymentTermsDays,
     paymentMethod: payload.paymentMethod || (supplier.paymentTermsDays > 0 ? 'Supplier Credit' : 'Cash'),
+    subtotalEstimate: 0,
+    taxEstimate: 0,
+    grandTotalEstimate: 0,
     approvalStatus: payload.status === 'Pending Approval' ? 'Pending' : payload.status === 'Approved' ? 'Approved' : 'Not Required',
     postingStatus: 'Not Posted',
     createdBy: session.staffId,

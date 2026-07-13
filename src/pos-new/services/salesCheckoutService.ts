@@ -436,12 +436,12 @@ export function buildCanonicalCartLines(input: {
     const grossAmount = roundMoney(unitPrice * quantity);
     const lineDiscountPercent = Math.min(100, Math.max(0, Number(item.discount) || 0));
     const lineDiscountAmount = roundMoney(grossAmount * (lineDiscountPercent / 100));
-    return { item, index, grossAmount, lineDiscountPercent, lineDiscountAmount };
+    return { item, index, unitPrice, grossAmount, lineDiscountPercent, lineDiscountAmount };
   });
   const afterLineDiscountTotal = roundMoney(baseRows.reduce((sum, row) => sum + Math.max(0, row.grossAmount - row.lineDiscountAmount), 0));
   const cartDiscount = Math.min(afterLineDiscountTotal, Math.max(0, Number(input.cartDiscountAmount) || 0));
 
-  return baseRows.map(({ item, index, grossAmount, lineDiscountPercent, lineDiscountAmount }) => {
+  return baseRows.map(({ item, index, unitPrice, grossAmount, lineDiscountPercent, lineDiscountAmount }) => {
     const afterLineDiscount = Math.max(0, grossAmount - lineDiscountAmount);
     const allocatedCartDiscount = afterLineDiscountTotal > 0 ? roundMoney(cartDiscount * (afterLineDiscount / afterLineDiscountTotal)) : 0;
     const discountAmount = roundMoney(Math.min(grossAmount, lineDiscountAmount + allocatedCartDiscount));
