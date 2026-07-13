@@ -1,4 +1,4 @@
-# SCI POS Business Intelligence Data Collection
+﻿# SCI POS Business Intelligence Data Collection
 
 ## Purpose
 
@@ -67,7 +67,7 @@ SCI POS shall collect data from:
 - Secret Code Verification
 - Cash Collection
 
-cat > src/sot/bi/02-BI-DATA-COLLECTION.md <<'EOF'
+cat > docs/sot/bi/02-BI-DATA-COLLECTION.md <<'EOF'
 # SCI POS Business Intelligence Data Collection
 
 ## Purpose
@@ -129,5 +129,6 @@ SCI POS shall collect data from:
 - Role Changes
 
 ### Delivery
+
 
 
