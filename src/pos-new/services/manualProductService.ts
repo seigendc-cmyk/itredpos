@@ -7,7 +7,8 @@ import {
   ProductMasterRecord,
   ProductPriceRecord,
   ProductReorderRule,
-  ProductSupplierLink
+  ProductSupplierLink,
+  ProductStatus
 } from '../types/posTypes';
 import { createProductMasterDraft, getProductMasterById, getProductMasterRecords, updateProductMasterPlaceholder } from './productMasterService';
 import { postInventoryMovement } from './inventoryMovementService';
@@ -85,7 +86,7 @@ function compactNotes(rows: Array<[string, string | number | boolean | undefined
     .join('; ');
 }
 
-function toProductMasterPayload(payload: ManualProductDraft, status: 'Draft' | 'Active' | 'Pending Review' | 'Blocked' | 'Inactive' = 'Draft'): Omit<ProductMasterRecord, 'productId' | 'createdAt' | 'updatedAt'> {
+function toProductMasterPayload(payload: ManualProductDraft, status: ProductStatus = 'Draft'): Omit<ProductMasterRecord, 'productId' | 'createdAt' | 'updatedAt'> {
   const vendorId = payload.vendorId || getActiveVendorId();
   const defaultVatRate = getCachedVendorTaxSettings(vendorId).defaultVatRate;
   const productName = payload.productName.trim() || 'Manual Product Draft';
@@ -451,7 +452,7 @@ export async function createOpeningBalanceDraft(payload: {
       risk: 'High',
       reason: 'Opening Balance Draft approval required',
       context: `${draft.productName}; qty ${draft.qty}; unit cost ${draft.unitCost}; stock not posted.`,
-      requiredPermission: 'stockAdjustments.approve'
+      requiredPermission: 'stockAdjustment.approve'
     });
   }
   if ((await getNetworkStatus()) !== 'Online') {

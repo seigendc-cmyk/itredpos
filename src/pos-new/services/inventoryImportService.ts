@@ -335,7 +335,7 @@ function toPreviewRow(row: ProductImportRow): InventoryImportRowPreview {
     rowNumber: row.rowNumber,
     sourceData: row.rawData,
     mappedData: row.mappedProduct,
-    status: row.status === 'Imported' ? 'Posted' : row.status === 'Valid' ? 'Ready' : row.status,
+    status: row.status === 'Imported' ? 'Posted' : row.status === 'Valid' ? 'Ready' : row.status === 'Pending' ? 'Ready' : row.status,
     action: row.status === 'Duplicate' ? 'NeedsReview' : row.status === 'Skipped' ? 'SkipRow' : 'CreateNewProduct',
     matchedProductId: row.duplicateProductId,
     matchedProductName: row.duplicateProductId,

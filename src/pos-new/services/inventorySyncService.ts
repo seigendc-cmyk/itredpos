@@ -537,7 +537,11 @@ export async function rebuildInventoryBalance(input: InventoryBalanceInput): Pro
     ...input,
     balanceId: balanceId(input),
     quantityOnHand,
+    quantityReserved: 0,
     quantityAvailable: Math.max(0, quantityOnHand),
+    quantityInTransit: 0,
+    averageCost: 0,
+    stockValue: 0,
     syncStatus: 'Synced',
     lastSynchronizedAt: nowIso(),
     updatedAt: nowIso()

@@ -4,7 +4,7 @@ import {
   AccountingPosting,
   CashbookEntry,
   COAAccount,
-  COGSReserveSummary,
+  COGSReserveRowRecord,
   InventoryAssetPostingRow,
   PaymentAccountingSummary,
   PostingStatus,
@@ -216,7 +216,7 @@ export async function getVATSummary(filters: AccountingFilters): Promise<VATSumm
   return rows;
 }
 
-export async function getCOGSReserveSummary(_filters: AccountingFilters): Promise<COGSReserveSummary[]> {
+export async function getCOGSReserveSummary(_filters: AccountingFilters): Promise<COGSReserveRowRecord[]> {
   return mockCOGSReserveRows;
 }
 

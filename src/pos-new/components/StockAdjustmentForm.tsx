@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Download, Maximize2, Minus, Plus, RotateCcw, Square, Trash2, X } from 'lucide-react';
+import { CommerceOperationContext } from '../../commerce-integration';
 import {
   Product,
   Role,
@@ -230,7 +231,14 @@ export default function StockAdjustmentForm({
       setFeedback('You do not have permission to perform this action.');
       return;
     }
-    const result = await postStockAdjustment(record.adjustmentId, staffName);
+    const context: CommerceOperationContext = {
+      vendorId: record.vendorId,
+      branchId: record.branchId,
+      warehouseId: record.warehouseId,
+      terminalId: 'BACK-01',
+      staffId: staffName
+    };
+    const result = await postStockAdjustment(record.adjustmentId, context);
     if (!result) {
       setFeedback('Only Draft or Approved Stock Adjustments can be posted.');
       return;

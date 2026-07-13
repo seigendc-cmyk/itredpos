@@ -434,6 +434,7 @@ export async function createGRNDraftFromPO(poId: string, staffId: string): Promi
       lineStatus: 'Pending',
       removeFromCurrentGRN: false,
       markUnavailableFromSupplier: false,
+      qtyAlreadyReturned: 0,
       notes: ''
     };
     return normalizeLine(base);

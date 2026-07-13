@@ -579,6 +579,7 @@ function seedReconciliations(): CashDrawerReconciliation[] {
     cashRefunds: 0,
     drawerExpenses: 15,
     pettyCashPayouts: 15,
+    supplierCashPayments: 0,
     cashDrops: 80,
     expectedCash,
     countedCash: expectedCash - 5,

@@ -100,6 +100,14 @@ function riskForMovement(movement: InventoryMovement, impactType: InventoryAccou
   return 'Low';
 }
 
+function recommendedActionForRisk(riskLevel: InventoryAccountingReadinessRecord['riskLevel'], impactType: InventoryAccountingImpactType): string {
+  if (riskLevel === 'Critical') return 'Manager review and block posting until root cause is resolved.';
+  if (riskLevel === 'High') return 'Review approvals, supporting evidence, and staff activity before posting.';
+  if (riskLevel === 'Medium') return 'Confirm mapping and supporting documentation before releasing to accounting.';
+  if (impactType === 'Transfer Neutral') return 'No action required. Transfer is neutral under current policy.';
+  return 'Standard review before posting.';
+}
+
 function makeNumber(): string {
   return `IAR-${String(records().length + 1).padStart(4, '0')}`;
 }
@@ -195,6 +203,7 @@ export async function generateReadinessFromInventoryMovement(movementId: string)
     riskLevel: riskForMovement(movement, impactType),
     totalValueImpact,
     currency: 'USD',
+    recommendedAction: recommendedActionForRisk(riskForMovement(movement, impactType), impactType),
     notes: 'Prepared from posted inventory movement. Review layer only; no journal, cashbook, bank, supplier payment, COGS or stock quantity posting.',
     createdAt: now,
     updatedAt: now
@@ -243,6 +252,7 @@ async function generateBySource(sourceType: InventoryAccountingSourceType, sourc
     riskLevel: impactType === 'Transfer Neutral' ? 'Low' : 'Medium',
     totalValueImpact: impactType === 'Transfer Neutral' ? 0 : 125,
     currency: 'USD',
+    recommendedAction: recommendedActionForRisk(impactType === 'Transfer Neutral' ? 'Low' : 'Medium', impactType),
     notes: `${sourceType} accounting review prepared only when source is posted.`,
     createdAt: now,
     updatedAt: now

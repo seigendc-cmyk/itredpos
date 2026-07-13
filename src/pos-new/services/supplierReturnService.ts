@@ -239,6 +239,8 @@ export async function createSupplierReturnFromGRN(grnId: string, staffId: string
     supplierCreditNoteNumber: '',
     supplierCreditNoteAmount: 0,
     replacementExpected: false,
+    totalReturnValue: candidates.reduce((sum, line) => sum + (line.qtyAccepted - (postedReturnQtyByGRNLine(line.lineId) || 0)) * line.receivedUnitCost, 0),
+    approvalRequired: candidates.some((line) => line.qtyAccepted > 0),
     notes: 'Supplier Return draft created from GRN. No stock is reduced until the return is posted.',
     createdAt: now,
     updatedAt: now
@@ -304,6 +306,7 @@ export async function createSupplierReturnFromMovement(movementId: string, staff
   if (!movement) return null;
   const records = getReturns();
   const now = nowIso();
+  const qty = Math.max(movement.qtyIn - movement.qtyOut, 0);
   const record: SupplierReturn = {
     supplierReturnId: makeId('SRT-ID'),
     supplierReturnNumber: nextReturnNumber(records),
@@ -323,11 +326,12 @@ export async function createSupplierReturnFromMovement(movementId: string, staff
     supplierEmail: '',
     dispatchMethod: 'Not Dispatched',
     replacementExpected: false,
+    totalReturnValue: qty * movement.unitCost,
+    approvalRequired: qty > 0,
     notes: `Supplier Return draft created from posted movement ${movement.referenceNumber}.`,
     createdAt: now,
     updatedAt: now
   };
-  const qty = Math.max(movement.qtyIn - movement.qtyOut, 0);
   const line: SupplierReturnLine = {
     lineId: makeId('SRT-LINE'),
     supplierReturnId: record.supplierReturnId,

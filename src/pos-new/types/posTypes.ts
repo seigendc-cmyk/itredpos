@@ -1260,7 +1260,17 @@ export type SupplierPaymentAllocationMethod = 'OldestBillFirst' | 'SelectedBillO
 export type CreditorAgeingBucket = 'Current' | 'Days1To30' | 'Days31To60' | 'Days61To90' | 'Days91To120' | 'Days120Plus';
 export type COGSReserveMovementType = 'OpeningReserve' | 'COGSRecoveredFromSale' | 'SupplierPayment' | 'StockPurchaseCash' | 'StockPurchaseCreditSettlement' | 'ReserveAdjustment' | 'ReserveLeakage' | 'ReserveRelease' | 'ReserveProtectionCorrection';
 export type COGSReserveMovementDirection = 'In' | 'Out' | 'Neutral';
-export type COGSReserveStatus = 'Healthy' | 'Watch' | 'Low' | 'Critical' | 'Overdrawn';
+export type COGSReserveStatus =
+  | 'Healthy'
+  | 'Watch'
+  | 'Low'
+  | 'Critical'
+  | 'Overdrawn'
+  | 'Reserved'
+  | 'Pending'
+  | 'Used'
+  | 'Review Required'
+  | 'Misuse Risk';
 
 export interface SupplierCreditProfile {
   supplierId: string;
@@ -1756,6 +1766,7 @@ export interface CashControlSummary {
   cashRefunds: number;
   drawerExpenses: number;
   pettyCashPayouts: number;
+  supplierCashPayments: number;
   cashDrops: number;
   expectedCash: number;
   countedCash: number;
@@ -2978,7 +2989,7 @@ export interface OperationalApprovalRequest {
   reason: string;
   context: string;
   approvalType?: string;
-  requiredPermission: 'approvals.approve' | 'approvals.reject' | 'approvals.credit.approve';
+  requiredPermission: 'approvals.approve' | 'approvals.reject' | 'approvals.credit.approve' | 'stockAdjustment.approve';
   title?: string;
   priority?: ApprovalPriority;
   assignedReviewerId?: string;
@@ -4156,6 +4167,7 @@ export interface GoodsReceivingLine {
   removeFromCurrentGRN: boolean;
   markUnavailableFromSupplier: boolean;
   damagedReason?: string;
+  qtyAlreadyReturned: number;
   notes: string;
 }
 
@@ -4400,6 +4412,8 @@ export interface SupplierReturn {
   supplierCreditNoteNumber?: string;
   supplierCreditNoteAmount?: number;
   replacementExpected: boolean;
+  totalReturnValue: number;
+  approvalRequired: boolean;
   notes: string;
   createdAt: string;
   updatedAt: string;
@@ -7110,7 +7124,7 @@ export interface PaymentAccountingSummary {
   assignedTo?: string;
 }
 
-export interface COGSReserveSummary {
+export interface COGSReserveRowRecord {
   id: string;
   product: string;
   receiptReference: string;
@@ -7119,7 +7133,7 @@ export interface COGSReserveSummary {
   sellingPrice: number;
   estimatedCOGS: number;
   suggestedReserve: number;
-  reserveStatus: 'Reserved' | 'Pending' | 'Used' | 'Misuse Risk' | 'Review Required';
+  reserveStatus: COGSReserveStatus;
 }
 
 export interface VATSummary {
@@ -7213,6 +7227,7 @@ export interface InventoryAccountingReadinessRecord {
   reviewedByStaffName?: string;
   approvedByStaffId?: string;
   approvedByStaffName?: string;
+  recommendedAction: string;
   notes: string;
   createdAt: string;
   updatedAt: string;

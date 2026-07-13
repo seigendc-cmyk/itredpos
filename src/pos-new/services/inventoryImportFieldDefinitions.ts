@@ -60,7 +60,7 @@ export const inventoryImportFieldDefinitions: InventoryImportFieldDefinition[] =
   field('unitOfMeasure', 'Unit of Measure', 'Optional', false, 'Text', 'Stock', ['Unit', 'UOM', 'Unit Of Measure'], 'pcs', 'Selling/count unit.'),
   field('manufacturer', 'Manufacturer', 'Optional', false, 'Text', 'Product', ['Manufacturer', 'Mfr'], 'Brembo', 'Manufacturer.'),
   field('warranty', 'Warranty', 'Optional', false, 'Text', 'Product', ['Warranty'], '6 months', 'Warranty note.'),
-  field('notes', 'Notes', 'Optional', false, 'Text', 'System', ['Notes', 'Comment'], 'Imported from supplier sheet', 'Internal import notes.'),
+  field('notes', 'Notes', 'Optional', false, 'Text', 'Product', ['Notes', 'Comment'], 'Imported from supplier sheet', 'Internal import notes.'),
   field('imageUrlPlaceholder', 'Image URL Placeholder', 'Optional', false, 'Text', 'Product', ['Image URL', 'Image', 'Photo'], 'https://example/image.jpg', 'Image placeholder only.'),
   field('tags', 'Tags', 'Optional', false, 'Tags', 'Product', ['Tags', 'Keywords'], 'brake|toyota', 'Search tags.')
 ];

@@ -110,6 +110,7 @@ import ProductTransformationPanel from '../components/ProductTransformationPanel
 import ManualProductForm from '../components/ManualProductForm';
 import RowActionMenu, { RowActionMenuItem } from '../components/RowActionMenu';
 import { getActiveVendorId, getVendorScopedStorageKey } from '../utils/vendorDataMode';
+import { CommerceOperationContext } from '../../commerce-integration';
 import { getCachedVendorTaxSettings } from '../services/vendorTaxSettingsService';
 import { postLedgerMovement } from '../services/inventoryLedgerService';
 import {
@@ -377,7 +378,7 @@ export default function StockPanels({
     vatRate: defaultVatRate,
     branchId: stockBranchName,
     warehouseId: activeWarehouseId,
-    locationType: session?.warehouse || '',
+    locationType: session?.warehouse === 'Main Warehouse' || session?.warehouse === 'Branch Warehouse' || session?.warehouse === 'In Transit' ? session.warehouse : 'Other',
     createdByStaffId: staffName,
     createdByStaffName: staffName
   });
@@ -931,6 +932,8 @@ export default function StockPanels({
 
   // 5. Stocktake State Layout
   const [stocktakeLines, setStocktakeLines] = useState<StocktakeLine[]>(() => localStock.slice(0, 12).map((item) => ({
+    lineId: item.id,
+    stocktakeId: item.id,
     productId: item.id,
     sku: item.sku || item.code,
     numericNo: item.productNumericNumber,
@@ -942,8 +945,13 @@ export default function StockPanels({
     shelfLocation: item.shelfLocation,
     systemQty: item.qtyOnHand ?? item.stock,
     countedQty: item.qtyOnHand ?? item.stock,
-    variance: 0,
-    riskLevel: item.riskLevel || 'Low',
+    varianceQty: 0,
+    unitCost: 0,
+    valueImpact: 0,
+    varianceRisk: 'None',
+    lineStatus: 'No Variance',
+    countNotes: '',
+    recountNotes: '',
     status: 'Pending',
     stocktakeType: 'Spot',
     countedBy: staffName
@@ -960,6 +968,8 @@ export default function StockPanels({
   useEffect(() => {
     if (!stocktakeActive) {
       setStocktakeLines(localStock.map(item => ({
+        lineId: item.id,
+        stocktakeId: item.id,
         productId: item.id,
         sku: item.sku || item.code,
         numericNo: item.productNumericNumber,
@@ -971,8 +981,13 @@ export default function StockPanels({
         shelfLocation: item.shelfLocation,
         systemQty: item.qtyOnHand ?? item.stock,
         countedQty: item.qtyOnHand ?? item.stock,
-        variance: 0,
-        riskLevel: item.riskLevel || 'Low',
+        varianceQty: 0,
+        unitCost: 0,
+        valueImpact: 0,
+        varianceRisk: 'None',
+        lineStatus: 'No Variance',
+        countNotes: '',
+        recountNotes: '',
         status: 'Pending',
         stocktakeType: stocktakeSessionType,
         countedBy: staffName
@@ -1590,9 +1605,11 @@ export default function StockPanels({
     }
 
     if (stocktakePreselect.productIds?.length) {
-      const preselectedLines = localStock
+      const preselectedLines: StocktakeLine[] = localStock
         .filter((item) => stocktakePreselect.productIds?.includes(item.id))
-        .map((item) => ({
+        .map((item): StocktakeLine => ({
+          lineId: item.id,
+          stocktakeId: item.id,
           productId: item.id,
           sku: item.sku || item.code,
           numericNo: item.productNumericNumber,
@@ -1604,10 +1621,15 @@ export default function StockPanels({
           shelfLocation: item.shelfLocation,
           systemQty: item.qtyOnHand ?? item.stock,
           countedQty: item.qtyOnHand ?? item.stock,
-          variance: 0,
-          riskLevel: item.riskLevel || 'Low',
-          status: 'Pending' as const,
-          stocktakeType: 'Spot' as const,
+          varianceQty: 0,
+          unitCost: 0,
+          valueImpact: 0,
+          varianceRisk: 'None',
+          lineStatus: 'No Variance',
+          countNotes: '',
+          recountNotes: '',
+          status: 'Pending',
+          stocktakeType: 'Spot',
           countedBy: staffName
         }));
 
@@ -2280,7 +2302,14 @@ export default function StockPanels({
         setStockAdjustmentNotice('You do not have permission to perform this action.');
         return;
       }
-      const result = await postStockAdjustment(record.adjustmentId, staffName);
+      const context: CommerceOperationContext = {
+        vendorId: session?.vendorId || getActiveVendorId(),
+        branchId: session?.branch || activeBranch,
+        warehouseId: session?.warehouseId,
+        terminalId: 'TERMINAL_STOCK_DESK',
+        staffId: staffName
+      };
+      const result = await postStockAdjustment(record.adjustmentId, context);
       if (result) {
         applyPostedStockAdjustmentToLocalStock(result);
         setStockAdjustmentNotice(result.stockPosted ? result.message : 'Posting review completed. Inventory movement will be written by controlled stock movement logic.');

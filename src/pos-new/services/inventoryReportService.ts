@@ -687,7 +687,7 @@ function stockAdjustmentRows(filters: InventoryReportFilters): InventoryReportRo
 function stocktakeRows(filters: InventoryReportFilters): InventoryReportRow[] {
   return mockStocktakeSessions.map((session: StocktakeSession) => {
     const lines = mockStocktakeLines.filter((line: StocktakeLine) => line.stocktakeId === session.stocktakeId);
-    return asReportRow(session.stocktakeId, { documentNumber: session.stocktakeNumber, date: session.createdAt.slice(0, 10), supplierName: '-', branchName: session.branchId, warehouseName: session.warehouseId, status: session.status, lineCount: lines.length, valueImpact: lines.reduce((sum, line) => sum + (line.valueVariance || 0), 0), riskStatus: lines.some((line) => line.varianceRisk === 'Critical') ? 'Critical' : 'Medium' });
+    return asReportRow(session.stocktakeId, { documentNumber: session.stocktakeNumber, date: session.createdAt.slice(0, 10), supplierName: '-', branchName: session.branchId, warehouseName: session.warehouseId, status: session.status, lineCount: lines.length, valueImpact: lines.reduce((sum, line) => sum + (line.valueImpact || line.varianceQty * line.unitCost || 0), 0), riskStatus: lines.some((line) => line.varianceRisk === 'Critical') ? 'Critical' : 'Medium' });
   }).filter((row) => reportSearchMatches(row.values, filters));
 }
 

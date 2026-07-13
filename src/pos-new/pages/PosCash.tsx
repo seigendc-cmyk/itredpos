@@ -194,6 +194,7 @@ export default function PosCash({
       cashRefunds: summary?.cashRefunds || 0,
       drawerExpenses: summary?.drawerExpenses || 0,
       pettyCashPayouts: summary?.pettyCashPayouts || 0,
+      supplierCashPayments: summary?.supplierCashPayments || 0,
       cashDrops: summary?.cashDrops || 0,
       expectedCash,
       countedCash,

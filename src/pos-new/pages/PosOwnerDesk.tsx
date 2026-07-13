@@ -39,7 +39,7 @@ import {
   CashbookEntry,
   ChartOfAccountsPlaceholder,
   COAAccount,
-  COGSReserveSummary,
+  COGSReserveRowRecord,
   InventoryAccountingFilterState,
   InventoryAccountingActivityEvent,
   InventoryAccountingReadinessLine,
@@ -267,7 +267,7 @@ export default function PosOwnerDesk({ session }: PosOwnerDeskProps) {
   const [paymentAccountingRows, setPaymentAccountingRows] = useState<PaymentAccountingSummary[]>([]);
   const [cashbookRows, setCashbookRows] = useState<CashbookEntry[]>([]);
   const [vatRows, setVATRows] = useState<VATSummary[]>([]);
-  const [cogsRows, setCOGSRows] = useState<COGSReserveSummary[]>([]);
+  const [cogsRows, setCOGSRows] = useState<COGSReserveRowRecord[]>([]);
   const [inventoryAssetRows, setInventoryAssetRows] = useState<InventoryAssetPostingRow[]>([]);
   const [accountingReadiness, setAccountingReadiness] = useState<AccountingReadinessCheck[]>([]);
   const [accountingActivity, setAccountingActivity] = useState<AccountingActivityEvent[]>([]);
@@ -725,7 +725,7 @@ export default function PosOwnerDesk({ session }: PosOwnerDeskProps) {
     if (tab === 'Sales Posting') setSalesAccountingRows((rows) => rows.map((row) => row.id === rowId || row.receiptNo === rowId ? { ...row, postingStatus: status as SalesAccountingSummary['postingStatus'] } : row));
     if (tab === 'Cashbook') setCashbookRows((rows) => rows.map((row) => row.id === rowId || row.reference === rowId ? { ...row, status: status as CashbookEntry['status'], notes: accountingDeskActionNote || row.notes } : row));
     if (tab === 'VAT Summary') setVATRows((rows) => rows.map((row) => row.id === rowId || row.receiptNo === rowId ? { ...row, status: status as VATSummary['status'] } : row));
-    if (tab === 'COGS Reserve') setCOGSRows((rows) => rows.map((row) => row.id === rowId ? { ...row, reserveStatus: status as COGSReserveSummary['reserveStatus'] } : row));
+    if (tab === 'COGS Reserve') setCOGSRows((rows) => rows.map((row) => row.id === rowId ? { ...row, reserveStatus: status as COGSReserveRowRecord['reserveStatus'] } : row));
     if (tab === 'Inventory Asset Posting') setInventoryAssetRows((rows) => rows.map((row) => row.id === rowId ? { ...row, postingStatus: status as InventoryAssetPostingRow['postingStatus'] } : row));
     if (tab === 'Inventory Accounting Readiness') setInventoryAccountingRows((rows) => rows.map((row) => row.readinessId === rowId ? { ...row, status: status as InventoryAccountingReadinessRecord['status'] } : row));
     if (tab === 'Accounting Readiness') setAccountingReadiness((rows) => rows.map((row) => row.id === rowId ? { ...row, status: status as AccountingReadinessCheck['status'], requiredAction: accountingDeskActionNote || 'Reviewed locally' } : row));
@@ -3358,7 +3358,7 @@ function vatFields(row: VATSummary): Array<[string, string]> {
   ];
 }
 
-function cogsFields(row: COGSReserveSummary): Array<[string, string]> {
+function cogsFields(row: COGSReserveRowRecord): Array<[string, string]> {
   return [
     ['Date', '2026-06-09'],
     ['Movement Type', row.reserveStatus === 'Misuse Risk' ? 'Reserve Leakage' : 'COGS Reserve Movement'],
