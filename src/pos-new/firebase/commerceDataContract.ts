@@ -41,6 +41,23 @@ export interface SharedCommerceDocument
 
 export const COMMERCE_SCHEMA_VERSION = 1 as const;
 
+export interface SharedVendorAppAccessRecord {
+  vendorId: string;
+  appCode: string;
+  enabled: boolean;
+  planCode: string;
+  licenseStatus: string;
+  activatedAt: string;
+  expiresAt: string;
+  featureFlags: Record<string, unknown>;
+  schemaVersion: number;
+  sourceApp: CommerceSourceApp;
+  createdAt: string;
+  updatedAt: string;
+  createdBy: string;
+  updatedBy: string;
+}
+
 export interface SharedVendorRecord extends SharedCommerceDocument {
   vendorId: string;
   vendorName: string;
@@ -165,4 +182,5 @@ export interface SharedAuditRecord {
   reason: string;
   sourceApp: CommerceSourceApp;
   createdAt: string;
+  correlationId?: string;
 }

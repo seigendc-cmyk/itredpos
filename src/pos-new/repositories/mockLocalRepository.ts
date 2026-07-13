@@ -1,4 +1,4 @@
-import type { BaseRepository, RepositoryListResult, RepositoryOperationResult, RepositoryQueryOptions } from './repositoryTypes';
+import type { BaseRepository, RepositoryCollectionResult, RepositoryOperationResult, RepositoryQueryOptions } from './repositoryTypes';
 
 export interface MockLocalRepositoryOptions<T extends { id?: string }> {
   entityName: string;
@@ -68,10 +68,10 @@ export function createMockLocalRepository<T extends { id?: string; deleted?: boo
       const row = loadRows().find((item) => getId(item) === id && (context.includeDeleted || !item.deleted)) || null;
       return ok(row);
     },
-    list: async (queryOptions: RepositoryQueryOptions): Promise<RepositoryListResult<T>> => {
+    list: async (queryOptions: RepositoryQueryOptions): Promise<RepositoryCollectionResult<T>> => {
       const activeRows = loadRows().filter((row) => queryOptions.includeDeleted || !row.deleted);
       const limitedRows = queryOptions.limit ? activeRows.slice(0, queryOptions.limit) : activeRows;
-      return { ok: true, success: true, rows: limitedRows, records: limitedRows, status: 'Ready', sourceMode, warnings: [] };
+      return { ok: true, rows: limitedRows, status: 'Ready', sourceMode, warnings: [] };
     },
     create: async (data) => {
       const id = getId(data) || makeId(options.entityName);

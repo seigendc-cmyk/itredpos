@@ -1,5 +1,6 @@
 import type { SharedAuditRecord } from '../firebase/commerceDataContract';
 import type { RepositoryOperationContext } from './repositoryContext';
+import type { RepositoryListResult, RepositoryResult } from './repositoryTypes';
 
 export interface AuditFilters {
   action?: string;
@@ -11,6 +12,6 @@ export interface AuditFilters {
 }
 
 export interface AuditRepository {
-  appendAuditRecord(context: RepositoryOperationContext, record: SharedAuditRecord): Promise<{ success: boolean; data?: SharedAuditRecord; errorCode?: string; errorMessage?: string }>;
-  listAuditRecords(context: RepositoryOperationContext, filters?: AuditFilters): Promise<{ success: boolean; records: SharedAuditRecord[]; errorCode?: string; errorMessage?: string }>;
+  appendAuditRecord(context: RepositoryOperationContext, record: SharedAuditRecord): Promise<RepositoryResult<SharedAuditRecord>>;
+  listAuditRecords(context: RepositoryOperationContext, filters?: AuditFilters): Promise<RepositoryListResult<SharedAuditRecord>>;
 }

@@ -1,4 +1,4 @@
-import type { BaseRepository, RepositoryListResult, RepositoryOperationResult } from './repositoryTypes';
+import type { BaseRepository, RepositoryCollectionResult, RepositoryOperationResult } from './repositoryTypes';
 
 const disabledMessage = 'Firestore repository is disabled in build-development mode.';
 
@@ -10,16 +10,12 @@ const disabledOperation = <T>(): RepositoryOperationResult<T> => ({
   warnings: ['Mock/local services remain active. Firestore reads and writes are not enabled.']
 });
 
-const disabledList = <T>(): RepositoryListResult<T> => ({
+const disabledList = <T>(): RepositoryCollectionResult<T> => ({
   ok: false,
-  success: false,
   rows: [],
-  records: [],
   status: 'Disabled',
   sourceMode: 'FirestoreDisabled',
   error: disabledMessage,
-  errorCode: 'REPOSITORY_DISABLED',
-  errorMessage: disabledMessage,
   warnings: ['Mock/local services remain active. Firestore reads and writes are not enabled.']
 });
 

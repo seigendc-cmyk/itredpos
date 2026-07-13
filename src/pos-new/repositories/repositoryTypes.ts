@@ -29,7 +29,7 @@ export interface RepositoryOperationResult<T> {
   warnings?: string[];
 }
 
-export interface RepositoryListResult<T> {
+export interface RepositoryCollectionResult<T> {
   ok: boolean;
   rows: T[];
   error?: string;
@@ -60,7 +60,7 @@ export interface RepositoryWriteContext {
 
 export interface BaseRepository<T> {
   getById(id: string, context: RepositoryQueryOptions): Promise<RepositoryOperationResult<T | null>>;
-  list(options: RepositoryQueryOptions): Promise<RepositoryListResult<T>>;
+  list(options: RepositoryQueryOptions): Promise<RepositoryCollectionResult<T>>;
   create(data: T, context: RepositoryWriteContext): Promise<RepositoryOperationResult<T>>;
   update(id: string, patch: Partial<T>, context: RepositoryWriteContext): Promise<RepositoryOperationResult<T>>;
   softDelete(id: string, context: RepositoryWriteContext): Promise<RepositoryOperationResult<T>>;

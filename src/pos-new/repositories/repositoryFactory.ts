@@ -17,10 +17,6 @@ import type { AuditRepository } from './AuditRepository';
 
 export type RepositoryStorageMode = 'firebase' | 'local';
 
-const notImplemented = <T>(): T => {
-  throw new Error('Local repository adapter is not implemented for this build.');
-};
-
 export function createRepository<T extends { id?: string }>(
   descriptor: ModuleRepositoryDescriptor,
   initialRows: T[] = []
@@ -50,13 +46,35 @@ export interface RepositoryBundle {
 }
 
 function createLocalAdapters(): RepositoryBundle {
+  const notImplVendor = (): VendorRepository => ({
+    getVendor: () => Promise.resolve({ success: false, errorMessage: 'Local vendor repository is not implemented.' }),
+    updateVendor: () => Promise.resolve({ success: false, errorMessage: 'Local vendor repository is not implemented.' }),
+    listBranches: () => Promise.resolve({ success: false, records: [], errorMessage: 'Local vendor repository is not implemented.' }),
+    getBranch: () => Promise.resolve({ success: false, errorMessage: 'Local vendor repository is not implemented.' }),
+    createBranch: () => Promise.resolve({ success: false, errorMessage: 'Local vendor repository is not implemented.' }),
+    updateBranch: () => Promise.resolve({ success: false, errorMessage: 'Local vendor repository is not implemented.' }),
+    deactivateBranch: () => Promise.resolve({ success: false, errorMessage: 'Local vendor repository is not implemented.' }),
+    subscribeBranches: () => ({ unsubscribe: () => {} }),
+    listWarehouses: () => Promise.resolve({ success: false, records: [], errorMessage: 'Local vendor repository is not implemented.' }),
+    getWarehouse: () => Promise.resolve({ success: false, errorMessage: 'Local vendor repository is not implemented.' }),
+    createWarehouse: () => Promise.resolve({ success: false, errorMessage: 'Local vendor repository is not implemented.' }),
+    updateWarehouse: () => Promise.resolve({ success: false, errorMessage: 'Local vendor repository is not implemented.' }),
+    deactivateWarehouse: () => Promise.resolve({ success: false, errorMessage: 'Local vendor repository is not implemented.' }),
+    subscribeWarehouses: () => ({ unsubscribe: () => {} }),
+    listTerminals: () => Promise.resolve({ success: false, records: [], errorMessage: 'Local vendor repository is not implemented.' }),
+    getTerminal: () => Promise.resolve({ success: false, errorMessage: 'Local vendor repository is not implemented.' }),
+    createTerminal: () => Promise.resolve({ success: false, errorMessage: 'Local vendor repository is not implemented.' }),
+    updateTerminal: () => Promise.resolve({ success: false, errorMessage: 'Local vendor repository is not implemented.' }),
+    deactivateTerminal: () => Promise.resolve({ success: false, errorMessage: 'Local vendor repository is not implemented.' }),
+    subscribeTerminals: () => ({ unsubscribe: () => {} }),
+    listVendorAppAccess: () => Promise.resolve({ success: false, records: [], errorMessage: 'Local vendor repository is not implemented.' }),
+    getVendorAppAccess: () => Promise.resolve({ success: false, errorMessage: 'Local vendor repository is not implemented.' }),
+    updateVendorAppAccess: () => Promise.resolve({ success: false, errorMessage: 'Local vendor repository is not implemented.' }),
+    subscribeVendorAppAccess: () => ({ unsubscribe: () => {} })
+  });
+
   return {
-    vendors: {
-      getVendor: () => Promise.resolve({ success: false, errorMessage: 'Local vendor repository is not implemented.' }),
-      listBranches: () => Promise.resolve({ success: false, records: [], errorMessage: 'Local vendor repository is not implemented.' }),
-      listWarehouses: () => Promise.resolve({ success: false, records: [], errorMessage: 'Local vendor repository is not implemented.' }),
-      listTerminals: () => Promise.resolve({ success: false, records: [], errorMessage: 'Local vendor repository is not implemented.' })
-    } as VendorRepository,
+    vendors: notImplVendor(),
     products: {
       getProduct: () => Promise.resolve({ success: false, errorMessage: 'Local product repository is not implemented.' }),
       listProducts: () => Promise.resolve({ success: false, records: [], errorMessage: 'Local product repository is not implemented.' }),
@@ -95,13 +113,35 @@ export function createRepositoryBundle(): RepositoryBundle {
 
   if (storageMode === 'firebase') {
     if (!firebaseReady || !db) {
-      const error: RepositoryBundle = {
-        vendors: {
-          getVendor: () => Promise.resolve({ success: false, errorCode: 'REPOSITORY_CONFIGURATION_ERROR', errorMessage: 'Firebase is unavailable. Cannot create Firestore repository bundle.' }),
-          listBranches: () => Promise.resolve({ success: false, records: [], errorCode: 'REPOSITORY_CONFIGURATION_ERROR', errorMessage: 'Firebase is unavailable.' }),
-          listWarehouses: () => Promise.resolve({ success: false, records: [], errorCode: 'REPOSITORY_CONFIGURATION_ERROR', errorMessage: 'Firebase is unavailable.' }),
-          listTerminals: () => Promise.resolve({ success: false, records: [], errorCode: 'REPOSITORY_CONFIGURATION_ERROR', errorMessage: 'Firebase is unavailable.' })
-        } as VendorRepository,
+      const notImplVendor = (): VendorRepository => ({
+        getVendor: () => Promise.resolve({ success: false, errorCode: 'REPOSITORY_CONFIGURATION_ERROR', errorMessage: 'Firebase is unavailable. Cannot create Firestore repository bundle.' }),
+        updateVendor: () => Promise.resolve({ success: false, errorCode: 'REPOSITORY_CONFIGURATION_ERROR', errorMessage: 'Firebase is unavailable.' }),
+        listBranches: () => Promise.resolve({ success: false, records: [], errorCode: 'REPOSITORY_CONFIGURATION_ERROR', errorMessage: 'Firebase is unavailable.' }),
+        getBranch: () => Promise.resolve({ success: false, errorCode: 'REPOSITORY_CONFIGURATION_ERROR', errorMessage: 'Firebase is unavailable.' }),
+        createBranch: () => Promise.resolve({ success: false, errorCode: 'REPOSITORY_CONFIGURATION_ERROR', errorMessage: 'Firebase is unavailable.' }),
+        updateBranch: () => Promise.resolve({ success: false, errorCode: 'REPOSITORY_CONFIGURATION_ERROR', errorMessage: 'Firebase is unavailable.' }),
+        deactivateBranch: () => Promise.resolve({ success: false, errorCode: 'REPOSITORY_CONFIGURATION_ERROR', errorMessage: 'Firebase is unavailable.' }),
+        subscribeBranches: () => ({ unsubscribe: () => {} }),
+        listWarehouses: () => Promise.resolve({ success: false, records: [], errorCode: 'REPOSITORY_CONFIGURATION_ERROR', errorMessage: 'Firebase is unavailable.' }),
+        getWarehouse: () => Promise.resolve({ success: false, errorCode: 'REPOSITORY_CONFIGURATION_ERROR', errorMessage: 'Firebase is unavailable.' }),
+        createWarehouse: () => Promise.resolve({ success: false, errorCode: 'REPOSITORY_CONFIGURATION_ERROR', errorMessage: 'Firebase is unavailable.' }),
+        updateWarehouse: () => Promise.resolve({ success: false, errorCode: 'REPOSITORY_CONFIGURATION_ERROR', errorMessage: 'Firebase is unavailable.' }),
+        deactivateWarehouse: () => Promise.resolve({ success: false, errorCode: 'REPOSITORY_CONFIGURATION_ERROR', errorMessage: 'Firebase is unavailable.' }),
+        subscribeWarehouses: () => ({ unsubscribe: () => {} }),
+        listTerminals: () => Promise.resolve({ success: false, records: [], errorCode: 'REPOSITORY_CONFIGURATION_ERROR', errorMessage: 'Firebase is unavailable.' }),
+        getTerminal: () => Promise.resolve({ success: false, errorCode: 'REPOSITORY_CONFIGURATION_ERROR', errorMessage: 'Firebase is unavailable.' }),
+        createTerminal: () => Promise.resolve({ success: false, errorCode: 'REPOSITORY_CONFIGURATION_ERROR', errorMessage: 'Firebase is unavailable.' }),
+        updateTerminal: () => Promise.resolve({ success: false, errorCode: 'REPOSITORY_CONFIGURATION_ERROR', errorMessage: 'Firebase is unavailable.' }),
+        deactivateTerminal: () => Promise.resolve({ success: false, errorCode: 'REPOSITORY_CONFIGURATION_ERROR', errorMessage: 'Firebase is unavailable.' }),
+        subscribeTerminals: () => ({ unsubscribe: () => {} }),
+        listVendorAppAccess: () => Promise.resolve({ success: false, records: [], errorCode: 'REPOSITORY_CONFIGURATION_ERROR', errorMessage: 'Firebase is unavailable.' }),
+        getVendorAppAccess: () => Promise.resolve({ success: false, errorCode: 'REPOSITORY_CONFIGURATION_ERROR', errorMessage: 'Firebase is unavailable.' }),
+        updateVendorAppAccess: () => Promise.resolve({ success: false, errorCode: 'REPOSITORY_CONFIGURATION_ERROR', errorMessage: 'Firebase is unavailable.' }),
+        subscribeVendorAppAccess: () => ({ unsubscribe: () => {} })
+      });
+
+      return {
+        vendors: notImplVendor(),
         products: {
           getProduct: () => Promise.resolve({ success: false, errorCode: 'REPOSITORY_CONFIGURATION_ERROR', errorMessage: 'Firebase is unavailable.' }),
           listProducts: () => Promise.resolve({ success: false, records: [], errorCode: 'REPOSITORY_CONFIGURATION_ERROR', errorMessage: 'Firebase is unavailable.' }),
@@ -133,7 +173,6 @@ export function createRepositoryBundle(): RepositoryBundle {
           listAuditRecords: () => Promise.resolve({ success: false, records: [], errorCode: 'REPOSITORY_CONFIGURATION_ERROR', errorMessage: 'Firebase is unavailable.' })
         } as AuditRepository
       };
-      return error;
     }
 
     return {
