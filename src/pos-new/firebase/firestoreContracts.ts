@@ -78,10 +78,33 @@ export interface FirestoreProductImportRowDoc extends FirestoreDocBase {
 
 export interface FirestoreCustomerDoc extends FirestoreDocBase {
   customerId: string;
-  customerName: string;
+  sciId: string;
+  displayName: string;
+  firstName?: string;
+  lastName?: string;
+  businessName?: string;
   phone?: string;
+  whatsappNumber?: string;
   email?: string;
-  status?: string;
+  nationalId?: string;
+  taxNumber?: string;
+  customerType?: string;
+  status: string;
+  creditAllowed?: boolean;
+  creditLimit?: number;
+  paymentTermsDays?: number;
+}
+
+export interface FirestoreCustomerAddressDoc extends FirestoreDocBase {
+  addressId: string; customerId: string; addressLine1: string; country: string; status: string;
+}
+
+export interface FirestoreCustomerInteractionDoc extends FirestoreDocBase {
+  interactionId: string; customerId: string; interactionType: string; channel: string; actorId: string;
+}
+
+export interface FirestoreCustomerRequestDoc extends FirestoreDocBase {
+  requestId: string; customerId?: string; requestType: string; title: string; status: string;
 }
 
 export interface FirestorePurchaseOrderDoc extends FirestoreDocBase {
@@ -323,4 +346,3 @@ export type FirestoreContractDoc =
   | FirestoreOfflineSyncQueueDoc
   | FirestoreSyncConflictDoc
   | FirestoreAccountingReadinessDoc;
-

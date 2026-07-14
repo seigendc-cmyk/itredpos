@@ -89,9 +89,17 @@ export function customerToFirestore(customer: AppModel): FirestoreCustomerDoc {
   return {
     ...withBase(customer, customerId),
     customerId,
-    customerName: stringValue(customer.customerName, stringValue(customer.name, 'Unnamed Customer')),
+    sciId: stringValue(customer.sciId, `SCI-${customerId}`),
+    displayName: stringValue(customer.displayName, stringValue(customer.customerName, stringValue(customer.name, 'Unnamed Customer'))),
     phone: stringValue(customer.phone),
+    whatsappNumber: stringValue(customer.whatsappNumber, stringValue(customer.whatsapp)),
     email: stringValue(customer.email),
+    nationalId: stringValue(customer.nationalId),
+    taxNumber: stringValue(customer.taxNumber),
+    customerType: stringValue(customer.customerType),
+    creditAllowed: Boolean(customer.creditAllowed ?? customer.creditEnabled),
+    creditLimit: numberValue(customer.creditLimit),
+    paymentTermsDays: numberValue(customer.paymentTermsDays),
     status: stringValue(customer.status, 'Active')
   } as FirestoreCustomerDoc;
 }
@@ -234,4 +242,3 @@ export function accountingReadinessToFirestore(record: AppModel): FirestoreAccou
 export function accountingReadinessFromFirestore(doc: FirestoreAccountingReadinessDoc): AppModel {
   return fromFirestore(doc);
 }
-

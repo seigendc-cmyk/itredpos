@@ -45,6 +45,20 @@ export interface RepositoryBundle {
   audit: AuditRepository;
 }
 
+function createUnavailableCustomerRepository(errorMessage: string, errorCode?: string): CustomerRepository {
+  const one = () => Promise.resolve({ success: false, errorCode, errorMessage });
+  const many = () => Promise.resolve({ success: false, records: [], errorCode, errorMessage });
+  const subscription = () => ({ unsubscribe: () => {} });
+  return {
+    getCustomer: one, getCustomerByPhone: one, getCustomerByEmail: one,
+    listCustomers: many, searchCustomers: many, createCustomer: one, updateCustomer: one, deactivateCustomer: one,
+    listAddresses: many, createAddress: one, updateAddress: one, deactivateAddress: one,
+    listInteractions: many, appendInteraction: one,
+    listCustomerRequests: many, createCustomerRequest: one, updateCustomerRequest: one,
+    subscribeCustomers: subscription, subscribeCustomerRequests: subscription
+  };
+}
+
 function createLocalAdapters(): RepositoryBundle {
   const notImplVendor = (): VendorRepository => ({
     getVendor: () => Promise.resolve({ success: false, errorMessage: 'Local vendor repository is not implemented.' }),
@@ -86,13 +100,7 @@ function createLocalAdapters(): RepositoryBundle {
       deactivateProduct: () => Promise.resolve({ success: false, errorMessage: 'Local product repository is not implemented.' }),
       subscribeProducts: () => ({ unsubscribe: () => {} })
     } as ProductRepository,
-    customers: {
-      getCustomer: () => Promise.resolve({ success: false, errorMessage: 'Local customer repository is not implemented.' }),
-      listCustomers: () => Promise.resolve({ success: false, records: [], errorMessage: 'Local customer repository is not implemented.' }),
-      createCustomer: () => Promise.resolve({ success: false, errorMessage: 'Local customer repository is not implemented.' }),
-      updateCustomer: () => Promise.resolve({ success: false, errorMessage: 'Local customer repository is not implemented.' }),
-      subscribeCustomers: () => ({ unsubscribe: () => {} })
-    } as CustomerRepository,
+    customers: createUnavailableCustomerRepository('Local customer repository is not implemented.'),
     inventory: {
       getBalance: () => Promise.resolve({ success: false, errorMessage: 'Local inventory repository is not implemented.' }),
       listBalances: () => Promise.resolve({ success: false, records: [], errorMessage: 'Local inventory repository is not implemented.' }),
@@ -162,13 +170,7 @@ export function createRepositoryBundle(): RepositoryBundle {
           deactivateProduct: () => Promise.resolve({ success: false, errorCode: 'REPOSITORY_CONFIGURATION_ERROR', errorMessage: 'Firebase is unavailable.' }),
           subscribeProducts: () => ({ unsubscribe: () => {} })
         } as ProductRepository,
-        customers: {
-          getCustomer: () => Promise.resolve({ success: false, errorCode: 'REPOSITORY_CONFIGURATION_ERROR', errorMessage: 'Firebase is unavailable.' }),
-          listCustomers: () => Promise.resolve({ success: false, records: [], errorCode: 'REPOSITORY_CONFIGURATION_ERROR', errorMessage: 'Firebase is unavailable.' }),
-          createCustomer: () => Promise.resolve({ success: false, errorCode: 'REPOSITORY_CONFIGURATION_ERROR', errorMessage: 'Firebase is unavailable.' }),
-          updateCustomer: () => Promise.resolve({ success: false, errorCode: 'REPOSITORY_CONFIGURATION_ERROR', errorMessage: 'Firebase is unavailable.' }),
-          subscribeCustomers: () => ({ unsubscribe: () => {} })
-        } as CustomerRepository,
+        customers: createUnavailableCustomerRepository('Firebase is unavailable.', 'REPOSITORY_CONFIGURATION_ERROR'),
         inventory: {
           getBalance: () => Promise.resolve({ success: false, errorCode: 'REPOSITORY_CONFIGURATION_ERROR', errorMessage: 'Firebase is unavailable.' }),
           listBalances: () => Promise.resolve({ success: false, records: [], errorCode: 'REPOSITORY_CONFIGURATION_ERROR', errorMessage: 'Firebase is unavailable.' }),

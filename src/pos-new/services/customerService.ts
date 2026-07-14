@@ -31,6 +31,9 @@ import {
 import { createOperationalApproval } from './approvalService';
 import { assertCanonicalCustomerContext, type CanonicalCustomerContext } from './customerContextService';
 import { getActiveVendorId, getVendorScopedStorageKey, readVendorScopedList, writeVendorScopedList } from '../utils/vendorDataMode';
+import type { SharedCustomerRecord } from '../firebase/commerceDataContract';
+import type { RepositoryOperationContext } from '../repositories/repositoryContext';
+import { appendCustomerInteractionCommand, createCustomerAddressCommand, createCustomerCommand, createCustomerRequestCommand as createMasterRequest, listCustomerAddresses, listCustomerInteractions, loadCustomerMaster, updateCustomerAddressCommand, updateCustomerCommand } from './customerMasterService';
 
 const CUSTOMER_KEY = 'itred_pos_customers_v1';
 const CUSTOMER_HISTORY_KEY = 'itred_pos_customer_purchase_history_v1';
@@ -38,6 +41,21 @@ const CUSTOMER_NOTES_KEY = 'itred_pos_customer_notes_v1';
 const CUSTOMER_ACTIVITY_KEY = 'itred_pos_customer_activity_v1';
 
 export const CUSTOMERS_COLLECTION = 'customers';
+const firebaseCustomerMode = (): boolean => import.meta.env.VITE_STORAGE_MODE === 'firebase';
+
+function masterContext(context: CanonicalCustomerContext): RepositoryOperationContext {
+  return { vendorId: context.vendorId, branchId: context.branchId, warehouseId: context.warehouseId, terminalId: context.terminalId, staffId: context.staffId, actorId: context.staffId, actorRole: context.role, sourceApp: 'ITRED_POS', correlationId: `customer-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}` };
+}
+
+function fromShared(row: SharedCustomerRecord): CustomerRecord {
+  const statuses: Record<string, CustomerRecord['status']> = { ACTIVE: 'Active', INACTIVE: 'Inactive', PENDING_APPROVAL: 'Pending Approval', REJECTED: 'Rejected', DUPLICATE: 'Duplicate', SUSPENDED: 'Suspended' };
+  return { customerId: row.customerId, vendorId: row.vendorId, customerCode: row.customerId, customerName: row.displayName, customerType: (row.customerType || 'Individual') as CustomerType, tradingName: row.businessName, phone: row.phone || '', whatsapp: row.whatsappNumber || '', email: row.email || '', taxNumber: row.taxNumber || '', billingAddress: '', deliveryAddress: '', cityTown: '', district: '', suburb: '', source: 'Sales Terminal', status: statuses[row.status] || 'Active', creditStatus: row.creditAllowed ? 'Credit Allowed' : 'Cash Only', creditEnabled: row.creditAllowed, creditLimit: row.creditLimit, paymentTermsDays: row.paymentTermsDays, currentBalance: 0, overdueBalance: 0, notes: '', createdByStaffId: row.createdBy, createdAt: row.createdAt, updatedAt: row.updatedAt };
+}
+
+function toSharedPatch(row: Partial<CustomerRecord>): Partial<SharedCustomerRecord> {
+  const statuses: Partial<Record<CustomerRecord['status'], string>> = { Active: 'ACTIVE', Inactive: 'INACTIVE', Suspended: 'SUSPENDED', 'Pending Approval': 'PENDING_APPROVAL', Rejected: 'REJECTED', Duplicate: 'DUPLICATE' };
+  return { displayName: row.customerName, businessName: row.tradingName, phone: row.phone, whatsappNumber: row.whatsapp, email: row.email, taxNumber: row.taxNumber, customerType: row.customerType, status: row.status ? statuses[row.status] : undefined, creditAllowed: row.creditEnabled ?? (row.creditStatus ? row.creditStatus === 'Credit Allowed' || row.creditStatus === 'Approved' : undefined), creditLimit: row.creditLimit, paymentTermsDays: row.paymentTermsDays };
+}
 
 export function realRecordsExist(): boolean {
   if (typeof localStorage === 'undefined') return false;
@@ -173,6 +191,12 @@ function matchesFilters(customer: CustomerRecord, filters: CustomerFilterState =
 }
 
 async function recordCustomerActivity(event: Omit<CustomerActivityEvent, 'id' | 'dateTime'>, vendorId?: string): Promise<CustomerActivityEvent[]> {
+  if (firebaseCustomerMode()) {
+    const context = assertCanonicalCustomerContext();
+    const result = await appendCustomerInteractionCommand(masterContext(context), { customerId: event.customerId, interactionType: event.eventType, channel: 'INTERNAL', notes: event.notes, staffId: event.user });
+    if (!result.success || !result.data) throw new Error(result.errorMessage || 'Customer interaction could not be recorded.');
+    return [{ ...event, id: result.data.interactionId, dateTime: result.data.createdAt }];
+  }
   const events = readList<CustomerActivityEvent>(CUSTOMER_ACTIVITY_KEY, mockCustomerActivityEvents, vendorId);
   const next: CustomerActivityEvent = {
     ...event,
@@ -184,6 +208,12 @@ async function recordCustomerActivity(event: Omit<CustomerActivityEvent, 'id' | 
 
 export async function getCustomers(filters: CustomerFilterState = {}, session?: PosSession | CanonicalCustomerContext | null): Promise<CustomerRecord[]> {
   const context = assertCanonicalCustomerContext(session);
+  if (firebaseCustomerMode()) {
+    const statusMap: Record<string, string> = { Active: 'ACTIVE', Inactive: 'INACTIVE', Suspended: 'SUSPENDED', 'Pending Approval': 'PENDING_APPROVAL', Rejected: 'REJECTED', Duplicate: 'DUPLICATE' };
+    const result = await loadCustomerMaster(masterContext(context), { status: filters.status && filters.status !== 'All' ? statusMap[filters.status] || filters.status : undefined, customerType: filters.customerType && filters.customerType !== 'All' ? filters.customerType : undefined });
+    if (!result.success) throw new Error(result.errorMessage || 'Customer master could not be loaded.');
+    return result.records.map(fromShared).filter((customer) => matchesFilters(customer, filters));
+  }
   let list = readList<CustomerRecord>(CUSTOMER_KEY, mockCustomers, context.vendorId);
   if (realRecordsExist()) {
     const mockIds = [
@@ -200,6 +230,24 @@ export async function getCustomers(filters: CustomerFilterState = {}, session?: 
 
 export async function getCustomerById(customerId: string, session?: PosSession | CanonicalCustomerContext | null): Promise<CustomerRecord | null> {
   const context = assertCanonicalCustomerContext(session);
+  if (firebaseCustomerMode()) {
+    const result = await loadCustomerMaster(masterContext(context));
+    if (!result.success) throw new Error(result.errorMessage || 'Customer master could not be loaded.');
+    const row = result.records.find((customer) => customer.customerId === customerId);
+    if (!row) return null;
+    const mapped = fromShared(row);
+    const addresses = await listCustomerAddresses(masterContext(context), customerId);
+    if (addresses.success) {
+      const billing = addresses.records.find((address) => address.status !== 'INACTIVE' && address.isDefaultBilling);
+      const delivery = addresses.records.find((address) => address.status !== 'INACTIVE' && address.isDefaultDelivery);
+      mapped.billingAddress = billing?.addressLine1 || '';
+      mapped.deliveryAddress = delivery?.addressLine1 || billing?.addressLine1 || '';
+      mapped.cityTown = delivery?.city || billing?.city || '';
+      mapped.district = delivery?.province || billing?.province || '';
+      mapped.suburb = delivery?.suburb || billing?.suburb || '';
+    }
+    return mapped;
+  }
   let list = readList<CustomerRecord>(CUSTOMER_KEY, mockCustomers, context.vendorId);
   if (realRecordsExist()) {
     const mockIds = [
@@ -268,6 +316,14 @@ export async function createCustomer(payload: CustomerCreatePayload, staffId: st
   const context = assertCanonicalCustomerContext();
   const errors = validateCustomerPayload(payload);
   if (errors.length) throw new Error(errors.join(' '));
+  if (firebaseCustomerMode()) {
+    const operationContext = masterContext(context);
+    const result = await createCustomerCommand(operationContext, { displayName: payload.customerName, businessName: payload.customerType === 'Business' ? payload.customerName : undefined, phone: payload.phone, whatsappNumber: payload.whatsapp, email: payload.email, taxNumber: payload.taxNumber, customerType: payload.customerType, creditAllowed: payload.creditStatus === 'Credit Allowed' || payload.creditStatus === 'Approved', creditLimit: payload.creditLimit, paymentTermsDays: 30, status: 'ACTIVE' });
+    if (!result.success || !result.data) throw new Error(result.errorMessage || 'Customer could not be created.');
+    if (payload.billingAddress?.trim()) await createCustomerAddressCommand(operationContext, { customerId: result.data.customerId, label: 'Billing', addressLine1: payload.billingAddress, city: payload.cityTown, suburb: payload.suburb, province: payload.district, country: 'Zimbabwe', isDefaultBilling: true, isDefaultDelivery: payload.deliveryAddress === payload.billingAddress });
+    if (payload.deliveryAddress?.trim() && payload.deliveryAddress !== payload.billingAddress) await createCustomerAddressCommand(operationContext, { customerId: result.data.customerId, label: 'Delivery', addressLine1: payload.deliveryAddress, city: payload.cityTown, suburb: payload.suburb, province: payload.district, country: 'Zimbabwe', isDefaultDelivery: true });
+    return { ...fromShared(result.data), billingAddress: payload.billingAddress || '', deliveryAddress: payload.deliveryAddress || payload.billingAddress || '', cityTown: payload.cityTown || '', district: payload.district || '', suburb: payload.suburb || '', notes: payload.notes || '', createdByStaffId: context.staffId || staffId };
+  }
   const customers = readList<CustomerRecord>(CUSTOMER_KEY, mockCustomers, context.vendorId);
   const duplicate = customers.find((customer) =>
     customer.vendorId === context.vendorId
@@ -340,6 +396,15 @@ export async function createCustomerRequest(payload: {
   requestedByRole: Role;
 }, staffId = payload.requestedByStaffName): Promise<CustomerRecord> {
   const context = assertCanonicalCustomerContext();
+  if (firebaseCustomerMode()) {
+    const operationContext = masterContext(context);
+    const customer = await createCustomerCommand(operationContext, { displayName: payload.customerName || 'Pending Customer', phone: payload.phone, whatsappNumber: payload.whatsapp, email: payload.email, taxNumber: payload.taxNumber, customerType: 'Individual', status: 'PENDING_APPROVAL' });
+    if (!customer.success || !customer.data) throw new Error(customer.errorMessage || 'Customer request could not be created.');
+    const request = await createMasterRequest(operationContext, { customerId: customer.data.customerId, requestType: 'CUSTOMER_ONBOARDING', title: `New customer approval: ${customer.data.displayName}`, description: payload.notes, status: 'OPEN', priority: 'MEDIUM' });
+    if (!request.success) throw new Error(request.errorMessage || 'Customer approval request could not be created.');
+    if (payload.billingAddress?.trim()) await createCustomerAddressCommand(operationContext, { customerId: customer.data.customerId, label: 'Billing', addressLine1: payload.billingAddress, city: payload.cityTown, suburb: payload.suburb, province: payload.district, country: 'Zimbabwe', isDefaultBilling: true });
+    return { ...fromShared(customer.data), billingAddress: payload.billingAddress || '', deliveryAddress: payload.deliveryAddress || payload.billingAddress || '', cityTown: payload.cityTown || '', district: payload.district || '', suburb: payload.suburb || '', notes: payload.notes || '', createdByStaffId: payload.requestedByStaffId };
+  }
   const customers = readList<CustomerRecord>(CUSTOMER_KEY, mockCustomers, context.vendorId);
   const timestamp = nowIso();
   const duplicate = customers.find((customer) =>
@@ -401,6 +466,25 @@ export async function createCustomerRequest(payload: {
 
 async function patchCustomer(customerId: string, patch: Partial<CustomerRecord>, eventType?: CustomerActivityEvent['eventType'], staffId = 'Admin User', notes = ''): Promise<CustomerRecord | null> {
   const context = assertCanonicalCustomerContext();
+  if (firebaseCustomerMode()) {
+    const operationContext = masterContext(context);
+    const result = await updateCustomerCommand(operationContext, customerId, toSharedPatch(patch));
+    if (!result.success) throw new Error(result.errorMessage || 'Customer could not be updated.');
+    if (patch.billingAddress !== undefined || patch.deliveryAddress !== undefined) {
+      const existing = await listCustomerAddresses(operationContext, customerId);
+      const syncAddress = async (kind: 'Billing' | 'Delivery', addressLine1: string | undefined) => {
+        if (!addressLine1?.trim()) return;
+        const current = existing.success ? existing.records.find((row) => kind === 'Billing' ? row.isDefaultBilling : row.isDefaultDelivery) : undefined;
+        const changes = { addressLine1, city: patch.cityTown, province: patch.district, suburb: patch.suburb, isDefaultBilling: kind === 'Billing', isDefaultDelivery: kind === 'Delivery' };
+        if (current) await updateCustomerAddressCommand(operationContext, current.addressId, changes);
+        else await createCustomerAddressCommand(operationContext, { customerId, label: kind, country: 'Zimbabwe', ...changes });
+      };
+      await syncAddress('Billing', patch.billingAddress);
+      await syncAddress('Delivery', patch.deliveryAddress);
+    }
+    if (notes.trim()) await appendCustomerInteractionCommand(operationContext, { customerId, interactionType: eventType || 'CUSTOMER_UPDATED', channel: 'INTERNAL', notes });
+    return result.data ? { ...fromShared(result.data), ...patch } : null;
+  }
   const customers = readList<CustomerRecord>(CUSTOMER_KEY, mockCustomers, context.vendorId);
   let updatedCustomer: CustomerRecord | null = null;
   const updated = customers.map((customer) => {
@@ -518,6 +602,7 @@ export async function getCustomerPurchaseHistory(customerId: string): Promise<Cu
 }
 
 export async function getCustomerNotes(customerId: string): Promise<CustomerNote[]> {
+  if (firebaseCustomerMode()) return [];
   let notes = readList<CustomerNote>(CUSTOMER_NOTES_KEY, mockCustomerNotes);
   if (realRecordsExist()) {
     const mockNoteIds = ['CN-TAPIWA-001', 'CN-RUDO-001', 'CN-MEMORY-001'];
@@ -527,6 +612,12 @@ export async function getCustomerNotes(customerId: string): Promise<CustomerNote
 }
 
 export async function addCustomerNote(customerId: string, staffId: string, note: string, role: Role = 'Cashier', relatedRecord = ''): Promise<CustomerNote[]> {
+  if (firebaseCustomerMode()) {
+    const context = assertCanonicalCustomerContext();
+    const result = await appendCustomerInteractionCommand(masterContext(context), { customerId, interactionType: 'FOLLOW_UP', channel: 'INTERNAL', notes: note, relatedEntityId: relatedRecord || undefined, staffId });
+    if (!result.success) throw new Error(result.errorMessage || 'Customer note could not be recorded.');
+    return [{ id: result.data!.interactionId, customerId, dateTime: result.data!.createdAt, note, addedBy: staffId, role, relatedRecord }];
+  }
   const notes = readList<CustomerNote>(CUSTOMER_NOTES_KEY, mockCustomerNotes);
   const next: CustomerNote = { id: makeId('CN'), customerId, dateTime: nowIso(), note, addedBy: staffId, role, relatedRecord };
   saveList(CUSTOMER_NOTES_KEY, [next, ...notes]);
@@ -536,6 +627,13 @@ export async function addCustomerNote(customerId: string, staffId: string, note:
 
 export async function getCustomerActivityEvents(filter: string | { customerId?: string } = {}): Promise<CustomerActivityEvent[]> {
   const customerId = typeof filter === 'string' ? filter : filter.customerId;
+  if (firebaseCustomerMode()) {
+    if (!customerId) return [];
+    const context = assertCanonicalCustomerContext();
+    const result = await listCustomerInteractions(masterContext(context), customerId);
+    if (!result.success) throw new Error(result.errorMessage || 'Customer interactions could not be loaded.');
+    return result.records.map((row) => ({ id: row.interactionId, customerId: row.customerId, dateTime: row.createdAt, eventType: row.interactionType as CustomerActivityEvent['eventType'], user: row.staffId || row.actorId, notes: row.notes || row.subject || '', relatedRecord: row.relatedEntityId }));
+  }
   let events = readList<CustomerActivityEvent>(CUSTOMER_ACTIVITY_KEY, mockCustomerActivityEvents);
   if (realRecordsExist()) {
     const mockEventIds = ['CAE-001', 'CAE-002', 'CAE-003', 'CAE-004'];

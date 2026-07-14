@@ -74,6 +74,30 @@ export const collectionGovernanceRules: CollectionGovernanceRule[] = [
     vendorScoped: true
   },
   {
+    collectionName: 'customerAddresses',
+    authority: 'SHARED_MASTER',
+    owningDomain: 'CUSTOMER',
+    sharedWith: ['ITRED_POS', 'ITRED_CONSOLE', 'ITRED_DISCOVERY', 'MARKETSPACE', 'IDELIVER', 'SYSTEM'],
+    immutable: false,
+    vendorScoped: true
+  },
+  {
+    collectionName: 'customerInteractions',
+    authority: 'OPERATIONAL_LEDGER',
+    owningDomain: 'CUSTOMER',
+    sharedWith: ['ITRED_POS', 'ITRED_CONSOLE', 'ITRED_DISCOVERY', 'MARKETSPACE', 'IDELIVER', 'SYSTEM'],
+    immutable: true,
+    vendorScoped: true
+  },
+  {
+    collectionName: 'customerRequests',
+    authority: 'OPERATIONAL_LEDGER',
+    owningDomain: 'CUSTOMER',
+    sharedWith: ['ITRED_POS', 'ITRED_CONSOLE', 'ITRED_DISCOVERY', 'MARKETSPACE', 'IDELIVER', 'SYSTEM'],
+    immutable: false,
+    vendorScoped: true
+  },
+  {
     collectionName: 'inventoryMovements',
     authority: 'OPERATIONAL_LEDGER',
     owningDomain: 'POS',

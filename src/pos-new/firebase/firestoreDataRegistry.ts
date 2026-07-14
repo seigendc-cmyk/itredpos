@@ -80,6 +80,9 @@ export const firestoreDataContracts = [
   entry('productStockBalances', 'productStockBalances', 'firestorePaths.productStockBalances', 'FirestoreProductStockBalanceDoc', stockBalanceToFirestore, stockBalanceFromFirestore, validateStockBalanceDoc),
   entry('productImportBatches', 'productImportBatches', 'firestorePaths.productImportBatches', 'FirestoreProductImportBatchDoc'),
   entry('customers', 'customers', 'firestorePaths.customers', 'FirestoreCustomerDoc', customerToFirestore, customerFromFirestore),
+  entry('customerAddresses', 'customerAddresses', 'firestorePaths.customerAddresses', 'FirestoreCustomerAddressDoc'),
+  entry('customerInteractions', 'customerInteractions', 'firestorePaths.customerInteractions', 'FirestoreCustomerInteractionDoc'),
+  entry('customerRequests', 'customerRequests', 'firestorePaths.customerRequests', 'FirestoreCustomerRequestDoc'),
   entry('purchaseOrders', 'purchaseOrders', 'firestorePaths.purchaseOrders', 'FirestorePurchaseOrderDoc', purchaseOrderToFirestore, purchaseOrderFromFirestore),
   entry('goodsReceivingNotes', 'goodsReceivingNotes', 'firestorePaths.goodsReceivingNotes', 'FirestoreGoodsReceivingDoc', goodsReceivingToFirestore, goodsReceivingFromFirestore),
   entry('supplierReturns', 'supplierReturns', 'firestorePaths.supplierReturns', 'FirestoreSupplierReturnDoc'),
@@ -112,4 +115,3 @@ export function getFirestoreContractStatus() {
 }
 
 export { validateFirestoreContract };
-

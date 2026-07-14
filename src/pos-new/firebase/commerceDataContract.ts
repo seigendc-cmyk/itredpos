@@ -177,9 +177,82 @@ export interface SharedInventoryMovementRecord extends SharedCommerceDocument {
 export interface SharedCustomerRecord extends SharedCommerceDocument {
   vendorId: string;
   customerId: string;
-  customerName: string;
+  displayName: string;
+  firstName?: string;
+  lastName?: string;
+  businessName?: string;
   phone?: string;
+  whatsappNumber?: string;
   email?: string;
+  nationalId?: string;
+  taxNumber?: string;
+  customerType?: string;
+  creditAllowed?: boolean;
+  creditLimit?: number;
+  paymentTermsDays?: number;
+  firstTransactionAt?: string;
+  lastTransactionAt?: string;
+  orderCount?: number;
+  lifetimeValue?: number;
+}
+
+export interface SharedCustomerAddressRecord {
+  addressId: string;
+  vendorId: string;
+  customerId: string;
+  label?: string;
+  addressLine1: string;
+  addressLine2?: string;
+  suburb?: string;
+  city?: string;
+  province?: string;
+  country: string;
+  postalCode?: string;
+  latitude?: number;
+  longitude?: number;
+  isDefaultBilling?: boolean;
+  isDefaultDelivery?: boolean;
+  status: string;
+  createdAt: string;
+  updatedAt: string;
+  createdBy: string;
+  updatedBy: string;
+}
+
+export interface SharedCustomerInteractionRecord {
+  interactionId: string;
+  vendorId: string;
+  customerId: string;
+  interactionType: string;
+  channel: string;
+  subject?: string;
+  notes?: string;
+  relatedEntityType?: string;
+  relatedEntityId?: string;
+  staffId?: string;
+  actorId: string;
+  sourceApp: CommerceSourceApp;
+  createdAt: string;
+  schemaVersion: number;
+}
+
+export interface SharedCustomerRequestRecord {
+  requestId: string;
+  vendorId: string;
+  customerId?: string;
+  requestType: string;
+  title: string;
+  description?: string;
+  status: string;
+  priority?: string;
+  relatedProductId?: string;
+  relatedSaleId?: string;
+  relatedDeliveryId?: string;
+  assignedStaffId?: string;
+  createdAt: string;
+  updatedAt: string;
+  createdBy: string;
+  updatedBy: string;
 }
 
 export interface SharedMarketplaceListingRecord extends SharedCommerceDocument {
