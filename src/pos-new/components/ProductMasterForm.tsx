@@ -39,6 +39,7 @@ interface ProductMasterFormProps {
   reorderRules: ProductReorderRule[];
   ledgerEntries: InventoryMovement[];
   auditRows: ProductAuditRow[];
+  saving: boolean;
   onClose: () => void;
   onSave: (patch: Partial<ProductMasterRecord>) => void;
   onBlock: () => void;
@@ -77,6 +78,7 @@ export default function ProductMasterForm({
   reorderRules,
   ledgerEntries,
   auditRows,
+  saving,
   onClose,
   onSave,
   onBlock,
@@ -220,10 +222,10 @@ export default function ProductMasterForm({
 
         <div className="p-4 bg-white border-t border-[#d7dce5] flex flex-wrap gap-2 justify-end">
           <button type="button" onClick={onExport} className="px-3 py-2 border border-[#b8c0cc] text-[#252a31] text-[10px] font-black uppercase rounded-none flex items-center gap-2"><Download className="w-4 h-4" /> Export</button>
-          <button type="button" onClick={onMarkInactive} className="px-3 py-2 border border-orange-300 bg-orange-50 text-orange-800 text-[10px] font-black uppercase rounded-none flex items-center gap-2"><FileText className="w-4 h-4" /> Mark Inactive</button>
-          <button type="button" onClick={onBlock} className="px-3 py-2 border border-red-300 bg-red-50 text-red-700 text-[10px] font-black uppercase rounded-none flex items-center gap-2"><ShieldAlert className="w-4 h-4" /> Block Product</button>
-          <button type="button" onClick={handleSave} className="px-3 py-2 bg-orange-600 border border-orange-700 text-white text-[10px] font-black uppercase rounded-none flex items-center gap-2"><Save className="w-4 h-4" /> Save Draft</button>
-          <button type="button" onClick={handleSave} className="px-3 py-2 bg-[#252a31] border border-[#111827] text-white text-[10px] font-black uppercase rounded-none flex items-center gap-2"><Save className="w-4 h-4" /> Save Product</button>
+          <button type="button" disabled={saving} onClick={onMarkInactive} className="px-3 py-2 border border-orange-300 bg-orange-50 text-orange-800 text-[10px] font-black uppercase rounded-none flex items-center gap-2 disabled:opacity-50"><FileText className="w-4 h-4" /> Mark Inactive</button>
+          <button type="button" disabled={saving} onClick={onBlock} className="px-3 py-2 border border-red-300 bg-red-50 text-red-700 text-[10px] font-black uppercase rounded-none flex items-center gap-2 disabled:opacity-50"><ShieldAlert className="w-4 h-4" /> Block Product</button>
+          <button type="button" disabled={saving} onClick={handleSave} className="px-3 py-2 bg-orange-600 border border-orange-700 text-white text-[10px] font-black uppercase rounded-none flex items-center gap-2 disabled:opacity-50"><Save className="w-4 h-4" /> {saving ? 'Saving…' : 'Save Draft'}</button>
+          <button type="button" disabled={saving} onClick={handleSave} className="px-3 py-2 bg-[#252a31] border border-[#111827] text-white text-[10px] font-black uppercase rounded-none flex items-center gap-2 disabled:opacity-50"><Save className="w-4 h-4" /> {saving ? 'Saving…' : 'Save Product'}</button>
         </div>
         </>
         )}

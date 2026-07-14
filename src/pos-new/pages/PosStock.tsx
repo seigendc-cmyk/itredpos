@@ -87,6 +87,9 @@ import SimpleProductSeeder from '../components/SimpleProductSeeder';
 import { normalizeProductNumericNumber } from '../utils/productNumberUtils';
 import { matchesFreeOrderSearch } from '../utils/searchUtils';
 import { loadLocalProducts, saveLocalProducts } from '../utils/localProductStore';
+import { useProductMasterData } from '../hooks/useProductMasterData';
+import type { SharedProductRecord } from '../firebase/commerceDataContract';
+import type { RepositoryOperationContext } from '../repositories/repositoryContext';
 import { roleHasEffectivePermission } from '../auth/effectivePermissionService';
 import type { PlanFeatureAccess } from '../auth/planFeatureGate';
 import {
@@ -244,6 +247,40 @@ function resolveSessionRole(role?: Role | string | null): Role {
   return FALLBACK_ROLE;
 }
 
+function sharedProductToStockProduct(product: SharedProductRecord): StockProduct {
+  const active = product.status.toUpperCase() !== 'INACTIVE' && product.status.toUpperCase() !== 'BLOCKED';
+  return {
+    id: product.productId,
+    code: product.sku || product.productId,
+    sku: product.sku || product.productId,
+    barcode: product.barcode,
+    alu: product.alu,
+    name: product.productName,
+    productName: product.productName,
+    category: product.category || 'Uncategorised',
+    productCategory: product.category || 'Uncategorised',
+    industrialSector: product.industrialSector,
+    brand: product.brand,
+    price: product.sellingPrice || 0,
+    sellingPrice: product.sellingPrice || 0,
+    cost: product.costPrice || 0,
+    costPrice: product.costPrice || 0,
+    stock: 0,
+    qtyOnHand: 0,
+    availableStock: 0,
+    minStock: 0,
+    reorderLevel: 0,
+    unit: product.unitOfMeasure || 'pcs',
+    unitOfMeasure: product.unitOfMeasure || 'pcs',
+    vendorId: product.vendorId,
+    isActive: active,
+    stockStatus: 'Out of Stock',
+    createdByStaffId: product.createdBy,
+    createdAt: product.createdAt,
+    updatedAt: product.updatedAt
+  };
+}
+
 const DEFAULT_STOCK_ITEMS: StockProduct[] = ENABLE_MOCK_SEED_DATA ? mockProducts.map((p, index) => {
   let stockStatus: 'In Stock' | 'Low Stock' | 'Out of Stock' | 'Dead Stock' | 'Variance Risk' | 'Fast Moving' | 'Slow Moving' = 'In Stock';
   let riskLevel: 'Low' | 'Medium' | 'High' | 'Critical' = 'Low';
@@ -319,6 +356,22 @@ export default function PosStock({
   const activeBranch = session?.branch || 'Main Branch';
   const staffName = session?.staffName || 'Admin Operator';
   const vendorId = session?.vendorId || 'unassigned-vendor';
+  const productMasterContext = useMemo<RepositoryOperationContext>(() => ({
+    vendorId,
+    branchId: session?.branchId,
+    warehouseId: session?.warehouseId,
+    terminalId: session?.terminalId,
+    staffId: session?.staffId,
+    actorId: session?.staffId || staffName,
+    actorRole: session?.role,
+    sourceApp: 'ITRED_POS',
+    correlationId: `product-master-ui-${vendorId}-${session?.staffId || staffName}`
+  }), [session?.branchId, session?.warehouseId, session?.terminalId, session?.staffId, session?.role, staffName, vendorId]);
+  const productMasterData = useProductMasterData({ context: productMasterContext });
+  const canonicalLedgerProducts = useMemo(
+    () => productMasterData.products.map(sharedProductToStockProduct),
+    [productMasterData.products]
+  );
 
   // Tabbed Routing inside Stock Control
   const [activeTab, setActiveTab] = useState<StockTab>('Stock List');
@@ -471,7 +524,9 @@ export default function PosStock({
 
   const saveLocalStockState = (newStock: StockProduct[]) => {
     setLocalStock(newStock);
-    saveLocalProducts(newStock);
+    if ((session?.storageMode || import.meta.env.VITE_STORAGE_MODE) !== 'firebase') {
+      saveLocalProducts(newStock);
+    }
   };
 
   // State of Stock event feed
@@ -2101,7 +2156,7 @@ export default function PosStock({
                   </button>
                 </div>
                 <div className="inventory-report-filter-body inventory-movement-filter-body">
-                  <LedgerSelect label="Product" value={movementSummaryFilters.productId || 'ALL'} onChange={(value) => setMovementSummaryFilters((current) => ({ ...current, productId: value === 'ALL' ? 'ALL' : value }))} options={['ALL', ...localStock.map((item) => item.id)]} />
+                  <LedgerSelect label="Product" value={movementSummaryFilters.productId || 'ALL'} onChange={(value) => setMovementSummaryFilters((current) => ({ ...current, productId: value === 'ALL' ? 'ALL' : value }))} options={['ALL', ...canonicalLedgerProducts.map((item) => item.id)]} />
                   <LedgerInput label="SKU" value={movementSummaryFilters.sku || ''} onChange={(value) => setMovementSummaryFilters((current) => ({ ...current, sku: value }))} />
                   <LedgerSelect label="Movement Type" value={movementSummaryFilters.movementType || 'ALL'} onChange={(value) => setMovementSummaryFilters((current) => ({ ...current, movementType: value as InventoryMovementType | 'ALL' }))} options={['ALL', 'GOODS_RECEIVED', 'SUPPLIER_RETURN', 'SALE', 'CUSTOMER_RETURN', 'STOCK_ADJUSTMENT_IN', 'STOCK_ADJUSTMENT_OUT', 'STOCKTAKE_GAIN', 'STOCKTAKE_LOSS', 'BRANCH_TRANSFER_IN', 'BRANCH_TRANSFER_OUT', 'WAREHOUSE_TRANSFER_IN', 'WAREHOUSE_TRANSFER_OUT', 'OPENING_BALANCE', 'WRITE_OFF', 'REVERSAL']} />
                   <LedgerSelect label="Reference Type" value={movementSummaryFilters.referenceType || 'ALL'} onChange={(value) => setMovementSummaryFilters((current) => ({ ...current, referenceType: value as InventoryReferenceType | 'ALL' }))} options={['ALL', 'RECEIPT', 'RETURN', 'GRN', 'STOCKTAKE', 'STOCK_TRANSFER', 'ADJUSTMENT', 'TRANSFER', 'SUPPLIER_RETURN', 'DAMAGE', 'MANUAL']} />
@@ -2571,8 +2626,24 @@ export default function PosStock({
       ) : activeTab === 'Product Ledger' ? (
         <div className="bg-white border border-[#b1b5c2] p-4 space-y-4">
           {!productLedgerProduct ? (
-            <div className="p-8 text-center text-slate-500 uppercase font-bold border border-dashed border-[#b1b5c2]">
-              Select a product from Product List to view its ledger.
+            <div className="p-8 text-center text-slate-500 uppercase font-bold border border-dashed border-[#b1b5c2] space-y-3">
+              <div>Select a Product Master record to view its ledger.</div>
+              <select
+                aria-label="Product ledger product"
+                disabled={productMasterData.loading || canonicalLedgerProducts.length === 0}
+                defaultValue=""
+                onChange={(event) => {
+                  const product = canonicalLedgerProducts.find((item) => item.id === event.target.value);
+                  if (product) void openProductLedger(product);
+                }}
+                className="w-full max-w-lg border border-[#b1b5c2] bg-white px-3 py-2 text-[10px] font-black uppercase"
+              >
+                <option value="" disabled>{productMasterData.loading ? 'Loading products…' : 'Select product'}</option>
+                {canonicalLedgerProducts.map((product) => (
+                  <option key={product.id} value={product.id}>{product.sku} — {product.productName}</option>
+                ))}
+              </select>
+              {productMasterData.error && <div className="text-red-700">{productMasterData.error}</div>}
             </div>
           ) : (
             <>
@@ -2717,7 +2788,7 @@ export default function PosStock({
                   <LedgerSelect label="Warehouse" value={movementSummaryFilters.warehouseId || 'ALL'} onChange={(value) => setMovementSummaryFilters((current) => ({ ...current, warehouseId: value }))} options={healthWarehouseOptions as string[]} />
                   <LedgerSelect label="Sector" value={movementSummaryFilters.sector || 'ALL'} onChange={(value) => setMovementSummaryFilters((current) => ({ ...current, sector: value }))} options={healthSectorOptions as string[]} />
                   <LedgerSelect label="Category" value={movementSummaryFilters.category || 'ALL'} onChange={(value) => setMovementSummaryFilters((current) => ({ ...current, category: value }))} options={categories as string[]} />
-                  <LedgerSelect label="Product" value={movementSummaryFilters.productId || 'ALL'} onChange={(value) => setMovementSummaryFilters((current) => ({ ...current, productId: value === 'ALL' ? undefined : value }))} options={['ALL', ...localStock.map((item) => item.id)]} />
+                  <LedgerSelect label="Product" value={movementSummaryFilters.productId || 'ALL'} onChange={(value) => setMovementSummaryFilters((current) => ({ ...current, productId: value === 'ALL' ? undefined : value }))} options={['ALL', ...canonicalLedgerProducts.map((item) => item.id)]} />
                 </div>
               </div>
 
@@ -2770,6 +2841,7 @@ export default function PosStock({
           productLimitReached={productLimitReached}
           productLimitMessage={productLimitMessage}
           session={session}
+          productMasterData={productMasterData}
         />
       ) : (
         <>

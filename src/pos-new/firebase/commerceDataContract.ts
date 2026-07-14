@@ -90,12 +90,35 @@ export interface SharedTerminalRecord extends SharedCommerceDocument {
 export interface SharedProductRecord extends SharedCommerceDocument {
   vendorId: string;
   productId: string;
-  sku?: string;
+  sciId: string;
+  sku: string;
+  numericNo?: string;
+  alu?: string;
   barcode?: string;
   productName: string;
-  brand?: string;
+  description?: string;
+  industrialSector?: string;
   category?: string;
+  subcategory?: string;
+  brand?: string;
+  unitOfMeasure: string;
+  purchaseUnit?: string;
+  salesUnit?: string;
+  costPrice?: number;
+  sellingPrice?: number;
+  wholesalePrice?: number;
+  taxable?: boolean;
+  vatRatePct?: number;
   status: string;
+  marketplaceVisible?: boolean;
+  catalogueVisible?: boolean;
+  schemaVersion: number;
+  sourceApp: CommerceSourceApp;
+  createdAt: string;
+  updatedAt: string;
+  createdBy: string;
+  updatedBy: string;
+  lastSyncAt?: string;
 }
 
 export interface SharedInventoryBalanceRecord extends SharedCommerceDocument {

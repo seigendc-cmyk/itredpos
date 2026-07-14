@@ -77,9 +77,13 @@ function createLocalAdapters(): RepositoryBundle {
     vendors: notImplVendor(),
     products: {
       getProduct: () => Promise.resolve({ success: false, errorMessage: 'Local product repository is not implemented.' }),
+      getProductBySku: () => Promise.resolve({ success: false, errorMessage: 'Local product repository is not implemented.' }),
+      getProductByBarcode: () => Promise.resolve({ success: false, errorMessage: 'Local product repository is not implemented.' }),
       listProducts: () => Promise.resolve({ success: false, records: [], errorMessage: 'Local product repository is not implemented.' }),
+      searchProducts: () => Promise.resolve({ success: false, records: [], errorMessage: 'Local product repository is not implemented.' }),
       createProduct: () => Promise.resolve({ success: false, errorMessage: 'Local product repository is not implemented.' }),
       updateProduct: () => Promise.resolve({ success: false, errorMessage: 'Local product repository is not implemented.' }),
+      deactivateProduct: () => Promise.resolve({ success: false, errorMessage: 'Local product repository is not implemented.' }),
       subscribeProducts: () => ({ unsubscribe: () => {} })
     } as ProductRepository,
     customers: {
@@ -144,9 +148,13 @@ export function createRepositoryBundle(): RepositoryBundle {
         vendors: notImplVendor(),
         products: {
           getProduct: () => Promise.resolve({ success: false, errorCode: 'REPOSITORY_CONFIGURATION_ERROR', errorMessage: 'Firebase is unavailable.' }),
+          getProductBySku: () => Promise.resolve({ success: false, errorCode: 'REPOSITORY_CONFIGURATION_ERROR', errorMessage: 'Firebase is unavailable.' }),
+          getProductByBarcode: () => Promise.resolve({ success: false, errorCode: 'REPOSITORY_CONFIGURATION_ERROR', errorMessage: 'Firebase is unavailable.' }),
           listProducts: () => Promise.resolve({ success: false, records: [], errorCode: 'REPOSITORY_CONFIGURATION_ERROR', errorMessage: 'Firebase is unavailable.' }),
+          searchProducts: () => Promise.resolve({ success: false, records: [], errorCode: 'REPOSITORY_CONFIGURATION_ERROR', errorMessage: 'Firebase is unavailable.' }),
           createProduct: () => Promise.resolve({ success: false, errorCode: 'REPOSITORY_CONFIGURATION_ERROR', errorMessage: 'Firebase is unavailable.' }),
           updateProduct: () => Promise.resolve({ success: false, errorCode: 'REPOSITORY_CONFIGURATION_ERROR', errorMessage: 'Firebase is unavailable.' }),
+          deactivateProduct: () => Promise.resolve({ success: false, errorCode: 'REPOSITORY_CONFIGURATION_ERROR', errorMessage: 'Firebase is unavailable.' }),
           subscribeProducts: () => ({ unsubscribe: () => {} })
         } as ProductRepository,
         customers: {

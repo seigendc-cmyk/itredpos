@@ -23,9 +23,9 @@ import {
   updateOutputLine
 } from '../services/productTransformationService';
 import {
-  POProductSearchResult,
-  searchProductsAnyOrder
-} from '../services/purchaseOrderProductService';import { getProductTotalAvailableStock } from '../services/stockBalanceService';
+  POProductSearchResult
+} from '../services/purchaseOrderProductService';
+import { getProductTotalAvailableStock } from '../services/stockBalanceService';
 import {
   canUseProductTransformationFirestore,
   subscribeToTransformations,
@@ -66,7 +66,7 @@ type TimelineItem = {
 };
 
 
-export default function ProductTransformationPanel() {
+export default function ProductTransformationPanel({ searchProducts }: { searchProducts: (query: string) => Promise<POProductSearchResult[]> }) {
   const [records, setRecords] = useState<ProductTransformation[]>([]);
   const [loading, setLoading] = useState(false);
   const [lastRefresh, setLastRefresh] = useState<string>('');
@@ -1544,7 +1544,7 @@ export default function ProductTransformationPanel() {
   };
 
   const handleProductSearch = async () => {
-    const rows = await searchProductsAnyOrder(productQuery);
+    const rows = await searchProducts(productQuery);
     setProductResults(rows);
     setNotice(`${rows.length} product match(es) found.`);
   };
@@ -1554,11 +1554,7 @@ export default function ProductTransformationPanel() {
 
     const product = result.product;
     const warehouse = result.shelfLocation || 'MAIN';
-    const unitCost =
-      (product as any).costPrice ||
-      (product as any).cost ||
-      (product as any).averageCost ||
-      0;
+    const unitCost = product.defaultCostPrice || 0;
 
     const mode = pickerMode.toLowerCase();
     let successMessage = '';
@@ -1626,7 +1622,7 @@ export default function ProductTransformationPanel() {
       setInputSearchResults([]);
       return;
     }
-    const rows = await searchProductsAnyOrder(query);
+    const rows = await searchProducts(query);
     setInputSearchResults(rows);
   };
 
@@ -1636,7 +1632,7 @@ export default function ProductTransformationPanel() {
       setOutputSearchResults([]);
       return;
     }
-    const rows = await searchProductsAnyOrder(query);
+    const rows = await searchProducts(query);
     setOutputSearchResults(rows);
   };
 
@@ -1644,11 +1640,7 @@ export default function ProductTransformationPanel() {
     if (!selected || !editable) return;
     const product = result.product;
     const warehouse = result.shelfLocation || 'MAIN';
-    const unitCost =
-      (product as any).costPrice ||
-      (product as any).cost ||
-      (product as any).averageCost ||
-      0;
+    const unitCost = product.defaultCostPrice || 0;
 
     const line = await addInputLine(selected.transformationId, {
       productId: product.productId,
@@ -1685,11 +1677,7 @@ export default function ProductTransformationPanel() {
     if (!selected || !editable) return;
     const product = result.product;
     const warehouse = result.shelfLocation || 'MAIN';
-    const unitCost =
-      (product as any).costPrice ||
-      (product as any).cost ||
-      (product as any).averageCost ||
-      0;
+    const unitCost = product.defaultCostPrice || 0;
 
     const line = await addOutputLine(selected.transformationId, {
       productId: product.productId,

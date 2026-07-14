@@ -551,7 +551,9 @@ export default function PosPrototypeApp() {
 
   // Synchronise localStorage writes on mutations
   useEffect(() => {
-    saveLocalProducts(products, false, activeSession?.vendorId);
+    if (resolveRuntimeStorageMode() !== 'firebase') {
+      saveLocalProducts(products, false, activeSession?.vendorId);
+    }
   }, [activeSession?.vendorId, products]);
 
   useEffect(() => {

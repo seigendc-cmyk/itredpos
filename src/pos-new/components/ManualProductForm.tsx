@@ -22,6 +22,7 @@ interface ManualProductFormProps {
   savedProduct: ProductMasterRecord | null;
   duplicateProduct: ProductMasterRecord | null;
   notice?: string | null;
+  saving: boolean;
   onChange: (patch: Partial<ManualProductDraft>) => void;
   onSaveDraft: () => void;
   onActivate: () => void;
@@ -114,6 +115,7 @@ export default function ManualProductForm({
   savedProduct,
   duplicateProduct,
   notice,
+  saving,
   onChange,
   onSaveDraft,
   onActivate,
@@ -225,8 +227,8 @@ export default function ManualProductForm({
                         <Input label="Tags" value={(draft.tags || []).join(', ')} onChange={(value) => onChange({ tags: value.split(',').map((item) => item.trim()).filter(Boolean) })} wide />
                         <div className="flex flex-wrap gap-2">
                           <button type="button" className="sci-pos-button sci-pos-button--secondary" onClick={() => onChange({ sku: draft.sku || `SKU-${Date.now().toString().slice(-6)}` })}>Generate SKU</button>
-                          <button type="button" className="sci-pos-button sci-pos-button--secondary" onClick={onCheckDuplicate}><Search className="w-4 h-4" /> Check Duplicate</button>
-                          <button type="button" className="sci-pos-button" onClick={onSaveDraft}><Save className="w-4 h-4" /> Save Draft</button>
+                          <button type="button" disabled={saving} className="sci-pos-button sci-pos-button--secondary disabled:opacity-50" onClick={onCheckDuplicate}><Search className="w-4 h-4" /> Check Duplicate</button>
+                          <button type="button" disabled={saving} className="sci-pos-button disabled:opacity-50" onClick={onSaveDraft}><Save className="w-4 h-4" /> {saving ? 'Saving…' : 'Save Draft'}</button>
                         </div>
                         {duplicateProduct && <div className="border border-orange-300 bg-orange-50 px-3 py-2 text-[10px] font-black uppercase text-orange-900">Duplicate risk: {duplicateProduct.productName}</div>}
                       </div>
@@ -316,7 +318,7 @@ export default function ManualProductForm({
                       <Select label="Location Type" value={draft.locationType || 'Main Warehouse'} options={['Main Warehouse', 'Branch Warehouse', 'Sales Floor', 'Back Store', 'Shelf', 'Other']} onChange={(value) => onChange({ locationType: value as ManualProductDraft['locationType'] })} />
                     </div>
                     <div className="flex flex-wrap gap-2 mt-3">
-                      <button type="button" className="sci-pos-button" onClick={onCreateOpeningBalance}>Create Opening Balance Draft</button>
+                      <button type="button" disabled={saving} className="sci-pos-button disabled:opacity-50" onClick={onCreateOpeningBalance}>Create Opening Balance Draft</button>
                       <button type="button" className="sci-pos-button sci-pos-button--secondary" onClick={() => onChange({ notes: 'Stock Adjustment placeholder opened from New Product form.' })}>Open Stock Adjustment Placeholder</button>
                     </div>
                   </SectionCard>
@@ -381,11 +383,11 @@ export default function ManualProductForm({
             <div className="p-4 bg-white border-t border-[#d7dce5] flex flex-wrap items-center justify-between gap-3">
               <span className="text-[10px] uppercase font-black text-slate-700">{savedProduct ? `Saved product: ${savedProduct.sku}` : 'No product saved yet'} {hasErrors ? '| Activation blocked by errors' : ''}</span>
               <div className="flex flex-wrap gap-2">
-                <button type="button" className="sci-pos-button sci-pos-button--secondary" onClick={onCheckDuplicate}>Check Duplicate</button>
+                <button type="button" disabled={saving} className="sci-pos-button sci-pos-button--secondary disabled:opacity-50" onClick={onCheckDuplicate}>Check Duplicate</button>
                 <button type="button" className="sci-pos-button sci-pos-button--secondary" onClick={onClear}>Clear Form</button>
-                <button type="button" className="sci-pos-button" onClick={onSaveDraft}>Save Draft</button>
-                <button type="button" className="sci-pos-button bg-[#252a31] border-[#111827]" onClick={onActivate}>Activate Product</button>
-                <button type="button" className="sci-pos-button sci-pos-button--secondary" onClick={onCreateOpeningBalance}>Create Opening Balance Draft</button>
+                <button type="button" disabled={saving} className="sci-pos-button disabled:opacity-50" onClick={onSaveDraft}>{saving ? 'Saving…' : 'Save Draft'}</button>
+                <button type="button" disabled={saving} className="sci-pos-button bg-[#252a31] border-[#111827] disabled:opacity-50" onClick={onActivate}>{saving ? 'Saving…' : 'Activate Product'}</button>
+                <button type="button" disabled={saving} className="sci-pos-button sci-pos-button--secondary disabled:opacity-50" onClick={onCreateOpeningBalance}>Create Opening Balance Draft</button>
                 <button type="button" className="sci-pos-button sci-pos-button--secondary" onClick={onClose}>Close</button>
               </div>
             </div>

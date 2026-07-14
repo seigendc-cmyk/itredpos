@@ -22,6 +22,11 @@ import {
 } from './stockBalanceService';
 import { loadLocalProducts, productMasterToPosProduct, saveLocalProducts, upsertLocalProducts } from '../utils/localProductStore';
 import { ENABLE_MOCK_SEED_DATA, getVendorScopedStorageKey, readVendorScopedList, writeVendorScopedList } from '../utils/vendorDataMode';
+import { createRepositoryBundle, type RepositoryBundle } from '../repositories/repositoryFactory';
+import type { RepositoryOperationContext } from '../repositories/repositoryContext';
+import type { ProductRepository, ProductListFilters } from '../repositories/ProductRepository';
+import type { SharedProductRecord, SharedBIEventRecord } from '../firebase/commerceDataContract';
+import { REPOSITORY_ERROR_CODES } from '../repositories/firestore/firestoreErrorMapper';
 
 const PRODUCT_MASTER_KEY = 'sci_pos_product_master_records';
 const PRODUCT_AUDIT_KEY = 'sci_pos_product_master_audit';
@@ -133,8 +138,18 @@ export async function searchProductMasterRecords(query: string, filters: Product
   return getProductMasterRecords({ ...filters, search: query });
 }
 
-export async function searchProductMaster(query: string, filters: ProductMasterFilterState = {}): Promise<ProductMasterRecord[]> {
-  return searchProductMasterRecords(query, filters);
+export async function searchProductMaster(query: string, filters: ProductMasterFilterState): Promise<ProductMasterRecord[]>;
+export async function searchProductMaster(context: RepositoryOperationContext, searchTerm: string, filters?: ProductListFilters): Promise<ProductMasterListResult<SharedProductRecord>>;
+export async function searchProductMaster(first: unknown, second?: unknown, third?: unknown): Promise<unknown> {
+  if (typeof first === 'string') {
+    return searchProductMasterRecords(first, second as ProductMasterFilterState);
+  }
+  const context = first as RepositoryOperationContext;
+  const searchTerm = String(second ?? '');
+  const filters = third as ProductListFilters | undefined;
+  const bundle = getBundle();
+  const result = await bundle.products.searchProducts(context, searchTerm, filters);
+  return mapListResult(result);
 }
 
 export async function getProductMasterById(productId: string): Promise<ProductMasterRecord | null> {
@@ -289,4 +304,315 @@ export async function getProductMasterAudit(productId: string): Promise<Array<{ 
 export async function exportProductMasterPlaceholder(filters: ProductMasterFilterState = {}): Promise<{ message: string; filters: ProductMasterFilterState }> {
   recordProductAudit('ALL', 'PRODUCT_MASTER_EXPORT_PREPARED', 'Product Master export prepared.');
   return { message: 'Product Master export prepared.', filters };
+}
+
+export type ProductMasterErrorCode =
+  | 'PERMISSION_DENIED'
+  | 'UNAUTHENTICATED'
+  | 'TENANT_CONTEXT_MISSING'
+  | 'NOT_FOUND'
+  | 'ALREADY_EXISTS'
+  | 'SERVICE_UNAVAILABLE'
+  | 'VALIDATION_ERROR'
+  | 'UNKNOWN';
+
+export interface ProductMasterResult<T> {
+  success: boolean;
+  data?: T;
+  errorCode?: ProductMasterErrorCode;
+  errorMessage?: string;
+}
+
+export interface ProductMasterListResult<T> {
+  success: boolean;
+  records: T[];
+  errorCode?: ProductMasterErrorCode;
+  errorMessage?: string;
+}
+
+function toProductMasterErrorCode(code?: string): ProductMasterErrorCode {
+  if (!code) return 'UNKNOWN';
+  switch (code) {
+    case REPOSITORY_ERROR_CODES.PERMISSION_DENIED:
+      return 'PERMISSION_DENIED';
+    case REPOSITORY_ERROR_CODES.UNAUTHENTICATED:
+      return 'UNAUTHENTICATED';
+    case REPOSITORY_ERROR_CODES.NOT_FOUND:
+      return 'NOT_FOUND';
+    case REPOSITORY_ERROR_CODES.ALREADY_EXISTS:
+      return 'ALREADY_EXISTS';
+    case REPOSITORY_ERROR_CODES.UNAVAILABLE:
+      return 'SERVICE_UNAVAILABLE';
+    case REPOSITORY_ERROR_CODES.FAILED_PRECONDITION:
+      return 'VALIDATION_ERROR';
+    default:
+      return 'UNKNOWN';
+  }
+}
+
+function mapOperationResult<T>(result: { success: boolean; data?: T; errorCode?: string; errorMessage?: string }): ProductMasterResult<T> {
+  return {
+    success: result.success,
+    data: result.data,
+    errorCode: toProductMasterErrorCode(result.errorCode),
+    errorMessage: result.errorMessage
+  };
+}
+
+function mapListResult<T>(result: { success: boolean; records: T[]; errorCode?: string; errorMessage?: string }): ProductMasterListResult<T> {
+  return {
+    success: result.success,
+    records: result.records,
+    errorCode: toProductMasterErrorCode(result.errorCode),
+    errorMessage: result.errorMessage
+  };
+}
+
+let cachedBundle: RepositoryBundle | null = null;
+
+function getBundle(): RepositoryBundle {
+  if (!cachedBundle) {
+    cachedBundle = createRepositoryBundle();
+  }
+  return cachedBundle;
+}
+
+export function resetProductMasterBundle(): void {
+  cachedBundle = null;
+}
+
+export async function loadProductMaster(context: RepositoryOperationContext, filters?: ProductListFilters): Promise<ProductMasterListResult<SharedProductRecord>> {
+  const bundle = getBundle();
+  const result = await bundle.products.listProducts(context, filters);
+  return mapListResult(result);
+}
+
+export async function createProductCommand(context: RepositoryOperationContext, input: Partial<SharedProductRecord>): Promise<ProductMasterResult<SharedProductRecord>> {
+  const bundle = getBundle();
+  const productRepo = bundle.products;
+
+  if (!input.productName || input.productName.trim().length === 0) {
+    return { success: false, errorCode: 'VALIDATION_ERROR', errorMessage: 'Product name is required.' };
+  }
+
+  if (input.costPrice !== undefined && input.costPrice < 0) {
+    return { success: false, errorCode: 'VALIDATION_ERROR', errorMessage: 'Cost price cannot be negative.' };
+  }
+
+  if (input.sellingPrice !== undefined && input.sellingPrice < 0) {
+    return { success: false, errorCode: 'VALIDATION_ERROR', errorMessage: 'Selling price cannot be negative.' };
+  }
+
+  const productId = input.productId || `PROD-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+  const sciId = input.sciId || `SCI-${productId}`;
+
+  const existingBySku = input.sku ? await productRepo.getProductBySku(context, input.sku) : null;
+  if (existingBySku && existingBySku.success && existingBySku.data) {
+    return { success: false, errorCode: 'ALREADY_EXISTS', errorMessage: 'A product with this SKU already exists.' };
+  }
+
+  const existingByBarcode = input.barcode ? await productRepo.getProductByBarcode(context, input.barcode) : null;
+  if (existingByBarcode && existingByBarcode.success && existingByBarcode.data) {
+    return { success: false, errorCode: 'ALREADY_EXISTS', errorMessage: 'A product with this barcode already exists.' };
+  }
+
+  const product: SharedProductRecord = {
+    sciId,
+    schemaVersion: 1,
+    status: input.status || 'ACTIVE',
+    vendorId: context.vendorId,
+    productId,
+    sku: input.sku || '',
+    numericNo: input.numericNo,
+    alu: input.alu,
+    barcode: input.barcode,
+    productName: input.productName,
+    description: input.description,
+    industrialSector: input.industrialSector,
+    category: input.category,
+    subcategory: input.subcategory,
+    brand: input.brand,
+    unitOfMeasure: input.unitOfMeasure || 'pcs',
+    purchaseUnit: input.purchaseUnit,
+    salesUnit: input.salesUnit,
+    costPrice: input.costPrice,
+    sellingPrice: input.sellingPrice,
+    wholesalePrice: input.wholesalePrice,
+    taxable: input.taxable,
+    vatRatePct: input.vatRatePct,
+    marketplaceVisible: input.marketplaceVisible,
+    catalogueVisible: input.catalogueVisible,
+    createdAt: '',
+    updatedAt: '',
+    createdBy: context.actorId,
+    updatedBy: context.actorId,
+    sourceApp: context.sourceApp,
+    lastSyncAt: undefined
+  };
+
+  const result = await productRepo.createProduct(context, product);
+  const mapped = mapOperationResult(result);
+  if (mapped.success) {
+    await appendAuditEvent(context, 'CREATE_PRODUCT', 'product', productId, { product });
+    await publishBIEvent(context, 'PRODUCT_CREATED', 'product', productId, { productId, productName: product.productName });
+  }
+  return mapped;
+}
+
+export async function updateProductCommand(context: RepositoryOperationContext, productId: string, changes: Partial<SharedProductRecord>): Promise<ProductMasterResult<SharedProductRecord>> {
+  const bundle = getBundle();
+  const productRepo = bundle.products;
+
+  if (!productId || productId.trim().length === 0) {
+    return { success: false, errorCode: 'VALIDATION_ERROR', errorMessage: 'productId must be a non-blank string.' };
+  }
+
+  const existing = await productRepo.getProduct(context, productId);
+  if (!existing.success || !existing.data) {
+    return { success: false, errorCode: 'NOT_FOUND', errorMessage: 'Product not found.' };
+  }
+
+  if (changes.sku && changes.sku !== existing.data.sku) {
+    const skuConflict = await productRepo.getProductBySku(context, changes.sku);
+    if (skuConflict.success && skuConflict.data && skuConflict.data.productId !== productId) {
+      return { success: false, errorCode: 'ALREADY_EXISTS', errorMessage: 'A product with this SKU already exists.' };
+    }
+  }
+
+  if (changes.barcode && changes.barcode !== existing.data.barcode) {
+    const barcodeConflict = await productRepo.getProductByBarcode(context, changes.barcode);
+    if (barcodeConflict.success && barcodeConflict.data && barcodeConflict.data.productId !== productId) {
+      return { success: false, errorCode: 'ALREADY_EXISTS', errorMessage: 'A product with this barcode already exists.' };
+    }
+  }
+
+  if (changes.costPrice !== undefined && changes.costPrice < 0) {
+    return { success: false, errorCode: 'VALIDATION_ERROR', errorMessage: 'Cost price cannot be negative.' };
+  }
+
+  if (changes.sellingPrice !== undefined && changes.sellingPrice < 0) {
+    return { success: false, errorCode: 'VALIDATION_ERROR', errorMessage: 'Selling price cannot be negative.' };
+  }
+
+  const result = await productRepo.updateProduct(context, productId, changes);
+  const mapped = mapOperationResult(result);
+  if (mapped.success) {
+    const before = existing.data;
+    const after = mapped.data || existing.data;
+    await appendAuditEvent(context, 'UPDATE_PRODUCT', 'product', productId, { before, after });
+
+    const detectedEvents: Array<[string, Record<string, unknown>]> = [];
+    if (changes.costPrice !== undefined || changes.sellingPrice !== undefined) {
+      detectedEvents.push(['PRODUCT_PRICE_CHANGED', { productId, costPrice: changes.costPrice, sellingPrice: changes.sellingPrice }]);
+    }
+    if (changes.marketplaceVisible !== undefined || changes.catalogueVisible !== undefined) {
+      detectedEvents.push(['PRODUCT_VISIBILITY_CHANGED', { productId, marketplaceVisible: changes.marketplaceVisible, catalogueVisible: changes.catalogueVisible }]);
+    }
+    if (changes.category !== undefined && changes.category !== before.category) {
+      detectedEvents.push(['PRODUCT_CATEGORY_CHANGED', { productId, fromCategory: before.category, toCategory: changes.category }]);
+    }
+    if (changes.brand !== undefined && changes.brand !== before.brand) {
+      detectedEvents.push(['PRODUCT_BRAND_CHANGED', { productId, fromBrand: before.brand, toBrand: changes.brand }]);
+    }
+    if (changes.status !== undefined && changes.status !== before.status) {
+      if (changes.status === 'ACTIVE') {
+        detectedEvents.push(['PRODUCT_REACTIVATED', { productId, fromStatus: before.status, toStatus: changes.status }]);
+      } else if (changes.status === 'INACTIVE') {
+        detectedEvents.push(['PRODUCT_DEACTIVATED', { productId, fromStatus: before.status, toStatus: changes.status }]);
+      }
+    }
+    for (const [eventType, metadata] of detectedEvents) {
+      await publishBIEvent(context, eventType, 'product', productId, metadata);
+    }
+  }
+  return mapped;
+}
+
+export async function deactivateProductCommand(context: RepositoryOperationContext, productId: string): Promise<ProductMasterResult<SharedProductRecord>> {
+  const bundle = getBundle();
+  const productRepo = bundle.products;
+
+  if (!productId || productId.trim().length === 0) {
+    return { success: false, errorCode: 'VALIDATION_ERROR', errorMessage: 'productId must be a non-blank string.' };
+  }
+
+  const existing = await productRepo.getProduct(context, productId);
+  if (!existing.success || !existing.data) {
+    return { success: false, errorCode: 'NOT_FOUND', errorMessage: 'Product not found.' };
+  }
+
+  const result = await productRepo.deactivateProduct(context, productId);
+  const mapped = mapOperationResult(result);
+  if (mapped.success) {
+    await appendAuditEvent(context, 'DEACTIVATE_PRODUCT', 'product', productId, { before: existing.data, after: mapped.data });
+    await publishBIEvent(context, 'PRODUCT_DEACTIVATED', 'product', productId, { productId, productName: existing.data.productName });
+  }
+  return mapped;
+}
+
+export async function resolveProductBySku(context: RepositoryOperationContext, sku: string): Promise<ProductMasterResult<SharedProductRecord>> {
+  const bundle = getBundle();
+  const result = await bundle.products.getProductBySku(context, sku);
+  return mapOperationResult(result);
+}
+
+export async function resolveProductByBarcode(context: RepositoryOperationContext, barcode: string): Promise<ProductMasterResult<SharedProductRecord>> {
+  const bundle = getBundle();
+  const result = await bundle.products.getProductByBarcode(context, barcode);
+  return mapOperationResult(result);
+}
+
+export async function appendAuditEvent(
+  context: RepositoryOperationContext,
+  action: string,
+  entityType: string,
+  entityId: string,
+  payload: Record<string, unknown>
+): Promise<void> {
+  const bundle = getBundle();
+  const auditRepo = bundle.audit;
+  await auditRepo.appendAuditRecord(context, {
+    vendorId: context.vendorId,
+    branchId: context.branchId || '',
+    terminalId: context.terminalId || '',
+    staffId: context.staffId || '',
+    actorId: context.actorId,
+    actorRole: context.actorRole || '',
+    action,
+    entityType,
+    entityId,
+    before: null,
+    after: payload,
+    reason: '',
+    sourceApp: context.sourceApp,
+    createdAt: new Date().toISOString()
+  });
+}
+
+export async function publishBIEvent(
+  context: RepositoryOperationContext,
+  eventType: string,
+  entityType: string,
+  entityId: string,
+  metadata: Record<string, unknown>
+): Promise<void> {
+  const bundle = getBundle();
+  const biRepo = bundle.biEvents;
+  const event: SharedBIEventRecord = {
+    eventId: `${entityType}-${entityId}-${Date.now().toString(36)}`,
+    eventType,
+    vendorId: context.vendorId,
+    branchId: context.branchId || '',
+    terminalId: context.terminalId || '',
+    staffId: context.staffId || '',
+    sourceApp: context.sourceApp,
+    entityType,
+    entityId,
+    timestamp: new Date().toISOString(),
+    severity: 'INFO',
+    actionRequired: false,
+    metadata,
+    schemaVersion: 1
+  };
+  await biRepo.publishEvent(context, event);
 }

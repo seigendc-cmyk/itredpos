@@ -216,25 +216,27 @@ import {
   updateStockTransferLine
 } from '../services/stockTransferService';
 import {
-  blockProduct,
   exportProductMasterPlaceholder,
   getProductBarcodes,
   getProductMasterAudit,
   getProductMasterRecords,
-  getProductMasterSummary,
   getProductPrices,
   getProductReorderRules,
-  getProductSupplierLinks,
-  markProductInactive,
-  updateProductMasterPlaceholder
+  getProductSupplierLinks
 } from '../services/productMasterService';
 import {
-  activateProduct,
+  migrateLegacyProducts,
+  previewLegacyMigration,
+  type LegacyProductMigrationReport
+} from '../services/productMasterMigrationService';
+import type { RepositoryOperationContext } from '../repositories/repositoryContext';
+import {
   approveOpeningBalanceDraft,
   cancelOpeningBalanceDraft,
-  createManualProductDraft,
   createOpeningBalanceDraft,
-  detectManualProductDuplicate,
+  createPriceRecordFromProduct,
+  createReorderRuleFromProduct,
+  createSupplierLinkFromProduct,
   getOpeningBalanceDrafts as getManualOpeningBalanceDrafts,
   getProductCreationActivityEvents,
   postOpeningBalanceDraft,
@@ -249,6 +251,9 @@ import { getInventoryMovementsByProduct } from '../services/inventoryMovementSer
 import { canPerformAction } from '../utils/posPermissions';
 import { roleHasEffectivePermission } from '../auth/effectivePermissionService';
 import { matchesFreeOrderSearch } from '../utils/searchUtils';
+import type { UseProductMasterDataReturn } from '../hooks/useProductMasterData';
+import type { SharedProductRecord } from '../firebase/commerceDataContract';
+import type { POProductSearchResult } from '../services/purchaseOrderProductService';
 
 interface StockProduct extends Product {
   riskLevel?: 'Low' | 'Medium' | 'High' | 'Critical';
@@ -289,6 +294,87 @@ interface StockPanelsProps {
   productLimitReached?: boolean;
   productLimitMessage?: string;
   session?: PosSession | null;
+  productMasterData: UseProductMasterDataReturn;
+}
+
+function canonicalProductStatus(status: string): ProductMasterRecord['status'] {
+  switch (status.toUpperCase()) {
+    case 'DRAFT': return 'Draft';
+    case 'BLOCKED': return 'Blocked';
+    case 'INACTIVE': return 'Inactive';
+    case 'DISCONTINUED': return 'Discontinued';
+    case 'PENDING_REVIEW': return 'Pending Review';
+    default: return 'Active';
+  }
+}
+
+function sharedProductToMasterRecord(product: SharedProductRecord, compatibility?: ProductMasterRecord): ProductMasterRecord {
+  const status = canonicalProductStatus(product.status);
+  const sellingPrice = product.sellingPrice || 0;
+  const costPrice = product.costPrice || 0;
+  return {
+    ...compatibility,
+    productId: product.productId,
+    vendorId: product.vendorId,
+    productCode: product.sku || product.productId,
+    sku: product.sku || product.productId,
+    barcode: product.barcode,
+    alu: product.alu,
+    productNumericNumber: product.numericNo,
+    productName: product.productName,
+    description: product.description,
+    brand: product.brand,
+    industrialSector: product.industrialSector,
+    productCategory: product.category,
+    productSubCategory: product.subcategory,
+    productType: 'Stock Item',
+    status,
+    productStatus: status,
+    riskStatus: status === 'Blocked' ? 'Blocked' : 'Normal',
+    category: product.category || 'Uncategorised',
+    unitOfMeasure: product.unitOfMeasure || 'pcs',
+    taxCode: product.taxable === false ? 'EXEMPT' : 'STANDARD',
+    vatRate: product.vatRatePct,
+    defaultSellingPrice: sellingPrice,
+    defaultCostPrice: costPrice,
+    marginPercent: sellingPrice > 0 ? Math.round(((sellingPrice - costPrice) / sellingPrice) * 100) : 0,
+    sectorAttributes: {
+      sector: product.industrialSector || 'GENERAL_RETAIL',
+      productCategory: product.category || 'Uncategorised',
+      productSubCategory: product.subcategory,
+      brand: product.brand,
+      productName: product.productName,
+      sku: product.sku,
+      barcode: product.barcode,
+      unitOfMeasure: product.unitOfMeasure,
+      status
+    },
+    createdByStaffId: product.createdBy,
+    createdAt: product.createdAt,
+    updatedAt: product.updatedAt
+  };
+}
+
+function manualDraftToSharedProduct(draft: ManualProductDraft, status: string): Partial<SharedProductRecord> {
+  return {
+    productId: draft.productId,
+    sku: draft.sku || draft.vendorSku || draft.alu || draft.barcode || '',
+    numericNo: draft.productNumericNumber,
+    alu: draft.alu,
+    barcode: draft.barcode,
+    productName: draft.productName,
+    description: draft.description,
+    industrialSector: draft.industrialSector,
+    category: draft.category,
+    subcategory: draft.subcategory,
+    brand: draft.brand,
+    unitOfMeasure: draft.unitOfMeasure || 'pcs',
+    costPrice: draft.costPrice,
+    sellingPrice: draft.sellingPrice,
+    taxable: draft.taxMode !== 'VAT Exempt',
+    vatRatePct: draft.vatRate,
+    status
+  };
 }
 
 export default function StockPanels({
@@ -310,7 +396,8 @@ export default function StockPanels({
   stocktakePreselectToken = 0,
   productLimitReached = false,
   productLimitMessage = 'Product limit reached for your current plan.',
-  session = null
+  session = null,
+  productMasterData
 }: StockPanelsProps) {
 
   // --- LOCAL PERSISTENCE STORAGE FOR SUB-PAGES ---
@@ -323,6 +410,8 @@ export default function StockPanels({
   const supplierReturnsKey = getVendorScopedStorageKey('sci_pos_supplier_returns', vendorId);
 
   const [productMasterRows, setProductMasterRows] = useState<ProductMasterRecord[]>([]);
+  const [productMasterSubmitting, setProductMasterSubmitting] = useState(false);
+  const productMasterSubmittingRef = React.useRef(false);
   const [allProductBalances, setAllProductBalances] = useState<ProductStockBalance[]>([]);
   const [productMasterSummary, setProductMasterSummary] = useState<ProductMasterSummary>({
     totalProducts: 0,
@@ -391,22 +480,100 @@ export default function StockPanels({
   const [manualDuplicateProduct, setManualDuplicateProduct] = useState<ProductMasterRecord | null>(null);
   const [manualProductNotice, setManualProductNotice] = useState<string | null>(null);
 
+  const productMasterContext = useMemo<RepositoryOperationContext>(() => ({
+    vendorId,
+    branchId: session?.branchId,
+    warehouseId: session?.warehouseId,
+    terminalId: session?.terminalId,
+    staffId: session?.staffId,
+    actorId: session?.staffId || staffName,
+    actorRole: session?.role,
+    sourceApp: 'ITRED_POS',
+    correlationId: `product-master-ui-${vendorId}-${session?.staffId || staffName}`
+  }), [vendorId, session?.branchId, session?.warehouseId, session?.terminalId, session?.staffId, session?.role, staffName]);
+
+  const [migrationOpen, setMigrationOpen] = useState(false);
+  const [migrationPreview, setMigrationPreview] = useState<LegacyProductMigrationReport | null>(null);
+  const [migrationResult, setMigrationResult] = useState<LegacyProductMigrationReport | null>(null);
+  const [migrationBusy, setMigrationBusy] = useState(false);
+  const [migrationNotice, setMigrationNotice] = useState<string | null>(null);
+
+  const openLegacyMigration = async () => {
+    setMigrationBusy(true);
+    setMigrationNotice(null);
+    setMigrationResult(null);
+    setMigrationPreview(null);
+    try {
+      const preview = await previewLegacyMigration(productMasterContext, { dryRun: true });
+      setMigrationPreview(preview);
+      setMigrationOpen(true);
+    } catch (error) {
+      setMigrationNotice(actionErrorMessage(error));
+    } finally {
+      setMigrationBusy(false);
+    }
+  };
+
+  const runLegacyMigration = async () => {
+    if (migrationBusy) return;
+    setMigrationBusy(true);
+    setMigrationNotice(null);
+    try {
+      const result = await migrateLegacyProducts(productMasterContext, { dryRun: false });
+      setMigrationResult(result);
+      setMigrationPreview(result);
+      await productMasterData.refresh();
+      await refreshProductMaster(productMasterFilters);
+    } catch (error) {
+      setMigrationNotice(actionErrorMessage(error));
+    } finally {
+      setMigrationBusy(false);
+    }
+  };
+
   const refreshProductMaster = async (filters = productMasterFilters) => {
-    const [rows, summary, balanceSummary, balances, openingDrafts, creationActivity] = await Promise.all([
-      getProductMasterRecords(filters),
-      getProductMasterSummary(filters),
+    const [, balanceSummary, balances, openingDrafts, creationActivity] = await Promise.all([
+      productMasterData.refresh(),
       getProductStockBalanceSummary(),
       getProductStockBalances(),
       getManualOpeningBalanceDrafts({}),
       getProductCreationActivityEvents({})
     ]);
-    setProductMasterRows(rows);
-    setProductMasterSummary(summary);
     setStockBalanceSummary(balanceSummary);
     setAllProductBalances(balances);
     setManualOpeningBalanceDrafts(openingDrafts);
     setManualProductActivity(creationActivity);
   };
+
+  useEffect(() => {
+    let active = true;
+    void getProductMasterRecords().then((compatibilityRows) => {
+      if (!active) return;
+      const compatibilityById = new Map(compatibilityRows.map((product) => [product.productId, product]));
+      setProductMasterRows(productMasterData.products.map((product) => sharedProductToMasterRecord(product, compatibilityById.get(product.productId))));
+    });
+    return () => {
+      active = false;
+    };
+  }, [productMasterData.products]);
+
+  useEffect(() => {
+    const activeProducts = productMasterRows.filter((product) => (product.productStatus || product.status) === 'Active').length;
+    const blockedProducts = productMasterRows.filter((product) => (product.productStatus || product.status) === 'Blocked').length;
+    const inactiveProducts = productMasterRows.filter((product) => ['Inactive', 'Discontinued'].includes(product.productStatus || product.status)).length;
+    setProductMasterSummary({
+      totalProducts: productMasterRows.length,
+      activeProducts,
+      draftProducts: productMasterRows.filter((product) => (product.productStatus || product.status) === 'Draft').length,
+      blockedProducts,
+      inactiveProducts,
+      lowStockProducts: new Set(allProductBalances.filter((balance) => balance.status === 'Low Stock' || balance.status === 'Reorder Required').map((balance) => balance.productId)).size,
+      outOfStockProducts: new Set(allProductBalances.filter((balance) => balance.status === 'Out Of Stock' || balance.status === 'Out of Stock').map((balance) => balance.productId)).size,
+      multiLocationProducts: productMasterRows.filter((product) => new Set(allProductBalances.filter((balance) => balance.productId === product.productId).map((balance) => balance.locationId)).size > 1).length,
+      supplierLinkedProducts: 0,
+      riskProducts: productMasterRows.filter((product) => product.riskStatus !== 'None' && product.riskStatus !== 'Normal').length
+    });
+  }, [allProductBalances, productMasterRows]);
 
   const visibleProductMasterRows = useMemo(() => productMasterRows.filter((product) => matchesFreeOrderSearch(product, productMasterSearch, [
     'productCode',
@@ -441,14 +608,56 @@ export default function StockPanels({
     (item) => item.sectorAttributes.partNumber,
     (item) => item.sectorAttributes.oemNumber,
     (item) => item.tags?.join(' ')
-  ])), [productMasterRows, productMasterSearch]);
+  ])).filter((product) => {
+    const status = product.productStatus || product.status;
+    const balances = allProductBalances.filter((balance) => balance.productId === product.productId);
+    return (!productMasterFilters.sku || product.sku.toLowerCase().includes(productMasterFilters.sku.toLowerCase())) &&
+      (!productMasterFilters.barcode || (product.barcode || '').toLowerCase().includes(productMasterFilters.barcode.toLowerCase())) &&
+      (!productMasterFilters.alu || (product.alu || '').toLowerCase().includes(productMasterFilters.alu.toLowerCase())) &&
+      (!productMasterFilters.productName || product.productName.toLowerCase().includes(productMasterFilters.productName.toLowerCase())) &&
+      (!productMasterFilters.brand || (product.brand || '').toLowerCase().includes(productMasterFilters.brand.toLowerCase())) &&
+      (!productMasterFilters.manufacturer || (product.manufacturer || '').toLowerCase().includes(productMasterFilters.manufacturer.toLowerCase())) &&
+      (!productMasterFilters.status || productMasterFilters.status === 'ALL' || status === productMasterFilters.status) &&
+      (!productMasterFilters.riskStatus || productMasterFilters.riskStatus === 'ALL' || product.riskStatus === productMasterFilters.riskStatus) &&
+      (!productMasterFilters.industrialSector || product.industrialSector === productMasterFilters.industrialSector) &&
+      (!productMasterFilters.category || product.category === productMasterFilters.category) &&
+      (!productMasterFilters.subCategory || product.productSubCategory === productMasterFilters.subCategory) &&
+      (!productMasterFilters.supplier || product.supplierName === productMasterFilters.supplier || product.preferredSupplierName === productMasterFilters.supplier) &&
+      (!productMasterFilters.branchId || balances.some((balance) => balance.branchId === productMasterFilters.branchId)) &&
+      (!productMasterFilters.warehouseId || balances.some((balance) => balance.warehouseId === productMasterFilters.warehouseId)) &&
+      (!productMasterFilters.locationType || productMasterFilters.locationType === 'ALL' || balances.some((balance) => balance.locationType === productMasterFilters.locationType)) &&
+      (!productMasterFilters.stockStatus || productMasterFilters.stockStatus === 'ALL' || balances.some((balance) => balance.status === productMasterFilters.stockStatus));
+  }), [allProductBalances, productMasterFilters, productMasterRows, productMasterSearch]);
 
   const canUseProductMasterPermission = (permissionKey: string) => roleHasEffectivePermission(String(simulatedRole), permissionKey);
+
+  const runProductMutation = async (operation: () => Promise<{ success: boolean; errorMessage?: string }>, successMessage: string) => {
+    if (productMasterSubmittingRef.current) return false;
+    productMasterSubmittingRef.current = true;
+    setProductMasterSubmitting(true);
+    setProductMasterNotice(null);
+    try {
+      const result = await operation();
+      if (!result.success) {
+        setProductMasterNotice(result.errorMessage || 'Product Master operation failed.');
+        return false;
+      }
+      setProductMasterNotice(successMessage);
+      await productMasterData.refresh();
+      return true;
+    } finally {
+      productMasterSubmittingRef.current = false;
+      setProductMasterSubmitting(false);
+    }
+  };
 
   const applyProductMasterFilters = async () => {
     const nextFilters = { ...productMasterFilters, search: productMasterSearch };
     setProductMasterFilters(nextFilters);
-    await refreshProductMaster(nextFilters);
+    const searched = productMasterSearch.trim()
+      ? await productMasterData.search(productMasterSearch)
+      : productMasterData.products;
+    setProductMasterRows(searched.map((product) => sharedProductToMasterRecord(product, productMasterRows.find((row) => row.productId === product.productId))));
     setProductMasterFilterDrawerOpen(false);
   };
 
@@ -461,7 +670,7 @@ export default function StockPanels({
     };
     setProductMasterSearch('');
     setProductMasterFilters(clearedFilters);
-    await refreshProductMaster(clearedFilters);
+    setProductMasterRows(productMasterData.products.map((product) => sharedProductToMasterRecord(product, productMasterRows.find((row) => row.productId === product.productId))));
     setProductMasterFilterDrawerOpen(false);
   };
 
@@ -508,7 +717,21 @@ export default function StockPanels({
       disabled: !canUseProductMasterPermission('productMaster.edit'),
       danger: true,
       onClick: () => {
-        void markProductInactive(product.productId, staffName, 'Marked inactive from Product Master table.').then(() => refreshProductMaster(productMasterFilters));
+        void runProductMutation(
+          () => productMasterData.deactivateProduct(product.productId),
+          `${product.productName} marked inactive.`
+        );
+      }
+    },
+    {
+      label: 'Reactivate Product',
+      icon: <CheckCircle className="w-3.5 h-3.5" />,
+      disabled: !canUseProductMasterPermission('productMaster.edit') || (product.productStatus || product.status) === 'Active',
+      onClick: () => {
+        void runProductMutation(
+          () => productMasterData.updateProduct(product.productId, { status: 'ACTIVE' }),
+          `${product.productName} reactivated in Product Master.`
+        );
       }
     },
     {
@@ -517,7 +740,10 @@ export default function StockPanels({
       disabled: !canUseProductMasterPermission('productMaster.block'),
       danger: true,
       onClick: () => {
-        void blockProduct(product.productId, staffName, 'Blocked from Product Master table.').then(() => refreshProductMaster(productMasterFilters));
+        void runProductMutation(
+          () => productMasterData.updateProduct(product.productId, { status: 'BLOCKED' }),
+          `${product.productName} blocked.`
+        );
       }
     }
   ];
@@ -540,6 +766,18 @@ export default function StockPanels({
     setSelectedProductReorderRules(reorderRules);
     setSelectedProductLedger(ledger);
     setSelectedProductAudit(audit);
+  };
+
+  const searchCanonicalProducts = async (query: string): Promise<POProductSearchResult[]> => {
+    const products = await productMasterData.search(query);
+    return Promise.all(products.slice(0, 20).map(async (product) => {
+      const balances = await getProductStockBalances(product.productId);
+      return {
+        product: sharedProductToMasterRecord(product),
+        currentStock: balances.reduce((sum, balance) => sum + Math.max(0, balance.qtyAvailable), 0),
+        shelfLocation: balances.find((balance) => balance.shelfLocation)?.shelfLocation
+      };
+    }));
   };
 
   useEffect(() => {
@@ -566,16 +804,63 @@ export default function StockPanels({
   };
 
   const runManualValidation = async (draft = manualProductDraft) => {
-    const issues = await validateManualProduct(draft);
+    const localIssues = await validateManualProduct(draft);
+    const candidates = await productMasterData.search(draft.sku || draft.barcode || draft.productName || '');
+    const duplicate = candidates.find((product) =>
+      (draft.sku && product.sku.toLowerCase() === draft.sku.toLowerCase()) ||
+      (draft.barcode && product.barcode?.toLowerCase() === draft.barcode.toLowerCase()) ||
+      (draft.productName && product.productName.toLowerCase() === draft.productName.toLowerCase())
+    );
+    const issues = localIssues.filter((issue) => issue.field !== 'duplicate');
+    if (duplicate) {
+      issues.push({
+        issueId: `PMV-DUPLICATE-${duplicate.productId}`,
+        field: 'duplicate',
+        severity: canonicalProductStatus(duplicate.status) === 'Active' ? 'Error' : 'Warning',
+        message: `Canonical Product Master duplicate detected: ${duplicate.productName}.`,
+        suggestedFix: 'Use a different SKU/barcode or edit the existing Product Master record.'
+      });
+    }
     setManualProductValidation(issues);
     return issues;
   };
 
   const handleManualDuplicateCheck = async () => {
-    const duplicate = await detectManualProductDuplicate(manualProductDraft);
-    setManualDuplicateProduct(duplicate || null);
-    setManualProductNotice(duplicate ? `Duplicate risk found: ${duplicate.productName}.` : 'No duplicate product found locally.');
+    const candidates = await productMasterData.search(manualProductDraft.sku || manualProductDraft.barcode || manualProductDraft.productName || '');
+    const duplicate = candidates.find((product) =>
+      (manualProductDraft.sku && product.sku.toLowerCase() === manualProductDraft.sku.toLowerCase()) ||
+      (manualProductDraft.barcode && product.barcode?.toLowerCase() === manualProductDraft.barcode.toLowerCase()) ||
+      product.productName.toLowerCase() === manualProductDraft.productName.toLowerCase()
+    );
+    setManualDuplicateProduct(duplicate ? sharedProductToMasterRecord(duplicate) : null);
+    setManualProductNotice(duplicate ? `Duplicate risk found: ${duplicate.productName}.` : 'No duplicate product found in Product Master.');
     await runManualValidation();
+  };
+
+  const createCanonicalManualProduct = async (status: 'DRAFT' | 'ACTIVE'): Promise<ProductMasterRecord | null> => {
+    if (productMasterSubmittingRef.current) return null;
+    productMasterSubmittingRef.current = true;
+    setProductMasterSubmitting(true);
+    try {
+      const result = await productMasterData.createProduct(manualDraftToSharedProduct(manualProductDraft, status));
+      if (!result.success || !result.data) {
+        setManualProductNotice(result.errorMessage || 'Product could not be saved.');
+        return null;
+      }
+      await Promise.all([
+        createSupplierLinkFromProduct(result.data.productId, manualProductDraft),
+        createPriceRecordFromProduct(result.data.productId, manualProductDraft),
+        createReorderRuleFromProduct(result.data.productId, manualProductDraft)
+      ]);
+      await productMasterData.refresh();
+      return sharedProductToMasterRecord(result.data);
+    } catch (error) {
+      setManualProductNotice(actionErrorMessage(error));
+      return null;
+    } finally {
+      productMasterSubmittingRef.current = false;
+      setProductMasterSubmitting(false);
+    }
   };
 
   const handleManualSaveDraft = async () => {
@@ -592,10 +877,11 @@ export default function StockPanels({
       setManualProductNotice('Duplicate active product blocks draft creation.');
       return;
     }
-    const created = await createManualProductDraft({ ...manualProductDraft, productStatus: 'Draft', createdByStaffId: staffName, createdByStaffName: staffName });
+    const created = await createCanonicalManualProduct('DRAFT');
+    if (!created) return;
     setManualSavedProduct(created);
     setManualProductDraft((current) => ({ ...current, productId: created.productId, sku: created.sku, productName: created.productName }));
-    setManualProductNotice('Manual product draft created locally. Stock was not posted.');
+    setManualProductNotice('Manual product draft saved to Product Master. Stock was not posted.');
     await refreshProductMaster(productMasterFilters);
   };
 
@@ -613,11 +899,18 @@ export default function StockPanels({
       setManualProductNotice('Activation blocked by validation errors. Product was not activated.');
       return;
     }
-    const product = manualSavedProduct || await createManualProductDraft({ ...manualProductDraft, productStatus: 'Draft', createdByStaffId: staffName, createdByStaffName: staffName });
-    const updated = await activateProduct(product.productId, staffName);
+    const product = manualSavedProduct || await createCanonicalManualProduct('ACTIVE');
+    if (!product) return;
+    const activated = manualSavedProduct
+      ? await runProductMutation(
+        () => productMasterData.updateProduct(product.productId, { status: 'ACTIVE' }),
+        'Product activated in Product Master. Stock was not posted.'
+      )
+      : true;
+    const updated = activated ? { ...product, status: 'Active' as const, productStatus: 'Active' as const } : null;
     if (updated) {
       setManualSavedProduct(updated);
-      setManualProductNotice('Product activated locally. Stock was not posted.');
+      setManualProductNotice('Product activated in Product Master. Stock was not posted.');
       await refreshProductMaster(productMasterFilters);
     }
   };
@@ -631,7 +924,8 @@ export default function StockPanels({
       setManualProductNotice(blockedPermissionMessage);
       return;
     }
-    const product = manualSavedProduct || await createManualProductDraft({ ...manualProductDraft, productStatus: 'Draft', createdByStaffId: staffName, createdByStaffName: staffName });
+    const product = manualSavedProduct || await createCanonicalManualProduct('DRAFT');
+    if (!product) return;
     const qty = Number(manualProductDraft.openingQty || 0);
     const unitCost = Number(manualProductDraft.openingUnitCost ?? manualProductDraft.costPrice ?? 0);
     if (qty < 0 || unitCost < 0) {
@@ -3022,11 +3316,21 @@ export default function StockPanels({
               </button>
               <button
                 type="button"
+                disabled={productMasterSubmitting || productMasterData.synchronizing}
                 onClick={() => void openManualProductForm()}
-                className="px-4 py-2 bg-orange-600 hover:bg-orange-700 border border-orange-700 text-white font-black uppercase text-[9.5px] rounded-none cursor-pointer flex items-center gap-2"
+                className="px-4 py-2 bg-orange-600 hover:bg-orange-700 border border-orange-700 text-white font-black uppercase text-[9.5px] rounded-none cursor-pointer flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 <PlusCircle className="w-4 h-4" />
                 New Product
+              </button>
+              <button
+                type="button"
+                disabled={productMasterSubmitting || productMasterData.synchronizing || migrationBusy}
+                onClick={() => void openLegacyMigration()}
+                className="px-4 py-2 bg-white hover:bg-slate-50 border border-[#b1b5c2] text-[#1e222b] font-black uppercase text-[9.5px] rounded-none cursor-pointer flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <History className="w-4 h-4" />
+                Legacy Migration
               </button>
             </div>
           </div>
@@ -3036,6 +3340,15 @@ export default function StockPanels({
               <span>{productMasterNotice}</span>
               <button type="button" onClick={() => setProductMasterNotice(null)} className="text-orange-800 font-black">CLEAR</button>
             </div>
+          )}
+
+          {(productMasterData.loading || productMasterData.synchronizing) && (
+            <div className="border border-blue-200 bg-blue-50 p-3 text-[9.5px] uppercase font-black text-blue-900">
+              {productMasterData.loading ? 'Loading Product Master…' : 'Saving or synchronising Product Master…'}
+            </div>
+          )}
+          {productMasterData.error && (
+            <div className="border border-red-300 bg-red-50 p-3 text-[9.5px] uppercase font-black text-red-800">{productMasterData.error}</div>
           )}
 
           <div className="grid grid-cols-2 md:grid-cols-5 xl:grid-cols-10 gap-2">
@@ -3228,17 +3541,23 @@ export default function StockPanels({
               reorderRules={selectedProductReorderRules}
               ledgerEntries={selectedProductLedger}
               auditRows={selectedProductAudit}
+              saving={productMasterSubmitting || productMasterData.synchronizing}
               onClose={() => setSelectedProductMaster(null)}
               onSave={async (patch) => {
                 if (!canPerformAction(simulatedRole, 'productMaster.edit')) {
                   setProductMasterNotice(blockedPermissionMessage);
                   return;
                 }
-                const updated = await updateProductMasterPlaceholder(selectedProductMaster.productId, patch, staffName);
-                if (updated) {
-                  setProductMasterNotice('Product Master draft saved.');
-                  await refreshProductMaster(productMasterFilters);
-                  await openProductMaster(updated);
+                const saved = await runProductMutation(
+                  () => productMasterData.updateProduct(selectedProductMaster.productId, {
+                    productName: patch.productName,
+                    sellingPrice: patch.defaultSellingPrice,
+                    costPrice: patch.defaultCostPrice
+                  }),
+                  'Product Master changes saved.'
+                );
+                if (saved) {
+                  setSelectedProductMaster((current) => current ? { ...current, ...patch } : current);
                 }
               }}
               onBlock={async () => {
@@ -3246,30 +3565,84 @@ export default function StockPanels({
                   setProductMasterNotice(blockedPermissionMessage);
                   return;
                 }
-                const updated = await blockProduct(selectedProductMaster.productId, staffName, 'Product blocked from Product Master placeholder.');
-                if (updated) {
-                  setProductMasterNotice('Product blocked locally.');
-                  await refreshProductMaster(productMasterFilters);
-                  await openProductMaster(updated);
-                }
+                await runProductMutation(
+                  () => productMasterData.updateProduct(selectedProductMaster.productId, { status: 'BLOCKED' }),
+                  'Product blocked in Product Master.'
+                );
               }}
               onMarkInactive={async () => {
                 if (!canPerformAction(simulatedRole, 'productMaster.edit')) {
                   setProductMasterNotice(blockedPermissionMessage);
                   return;
                 }
-                const updated = await markProductInactive(selectedProductMaster.productId, staffName, 'Product marked inactive from Product Master placeholder.');
-                if (updated) {
-                  setProductMasterNotice('Product marked inactive locally.');
-                  await refreshProductMaster(productMasterFilters);
-                  await openProductMaster(updated);
-                }
+                await runProductMutation(
+                  () => productMasterData.deactivateProduct(selectedProductMaster.productId),
+                  'Product marked inactive in Product Master.'
+                );
               }}
               onExport={async () => {
                 const result = await exportProductMasterPlaceholder({ ...productMasterFilters, search: selectedProductMaster.sku });
                 setProductMasterNotice(result.message);
               }}
             />
+          )}
+
+          {migrationOpen && (
+            <div className="fixed inset-0 bg-black/40 z-50 flex items-start justify-center p-4 overflow-auto">
+              <div className="bg-[#f4f6f8] border border-[#111827] w-full max-w-[720px] shadow-xl rounded-none">
+                <div className="bg-[#252a31] text-white px-4 py-3 flex items-center justify-between">
+                  <div>
+                    <div className="text-[10px] uppercase text-orange-300 font-black">Product Master</div>
+                    <h2 className="text-base font-black uppercase">Legacy Product Migration</h2>
+                    <p className="text-[10px] text-slate-200 uppercase mt-1">Preview and explicitly migrate legacy local products into the canonical Product Master.</p>
+                  </div>
+                  <button type="button" onClick={() => setMigrationOpen(false)} className="p-2 border border-white/30 hover:bg-white/10 rounded-none" title="Close"><X className="w-4 h-4" /></button>
+                </div>
+
+                <div className="p-4 space-y-3">
+                  <div className="border border-orange-200 bg-orange-50 p-3 text-[10px] font-bold uppercase text-slate-700">
+                    Legacy local products are migration input only. They are never written to Product Master automatically and Firestore is never overwritten by local cache.
+                  </div>
+
+                  {migrationNotice && (
+                    <div className="border border-red-300 bg-red-50 p-3 text-[10px] font-black uppercase text-red-800">{migrationNotice}</div>
+                  )}
+
+                  {migrationPreview && (
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+                      <POMetric label="Found" value={migrationPreview.totalFound} />
+                      <POMetric label="Eligible" value={migrationPreview.eligible} />
+                      <POMetric label="Duplicates" value={migrationPreview.duplicates} />
+                      <POMetric label={migrationResult ? 'Migrated' : 'Would Create'} value={migrationResult ? migrationResult.created : migrationPreview.created} />
+                      <POMetric label="Skipped" value={migrationPreview.skipped} />
+                      <POMetric label="Failed" value={migrationPreview.failed} />
+                    </div>
+                  )}
+
+                  {migrationResult && (
+                    <div className="border border-emerald-200 bg-emerald-50 p-3 text-[10px] font-black uppercase text-emerald-800">
+                      Migration complete. {migrationResult.created} product(s) created, {migrationResult.duplicates} duplicate(s) skipped, {migrationResult.failed} failed. A migration summary BI event and audit record were published.
+                    </div>
+                  )}
+                </div>
+
+                <div className="p-4 bg-white border-t border-[#d7dce5] flex flex-wrap items-center justify-end gap-2">
+                  <button type="button" disabled={migrationBusy} onClick={() => void openLegacyMigration()} className="px-3 py-2 border border-[#b8c0cc] text-[#252a31] text-[10px] font-black uppercase rounded-none disabled:opacity-50">
+                    {migrationBusy ? 'Refreshing…' : 'Refresh Preview'}
+                  </button>
+                  <button
+                    type="button"
+                    disabled={migrationBusy || !migrationPreview || migrationPreview.eligible === 0 || (migrationResult !== null)}
+                    onClick={() => void runLegacyMigration()}
+                    className="px-3 py-2 bg-orange-600 border border-orange-700 text-white text-[10px] font-black uppercase rounded-none flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    <ArrowRightLeft className="w-4 h-4" />
+                    {migrationBusy ? 'Migrating…' : 'Run Migration'}
+                  </button>
+                  <button type="button" onClick={() => setMigrationOpen(false)} className="px-3 py-2 border border-[#b8c0cc] text-[#252a31] text-[10px] font-black uppercase rounded-none">Close</button>
+                </div>
+              </div>
+            </div>
           )}
 
           {manualProductOpen && (
@@ -3281,6 +3654,7 @@ export default function StockPanels({
               savedProduct={manualSavedProduct}
               duplicateProduct={manualDuplicateProduct}
               notice={manualProductNotice}
+              saving={productMasterSubmitting || productMasterData.synchronizing}
               onChange={(patch) => setManualProductDraft((current) => ({ ...current, ...patch }))}
               onSaveDraft={() => void handleManualSaveDraft()}
               onActivate={() => void handleManualActivate()}
@@ -4611,7 +4985,7 @@ export default function StockPanels({
 
         </div>
       )}
-      {activeTab === 'Product Transformation' && <ProductTransformationPanel />}
+      {activeTab === 'Product Transformation' && <ProductTransformationPanel searchProducts={searchCanonicalProducts} />}
 
       {activeTab === 'Stock Transfers' && (
         <div className="industrial-section p-5 space-y-5">
