@@ -751,7 +751,7 @@ export default function PosBIDesk({
       "INFO",
     );
 
-    try {
+    if ((session?.storageMode || import.meta.env.VITE_STORAGE_MODE || '').toLowerCase() !== 'firebase') try {
       const storageKey = "itred_pos_session_audit_events";
       const existing = localStorage.getItem(storageKey);
       const list = existing ? JSON.parse(existing) : [];
@@ -770,29 +770,8 @@ export default function PosBIDesk({
       console.warn("Failed to save audit event to localStorage:", e);
     }
 
-    try {
-      const { db, firebaseReady } = await import("../firebase/firebaseApp");
-      const { isPOSFirebaseWritesAllowed } = await import("../auth/posActivationService");
-      if (firebaseReady && db && session?.vendor && isPOSFirebaseWritesAllowed()) {
-        const { collection, addDoc } = await import("firebase/firestore");
-        const colRef = collection(
-          db,
-          "vendors",
-          session.vendor,
-          "sessionAuditEvents",
-        );
-        await addDoc(colRef, {
-          timestamp: new Date().toISOString(),
-          eventType,
-          operator: staffName,
-          terminal: terminalName,
-          payload,
-          severity: "INFO",
-        });
-      }
-    } catch (err) {
-      console.warn("Failed to write audit event to Firestore:", err);
-    }
+    // Firebase-mode audit/BI persistence is owned by the repository-backed event
+    // handler above; React pages do not write Firestore documents directly.
   };
 
   const handleBranchFilterChange = (val: string) => {

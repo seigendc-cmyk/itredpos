@@ -27,6 +27,7 @@ import type { RepositoryOperationContext } from '../repositories/repositoryConte
 import type { ProductRepository, ProductListFilters } from '../repositories/ProductRepository';
 import type { SharedProductRecord, SharedBIEventRecord } from '../firebase/commerceDataContract';
 import { REPOSITORY_ERROR_CODES } from '../repositories/firestore/firestoreErrorMapper';
+import { mayUseLocalOperationalAuthority } from '../utils/storageAuthority';
 
 const PRODUCT_MASTER_KEY = 'sci_pos_product_master_records';
 const PRODUCT_AUDIT_KEY = 'sci_pos_product_master_audit';
@@ -37,16 +38,19 @@ const MANUAL_REORDER_RULE_KEY = 'itred_pos_manual_product_reorder_rules_v1';
 let memoryProducts: ProductMasterRecord[] = ENABLE_MOCK_SEED_DATA ? [...mockProductMasterRecords] : [];
 
 function readProducts(): ProductMasterRecord[] {
+  if (!mayUseLocalOperationalAuthority()) return [];
   memoryProducts = readVendorScopedList<ProductMasterRecord>(PRODUCT_MASTER_KEY, mockProductMasterRecords);
   return memoryProducts;
 }
 
 function writeProducts(products: ProductMasterRecord[]): ProductMasterRecord[] {
   memoryProducts = products;
+  if (!mayUseLocalOperationalAuthority()) return products;
   return writeVendorScopedList(PRODUCT_MASTER_KEY, products);
 }
 
 function recordProductAudit(productId: string, eventType: string, message: string, staffId = 'SYSTEM'): void {
+  if (!mayUseLocalOperationalAuthority()) return;
   try {
     const cached = localStorage.getItem(getVendorScopedStorageKey(PRODUCT_AUDIT_KEY));
     const existing = cached ? JSON.parse(cached) as Array<Record<string, unknown>> : [];
@@ -64,6 +68,7 @@ function recordProductAudit(productId: string, eventType: string, message: strin
 }
 
 function readManualRows<T>(key: string): T[] {
+  if (!mayUseLocalOperationalAuthority()) return [];
   return readVendorScopedList<T>(key, []);
 }
 
@@ -292,6 +297,7 @@ export async function getProductReorderRules(productId: string): Promise<Product
 }
 
 export async function getProductMasterAudit(productId: string): Promise<Array<{ id: string; productId: string; eventType: string; message: string; staffId: string; createdAt: string }>> {
+  if (!mayUseLocalOperationalAuthority()) return [];
   try {
     const cached = localStorage.getItem(getVendorScopedStorageKey(PRODUCT_AUDIT_KEY));
     const events = cached ? JSON.parse(cached) as Array<{ id: string; productId: string; eventType: string; message: string; staffId: string; createdAt: string }> : [];

@@ -561,7 +561,9 @@ export default function PosPrototypeApp() {
   }, [activeSession?.vendorId, products]);
 
   useEffect(() => {
-    const refreshProducts = () => setProducts(loadLocalProducts(activeSession?.vendorId));
+    const refreshProducts = () => {
+      if (resolveRuntimeStorageMode() !== 'firebase') setProducts(loadLocalProducts(activeSession?.vendorId));
+    };
     window.addEventListener(POS_PRODUCT_STORE_EVENT, refreshProducts);
     return () => window.removeEventListener(POS_PRODUCT_STORE_EVENT, refreshProducts);
   }, [activeSession?.vendorId]);
@@ -572,6 +574,7 @@ export default function PosPrototypeApp() {
   }, [activeSession?.vendorId, transactions]);
 
   useEffect(() => {
+    if (resolveRuntimeStorageMode() === 'firebase') return;
     writeStoredValue(getVendorScopedStorageKey('itred_pos_cash_logs', activeSession?.vendorId), cashLogs);
   }, [activeSession?.vendorId, cashLogs]);
 
@@ -584,10 +587,12 @@ export default function PosPrototypeApp() {
   }, [activeSession?.vendorId, activeShift]);
 
   useEffect(() => {
+    if (resolveRuntimeStorageMode() === 'firebase') return;
     writeStoredValue(getVendorScopedStorageKey('itred_pos_shifthistory', activeSession?.vendorId), shiftHistory);
   }, [activeSession?.vendorId, shiftHistory]);
 
   useEffect(() => {
+    if (resolveRuntimeStorageMode() === 'firebase') return;
     writeStoredValue(getVendorScopedStorageKey('itred_pos_bi_events', activeSession?.vendorId), biEvents);
   }, [activeSession?.vendorId, biEvents]);
 
@@ -605,7 +610,7 @@ export default function PosPrototypeApp() {
 
   useEffect(() => {
     if (activeSession) {
-      initializeEmptyVendorOperationalStores(activeSession.vendorId);
+      if (resolveRuntimeStorageMode() !== 'firebase') initializeEmptyVendorOperationalStores(activeSession.vendorId);
       removeStoredValue(LEGACY_POS_ACTIVE_SESSION_KEY);
       setActiveOperatorName(activeSession.staffName);
       setTerminalUnit(activeSession.terminal);
@@ -655,6 +660,7 @@ export default function PosPrototypeApp() {
   }, [terminalsSetting]);
 
   useEffect(() => {
+    if (resolveRuntimeStorageMode() === 'firebase') return;
     writeStoredValue('itred_pos_staff', staffSetting);
   }, [staffSetting]);
 

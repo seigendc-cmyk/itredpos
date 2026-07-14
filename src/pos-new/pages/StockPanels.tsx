@@ -231,6 +231,12 @@ import {
 } from '../services/productMasterMigrationService';
 import type { RepositoryOperationContext } from '../repositories/repositoryContext';
 import {
+  postGoodsReceiptWorkflow,
+  postStockAdjustmentWorkflow,
+  postStocktakeWorkflow,
+  postSupplierReturnWorkflow
+} from '../services/inventoryWorkflowService';
+import {
   approveOpeningBalanceDraft,
   cancelOpeningBalanceDraft,
   createOpeningBalanceDraft,
@@ -254,6 +260,7 @@ import { matchesFreeOrderSearch } from '../utils/searchUtils';
 import type { UseProductMasterDataReturn } from '../hooks/useProductMasterData';
 import type { SharedProductRecord } from '../firebase/commerceDataContract';
 import type { POProductSearchResult } from '../services/purchaseOrderProductService';
+import { isFirebaseStorageMode } from '../utils/storageAuthority';
 
 interface StockProduct extends Product {
   riskLevel?: 'Low' | 'Medium' | 'High' | 'Critical';
@@ -404,6 +411,20 @@ export default function StockPanels({
   const blockedPermissionMessage = 'You do not have permission to perform this action.';
   const actionErrorMessage = (error: unknown) => error instanceof Error ? error.message : 'Action failed. Please try again.';
   const vendorId = session?.vendorId || getActiveVendorId();
+  const firebaseInventoryMode = isFirebaseStorageMode(session?.storageMode);
+  const inventoryWorkflowContext = useMemo<RepositoryOperationContext>(() => ({
+    vendorId,
+    branchId: session?.branchId || session?.branch || activeBranch,
+    warehouseId: session?.warehouseId,
+    terminalId: session?.terminalId || 'TERMINAL_STOCK_DESK',
+    staffId: session?.staffId || staffName,
+    actorId: session?.staffId || staffName,
+    actorRole: session?.role || String(simulatedRole),
+    sourceApp: 'ITRED_POS',
+    correlationId: `inventory-workflow-${vendorId}-${session?.staffId || staffName}`
+  }), [activeBranch, session?.branch, session?.branchId, session?.role, session?.staffId, session?.terminalId, session?.warehouseId, simulatedRole, staffName, vendorId]);
+  const [inventoryWorkflowSaving, setInventoryWorkflowSaving] = useState(false);
+  const [inventoryWorkflowError, setInventoryWorkflowError] = useState<string | null>(null);
   const defaultVatRate = getCachedVendorTaxSettings(vendorId).defaultVatRate;
   const stockBranchName = session?.branch || activeBranch;
   const activeWarehouseId = session?.warehouseId || '';
@@ -1200,13 +1221,15 @@ export default function StockPanels({
 
   // 3. Supplier Returns State & Form Binding
   const [supplierReturns, setSupplierReturns] = useState<LegacySupplierReturnRecord[]>(() => {
+    if (firebaseInventoryMode) return [];
     const cached = localStorage.getItem(supplierReturnsKey);
     return cached ? JSON.parse(cached) : [];
   });
 
   useEffect(() => {
+    if (firebaseInventoryMode) return;
     localStorage.setItem(supplierReturnsKey, JSON.stringify(supplierReturns));
-  }, [supplierReturns, supplierReturnsKey]);
+  }, [firebaseInventoryMode, supplierReturns, supplierReturnsKey]);
 
   const [retSupplier, setRetSupplier] = useState('');
   const [retGrn, setRetGrn] = useState('');
@@ -1507,7 +1530,7 @@ export default function StockPanels({
   const handleDispatchStockTransfer = async () => {
     if (!selectedStockTransfer || !enforceStockTransferPermission('stockTransfers.dispatch')) return;
     const result = await dispatchStockTransfer(selectedStockTransfer.transferId, staffName, { notes: 'Dispatched from Stock Transfers tab.' });
-    applyTransferMovementsToLocalStock(result.movements);
+    if (!firebaseInventoryMode) applyTransferMovementsToLocalStock(result.movements);
     setStockTransferNotice(result.message);
     triggerNewActivityEvent('STOCK_TRANSFERRED', `${selectedStockTransfer.transferNumber} dispatched. Source movement posted only.`, 'Medium');
     await reloadSelectedStockTransfer(selectedStockTransfer.transferId);
@@ -1523,7 +1546,7 @@ export default function StockPanels({
   const handlePostTransferReceipt = async () => {
     if (!selectedStockTransfer || !enforceStockTransferPermission('stockTransfers.postReceipt')) return;
     const result = await postTransferReceipt(selectedStockTransfer.transferId, staffName);
-    applyTransferMovementsToLocalStock(result.movements);
+    if (!firebaseInventoryMode) applyTransferMovementsToLocalStock(result.movements);
     setStockTransferNotice(result.message);
     await reloadSelectedStockTransfer(selectedStockTransfer.transferId);
   };
@@ -1573,13 +1596,13 @@ export default function StockPanels({
     if (action === 'reject') await rejectStockTransfer(transfer.transferId, staffName, 'Rejected from table action.');
     if (action === 'dispatch') {
       const result = await dispatchStockTransfer(transfer.transferId, staffName, { notes: 'Dispatched from table action.' });
-      applyTransferMovementsToLocalStock(result.movements);
+      if (!firebaseInventoryMode) applyTransferMovementsToLocalStock(result.movements);
       setStockTransferNotice(result.message);
     }
     if (action === 'receive') await receiveStockTransfer(transfer.transferId, staffName, { notes: 'Receive draft captured from table action.' });
     if (action === 'postReceipt') {
       const result = await postTransferReceipt(transfer.transferId, staffName);
-      applyTransferMovementsToLocalStock(result.movements);
+      if (!firebaseInventoryMode) applyTransferMovementsToLocalStock(result.movements);
       setStockTransferNotice(result.message);
     }
     if (action === 'close') {
@@ -1776,7 +1799,7 @@ export default function StockPanels({
       return;
     }
     if (result.stockPosted) {
-      applyPostedStocktakeResult(result);
+      if (!firebaseInventoryMode) applyPostedStocktakeResult(result);
       setStocktakeDeskNotice(result.message);
       triggerNewActivityEvent('STOCKTAKE_SUBMITTED', `${result.stocktakeNumber} variance posted.`, 'High');
     } else {
@@ -1825,7 +1848,7 @@ export default function StockPanels({
         allowOwnerOverride: simulatedRole === 'Owner' || simulatedRole === 'SysAdmin',
         hasPostPermission: canPerformAction(simulatedRole, 'stocktake.post')
       });
-      if (result?.stockPosted) applyPostedStocktakeResult(result);
+      if (result?.stockPosted && !firebaseInventoryMode) applyPostedStocktakeResult(result);
       setStocktakeDeskNotice(result?.message || 'Stocktake could not be posted.');
     }
     if (action === 'cancel') {
@@ -1942,6 +1965,7 @@ export default function StockPanels({
 
   // Helper to log BI Events globally in localStorage to reflect on PosBIDesk.tsx
   const logGlobalBiEvent = (eventType: string, payload: any, severity: 'INFO' | 'WARNING' | 'HIGH' | 'CRITICAL') => {
+    if (firebaseInventoryMode) return;
     try {
       const cached = localStorage.getItem(getVendorScopedStorageKey('itred_pos_bi_events', vendorId));
       const events = cached ? JSON.parse(cached) : [];
@@ -2299,7 +2323,7 @@ export default function StockPanels({
   };
 
   const handleGRNPosted = async (result: GoodsReceivingPostingResult) => {
-    applyPostedGRNToLocalStock(result);
+    if (!firebaseInventoryMode) applyPostedGRNToLocalStock(result);
     setGoodsReceivingNotice(result.message);
     triggerNewActivityEvent('STOCK_RECEIVED', `${result.grnNumber} posted accepted quantities to stock.`, 'Low');
     await refreshGoodsReceiving();
@@ -2315,7 +2339,7 @@ export default function StockPanels({
       }
       const result = await postGRN(note.grnId, staffName);
       if (result) {
-        if (result.stockPosted) applyPostedGRNToLocalStock(result);
+        if (result.stockPosted && !firebaseInventoryMode) applyPostedGRNToLocalStock(result);
         setGoodsReceivingNotice(result.message);
       }
     }
@@ -2430,7 +2454,7 @@ export default function StockPanels({
   };
 
   const handleSupplierReturnPosted = async (result: SupplierReturnPostingResult) => {
-    applyPostedSupplierReturnToLocalStock(result);
+    if (!firebaseInventoryMode) applyPostedSupplierReturnToLocalStock(result);
     setSupplierReturnNotice(result.message);
     triggerNewActivityEvent('STOCK_ADJUSTMENT_REQUESTED', `${result.supplierReturnNumber} posted supplier return. Stock reduced only for accepted goods already in inventory.`, 'Medium');
     await refreshSupplierReturns();
@@ -2462,7 +2486,7 @@ export default function StockPanels({
       }
       const result = await postSupplierReturn(record.supplierReturnId, staffName);
       if (result) {
-        applyPostedSupplierReturnToLocalStock(result);
+        if (!firebaseInventoryMode) applyPostedSupplierReturnToLocalStock(result);
         setSupplierReturnNotice(result.message);
       }
     }
@@ -2557,7 +2581,7 @@ export default function StockPanels({
   };
 
   const handleStockAdjustmentPosted = async (result: StockAdjustmentPostingResult) => {
-    applyPostedStockAdjustmentToLocalStock(result);
+    if (!firebaseInventoryMode) applyPostedStockAdjustmentToLocalStock(result);
     setStockAdjustmentNotice(result.message);
     triggerNewActivityEvent('STOCK_ADJUSTMENT_POSTED', `${result.adjustmentNumber} posted through controlled stock adjustment.`, 'Medium');
     await refreshStockAdjustments();
@@ -2605,7 +2629,7 @@ export default function StockPanels({
       };
       const result = await postStockAdjustment(record.adjustmentId, context);
       if (result) {
-        applyPostedStockAdjustmentToLocalStock(result);
+        if (!firebaseInventoryMode) applyPostedStockAdjustmentToLocalStock(result);
         setStockAdjustmentNotice(result.stockPosted ? result.message : 'Posting review completed. Inventory movement will be written by controlled stock movement logic.');
       }
     }
@@ -2692,7 +2716,7 @@ export default function StockPanels({
 
 
   // B. GRN GOODS INTAKE SUBMIT ACTION
-  const handleGRNSubmit = (e: React.FormEvent) => {
+  const handleGRNSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setGrnFeedback(null);
 
@@ -2774,7 +2798,7 @@ export default function StockPanels({
         return;
       } else {
         // Supervisor role override is active, we can self-approve directly!
-        applyGRNToStock(grnLines, grnNumber);
+        await applyGRNToStock(grnLines, grnNumber);
         setGrnFeedback({
           type: 'success',
           msg: `SUCCESS (Self-Approved by Authorised Role): GRN ${grnNumber} successfully posted and system inventory updated.`
@@ -2784,12 +2808,30 @@ export default function StockPanels({
     }
 
     // Standard Clean Submit: Apply to Stock immediately
-    applyGRNToStock(grnLines, grnNumber);
+    await applyGRNToStock(grnLines, grnNumber);
     setGrnFeedback({ type: 'success', msg: `SUCCESS: Goods Received Note ${grnNumber} successfully registered into database and quantities incremented.` });
   };
 
   // Helper function to update products with received items
-  const applyGRNToStock = (lines: GRNLine[], grnRef: string) => {
+  const applyGRNToStock = async (lines: GRNLine[], grnRef: string) => {
+    if (firebaseInventoryMode) {
+      setInventoryWorkflowSaving(true);
+      setInventoryWorkflowError(null);
+      try {
+        const canonical = await postGoodsReceiptWorkflow(inventoryWorkflowContext, grnRef, lines.filter((line) => !line.rejected).map((line) => {
+          const product = localStock.find((item) => item.code === line.sku);
+          return { productId: product?.id || line.sku, quantity: line.receivedQty, unitCost: line.costPrice, reason: `Goods received from ${grnSupplier}.` };
+        }));
+        if (!canonical.success) throw new Error(canonical.errorMessage || 'Goods receipt inventory posting failed.');
+      } catch (error) {
+        const message = actionErrorMessage(error);
+        setInventoryWorkflowError(message);
+        setGrnFeedback({ type: 'error', msg: message });
+        return;
+      } finally {
+        setInventoryWorkflowSaving(false);
+      }
+    }
     let updatedCatalog = [...localStock];
     lines.forEach(line => {
       if (line.rejected) return;
@@ -2817,13 +2859,13 @@ export default function StockPanels({
 
       // Call parent onUpdateStock prop
       const match = localStock.find(p => p.code === line.sku);
-      if (match) {
+      if (match && !firebaseInventoryMode) {
         onUpdateStock(match.id, match.stock + line.receivedQty);
         postLegacyLedgerMovement(match, 'GRN', grnRef, 'GOODS_RECEIVED', line.receivedQty, 0, `Goods received from ${grnSupplier}.`);
       }
     });
 
-    saveLocalStockState(updatedCatalog);
+    if (!firebaseInventoryMode) saveLocalStockState(updatedCatalog);
     
     // Log successes
     triggerNewActivityEvent('GOODS_RECEIVED', `Posted GRN ${grnRef} with ${lines.length} lines. Inventory incremented.`, 'Low');
@@ -2884,13 +2926,29 @@ export default function StockPanels({
   };
 
   // Ship Return & Deduct Inventory Stock
-  const handleShipAndDeductStock = (ret: LegacySupplierReturnRecord) => {
+  const handleShipAndDeductStock = async (ret: LegacySupplierReturnRecord) => {
     const matchProduct = localStock.find(p => p.code === ret.sku);
     if (!matchProduct) return;
 
     if (matchProduct.stock < ret.quantityReturned) {
       alert(`Cannot dispatch: Stock on hand (${matchProduct.stock}) is less than return qty (${ret.quantityReturned}).`);
       return;
+    }
+
+    if (firebaseInventoryMode) {
+      setInventoryWorkflowSaving(true);
+      setInventoryWorkflowError(null);
+      try {
+        const canonical = await postSupplierReturnWorkflow(inventoryWorkflowContext, ret.id, [{ productId: matchProduct.id, quantity: ret.quantityReturned, unitCost: matchProduct.cost, reason: `Supplier return shipped to ${ret.supplierName}.` }]);
+        if (!canonical.success) throw new Error(canonical.errorMessage || 'Supplier return inventory posting failed.');
+      } catch (error) {
+        const message = actionErrorMessage(error);
+        setInventoryWorkflowError(message);
+        setRetFeedback(message);
+        return;
+      } finally {
+        setInventoryWorkflowSaving(false);
+      }
     }
 
     // Deduct stock levels in system catalog
@@ -2908,9 +2966,11 @@ export default function StockPanels({
       return p;
     });
 
-    saveLocalStockState(updatedStock);
-    onUpdateStock(matchProduct.id, matchProduct.stock - ret.quantityReturned);
-    postLegacyLedgerMovement(matchProduct, 'SUPPLIER_RETURN', ret.id, 'SUPPLIER_RETURN', 0, ret.quantityReturned, `Supplier return shipped to ${ret.supplierName}.`);
+    if (!firebaseInventoryMode) {
+      saveLocalStockState(updatedStock);
+      onUpdateStock(matchProduct.id, matchProduct.stock - ret.quantityReturned);
+      postLegacyLedgerMovement(matchProduct, 'SUPPLIER_RETURN', ret.id, 'SUPPLIER_RETURN', 0, ret.quantityReturned, `Supplier return shipped to ${ret.supplierName}.`);
+    }
 
     // Update return status to Shipped
     setSupplierReturns(prev => prev.map(r => r.id === ret.id ? { ...r, status: 'Shipped' } : r));
@@ -2929,7 +2989,7 @@ export default function StockPanels({
 
 
   // D. STOCK ADJUSTMENTS SUBMISSION RULES
-  const handleAdjustmentSubmit = (e: React.FormEvent) => {
+  const handleAdjustmentSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setAdjFeedback(null);
 
@@ -2998,6 +3058,22 @@ export default function StockPanels({
     }
 
     // Qualified Role (Supervisor <=3, Manager / Owner / SysAdmin all): Apply directly
+    if (firebaseInventoryMode) {
+      const adjustmentId = `ADJ-${adjSku}-${adjType}-${adjCountQty}-${adjReasonCode}`.replace(/[^A-Za-z0-9_-]/g, '_');
+      setInventoryWorkflowSaving(true);
+      setInventoryWorkflowError(null);
+      try {
+        const canonical = await postStockAdjustmentWorkflow(inventoryWorkflowContext, adjustmentId, [{ productId: matchProduct.id, quantity: isNegative ? -qty : qty, unitCost: matchProduct.cost, reason: adjNotes || adjReasonCode }], adjReasonCode);
+        if (!canonical.success) throw new Error(canonical.errorMessage || 'Stock adjustment inventory posting failed.');
+      } catch (error) {
+        const message = actionErrorMessage(error);
+        setInventoryWorkflowError(message);
+        setAdjFeedback({ type: 'error', msg: message });
+        return;
+      } finally {
+        setInventoryWorkflowSaving(false);
+      }
+    }
     const updatedStock = localStock.map(p => {
       if (p.code === adjSku) {
         const nextStock = finalQtyStatus;
@@ -3012,9 +3088,10 @@ export default function StockPanels({
       return p;
     });
 
-    saveLocalStockState(updatedStock);
-    onUpdateStock(matchProduct.id, finalQtyStatus);
-    postLegacyLedgerMovement(
+    if (!firebaseInventoryMode) {
+      saveLocalStockState(updatedStock);
+      onUpdateStock(matchProduct.id, finalQtyStatus);
+      postLegacyLedgerMovement(
       matchProduct,
       'ADJUSTMENT',
       `ADJ-${Date.now()}`,
@@ -3022,7 +3099,8 @@ export default function StockPanels({
       isNegative ? 0 : qty,
       isNegative ? qty : 0,
       `Posted stock adjustment. Reason: ${adjReasonCode}. ${adjNotes}`
-    );
+      );
+    }
 
     triggerNewActivityEvent('STOCK_RECEIVED', `Stock Adjusted directly: ${matchProduct.name} set to ${finalQtyStatus} (${isNegative ? '-' : '+'}${qty}).`, 'Medium');
     logGlobalBiEvent('STOCK_RECEIVED', { sku: adjSku, change: isNegative ? -qty : qty, finalQtyStatus }, 'WARNING');
@@ -3094,7 +3172,7 @@ export default function StockPanels({
     alert("[RECOMMENDATION REGISTERED]\n===========================\nLogging Request: Recommend complete operational shutdown for full physical auditing.");
   };
 
-  const handlePostStocktakeResults = () => {
+  const handlePostStocktakeResults = async () => {
     const totalLinesWithDiscrepancy = stocktakeLines.filter(l => l.variance !== 0);
     
     if (totalLinesWithDiscrepancy.length > 0) {
@@ -3127,7 +3205,24 @@ export default function StockPanels({
     }
 
     // matched or supervisor auto-approves
-    applyStocktakeToStock(stocktakeLines);
+    if (firebaseInventoryMode) {
+      const stocktakeId = `STK-${stocktakeSessionType}-${stocktakeLines.map((line) => `${line.productId}-${line.countedQty}`).join('-')}`.replace(/[^A-Za-z0-9_-]/g, '_');
+      setInventoryWorkflowSaving(true);
+      setInventoryWorkflowError(null);
+      try {
+        const canonical = await postStocktakeWorkflow(inventoryWorkflowContext, stocktakeId, stocktakeLines.map((line) => ({ productId: line.productId, quantity: line.varianceQty || line.variance || 0, systemQty: line.systemQty, countedQty: line.countedQty ?? undefined, unitCost: line.unitCost, reason: line.countNotes || line.varianceRisk })));
+        if (!canonical.success) throw new Error(canonical.errorMessage || 'Stocktake inventory posting failed.');
+      } catch (error) {
+        const message = actionErrorMessage(error);
+        setInventoryWorkflowError(message);
+        setStocktakeFeedback(message);
+        return;
+      } finally {
+        setInventoryWorkflowSaving(false);
+      }
+    } else {
+      applyStocktakeToStock(stocktakeLines);
+    }
     setStocktakeFeedback("SUCCESS: Spot checks validated and posted to Ledger database. Quantities synched.");
     setStocktakeActive(false);
   };
@@ -3178,7 +3273,7 @@ export default function StockPanels({
   // =========================================================================
   // ENFORCED APPROVAL ACTIONS PANEL SUB-UTILITIES
   // =========================================================================
-  const handleProcessApprovalInQueue = (req: ApprovalRequest, verdict: 'Approved' | 'Rejected') => {
+  const handleProcessApprovalInQueue = async (req: ApprovalRequest, verdict: 'Approved' | 'Rejected') => {
     // 1. Update queue status
     setStockApprovals(prev => prev.map(r => r.id === req.id ? { ...r, status: verdict } : r));
 
@@ -3193,6 +3288,13 @@ export default function StockPanels({
     if (req.type === 'Stock Adjustment Approval' && payload) {
       const match = localStock.find(p => p.code === payload.sku);
       if (match) {
+        if (firebaseInventoryMode) {
+          const canonical = await postStockAdjustmentWorkflow(inventoryWorkflowContext, req.id, [{ productId: match.id, quantity: Number(payload.delta), unitCost: match.cost, reason: String(payload.reason || req.notes) }], String(payload.reason || req.notes));
+          if (!canonical.success) {
+            setInventoryWorkflowError(canonical.errorMessage || 'Approved stock adjustment could not be posted.');
+            return;
+          }
+        }
         const nextQty = match.stock + payload.delta;
         const updated = localStock.map(p => {
           if (p.code === payload.sku) {
@@ -3207,22 +3309,32 @@ export default function StockPanels({
           return p;
         });
 
-        saveLocalStockState(updated);
-        onUpdateStock(match.id, nextQty);
+        if (!firebaseInventoryMode) {
+          saveLocalStockState(updated);
+          onUpdateStock(match.id, nextQty);
+        }
         
         triggerNewActivityEvent('STOCK_RECEIVED', `APPROVAL CLEAR: Adjustment of ${payload.sku} applied to count ${nextQty}.`, 'Medium');
         logGlobalBiEvent('GOODS_RECEIVED', { sku: payload.sku, delta: payload.delta, verdict: 'APPROVED' }, 'INFO');
       }
     } 
     else if ((req.type === 'GRN Variance Approval' || req.type === 'Cost Spike Approval') && payload) {
-      applyGRNToStock(payload.items, payload.grnNumber);
+      await applyGRNToStock(payload.items, payload.grnNumber);
       triggerNewActivityEvent('GOODS_RECEIVED', `APPROVAL CLEAR: Divergent GRN ${payload.grnNumber} authorized and posted by ${simulatedRole}.`, 'High');
     }
     else if (req.type === 'Supplier Return Approval' && payload) {
       triggerNewActivityEvent('STOCK_TRANSFERRED', `APPROVAL CLEAR: Return request authorized by ${simulatedRole}.`, 'Medium');
     }
     else if (req.type === 'Stocktake Variance Approval' && payload) {
-      applyStocktakeToStock(payload.lines);
+      if (firebaseInventoryMode) {
+        const canonical = await postStocktakeWorkflow(inventoryWorkflowContext, req.id, (payload.lines as StocktakeLine[]).map((line) => ({ productId: line.productId, quantity: line.varianceQty || line.variance || 0, systemQty: line.systemQty, countedQty: line.countedQty ?? undefined, unitCost: line.unitCost, reason: line.countNotes || line.varianceRisk })));
+        if (!canonical.success) {
+          setInventoryWorkflowError(canonical.errorMessage || 'Approved stocktake could not be posted.');
+          return;
+        }
+      } else {
+        applyStocktakeToStock(payload.lines);
+      }
       triggerNewActivityEvent('STOCKTAKE_SUBMITTED', `APPROVAL CLEAR: Stocktake count discrepancy authorized and applied to Ledger.`, 'High');
     }
   };
@@ -3230,6 +3342,9 @@ export default function StockPanels({
 
   return (
     <div className="space-y-6">
+
+      {inventoryWorkflowSaving && <div className="border border-blue-300 bg-blue-50 px-3 py-2 text-xs font-semibold text-blue-800">Posting inventory transaction…</div>}
+      {inventoryWorkflowError && <div className="border border-red-300 bg-red-50 px-3 py-2 text-xs font-semibold text-red-800">{inventoryWorkflowError}</div>}
 
       <div className="inventory-access-control-strip">
         <div className="inventory-access-control-copy">

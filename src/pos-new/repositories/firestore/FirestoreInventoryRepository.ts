@@ -41,6 +41,17 @@ function makeId(...parts: Array<string | undefined>): string {
   return encodeFirestoreId(parts.filter(Boolean).join('_'));
 }
 
+export function inventoryOperationId(...parts: Array<string | undefined>): string {
+  return makeId(...parts);
+}
+
+export function projectTransferBalances(sourceQuantity: number, destinationQuantity: number, transferQuantity: number): { sourceAfter: number; destinationAfter: number } {
+  const quantity = Math.abs(Number(transferQuantity));
+  if (!Number.isFinite(sourceQuantity) || !Number.isFinite(destinationQuantity) || !Number.isFinite(quantity) || quantity <= 0) throw new Error('Transfer quantities must be finite and positive.');
+  if (sourceQuantity - quantity < 0) throw new Error('Transfer would reduce source stock below zero.');
+  return { sourceAfter: sourceQuantity - quantity, destinationAfter: destinationQuantity + quantity };
+}
+
 function readyError(): InventoryCommandResult | null {
   if (firebaseReady && db) return null;
   return { success: false, errorCode: REPOSITORY_ERROR_CODES.UNAVAILABLE, errorMessage: 'Firebase is not configured or Firestore is not available.' };
@@ -352,7 +363,7 @@ async function applyMovement(context: RepositoryOperationContext, operation: Mov
   if (operation.allowNegativeStock && (!operation.hasNegativeStockOverridePermission || !operation.negativeStockOverrideReason?.trim())) {
     return { success: false, errorCode: REPOSITORY_ERROR_CODES.PERMISSION_DENIED, errorMessage: 'Negative stock override requires explicit permission and a reason.' };
   }
-  const id = operation.movementId || makeId(context.vendorId, operation.referenceType, operation.referenceId, productId, operation.movementType, warehouseId || branchId);
+  const id = operation.movementId || inventoryOperationId(context.vendorId, operation.referenceType, operation.referenceId, productId, operation.movementType, warehouseId || branchId);
   const bId = balanceId(context.vendorId, branchId, warehouseId, productId);
   try {
     const result = await runTransaction(db!, async (transaction) => {
@@ -582,8 +593,8 @@ export function createFirestoreInventoryRepository(): InventoryRepository {
       if (!sourceBranchId || !destinationBranchId || !productId || !quantity || (sourceBranchId === destinationBranchId && sourceWarehouseId === destinationWarehouseId)) {
         return { success: false, errorCode: REPOSITORY_ERROR_CODES.FAILED_PRECONDITION, errorMessage: 'Transfer requires a product, positive quantity, and different source and destination locations.' };
       }
-      const outId = makeId(context.vendorId, command.referenceType, command.referenceId, productId, 'TRANSFER_OUT', sourceWarehouseId || sourceBranchId);
-      const inId = makeId(context.vendorId, command.referenceType, command.referenceId, productId, 'TRANSFER_IN', destinationWarehouseId || destinationBranchId);
+      const outId = inventoryOperationId(context.vendorId, command.referenceType, command.referenceId, productId, 'TRANSFER_OUT', sourceWarehouseId || sourceBranchId);
+      const inId = inventoryOperationId(context.vendorId, command.referenceType, command.referenceId, productId, 'TRANSFER_IN', destinationWarehouseId || destinationBranchId);
       try {
         const result = await runTransaction(db!, async (transaction) => {
           await Promise.all([
@@ -609,10 +620,13 @@ export function createFirestoreInventoryRepository(): InventoryRepository {
           const sourceBefore = balanceRecord(context, productId, sourceBranchId, sourceWarehouseId, sourceBalanceId, sourceSnapshot.exists() ? sourceSnapshot.data() : undefined);
           const destinationBefore = balanceRecord(context, productId, destinationBranchId, destinationWarehouseId, destinationBalanceId, destinationSnapshot.exists() ? destinationSnapshot.data() : undefined);
           if (sourceBefore.quantityAvailable - quantity < 0) throw new Error(NEGATIVE_STOCK);
+          let projected: { sourceAfter: number; destinationAfter: number };
+          try { projected = projectTransferBalances(sourceBefore.quantityOnHand, destinationBefore.quantityOnHand, quantity); }
+          catch { throw new Error(NEGATIVE_STOCK); }
           const timestamp = nowIso();
           const common = { vendorId: context.vendorId, productId, unitCost: sourceBefore.averageCost, referenceType: command.referenceType, referenceId: command.referenceId, staffId: context.staffId, actorId: context.actorId, correlationId: context.correlationId, sourceApp: context.sourceApp, createdAt: timestamp, updatedAt: timestamp, createdBy: context.actorId, updatedBy: context.actorId, schemaVersion: COMMERCE_SCHEMA_VERSION, status: 'Posted' } as const;
-          const outgoing: SharedInventoryMovementRecord = { ...common, sciId: outId, movementId: outId, branchId: sourceBranchId, warehouseId: sourceWarehouseId, movementType: 'TRANSFER_OUT', quantityDelta: -quantity, quantityBefore: sourceBefore.quantityOnHand, quantityAfter: sourceBefore.quantityOnHand - quantity, valueImpact: -quantity * sourceBefore.averageCost };
-          const incoming: SharedInventoryMovementRecord = { ...common, sciId: inId, movementId: inId, branchId: destinationBranchId, warehouseId: destinationWarehouseId, movementType: 'TRANSFER_IN', quantityDelta: quantity, quantityBefore: destinationBefore.quantityOnHand, quantityAfter: destinationBefore.quantityOnHand + quantity, valueImpact: quantity * sourceBefore.averageCost };
+          const outgoing: SharedInventoryMovementRecord = { ...common, sciId: outId, movementId: outId, branchId: sourceBranchId, warehouseId: sourceWarehouseId, movementType: 'TRANSFER_OUT', quantityDelta: -quantity, quantityBefore: sourceBefore.quantityOnHand, quantityAfter: projected.sourceAfter, valueImpact: -quantity * sourceBefore.averageCost };
+          const incoming: SharedInventoryMovementRecord = { ...common, sciId: inId, movementId: inId, branchId: destinationBranchId, warehouseId: destinationWarehouseId, movementType: 'TRANSFER_IN', quantityDelta: quantity, quantityBefore: destinationBefore.quantityOnHand, quantityAfter: projected.destinationAfter, valueImpact: quantity * sourceBefore.averageCost };
           const sourceAfter: SharedInventoryBalanceRecord = { ...sourceBefore, quantityOnHand: outgoing.quantityAfter, quantityAvailable: outgoing.quantityAfter - sourceBefore.quantityReserved, stockValue: Number((outgoing.quantityAfter * sourceBefore.averageCost).toFixed(2)), lastMovementId: outId, lastMovementAt: timestamp, updatedAt: timestamp, updatedBy: context.actorId, sourceApp: context.sourceApp };
           const destinationAfter: SharedInventoryBalanceRecord = { ...destinationBefore, quantityOnHand: incoming.quantityAfter, quantityAvailable: incoming.quantityAfter - destinationBefore.quantityReserved, averageCost: sourceBefore.averageCost || destinationBefore.averageCost, stockValue: Number((incoming.quantityAfter * (sourceBefore.averageCost || destinationBefore.averageCost)).toFixed(2)), lastMovementId: inId, lastMovementAt: timestamp, updatedAt: timestamp, updatedBy: context.actorId, sourceApp: context.sourceApp };
           transaction.set(refs.out, outgoing);

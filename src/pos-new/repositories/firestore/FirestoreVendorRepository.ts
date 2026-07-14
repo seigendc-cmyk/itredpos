@@ -1,6 +1,7 @@
-import { collection, doc, getDoc, getDocs, onSnapshot, query, setDoc, serverTimestamp, updateDoc, where } from 'firebase/firestore';
+import { collection, doc, getDoc, getDocs, onSnapshot, query, setDoc, serverTimestamp, updateDoc, where, writeBatch } from 'firebase/firestore';
 import { db, firebaseReady } from '../../firebase/firebaseApp';
 import { firestorePaths } from '../../firebase/firestorePaths';
+import { COMMERCE_SCHEMA_VERSION } from '../../firebase/commerceDataContract';
 import { mapFirestoreError, REPOSITORY_ERROR_CODES } from './firestoreErrorMapper';
 import { validateRepositoryOperationContext } from '../repositoryContext';
 import type { VendorRepository } from '../VendorRepository';
@@ -46,6 +47,22 @@ function normalizeVendor(data: Record<string, unknown>, fallbackVendorId: string
     status: typeof data.status === 'string' ? data.status : 'Active',
     vendorId: typeof data.vendorId === 'string' ? data.vendorId : fallbackVendorId,
     vendorName: typeof data.vendorName === 'string' ? data.vendorName : '',
+    legalName: typeof data.legalName === 'string' ? data.legalName : undefined,
+    tradingName: typeof data.tradingName === 'string' ? data.tradingName : undefined,
+    registrationNumber: typeof data.registrationNumber === 'string' ? data.registrationNumber : undefined,
+    taxNumber: typeof data.taxNumber === 'string' ? data.taxNumber : undefined,
+    phone: typeof data.phone === 'string' ? data.phone : undefined,
+    email: typeof data.email === 'string' ? data.email : undefined,
+    website: typeof data.website === 'string' ? data.website : undefined,
+    physicalAddress: typeof data.physicalAddress === 'string' ? data.physicalAddress : undefined,
+    city: typeof data.city === 'string' ? data.city : undefined,
+    province: typeof data.province === 'string' ? data.province : undefined,
+    country: typeof data.country === 'string' ? data.country : undefined,
+    currency: typeof data.currency === 'string' ? data.currency : undefined,
+    timezone: typeof data.timezone === 'string' ? data.timezone : undefined,
+    logoUrl: typeof data.logoUrl === 'string' ? data.logoUrl : undefined,
+    receiptHeader: typeof data.receiptHeader === 'string' ? data.receiptHeader : undefined,
+    businessSector: typeof data.businessSector === 'string' ? data.businessSector : undefined,
     createdAt: typeof data.createdAt === 'string' ? data.createdAt : '',
     updatedAt: typeof data.updatedAt === 'string' ? data.updatedAt : '',
     createdBy: typeof data.createdBy === 'string' ? data.createdBy : '',
@@ -171,15 +188,36 @@ export function createFirestoreVendorRepository(): VendorRepository {
       try {
         const docRef = doc(db, firestorePaths.vendor(vendorId));
         const snapshot = await getDoc(docRef);
-        if (!snapshot.exists()) {
-          return { success: false, errorCode: REPOSITORY_ERROR_CODES.NOT_FOUND, errorMessage: 'Vendor not found.' };
-        }
-        const existing = snapshot.data() as Record<string, unknown>;
+        const existing = snapshot.exists() ? snapshot.data() as Record<string, unknown> : { vendorId, sciId: vendorId, schemaVersion: COMMERCE_SCHEMA_VERSION, status: 'ACTIVE', sourceApp: context.sourceApp, createdAt: serverTimestamp(), createdBy: context.actorId };
         if (existing.vendorId !== vendorId) {
           return { success: false, errorCode: REPOSITORY_ERROR_CODES.FAILED_PRECONDITION, errorMessage: 'Cross-vendor document update is rejected.' };
         }
-        await updateDoc(docRef, { ...changes, updatedAt: serverTimestamp(), updatedBy: context.actorId });
-        const updated = { ...existing, ...changes, updatedAt: '', updatedBy: context.actorId };
+        const vendorName = typeof changes.vendorName === 'string' ? changes.vendorName.trim() : typeof existing.vendorName === 'string' ? existing.vendorName : '';
+        if (!vendorName) return { success: false, errorCode: REPOSITORY_ERROR_CODES.FAILED_PRECONDITION, errorMessage: 'vendorName is required to create or update a vendor profile.' };
+        const finalChanges: Partial<SharedVendorRecord> = { ...changes, vendorName };
+        const auditId = `vendor-profile-${context.correlationId || 'change'}-${Date.now().toString(36)}`.replace(/[^A-Za-z0-9_-]/g, '_');
+        const changedFields = Object.keys(finalChanges).filter((key) => key !== 'vendorId').sort();
+        const beforeValues = Object.fromEntries(changedFields.flatMap((key) => existing[key] === undefined ? [] : [[key, existing[key]]]));
+        const afterValues = Object.fromEntries(changedFields.flatMap((key) => finalChanges[key as keyof SharedVendorRecord] === undefined ? [] : [[key, finalChanges[key as keyof SharedVendorRecord]]]));
+        const batch = writeBatch(db);
+        batch.set(docRef, { ...finalChanges, vendorId, updatedAt: serverTimestamp(), updatedBy: context.actorId }, { merge: true });
+        batch.set(doc(db, `${firestorePaths.auditEvents(vendorId)}/${auditId}`), {
+          auditEventId: auditId,
+          vendorId,
+          eventType: snapshot.exists() ? 'VENDOR_PROFILE_UPDATED' : 'VENDOR_PROFILE_CREATED',
+          entityType: 'VENDOR_PROFILE',
+          entityId: vendorId,
+          changedFields,
+          beforeValues,
+          afterValues,
+          actorId: context.actorId,
+          staffId: context.staffId,
+          correlationId: context.correlationId,
+          sourceApp: context.sourceApp,
+          createdAt: serverTimestamp()
+        });
+        await batch.commit();
+        const updated = { ...existing, ...finalChanges, updatedAt: '', updatedBy: context.actorId };
         return { success: true, data: normalizeVendor(updated, vendorId) };
       } catch (error) {
         const mapped = mapFirestoreError(error);

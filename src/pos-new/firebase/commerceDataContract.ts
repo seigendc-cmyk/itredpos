@@ -62,6 +62,22 @@ export interface SharedVendorRecord extends SharedCommerceDocument {
   vendorId: string;
   vendorName: string;
   status: string;
+  legalName?: string;
+  tradingName?: string;
+  registrationNumber?: string;
+  taxNumber?: string;
+  phone?: string;
+  email?: string;
+  website?: string;
+  physicalAddress?: string;
+  city?: string;
+  province?: string;
+  country?: string;
+  currency?: string;
+  timezone?: string;
+  logoUrl?: string;
+  receiptHeader?: string;
+  businessSector?: string;
 }
 
 export interface SharedBranchRecord extends SharedCommerceDocument {

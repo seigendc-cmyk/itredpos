@@ -36,8 +36,24 @@ function validate(context: RepositoryOperationContext, input: SalesTransactionCo
   return null;
 }
 
-function reversalId(type: 'REFUND' | 'VOID', saleId: string, idempotencyKey: string): string {
+export function salesReversalId(type: 'REFUND' | 'VOID', saleId: string, idempotencyKey: string): string {
   return encodeFirestoreId(`${type}_${saleId}_${idempotencyKey}`);
+}
+
+export function refundQuantityError(
+  requested: ReadonlyArray<{ saleLineId: string; quantity: number }>,
+  saleLines: ReadonlyArray<Pick<PosSaleLine, 'saleLineId' | 'quantity' | 'productName'>>,
+  previouslyRefunded: Readonly<Record<string, number>> = {}
+): string | null {
+  if (!requested.length || requested.some((line) => !Number.isFinite(line.quantity) || line.quantity <= 0)) return 'At least one positive return quantity is required.';
+  const totals = new Map<string, number>();
+  requested.forEach((line) => totals.set(line.saleLineId, (totals.get(line.saleLineId) || 0) + line.quantity));
+  for (const [saleLineId, quantity] of totals) {
+    const saleLine = saleLines.find((line) => line.saleLineId === saleLineId);
+    if (!saleLine) return `Sale line ${saleLineId} was not found in this sale.`;
+    if (quantity + Number(previouslyRefunded[saleLineId] || 0) > saleLine.quantity) return `Refund quantity exceeds the remaining quantity for ${saleLine.productName}.`;
+  }
+  return null;
 }
 
 async function runSalesReversal(context: RepositoryOperationContext, saleId: string, type: 'REFUND' | 'VOID', input: RefundSaleCommand): Promise<{ success: boolean; data?: SalesReversalResult; errorCode?: string; errorMessage?: string }> {
@@ -56,13 +72,15 @@ async function runSalesReversal(context: RepositoryOperationContext, saleId: str
 
     const requested = new Map<string, number>();
     (type === 'VOID' ? allLines.map((line) => ({ saleLineId: line.saleLineId, quantity: line.quantity })) : input.lines).forEach((line) => requested.set(line.saleLineId, (requested.get(line.saleLineId) || 0) + Number(line.quantity)));
-    if (!requested.size || [...requested.values()].some((quantity) => !Number.isFinite(quantity) || quantity <= 0)) return { success: false, errorCode: REPOSITORY_ERROR_CODES.FAILED_PRECONDITION, errorMessage: 'At least one positive return quantity is required.' };
+    const requestedLines = [...requested.entries()].map(([saleLineId, quantity]) => ({ saleLineId, quantity }));
+    const initialQuantityError = refundQuantityError(requestedLines, allLines);
+    if (initialQuantityError) return { success: false, errorCode: REPOSITORY_ERROR_CODES.FAILED_PRECONDITION, errorMessage: initialQuantityError };
     const selectedLines = [...requested.entries()].map(([lineId, quantity]) => {
       const line = allLines.find((candidate) => candidate.saleLineId === lineId);
       if (!line) throw new Error(`Sale line ${lineId} was not found in this sale.`);
       return { line, quantity };
     });
-    const id = reversalId(type, saleId, input.idempotencyKey);
+    const id = salesReversalId(type, saleId, input.idempotencyKey);
     const result = await runTransaction(db, async (transaction): Promise<SalesReversalResult> => {
       const reversalRef = doc(db!, firestorePaths.salesReturn(context.vendorId, id));
       const existingReversal = await transaction.get(reversalRef);
@@ -76,9 +94,10 @@ async function runSalesReversal(context: RepositoryOperationContext, saleId: str
       if (!['Completed', 'Partially Returned'].includes(sale.saleStatus)) throw new Error('Only completed sales can be refunded or voided.');
       const previouslyRefunded = { ...(sale.refundedQuantities || {}) };
       if (type === 'VOID' && (sale.refundedAmount || 0) > 0) throw new Error('A partially refunded sale cannot be voided.');
-      selectedLines.forEach(({ line, quantity }) => {
+      const cumulativeQuantityError = refundQuantityError(requestedLines, allLines, previouslyRefunded);
+      if (cumulativeQuantityError) throw new Error(cumulativeQuantityError);
+      selectedLines.forEach(({ line }) => {
         if (line.vendorId !== context.vendorId || line.saleId !== saleId) throw new Error('Cross-vendor or cross-sale line reference is rejected.');
-        if (quantity + Number(previouslyRefunded[line.saleLineId] || 0) > line.quantity) throw new Error(`Refund quantity exceeds the remaining quantity for ${line.productName}.`);
       });
       const refundAmount = Number(selectedLines.reduce((sum, item) => sum + (item.line.lineTotal / item.line.quantity) * item.quantity, 0).toFixed(2));
       if (refundAmount <= 0 || refundAmount > sale.grandTotal - Number(sale.refundedAmount || 0) + 0.01) throw new Error('Refund amount exceeds the remaining sale value.');

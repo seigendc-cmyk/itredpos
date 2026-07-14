@@ -13,10 +13,16 @@ import {
   updateInventoryMovement
 } from '../utils/localInventoryStore';
 import { updateStockBalanceFromMovement } from './stockBalanceService';
+import { mayUseLocalOperationalAuthority } from '../utils/storageAuthority';
 
 const EVENT_KEY = 'sci_pos_inventory_movement_events';
 
+function readLocalMovements(): InventoryMovement[] {
+  return mayUseLocalOperationalAuthority() ? loadInventoryMovements() : [];
+}
+
 function recordInventoryEvent(eventType: string, message: string, movementId?: string): void {
+  if (!mayUseLocalOperationalAuthority()) return;
   try {
     const cached = localStorage.getItem(EVENT_KEY);
     const existing = cached ? JSON.parse(cached) as Array<Record<string, unknown>> : [];
@@ -45,14 +51,14 @@ function calculateImpact(qtyIn: number, qtyOut: number, unitCost: number): numbe
 }
 
 export async function getInventoryMovementsByProduct(productId: string): Promise<InventoryMovement[]> {
-  return loadInventoryMovements()
+  return readLocalMovements()
     .filter((movement) => movement.productId === productId)
     .sort((a, b) => new Date(a.movementDate).getTime() - new Date(b.movementDate).getTime());
 }
 
 export async function getInventoryMovementsBySku(sku: string): Promise<InventoryMovement[]> {
   const normalizedSku = sku.toLowerCase();
-  return loadInventoryMovements()
+  return readLocalMovements()
     .filter((movement) => movement.sku.toLowerCase() === normalizedSku)
     .sort((a, b) => new Date(a.movementDate).getTime() - new Date(b.movementDate).getTime());
 }
@@ -64,7 +70,7 @@ export async function getInventoryMovementsByFilters(
   const fromTime = filters.dateFrom ? new Date(`${filters.dateFrom}T00:00:00`).getTime() : null;
   const toTime = filters.dateTo ? new Date(`${filters.dateTo}T23:59:59`).getTime() : null;
 
-  return loadInventoryMovements().filter((movement) => {
+  return readLocalMovements().filter((movement) => {
     const movementTime = new Date(movement.movementDate).getTime();
     const matchesDateFrom = fromTime === null || movementTime >= fromTime;
     const matchesDateTo = toTime === null || movementTime <= toTime;
@@ -100,17 +106,18 @@ export async function getInventoryMovements(
 }
 
 export async function getInventoryMovementById(movementId: string): Promise<InventoryMovement | null> {
-  return loadInventoryMovements().find((movement) => movement.movementId === movementId) || null;
+  return readLocalMovements().find((movement) => movement.movementId === movementId) || null;
 }
 
 export async function calculateRunningBalance(productId: string, warehouseId: string): Promise<number> {
-  const movements = loadInventoryMovements()
+  const movements = readLocalMovements()
     .filter((movement) => movement.productId === productId && movement.warehouseId === warehouseId && movementAffectsBalance(movement.status))
     .sort((a, b) => new Date(a.movementDate).getTime() - new Date(b.movementDate).getTime());
   return movements.at(-1)?.balanceAfter || 0;
 }
 
 export async function postInventoryMovement(payload: InventoryMovementPayload): Promise<InventoryMovement> {
+  if (!mayUseLocalOperationalAuthority()) throw new Error('Firebase inventory must be posted through inventorySyncService and InventoryRepository.');
   const now = new Date().toISOString();
   const balanceBefore = payload.balanceBefore;
   const balanceAfter = payload.balanceAfter ?? (movementAffectsBalance(payload.status) ? balanceBefore + payload.qtyIn - payload.qtyOut : balanceBefore);
@@ -207,7 +214,7 @@ function oppositeMovementType(type: InventoryMovementType): InventoryMovementTyp
 }
 
 export async function reverseInventoryMovement(movementId: string, reason: string): Promise<InventoryMovement | null> {
-  const original = loadInventoryMovements().find((movement) => movement.movementId === movementId);
+  const original = readLocalMovements().find((movement) => movement.movementId === movementId);
   if (!original || original.status !== 'Posted') return null;
 
   updateInventoryMovement(movementId, { status: 'Reversed', notes: `${original.notes} | Reversed: ${reason}` });
@@ -253,7 +260,7 @@ export async function getProductLedger(productId: string, filters: InventoryMove
 }
 
 export async function getProductStockBalance(productId: string, branchId: string, warehouseId: string): Promise<number> {
-  const movements = loadInventoryMovements()
+  const movements = readLocalMovements()
     .filter((movement) => movement.productId === productId && movement.branchId === branchId && movement.warehouseId === warehouseId && movement.status === 'Posted')
     .sort((a, b) => new Date(a.movementDate).getTime() - new Date(b.movementDate).getTime());
   return movements.at(-1)?.balanceAfter || 0;
@@ -265,6 +272,7 @@ export async function exportInventoryMovementsPlaceholder(filters: InventoryMove
 }
 
 export async function getInventoryMovementEvents(): Promise<Array<{ id: string; eventType: string; message: string; createdAt: string }>> {
+  if (!mayUseLocalOperationalAuthority()) return [];
   try {
     const cached = localStorage.getItem(EVENT_KEY);
     return cached ? JSON.parse(cached) as Array<{ id: string; eventType: string; message: string; createdAt: string }> : [];
