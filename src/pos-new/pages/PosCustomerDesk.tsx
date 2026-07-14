@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import {
   Check,
@@ -231,6 +231,10 @@ export default function PosCustomerDesk({ session, onNavigate }: PosCustomerDesk
   const [promiseDebt, setPromiseDebt] = useState<CustomerDebtRecord | null>(null);
   const [disputeCustomer, setDisputeCustomer] = useState<CustomerRecord | null>(null);
   const [disputeDebt, setDisputeDebt] = useState<CustomerDebtRecord | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const mountedRef = useRef(true);
 
   const selectedCustomer = customers.find((customer) => customer.customerId === selectedCustomerId) || customers[0] || null;
   const canCreateDirect = hasPermission(roleName, 'customers.createDirect');
@@ -238,10 +242,22 @@ export default function PosCustomerDesk({ session, onNavigate }: PosCustomerDesk
   const canOpenSalesTerminal = hasPermission(roleName, 'sales.open');
 
   const loadCustomers = async () => {
-    const [rows, nextSummary] = await Promise.all([getCustomers(filters), getCustomerSummary(filters)]);
-    setCustomers(rows);
-    setSummary(nextSummary);
-    setSelectedCustomerId((current) => current || rows[0]?.customerId || '');
+    if (!session.vendorId) {
+      if (mountedRef.current) { setLoadError('Missing vendor context. Sign in again.'); setLoading(false); }
+      return;
+    }
+    if (mountedRef.current) { setLoading(true); setLoadError(null); }
+    try {
+      const [rows, nextSummary] = await Promise.all([getCustomers(filters, session), getCustomerSummary(filters)]);
+      if (!mountedRef.current) return;
+      setCustomers(rows);
+      setSummary(nextSummary);
+      setSelectedCustomerId((current) => current || rows[0]?.customerId || '');
+    } catch (reason) {
+      if (mountedRef.current) setLoadError(reason instanceof Error ? reason.message : 'Customers could not be loaded.');
+    } finally {
+      if (mountedRef.current) setLoading(false);
+    }
   };
 
   const loadSelectedDetails = async (customerId: string) => {
@@ -280,7 +296,9 @@ export default function PosCustomerDesk({ session, onNavigate }: PosCustomerDesk
   };
 
   useEffect(() => {
+    mountedRef.current = true;
     void loadCustomers();
+    return () => { mountedRef.current = false; };
   }, [filters]);
 
   useEffect(() => {
@@ -309,6 +327,9 @@ export default function PosCustomerDesk({ session, onNavigate }: PosCustomerDesk
   };
 
   const handleSubmitCustomer = async (payload: CustomerCreatePayload, useInSale: boolean) => {
+    if (saving) return;
+    setSaving(true);
+    try {
     if (editCustomer) {
       if (!requirePermission('customers.edit')) return;
       const updated = await updateCustomer(editCustomer.customerId, payload, session.staffName, 'Customer edited from Customer Centre.');
@@ -322,6 +343,11 @@ export default function PosCustomerDesk({ session, onNavigate }: PosCustomerDesk
     setSelectedCustomerId(customer.customerId);
     if (useInSale) await handleUseInSale(customer, false);
     await refreshAfterAction(useInSale ? 'Customer created and selected for sale.' : 'Customer created.', customer.customerId);
+    } catch (reason) {
+      if (mountedRef.current) setNotice(reason instanceof Error ? reason.message : 'Customer could not be saved.');
+    } finally {
+      if (mountedRef.current) setSaving(false);
+    }
   };
 
   const handleApprove = async (customer: CustomerRecord) => {
@@ -656,7 +682,7 @@ export default function PosCustomerDesk({ session, onNavigate }: PosCustomerDesk
         </div>
         <div className="sci-page-header__actions">
           {canCreateDirect && (
-            <button type="button" className="pos-action-button pos-action-button-primary" onClick={() => setNewCustomerOpen(true)}>
+            <button type="button" className="pos-action-button pos-action-button-primary" disabled={saving} onClick={() => setNewCustomerOpen(true)}>
               <UserPlus size={16} />New Customer
             </button>
           )}
@@ -667,6 +693,9 @@ export default function PosCustomerDesk({ session, onNavigate }: PosCustomerDesk
       </header>
 
       {notice && <div className="sci-pos-alert" role="status">{notice}</div>}
+      {loading && <div className="sci-pos-alert" role="status">Loading customer master…</div>}
+      {saving && <div className="sci-pos-alert" role="status">Saving customer changes…</div>}
+      {loadError && <div className="sci-pos-error" role="alert">{loadError}</div>}
 
       {selectedForSale && canUseInSale && (
         <section className="pos-selected-sale-cta-card" aria-label="Customer selected for sale">

@@ -34,6 +34,7 @@ import { getActiveVendorId, getVendorScopedStorageKey, readVendorScopedList, wri
 import type { SharedCustomerRecord } from '../firebase/commerceDataContract';
 import type { RepositoryOperationContext } from '../repositories/repositoryContext';
 import { appendCustomerInteractionCommand, createCustomerAddressCommand, createCustomerCommand, createCustomerRequestCommand as createMasterRequest, listCustomerAddresses, listCustomerInteractions, loadCustomerMaster, updateCustomerAddressCommand, updateCustomerCommand } from './customerMasterService';
+import { getCommittedSaleDetails, listCommittedSales } from './salesTransactionService';
 
 const CUSTOMER_KEY = 'itred_pos_customers_v1';
 const CUSTOMER_HISTORY_KEY = 'itred_pos_customer_purchase_history_v1';
@@ -268,7 +269,9 @@ export async function getCustomerSummary(filters: CustomerFilterState = {}): Pro
   const context = assertCanonicalCustomerContext();
   const customers = await getCustomers(filters, context);
   let history: { customerId: string }[] = [];
-  if (realRecordsExist()) {
+  if (firebaseCustomerMode()) {
+    history = (await listCommittedSales(masterContext(context))).map((sale) => ({ customerId: sale.customerId }));
+  } else if (realRecordsExist()) {
     try {
       const raw = localStorage.getItem(getVendorScopedStorageKey('itred_pos_transactions', context.vendorId));
       if (raw) {
@@ -534,6 +537,26 @@ export async function updateCustomerPlaceholder(customerId: string, patch: Parti
 export async function getCustomerPurchaseHistory(customerId: string): Promise<CustomerPurchaseHistoryRow[]> {
   const customer = await getCustomerById(customerId);
   if (!customer) return [];
+
+  if (firebaseCustomerMode()) {
+    const context = assertCanonicalCustomerContext();
+    const sales = await listCommittedSales(masterContext(context), { customerId });
+    const details = await Promise.all(sales.map((sale) => getCommittedSaleDetails(masterContext(context), sale.saleId)));
+    return details.map(({ sale, saleLines, payments }) => ({
+      id: sale.saleId,
+      customerId,
+      customerName: sale.customerName || customer.customerName,
+      receiptNo: sale.receiptNumber || sale.saleNumber,
+      date: sale.saleDate,
+      branch: sale.branchId,
+      cashier: sale.staffName,
+      items: saleLines.reduce((sum, item) => sum + item.quantity, 0),
+      total: sale.grandTotal,
+      paymentMethod: payments.length > 1 ? 'Split Payment' : payments[0]?.paymentMethod || 'Other',
+      deliveryStatus: 'No Delivery',
+      returnStatus: sale.saleStatus === 'Returned' ? 'Returned' : sale.saleStatus === 'Partially Returned' ? 'Partially Returned' : 'None'
+    }));
+  }
 
   let txs: any[] = [];
   try {

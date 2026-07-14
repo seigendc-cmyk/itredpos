@@ -1453,9 +1453,9 @@ export default function PosStock({
     setActiveModal('STOCKTAKE');
   };
 
-  const handleStocktakeSubmit = (e: FormEvent) => {
+  const handleStocktakeSubmit = async (e: FormEvent) => {
     e.preventDefault();
-    if (!modalTargetProduct) return;
+    if (!modalTargetProduct || inventoryData.posting) return;
 
     const currentRole = session?.role || 'Owner';
     if (!canPerformAction(currentRole as Role, 'STOCKTAKE')) {
@@ -1471,6 +1471,25 @@ export default function PosStock({
 
     const variance = count - modalTargetProduct.stock;
     const diffSign = variance >= 0 ? `+${variance}` : `${variance}`;
+    const firebaseMode = (session?.storageMode || import.meta.env.VITE_STORAGE_MODE) === 'firebase';
+    if (firebaseMode && variance !== 0) {
+      const result = await inventoryData.postStocktakeVariance({
+        productId: modalTargetProduct.id,
+        branchId: modalTargetProduct.branchId || session?.branchId,
+        warehouseId: modalTargetProduct.warehouseId || session?.warehouseId,
+        systemQty: modalTargetProduct.stock,
+        countedQty: count,
+        unitCost: modalTargetProduct.costPrice ?? modalTargetProduct.cost,
+        referenceType: 'STOCKTAKE',
+        referenceId: `STK-${Date.now()}`,
+        varianceRisk: Math.abs(variance) > 5 ? 'Critical' : 'Medium',
+        notes: stRemarks || 'Physical stocktake adjustment.'
+      });
+      if (!result.success) {
+        alert(result.errorMessage || 'Stocktake variance could not be posted.');
+        return;
+      }
+    }
 
     // Compute next Statuses & risks
     let nextStatus = modalTargetProduct.stockStatus;
@@ -1492,16 +1511,13 @@ export default function PosStock({
       lastMovementDate: '2026-06-08'
     };
 
-    const nextList = localStock.map(p => p.id === modalTargetProduct.id ? updated : p);
-    saveLocalStockState(nextList);
-
-    // Update parent global callbacks
-    if (onUpdateProduct) {
-      onUpdateProduct(updated);
-    } else {
-      onUpdateStock(modalTargetProduct.id, count);
+    if (!firebaseMode) {
+      const nextList = localStock.map(p => p.id === modalTargetProduct.id ? updated : p);
+      saveLocalStockState(nextList);
+      if (onUpdateProduct) onUpdateProduct(updated);
+      else onUpdateStock(modalTargetProduct.id, count);
     }
-    if (variance !== 0) {
+    if (!firebaseMode && variance !== 0) {
       const isIncrease = variance > 0;
       void postStocktakeAdjustmentMovement({
         ...buildMovementPayload(modalTargetProduct, `STK-${Date.now()}`, stRemarks || 'Physical stocktake adjustment.'),
@@ -1538,9 +1554,9 @@ export default function PosStock({
     setActiveModal('ADJUSTMENT');
   };
 
-  const handleAdjustmentSubmit = (e: FormEvent) => {
+  const handleAdjustmentSubmit = async (e: FormEvent) => {
     e.preventDefault();
-    if (!modalTargetProduct) return;
+    if (!modalTargetProduct || inventoryData.posting) return;
 
     const currentRole = session?.role || 'Owner';
     if (!canPerformAction(currentRole as Role, 'STOCK_ADJUSTMENT')) {
@@ -1557,6 +1573,24 @@ export default function PosStock({
     const direction = adjType === 'ADD' ? 1 : -1;
     const computedStock = Math.max(0, modalTargetProduct.stock + (qty * direction));
     const labelSign = adjType === 'ADD' ? `+${qty}` : `-${qty}`;
+    const firebaseMode = (session?.storageMode || import.meta.env.VITE_STORAGE_MODE) === 'firebase';
+    if (firebaseMode) {
+      const result = await inventoryData.adjustStock({
+        productId: modalTargetProduct.id,
+        branchId: modalTargetProduct.branchId || session?.branchId,
+        warehouseId: modalTargetProduct.warehouseId || session?.warehouseId,
+        quantityDelta: qty * direction,
+        reasonCode: adjReason || 'MANUAL_ADJUSTMENT',
+        unitCost: modalTargetProduct.costPrice ?? modalTargetProduct.cost,
+        referenceType: 'ADJUSTMENT',
+        referenceId: `ADJ-${Date.now()}`,
+        notes: `Stock adjustment posted. Reason: ${adjReason}`
+      });
+      if (!result.success) {
+        alert(result.errorMessage || 'Stock adjustment could not be posted.');
+        return;
+      }
+    }
 
     const nextStatus = computedStock === 0 ? 'Out of Stock' : (computedStock <= modalTargetProduct.minStock ? 'Low Stock' : 'In Stock');
     const nextRisk = computedStock === 0 ? 'Critical' : (computedStock <= modalTargetProduct.minStock ? 'High' : 'Low');
@@ -1569,15 +1603,13 @@ export default function PosStock({
       lastMovementDate: '2026-06-08'
     };
 
-    const nextList = localStock.map(p => p.id === modalTargetProduct.id ? updated : p);
-    saveLocalStockState(nextList);
-
-    if (onUpdateProduct) {
-      onUpdateProduct(updated);
-    } else {
-      onUpdateStock(modalTargetProduct.id, computedStock);
+    if (!firebaseMode) {
+      const nextList = localStock.map(p => p.id === modalTargetProduct.id ? updated : p);
+      saveLocalStockState(nextList);
+      if (onUpdateProduct) onUpdateProduct(updated);
+      else onUpdateStock(modalTargetProduct.id, computedStock);
     }
-    void postStockAdjustmentMovement({
+    if (!firebaseMode) void postStockAdjustmentMovement({
       ...buildMovementPayload(modalTargetProduct, `ADJ-${Date.now()}`, `Stock adjustment posted. Reason: ${adjReason}`),
       movementType: adjType === 'ADD' ? 'STOCK_ADJUSTMENT_IN' : 'STOCK_ADJUSTMENT_OUT',
       referenceType: 'ADJUSTMENT',
@@ -1624,9 +1656,9 @@ export default function PosStock({
     setActiveModal('TRANSFER');
   };
 
-  const handleTransferSubmit = (e: FormEvent) => {
+  const handleTransferSubmit = async (e: FormEvent) => {
     e.preventDefault();
-    if (!modalTargetProduct) return;
+    if (!modalTargetProduct || inventoryData.posting) return;
 
     const currentRole = session?.role || 'Owner';
     if (!canPerformAction(currentRole as Role, 'STOCK_ADJUSTMENT')) {
@@ -1647,6 +1679,26 @@ export default function PosStock({
 
     const computedStock = modalTargetProduct.stock - qty;
     const nextStatus = computedStock === 0 ? 'Out of Stock' : (computedStock <= modalTargetProduct.minStock ? 'Low Stock' : 'In Stock');
+    const firebaseMode = (session?.storageMode || import.meta.env.VITE_STORAGE_MODE) === 'firebase';
+    const transferNo = `TRF-${Date.now()}`;
+    if (firebaseMode) {
+      const result = await inventoryData.transferStock({
+        productId: modalTargetProduct.id,
+        sourceBranchId: modalTargetProduct.branchId || session?.branchId,
+        sourceWarehouseId: modalTargetProduct.warehouseId || session?.warehouseId,
+        destinationBranchId: trDestBranch,
+        destinationWarehouseId: trDestWarehouse,
+        quantity: qty,
+        referenceType: 'TRANSFER',
+        referenceId: transferNo,
+        reason: 'Stock transfer from Stock Control.',
+        notes: `Transfer to ${trDestBranch} / ${trDestWarehouse}.`
+      });
+      if (!result.success) {
+        alert(result.errorMessage || 'Stock transfer could not be posted.');
+        return;
+      }
+    }
 
     const updatedSource: StockProduct = {
       ...modalTargetProduct,
@@ -1655,15 +1707,12 @@ export default function PosStock({
       lastMovementDate: '2026-06-08'
     };
 
-    const nextList = localStock.map(p => p.id === modalTargetProduct.id ? updatedSource : p);
-    saveLocalStockState(nextList);
-
-    if (onUpdateProduct) {
-      onUpdateProduct(updatedSource);
-    } else {
-      onUpdateStock(modalTargetProduct.id, computedStock);
+    if (!firebaseMode) {
+      const nextList = localStock.map(p => p.id === modalTargetProduct.id ? updatedSource : p);
+      saveLocalStockState(nextList);
+      if (onUpdateProduct) onUpdateProduct(updatedSource);
+      else onUpdateStock(modalTargetProduct.id, computedStock);
     }
-    const transferNo = `TRF-${Date.now()}`;
     addLocalQueueItem({
       domain: 'Stock',
       eventType: 'STOCK_TRANSFER_REQUESTED',
@@ -1672,7 +1721,7 @@ export default function PosStock({
       risk: 'Medium',
       payload: JSON.stringify({ sku: modalTargetProduct.code, qty, destination: trDestBranch })
     });
-    void postTransferMovement({
+    if (!firebaseMode) void postTransferMovement({
       ...buildMovementPayload(modalTargetProduct, transferNo, `Transfer out to ${trDestBranch} / ${trDestWarehouse}.`),
       movementType: 'TRANSFER_OUT',
       referenceType: 'TRANSFER',
@@ -1683,7 +1732,7 @@ export default function PosStock({
       approvalRequired: false,
       status: 'Posted'
     });
-    void postTransferMovement({
+    if (!firebaseMode) void postTransferMovement({
       ...buildMovementPayload(modalTargetProduct, transferNo, `Transfer in from ${modalTargetProduct.branch || activeBranch}.`),
       branchId: trDestBranch,
       warehouseId: trDestWarehouse,
@@ -1718,8 +1767,9 @@ export default function PosStock({
     }
   };
 
-  const handleReceiveGoodsSubmit = (e: FormEvent) => {
+  const handleReceiveGoodsSubmit = async (e: FormEvent) => {
     e.preventDefault();
+    if (inventoryData.posting) return;
 
     const currentRole = session?.role || 'Owner';
     if (!canPerformAction(currentRole as Role, 'STOCK_ADJUSTMENT')) {
@@ -1739,6 +1789,24 @@ export default function PosStock({
     const computedStock = prod.stock + qty;
     const nextStatus = 'In Stock';
     const nextRisk = 'Low';
+    const firebaseMode = (session?.storageMode || import.meta.env.VITE_STORAGE_MODE) === 'firebase';
+    if (firebaseMode) {
+      const result = await inventoryData.receiveStock({
+        productId: prod.id,
+        branchId: prod.branchId || session?.branchId,
+        warehouseId: prod.warehouseId || session?.warehouseId,
+        quantity: qty,
+        unitCost: prod.costPrice ?? prod.cost,
+        referenceType: 'GOODS_RECEIPT',
+        referenceId: rxPoRef || `GRN-${Date.now()}`,
+        reason: 'Goods received from Stock Control.',
+        notes: `Goods received from ${rxSupplier}.`
+      });
+      if (!result.success) {
+        alert(result.errorMessage || 'Goods receipt could not be posted.');
+        return;
+      }
+    }
 
     const updated: StockProduct = {
       ...prod,
@@ -1748,15 +1816,13 @@ export default function PosStock({
       lastMovementDate: '2026-06-08'
     };
 
-    const nextList = localStock.map(p => p.id === rxProductId ? updated : p);
-    saveLocalStockState(nextList);
-
-    if (onUpdateProduct) {
-      onUpdateProduct(updated);
-    } else {
-      onUpdateStock(prod.id, computedStock);
+    if (!firebaseMode) {
+      const nextList = localStock.map(p => p.id === rxProductId ? updated : p);
+      saveLocalStockState(nextList);
+      if (onUpdateProduct) onUpdateProduct(updated);
+      else onUpdateStock(prod.id, computedStock);
     }
-    void postGoodsReceivedMovement({
+    if (!firebaseMode) void postGoodsReceivedMovement({
       ...buildMovementPayload(prod, rxPoRef || `GRN-${Date.now()}`, `Goods received from ${rxSupplier}.`),
       qtyIn: qty,
       qtyOut: 0,
@@ -1964,6 +2030,13 @@ export default function PosStock({
 
   return (
     <div className="space-y-6 font-mono text-xs text-[#111827] select-none pb-12 overflow-x-hidden">
+      {(productMasterData.loading || inventoryData.loading || inventoryData.synchronizing) && (
+        <div className="sci-pos-notice" role="status">Loading current product and inventory records…</div>
+      )}
+      {(inventoryData.error || productMasterData.error) && (
+        <div className="sci-pos-error" role="alert">{inventoryData.error || productMasterData.error}</div>
+      )}
+      {inventoryData.posting && <div className="sci-pos-notice" role="status">Posting stock movement…</div>}
       
       {/* 1. PROFESSIONAL INDUSTRIAL PAGE HEADER */}
       <div className="bg-white border-2 border-[#b1b5c2] p-5 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">

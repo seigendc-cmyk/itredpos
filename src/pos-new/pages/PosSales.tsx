@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { History, MoreVertical, Printer, RotateCcw, ShieldCheck, X } from 'lucide-react';
 import ProductSearchCard from '../components/ProductSearchCard';
 import SalesCartCard, {
@@ -69,6 +69,9 @@ import { canPerformAction } from '../utils/posPermissions';
 import { matchesFreeOrderSearch } from '../utils/searchUtils';
 import { calculateDocumentTax, posTaxSettingToVendorTaxSettings } from '../services/vendorTaxSettingsService';
 import { completeSale } from '../services/salesCheckoutService';
+import { useProductMasterData } from '../hooks/useProductMasterData';
+import { useInventoryData } from '../hooks/useInventoryData';
+import type { RepositoryOperationContext } from '../repositories/repositoryContext';
 
 interface PosSalesProps {
   products: Product[];
@@ -191,6 +194,25 @@ export default function PosSales({
   const vendorId = session?.vendorId || '';
   const warehouseName = session?.warehouse || 'Main Warehouse';
   const warehouseId = session?.warehouseId || warehouseName;
+  const firebaseMode = (session?.storageMode || import.meta.env.VITE_STORAGE_MODE) === 'firebase';
+  const commerceContext = useMemo<RepositoryOperationContext>(() => ({
+    vendorId,
+    branchId: session?.branchId,
+    warehouseId: session?.warehouseId,
+    terminalId: session?.terminalId,
+    staffId: session?.staffId,
+    actorId: session?.staffId || staffName,
+    actorRole: session?.role,
+    sourceApp: 'ITRED_POS',
+    correlationId: `sales-ui-${vendorId || 'missing'}-${session?.terminalId || 'terminal'}`
+  }), [session?.branchId, session?.role, session?.staffId, session?.terminalId, session?.warehouseId, staffName, vendorId]);
+  const productMasterData = useProductMasterData({ context: commerceContext });
+  const inventoryData = useInventoryData({ context: commerceContext, balanceFilters: { branchId: session?.branchId, warehouseId: session?.warehouseId } });
+  const repositoryProducts = useMemo<Product[]>(() => productMasterData.products.filter((row) => row.status === 'ACTIVE').map((row) => {
+    const balance = inventoryData.balances.find((item) => item.productId === row.productId);
+    const quantity = balance?.quantityOnHand || 0;
+    return { id: row.productId, code: row.sku, name: row.productName, category: row.category || 'Uncategorised', price: row.sellingPrice || 0, cost: row.costPrice || 0, stock: quantity, availableStock: balance?.quantityAvailable ?? quantity, minStock: 0, unit: row.unitOfMeasure || 'pcs', vendorId: row.vendorId, branchId: balance?.branchId || session?.branchId, warehouseId: balance?.warehouseId || session?.warehouseId, sku: row.sku, barcode: row.barcode, alu: row.alu, productNumericNumber: row.numericNo, productName: row.productName, brand: row.brand, industrialSector: row.industrialSector, productCategory: row.category, productSubCategory: row.subcategory, costPrice: row.costPrice, sellingPrice: row.sellingPrice, qtyOnHand: quantity, isActive: true, createdAt: row.createdAt, updatedAt: row.updatedAt };
+  }), [inventoryData.balances, productMasterData.products, session?.branchId, session?.warehouseId]);
 
   const [localProducts, setLocalProducts] = useState<Product[]>(products.length > 0 ? products : DEFAULT_PRODUCTS);
   const [cart, setCart] = useState<CartItem[]>([]);
@@ -255,10 +277,12 @@ export default function PosSales({
   const [pendingBridgeCustomer, setPendingBridgeCustomer] = useState<SelectedCustomerForSaleBridge | null>(null);
   const [bridgeCustomerChecked, setBridgeCustomerChecked] = useState(false);
   const [isCompletingSale, setIsCompletingSale] = useState(false);
+  const checkoutAttemptRef = useRef<{ fingerprint: string; idempotencyKey: string } | null>(null);
 
   useEffect(() => {
-    const baseProducts = products.length > 0 ? products : DEFAULT_PRODUCTS;
+    const baseProducts = firebaseMode ? repositoryProducts : (products.length > 0 ? products : DEFAULT_PRODUCTS);
     setLocalProducts(baseProducts);
+    if (firebaseMode) return undefined;
     let cancelled = false;
     Promise.all(baseProducts.map(async (product) => {
       try {
@@ -273,11 +297,11 @@ export default function PosSales({
     return () => {
       cancelled = true;
     };
-  }, [products]);
+  }, [firebaseMode, products, repositoryProducts]);
 
   useEffect(() => {
-    getCustomers({ status: 'Active' }).then(setActiveCustomers).catch(() => setActiveCustomers([]));
-  }, []);
+    getCustomers({ status: 'Active' }, session).then(setActiveCustomers).catch(() => setActiveCustomers([]));
+  }, [session]);
 
   useEffect(() => {
     getHeldSales().then(setHeldSales).catch(() => setHeldSales([]));
@@ -463,6 +487,7 @@ export default function PosSales({
   };
 
   const clearCartState = () => {
+    checkoutAttemptRef.current = null;
     setCart([]);
     setPayments([]);
     setPaymentAmount('');
@@ -693,7 +718,7 @@ export default function PosSales({
       logEvent('CUSTOMER_CREATED_PENDING_BI_SKIPPED', 'Customer business insight update was skipped safely.');
     }
     setStatusMessage(network === 'Offline' || network === 'Unstable' ? 'Customer request saved and queued for sync.' : 'Customer request created and sent for approval.');
-    getCustomers({ status: 'Active' }).then(setActiveCustomers).catch(() => undefined);
+    getCustomers({ status: 'Active' }, session).then(setActiveCustomers).catch(() => undefined);
   };
 
   const handleBlockedProduct = (product: Product) => {
@@ -1096,6 +1121,10 @@ export default function PosSales({
         staffId || staffName
       );
       const selectedCustomerRecord = activeCustomers.find((customer) => customer.customerId === selectedCustomerId);
+      const checkoutFingerprint = JSON.stringify({ vendorId, branchId, warehouseId: session?.warehouseId, terminalId, customerId: selectedCustomerId || 'WALK-IN', cart: cart.map((item) => ({ productId: item.product.id, quantity: item.quantity, price: item.overriddenPrice ?? item.product.price, discount: item.discount })), payments: payments.map((payment) => ({ method: payment.method, amount: payment.amount, reference: payment.reference })), total: grandTotal });
+      if (!checkoutAttemptRef.current || checkoutAttemptRef.current.fingerprint !== checkoutFingerprint) {
+        checkoutAttemptRef.current = { fingerprint: checkoutFingerprint, idempotencyKey: `checkout-${vendorId}-${terminalId}-${Date.now()}-${Math.random().toString(36).slice(2, 10)}` };
+      }
       const result = await completeSale({
         session,
         customer: {
@@ -1131,6 +1160,7 @@ export default function PosSales({
           paymentMode: deliveryPaymentMode
         },
         activeShiftId: activeShift?.id,
+        idempotencyKey: checkoutAttemptRef.current.idempotencyKey,
         drawerId: activeShift ? `DRAWER-${terminalId}` : undefined,
         permissions: {
           canCompleteSale: canPerformAction(roleName, 'sales.complete'),
@@ -1144,7 +1174,8 @@ export default function PosSales({
         allowNegativeStock: false
       });
 
-      onAddTransaction({
+      if (import.meta.env.VITE_STORAGE_MODE !== 'firebase') {
+        onAddTransaction({
         operator: result.sale.operator,
         customerName: result.sale.customerName,
         customerId: result.sale.customerId,
@@ -1161,34 +1192,39 @@ export default function PosSales({
         cashReceived: result.sale.cashReceived,
         changeGiven: result.sale.changeGiven,
         status: result.sale.status
-      });
+        });
 
-      cart.filter((item) => item.lineType !== 'MiscellaneousItem' && item.isInventoryAsset !== false && item.stockMovementRequired !== false).forEach((item) => onProductStockChange(item.product.id, item.quantity));
-      setLocalProducts((current) => current.map((product) => {
-        const soldLine = cart.find((item) => item.product.id === product.id && item.lineType !== 'MiscellaneousItem' && item.isInventoryAsset !== false && item.stockMovementRequired !== false);
-        return soldLine ? {
-          ...product,
-          stock: Math.max(0, product.stock - soldLine.quantity),
-          qtyOnHand: Math.max(0, (product.qtyOnHand ?? product.stock) - soldLine.quantity),
-          availableStock: Math.max(0, productStock(product) - soldLine.quantity)
-        } : product;
-      }));
+        cart.filter((item) => item.lineType !== 'MiscellaneousItem' && item.isInventoryAsset !== false && item.stockMovementRequired !== false).forEach((item) => onProductStockChange(item.product.id, item.quantity));
+        setLocalProducts((current) => current.map((product) => {
+          const soldLine = cart.find((item) => item.product.id === product.id && item.lineType !== 'MiscellaneousItem' && item.isInventoryAsset !== false && item.stockMovementRequired !== false);
+          return soldLine ? {
+            ...product,
+            stock: Math.max(0, product.stock - soldLine.quantity),
+            qtyOnHand: Math.max(0, (product.qtyOnHand ?? product.stock) - soldLine.quantity),
+            availableStock: Math.max(0, productStock(product) - soldLine.quantity)
+          } : product;
+        }));
+      }
 
       if (hasMiscellaneousLines) {
-        await Promise.all(cart.filter((item) => item.lineType === 'MiscellaneousItem' || item.biFlagged).map(async (item) => {
-          const advice = await createMiscellaneousSaleAdvice({
-            receiptNo: result.receipt.receiptNumber,
-            description: productName(item.product),
-            amount: cartLineTotal(item),
-            quantity: item.quantity,
-            reason: item.miscReason || 'Miscellaneous non-inventory sale completed.',
-            staffName,
-            terminalName,
-            branchName,
-            notes: item.miscNotes
-          });
-          await routeBIAdviceToDesk(advice);
-        }));
+        try {
+          await Promise.all(cart.filter((item) => item.lineType === 'MiscellaneousItem' || item.biFlagged).map(async (item) => {
+            const advice = await createMiscellaneousSaleAdvice({
+              receiptNo: result.receipt.receiptNumber,
+              description: productName(item.product),
+              amount: cartLineTotal(item),
+              quantity: item.quantity,
+              reason: item.miscReason || 'Miscellaneous non-inventory sale completed.',
+              staffName,
+              terminalName,
+              branchName,
+              notes: item.miscNotes
+            });
+            await routeBIAdviceToDesk(advice);
+          }));
+        } catch {
+          logEvent('MISCELLANEOUS_SALE_BI_FOLLOW_UP_FAILED', 'Sale committed; miscellaneous BI follow-up requires retry.');
+        }
       }
 
       const completedSaleForReceipts = result.sale;
@@ -1576,6 +1612,8 @@ export default function PosSales({
 
   return (
     <div className="sales-terminal-shell">
+      {firebaseMode && (productMasterData.loading || inventoryData.loading || inventoryData.synchronizing) && <div className="sci-pos-alert" role="status">Loading current products and stock…</div>}
+      {firebaseMode && (productMasterData.error || inventoryData.error) && <div className="sci-pos-error" role="alert">{productMasterData.error || inventoryData.error}</div>}
       <header className="sci-page-header sci-page-header--compact sales-terminal-page-header">
         <div>
           <p className="sci-pos-eyebrow">iTred Commerce POS - Vendor Commerce Terminal</p>

@@ -8,12 +8,14 @@ import { createFirestoreCustomerRepository } from './firestore/FirestoreCustomer
 import { createFirestoreInventoryRepository } from './firestore/FirestoreInventoryRepository';
 import { createFirestoreBIEventRepository } from './firestore/FirestoreBIEventRepository';
 import { createFirestoreAuditRepository } from './firestore/FirestoreAuditRepository';
+import { createFirestoreSalesRepository } from './firestore/FirestoreSalesRepository';
 import type { VendorRepository } from './VendorRepository';
 import type { ProductRepository } from './ProductRepository';
 import type { CustomerRepository } from './CustomerRepository';
 import type { InventoryRepository } from './InventoryRepository';
 import type { BIEventRepository } from './BIEventRepository';
 import type { AuditRepository } from './AuditRepository';
+import type { SalesRepository } from './SalesRepository';
 
 export type RepositoryStorageMode = 'firebase' | 'local';
 
@@ -43,6 +45,18 @@ export interface RepositoryBundle {
   inventory: InventoryRepository;
   biEvents: BIEventRepository;
   audit: AuditRepository;
+  sales: SalesRepository;
+}
+
+function unavailableSalesRepository(errorMessage: string, errorCode?: string): SalesRepository {
+  return {
+    commitSaleTransaction: () => Promise.resolve({ success: false, errorCode, errorMessage }),
+    listSales: () => Promise.resolve({ success: false, records: [], errorCode, errorMessage }),
+    getSaleDetails: () => Promise.resolve({ success: false, errorCode, errorMessage }),
+    subscribeSales: () => ({ unsubscribe: () => {} }),
+    voidSale: () => Promise.resolve({ success: false, errorCode, errorMessage }),
+    refundSale: () => Promise.resolve({ success: false, errorCode, errorMessage })
+  };
 }
 
 function createUnavailableCustomerRepository(errorMessage: string, errorCode?: string): CustomerRepository {
@@ -121,7 +135,8 @@ function createLocalAdapters(): RepositoryBundle {
     audit: {
       appendAuditRecord: () => Promise.resolve({ success: false, errorMessage: 'Local audit repository is not implemented.' }),
       listAuditRecords: () => Promise.resolve({ success: false, records: [], errorMessage: 'Local audit repository is not implemented.' })
-    } as AuditRepository
+    } as AuditRepository,
+    sales: unavailableSalesRepository('Local sales transaction repository is not implemented.')
   };
 }
 
@@ -191,7 +206,8 @@ export function createRepositoryBundle(): RepositoryBundle {
         audit: {
           appendAuditRecord: () => Promise.resolve({ success: false, errorCode: 'REPOSITORY_CONFIGURATION_ERROR', errorMessage: 'Firebase is unavailable.' }),
           listAuditRecords: () => Promise.resolve({ success: false, records: [], errorCode: 'REPOSITORY_CONFIGURATION_ERROR', errorMessage: 'Firebase is unavailable.' })
-        } as AuditRepository
+        } as AuditRepository,
+        sales: unavailableSalesRepository('Firebase is unavailable.', 'REPOSITORY_CONFIGURATION_ERROR')
       };
     }
 
@@ -202,6 +218,7 @@ export function createRepositoryBundle(): RepositoryBundle {
       inventory: createFirestoreInventoryRepository(),
       biEvents: createFirestoreBIEventRepository(),
       audit: createFirestoreAuditRepository()
+      , sales: createFirestoreSalesRepository()
     };
   }
 

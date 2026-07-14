@@ -13,14 +13,17 @@ import {
   WalletCards,
   X
 } from 'lucide-react';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import RowActionMenu, { RowActionMenuItem } from '../components/RowActionMenu';
 import ReceiptOutputModal from '../components/ReceiptOutputModal';
 import ReceiptPrintDocument from '../components/ReceiptPrintDocument';
 import { mockReceiptLines, mockReceiptPayments, mockReceiptRecords } from '../mock/mockPosData';
+import type { SalesRecordDetails } from '../repositories/SalesRepository';
+import type { RepositoryOperationContext } from '../repositories/repositoryContext';
 import { getDeliveryRequests } from '../services/deliveryService';
 import { formatReceiptCurrency, getActiveReceiptBlueprint, prepareReceiptWhatsAppMessage } from '../services/receiptService';
-import { DeliveryRequest, PosSession, ReceiptLine, ReceiptPrintPreview, ReceiptRecord, Role } from '../types';
+import { getCommittedSaleDetails, listCommittedSales, refundSaleCommand, subscribeCommittedSales, voidSaleCommand } from '../services/salesTransactionService';
+import { DeliveryRequest, PaymentMode, PosSession, ReceiptLine, ReceiptPaymentLine, ReceiptPrintPreview, ReceiptRecord, Role } from '../types';
 import { hasPermission, PermissionKey } from '../utils/posPermissions';
 import { matchesFreeOrderSearch } from '../utils/searchUtils';
 import { seedRows } from '../utils/vendorDataMode';
@@ -37,9 +40,12 @@ const paymentMethods = ['All', 'Cash', 'EcoCash', 'Swipe', 'Bank Transfer', 'Spl
 const deliveryStatuses = ['All', 'Out for Delivery', 'Assigned', 'Waiting Collection', 'Pending Assignment', 'Failed', 'Not Linked'];
 const returnStatuses = ['All', 'Completed', 'Refunded', 'Partially Refunded', 'Voided', 'Fiscal Pending'];
 
+type RepositoryReceiptRecord = ReceiptRecord & { repositoryLines?: ReceiptLine[]; repositoryPayments?: ReceiptPaymentLine[]; repositoryRefundedQuantities?: Record<string, number> };
+
 function makeReceiptPreview(receipt: ReceiptRecord): ReceiptPrintPreview {
-  const lines = seedRows(mockReceiptLines).filter((line) => line.receiptNumber === receipt.receiptNumber);
-  const payments = seedRows(mockReceiptPayments).filter((payment) => payment.receiptNumber === receipt.receiptNumber);
+  const repositoryReceipt = receipt as RepositoryReceiptRecord;
+  const lines = repositoryReceipt.repositoryLines || seedRows(mockReceiptLines).filter((line) => line.receiptNumber === receipt.receiptNumber);
+  const payments = repositoryReceipt.repositoryPayments || seedRows(mockReceiptPayments).filter((payment) => payment.receiptNumber === receipt.receiptNumber);
   const blueprint = getActiveReceiptBlueprint();
   return {
     receipt,
@@ -61,7 +67,55 @@ function makeReceiptPreview(receipt: ReceiptRecord): ReceiptPrintPreview {
 }
 
 function receiptLines(receipt: ReceiptRecord): ReceiptLine[] {
-  return seedRows(mockReceiptLines).filter((line) => line.receiptNumber === receipt.receiptNumber);
+  return (receipt as RepositoryReceiptRecord).repositoryLines || seedRows(mockReceiptLines).filter((line) => line.receiptNumber === receipt.receiptNumber);
+}
+
+function paymentMode(details: SalesRecordDetails): PaymentMode {
+  if (details.payments.length > 1) return 'Split Payment';
+  const method = details.payments[0]?.paymentMethod;
+  if (method === 'Mobile Money') return 'EcoCash';
+  if (method === 'Card') return 'Swipe';
+  if (method === 'Credit') return 'Credit Sale';
+  if (method === 'Bank Transfer' || method === 'Cash') return method;
+  return 'Split Payment';
+}
+
+function toReceiptRecord(details: SalesRecordDetails, session: PosSession): RepositoryReceiptRecord {
+  const { sale } = details;
+  const receiptNumber = sale.receiptNumber || sale.saleNumber;
+  const mode = paymentMode(details);
+  return {
+    id: sale.saleId,
+    saleId: sale.saleId,
+    receiptNumber,
+    vendorId: sale.vendorId,
+    businessVendor: session.vendor || sale.vendorId,
+    branchId: sale.branchId,
+    branch: session.branch || sale.branchId,
+    terminalId: sale.terminalId,
+    terminal: session.terminal || sale.terminalId,
+    cashierId: sale.staffId,
+    cashier: sale.staffName,
+    businessDate: sale.saleDate.slice(0, 10),
+    dateTime: sale.saleDate,
+    customer: { customerId: sale.customerId === 'WALK-IN' ? undefined : sale.customerId, customerName: sale.customerName },
+    businessDetails: { businessName: session.vendor || sale.vendorId, tradingName: session.vendor || sale.vendorId, vendorId: sale.vendorId, branch: session.branch || sale.branchId, address: '', phone: '', whatsApp: '', vatRegistered: sale.vatTotal > 0, footerMessage: '' },
+    subtotal: sale.subtotal,
+    discountTotal: sale.discountTotal,
+    vatTotal: sale.vatTotal,
+    grandTotal: sale.grandTotal,
+    paymentMode: mode,
+    status: sale.saleStatus === 'Voided' ? 'Voided' : sale.saleStatus === 'Returned' ? 'Refunded' : sale.saleStatus === 'Partially Returned' ? 'Partially Refunded' : 'Completed',
+    fiscalizationStatus: 'Not Required',
+    reprintCount: 0,
+    offlineQueued: sale.postingStatus === 'PendingSync',
+    createdByStaffId: sale.staffId,
+    createdAt: sale.createdAt,
+    updatedAt: sale.updatedAt,
+    repositoryLines: details.saleLines.map((line) => ({ id: line.saleLineId, receiptNumber, productId: line.productId, sku: line.sku, productName: line.productName, quantity: line.quantity, unitPrice: line.unitPrice, discountAmount: line.discountAmount, lineNetAmount: line.taxableAmount, vatAmount: line.vatAmount, lineTotal: line.lineTotal })),
+    repositoryPayments: details.payments.map((payment) => ({ id: payment.paymentId, receiptNumber, paymentMode: mode, amount: payment.amount, reference: payment.reference, confirmed: true }))
+    , repositoryRefundedQuantities: sale.refundedQuantities || {}
+  };
 }
 
 export default function PosSalesHistory({ session, onNavigate }: PosSalesHistoryProps) {
@@ -97,10 +151,50 @@ export default function PosSalesHistory({ session, onNavigate }: PosSalesHistory
   const [whatsAppReceipt, setWhatsAppReceipt] = useState<ReceiptRecord | null>(null);
   const [whatsAppPhone, setWhatsAppPhone] = useState('');
   const [, setActivityEvents] = useState<string[]>([]);
+  const [committedReceipts, setCommittedReceipts] = useState<RepositoryReceiptRecord[]>([]);
+  const [salesLoading, setSalesLoading] = useState(import.meta.env.VITE_STORAGE_MODE === 'firebase');
+  const [salesError, setSalesError] = useState<string | null>(null);
+  const [reversalSaving, setReversalSaving] = useState(false);
+  const [reversalSuccess, setReversalSuccess] = useState<string | null>(null);
+  const [reversalError, setReversalError] = useState<string | null>(null);
+  const refundAttemptRef = useRef<{ fingerprint: string; idempotencyKey: string } | null>(null);
+  const salesContext = useMemo<RepositoryOperationContext>(() => ({
+    vendorId: session.vendorId || '',
+    branchId: session.branchId,
+    warehouseId: session.warehouseId,
+    terminalId: session.terminalId,
+    staffId: session.staffId,
+    actorId: session.staffId || session.staffName || 'POS',
+    actorRole: session.role,
+    sourceApp: 'ITRED_POS',
+    correlationId: `sales-history-${session.vendorId || 'missing'}-${session.staffId || 'staff'}`
+  }), [session.vendorId, session.branchId, session.warehouseId, session.terminalId, session.staffId, session.staffName, session.role]);
 
   useEffect(() => {
     getDeliveryRequests({}).then(setDeliveries).catch(() => setDeliveries([]));
   }, []);
+
+  useEffect(() => {
+    if (import.meta.env.VITE_STORAGE_MODE !== 'firebase') { setSalesLoading(false); return undefined; }
+    let active = true;
+    if (!salesContext.vendorId) { setSalesError('Missing vendor context. Sign in again.'); setSalesLoading(false); return undefined; }
+    const loadDetails = async (saleIds: string[]) => {
+      setSalesLoading(true);
+      try {
+        const details = await Promise.all(saleIds.map((saleId) => getCommittedSaleDetails(salesContext, saleId)));
+        if (active) { setCommittedReceipts(details.map((row) => toReceiptRecord(row, session))); setSalesError(null); }
+      } catch (reason) {
+        if (active) setSalesError(reason instanceof Error ? reason.message : 'Sales history could not be loaded.');
+      } finally {
+        if (active) setSalesLoading(false);
+      }
+    };
+    void listCommittedSales(salesContext).then((rows) => loadDetails(rows.map((row) => row.saleId))).catch((reason) => {
+      if (active) { setSalesError(reason instanceof Error ? reason.message : 'Sales history could not be loaded.'); setSalesLoading(false); }
+    });
+    const subscription = subscribeCommittedSales(salesContext, (rows) => { if (active) void loadDetails(rows.map((row) => row.saleId)); });
+    return () => { active = false; subscription.unsubscribe(); };
+  }, [salesContext, session]);
 
   const deliveryByReceipt = useMemo(() => {
     return new Map(deliveries.map((delivery) => [delivery.receiptNumber, delivery]));
@@ -113,7 +207,8 @@ export default function PosSalesHistory({ session, onNavigate }: PosSalesHistory
   };
 
   const rows = useMemo(() => {
-    return seedRows(mockReceiptRecords).filter((receipt) => {
+    const sourceRows = import.meta.env.VITE_STORAGE_MODE === 'firebase' ? committedReceipts : seedRows(mockReceiptRecords);
+    return sourceRows.filter((receipt) => {
       const delivery = deliveryByReceipt.get(receipt.receiptNumber);
       const deliveryStatus = delivery?.deliveryStatus || 'Not Linked';
       const receiptDate = receipt.businessDate || receipt.dateTime.slice(0, 10);
@@ -159,7 +254,7 @@ export default function PosSalesHistory({ session, onNavigate }: PosSalesHistory
         (row) => row.customer.customerName
       ]);
     });
-  }, [deliveryByReceipt, filters]);
+  }, [committedReceipts, deliveryByReceipt, filters]);
 
   const requirePermission = (permission: PermissionKey, action: string): boolean => {
     if (can(permission)) return true;
@@ -213,18 +308,59 @@ export default function PosSalesHistory({ session, onNavigate }: PosSalesHistory
     recordEvent('SALES_RETURN_STARTED', `${receipt.receiptNumber} return started.`);
   };
 
-  const finishReturn = (action: ReturnAction) => {
-    if (!returnReceipt) return;
+  const finishReturn = async (action: ReturnAction) => {
+    if (!returnReceipt || reversalSaving) return;
     const selectedTotal = Object.keys(returnQuantities).reduce((sum, lineId) => sum + (returnQuantities[lineId] || 0), 0);
     if (selectedTotal <= 0) {
       setNotice('Select at least one return quantity.');
       return;
     }
-    setNotice(action === 'Draft'
-      ? `Return draft created locally for ${returnReceipt.receiptNumber}.`
-      : `Return submitted for approval locally for ${returnReceipt.receiptNumber}.`);
-    recordEvent('SALES_RETURN_DRAFT_CREATED', `${returnReceipt.receiptNumber} return ${action.toLowerCase()} created.`);
-    setReturnReceipt(null);
+    if (!returnReason.trim()) { setReversalError('A refund reason is required.'); return; }
+    if (action === 'Draft' && import.meta.env.VITE_STORAGE_MODE !== 'firebase') {
+      setNotice(`Return draft created locally for ${returnReceipt.receiptNumber}.`);
+      recordEvent('SALES_RETURN_DRAFT_CREATED', `${returnReceipt.receiptNumber} return draft created.`);
+      setReturnReceipt(null);
+      return;
+    }
+    const saleId = returnReceipt.saleId || returnReceipt.id;
+    const lines = Object.entries(returnQuantities).filter(([, quantity]) => quantity > 0).map(([saleLineId, quantity]) => ({ saleLineId, quantity }));
+    const fingerprint = JSON.stringify({ saleId, lines, reason: returnReason.trim(), notes: returnNotes.trim() });
+    if (!refundAttemptRef.current || refundAttemptRef.current.fingerprint !== fingerprint) refundAttemptRef.current = { fingerprint, idempotencyKey: `refund-${saleId}-${Date.now()}-${Math.random().toString(36).slice(2, 9)}` };
+    setReversalSaving(true);
+    setReversalError(null);
+    setReversalSuccess(null);
+    try {
+      const result = await refundSaleCommand(salesContext, { saleId, idempotencyKey: refundAttemptRef.current.idempotencyKey, lines, reason: returnReason.trim(), notes: [returnNotes.trim(), `Condition: ${returnCondition}`].filter(Boolean).join(' | ') });
+      const message = result.duplicate ? `Refund ${result.reversalId} was already posted.` : `Refund posted for ${returnReceipt.receiptNumber}.`;
+      setNotice(message);
+      setReversalSuccess(message);
+      recordEvent('SALE_REFUNDED', message);
+      setReturnReceipt(null);
+    } catch (reason) {
+      setReversalError(reason instanceof Error ? reason.message : 'Refund could not be posted.');
+    } finally {
+      setReversalSaving(false);
+    }
+  };
+
+  const handleVoidSale = async (receipt: ReceiptRecord) => {
+    if (reversalSaving || !requirePermission('sales.void', 'Void Sale')) return;
+    const reason = window.prompt(`Reason for voiding ${receipt.receiptNumber}?`);
+    if (!reason?.trim()) return;
+    setReversalSaving(true);
+    setReversalError(null);
+    setReversalSuccess(null);
+    try {
+      const result = await voidSaleCommand(salesContext, receipt.saleId || receipt.id, reason.trim());
+      const message = result.duplicate ? `${receipt.receiptNumber} was already voided.` : `${receipt.receiptNumber} voided without deleting the original sale.`;
+      setNotice(message);
+      setReversalSuccess(message);
+      recordEvent('SALE_VOIDED', message);
+    } catch (error) {
+      setReversalError(error instanceof Error ? error.message : 'Sale could not be voided.');
+    } finally {
+      setReversalSaving(false);
+    }
   };
 
   const createCreditNote = (receipt: ReceiptRecord) => {
@@ -271,6 +407,7 @@ export default function PosSalesHistory({ session, onNavigate }: PosSalesHistory
     { label: 'Save Receipt as PDF', icon: <Download size={14} />, onClick: () => startPrint(receipt, true), disabled: !can('receipt.pdf') },
     { label: 'Send Receipt via WhatsApp', icon: <MessageCircle size={14} />, onClick: () => openWhatsApp(receipt), disabled: !can('receipt.whatsappShare') },
     { label: 'Sales Return', icon: <RotateCcw size={14} />, onClick: () => startReturn(receipt), disabled: !can('sales.return') },
+    { label: 'Void Sale', icon: <X size={14} />, onClick: () => void handleVoidSale(receipt), disabled: !can('sales.void') || receipt.status !== 'Completed' || reversalSaving, danger: true },
     { label: 'Create Credit Note', icon: <FileText size={14} />, onClick: () => createCreditNote(receipt), disabled: !can('sales.creditNote') },
     { label: 'Duplicate as New Sale', icon: <CopyPlus size={14} />, onClick: () => duplicateReceipt(receipt), disabled: !can('sales.duplicateReceipt') },
     { label: 'View Payment Detail', icon: <WalletCards size={14} />, onClick: () => openDetail(receipt, 'Payment'), disabled: !can('sales.paymentDetail.view') },
@@ -298,6 +435,11 @@ export default function PosSalesHistory({ session, onNavigate }: PosSalesHistory
           {notice}
         </div>
       )}
+      {salesLoading && <div className="sales-history-notice" role="status">Loading committed sales…</div>}
+      {salesError && <div className="sci-pos-error" role="alert">{salesError}</div>}
+      {reversalSaving && <div className="sales-history-notice" role="status">Posting sale reversal…</div>}
+      {reversalSuccess && <div className="sales-history-notice" role="status">{reversalSuccess}</div>}
+      {reversalError && <div className="sci-pos-error" role="alert">{reversalError}</div>}
 
       <div className="sales-history-filter-card">
         <div className="sales-history-filter-grid">
@@ -392,6 +534,7 @@ export default function PosSalesHistory({ session, onNavigate }: PosSalesHistory
         notes={returnNotes}
         restock={returnRestock}
         condition={returnCondition}
+        saving={reversalSaving}
         onQuantityChange={(lineId, value) => setReturnQuantities((current) => ({ ...current, [lineId]: value }))}
         onReasonChange={setReturnReason}
         onNotesChange={setReturnNotes}
@@ -475,6 +618,7 @@ function ReturnModal({
   notes,
   restock,
   condition,
+  saving,
   onQuantityChange,
   onReasonChange,
   onNotesChange,
@@ -490,6 +634,7 @@ function ReturnModal({
   notes: string;
   restock: boolean;
   condition: string;
+  saving: boolean;
   onQuantityChange: (lineId: string, value: number) => void;
   onReasonChange: (value: string) => void;
   onNotesChange: (value: string) => void;
@@ -510,18 +655,19 @@ function ReturnModal({
             <Detail label="Receipt Number" value={receipt.receiptNumber} />
             <Detail label="Sale Date" value={new Date(receipt.dateTime).toLocaleString()} />
             <Detail label="Customer" value={receipt.customer.customerName} />
-            <Detail label="Refund Method" value="Placeholder - no refund API" />
+            <Detail label="Refund Method" value="Original payment method reversal" />
           </div>
           <div className="sales-history-modal-table-wrap">
             <table className="sales-history-modal-table">
               <thead><tr><th>Select Line</th><th>Sold Qty</th><th>Return Qty</th><th>Reason</th></tr></thead>
               <tbody>{lines.map((line) => {
                 const qty = quantities[line.id] || 0;
+                const remainingQty = Math.max(0, line.quantity - Number((receipt as RepositoryReceiptRecord).repositoryRefundedQuantities?.[line.id] || 0));
                 return (
                   <tr key={line.id}>
                     <td>{line.sku}<span>{line.productName}</span></td>
                     <td>{line.quantity}</td>
-                    <td><input type="number" min={0} max={line.quantity} value={qty} onChange={(event) => onQuantityChange(line.id, Math.min(line.quantity, Math.max(0, Number(event.target.value) || 0)))} /></td>
+                    <td><input type="number" min={0} max={remainingQty} disabled={remainingQty === 0 || saving} value={qty} onChange={(event) => onQuantityChange(line.id, Math.min(remainingQty, Math.max(0, Number(event.target.value) || 0)))} /></td>
                     <td>{reason}</td>
                   </tr>
                 );
@@ -531,14 +677,14 @@ function ReturnModal({
           <div className="sales-history-return-form">
             <HistoryField label="Reason" value={reason} onChange={onReasonChange} />
             <HistorySelect label="Condition" value={condition} options={['Good', 'Damaged', 'Opened', 'Wrong Item', 'Other']} onChange={onConditionChange} />
-            <label className="sales-history-checkbox"><input type="checkbox" checked={restock} onChange={(event) => onRestockChange(event.target.checked)} /> Restock if approved</label>
+            <label className="sales-history-checkbox"><input type="checkbox" checked={import.meta.env.VITE_STORAGE_MODE === 'firebase' ? true : restock} disabled={import.meta.env.VITE_STORAGE_MODE === 'firebase' || saving} onChange={(event) => onRestockChange(event.target.checked)} /> Return inventory to stock</label>
             <label><span>Notes</span><textarea rows={3} value={notes} onChange={(event) => onNotesChange(event.target.value)} /></label>
           </div>
         </div>
         <footer className="sales-history-modal-actions">
-          <button type="button" className="sci-pos-button sci-pos-button--primary" onClick={onCreateDraft}>Create Return Draft</button>
-          <button type="button" className="sci-pos-button sci-pos-button--secondary" onClick={onSubmitApproval}>Submit Return for Approval</button>
-          <button type="button" className="sci-pos-button sci-pos-button--secondary" onClick={onClose}>Cancel</button>
+          {import.meta.env.VITE_STORAGE_MODE !== 'firebase' && <button type="button" className="sci-pos-button sci-pos-button--primary" disabled={saving} onClick={onCreateDraft}>Create Return Draft</button>}
+          <button type="button" className="sci-pos-button sci-pos-button--primary" disabled={saving} onClick={onSubmitApproval}>{saving ? 'Posting Refund…' : import.meta.env.VITE_STORAGE_MODE === 'firebase' ? 'Post Refund' : 'Submit Return for Approval'}</button>
+          <button type="button" className="sci-pos-button sci-pos-button--secondary" disabled={saving} onClick={onClose}>Cancel</button>
         </footer>
       </section>
     </div>

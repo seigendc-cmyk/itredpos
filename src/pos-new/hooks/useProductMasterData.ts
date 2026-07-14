@@ -34,24 +34,12 @@ export function useProductMasterData(options: UseProductMasterDataOptions): UseP
 
   const bundleRef = useRef<RepositoryBundle | null>(null);
   const subscriptionsRef = useRef<RepositorySubscription[]>([]);
-
-  try {
-    validateRepositoryOperationContext(context);
-  } catch {
-    return {
-      products: [],
-      loading: false,
-      synchronizing: false,
-      error: 'Invalid repository operation context.',
-      filters: {},
-      setFilters: () => {},
-      search: async () => [],
-      refresh: async () => {},
-      createProduct: async () => ({ success: false, errorMessage: 'Invalid context.' }),
-      updateProduct: async () => ({ success: false, errorMessage: 'Invalid context.' }),
-      deactivateProduct: async () => ({ success: false, errorMessage: 'Invalid context.' })
-    };
-  }
+  const mountedRef = useRef(false);
+  const operationContext = useMemo<RepositoryOperationContext>(() => ({ ...context }), [context.vendorId, context.branchId, context.warehouseId, context.terminalId, context.staffId, context.actorId, context.actorRole, context.sourceApp, context.correlationId]);
+  const validationMessage = useMemo(() => {
+    try { validateRepositoryOperationContext(operationContext); return null; }
+    catch (reason) { return reason instanceof Error ? reason.message : 'Invalid repository operation context.'; }
+  }, [operationContext]);
 
   const bundle = useMemo(() => {
     if (!bundleRef.current) {
@@ -66,10 +54,14 @@ export function useProductMasterData(options: UseProductMasterDataOptions): UseP
   }, []);
 
   const refresh = useCallback(async () => {
-    setSynchronizing(true);
-    setError(null);
+    if (validationMessage) {
+      if (mountedRef.current) { setError(validationMessage); setLoading(false); }
+      return;
+    }
+    if (mountedRef.current) { setSynchronizing(true); setError(null); }
     try {
-      const result = await loadProductMaster(context, filters);
+      const result = await loadProductMaster(operationContext, filters);
+      if (!mountedRef.current) return;
       if (result.success) {
         setProducts(result.records);
       }
@@ -77,36 +69,39 @@ export function useProductMasterData(options: UseProductMasterDataOptions): UseP
         setError(result.errorMessage);
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load product master.');
+      if (mountedRef.current) setError(err instanceof Error ? err.message : 'Failed to load product master.');
     } finally {
-      setSynchronizing(false);
-      setLoading(false);
+      if (mountedRef.current) { setSynchronizing(false); setLoading(false); }
     }
-  }, [context, filters]);
+  }, [filters, operationContext, validationMessage]);
 
   useEffect(() => {
     let active = true;
+    mountedRef.current = true;
     setLoading(true);
     setError(null);
 
     void refresh();
 
+    if (validationMessage) return () => { active = false; mountedRef.current = false; unsubscribeAll(); };
     const productRepo = bundle.products as ProductRepository;
-    const subscription = productRepo.subscribeProducts(context, (records) => {
+    const subscription = productRepo.subscribeProducts(operationContext, (records) => {
       if (active) setProducts(records);
     });
     subscriptionsRef.current.push(subscription);
 
     return () => {
       active = false;
+      mountedRef.current = false;
       unsubscribeAll();
     };
-  }, [bundle, context, refresh, unsubscribeAll]);
+  }, [bundle, operationContext, refresh, unsubscribeAll, validationMessage]);
 
   const search = useCallback(async (term: string): Promise<SharedProductRecord[]> => {
     setSynchronizing(true);
     try {
-      const result = await searchProductMaster(context, term, filters);
+      if (validationMessage) return [];
+      const result = await searchProductMaster(operationContext, term, filters);
       if (!result.success && result.errorMessage) {
         setError(result.errorMessage);
       }
@@ -118,12 +113,13 @@ export function useProductMasterData(options: UseProductMasterDataOptions): UseP
     } finally {
       setSynchronizing(false);
     }
-  }, [context, filters]);
+  }, [filters, operationContext, validationMessage]);
 
   const createProductHandler = useCallback(async (product: Partial<SharedProductRecord>): Promise<ProductMasterResult<SharedProductRecord>> => {
     setSynchronizing(true);
     try {
-      const result = await createProductCommand(context, product);
+      if (validationMessage) return { success: false, errorMessage: validationMessage };
+      const result = await createProductCommand(operationContext, product);
       if (!result.success) {
         setError(result.errorMessage || 'Failed to create product.');
       }
@@ -135,12 +131,13 @@ export function useProductMasterData(options: UseProductMasterDataOptions): UseP
     } finally {
       setSynchronizing(false);
     }
-  }, [context]);
+  }, [operationContext, validationMessage]);
 
   const updateProductHandler = useCallback(async (productId: string, changes: Partial<SharedProductRecord>): Promise<ProductMasterResult<SharedProductRecord>> => {
     setSynchronizing(true);
     try {
-      const result = await updateProductCommand(context, productId, changes);
+      if (validationMessage) return { success: false, errorMessage: validationMessage };
+      const result = await updateProductCommand(operationContext, productId, changes);
       if (!result.success) {
         setError(result.errorMessage || 'Failed to update product.');
       }
@@ -152,12 +149,13 @@ export function useProductMasterData(options: UseProductMasterDataOptions): UseP
     } finally {
       setSynchronizing(false);
     }
-  }, [context]);
+  }, [operationContext, validationMessage]);
 
   const deactivateProductHandler = useCallback(async (productId: string): Promise<ProductMasterResult<SharedProductRecord>> => {
     setSynchronizing(true);
     try {
-      const result = await deactivateProductCommand(context, productId);
+      if (validationMessage) return { success: false, errorMessage: validationMessage };
+      const result = await deactivateProductCommand(operationContext, productId);
       if (!result.success) {
         setError(result.errorMessage || 'Failed to deactivate product.');
       }
@@ -169,7 +167,7 @@ export function useProductMasterData(options: UseProductMasterDataOptions): UseP
     } finally {
       setSynchronizing(false);
     }
-  }, [context]);
+  }, [operationContext, validationMessage]);
 
   return {
     products,

@@ -4,7 +4,7 @@ import type { RepositoryOperationContext, RepositorySubscription } from '../repo
 import type { VendorRepository } from '../repositories/VendorRepository';
 import type { SharedVendorRecord, SharedBranchRecord, SharedWarehouseRecord, SharedTerminalRecord, SharedVendorAppAccessRecord } from '../firebase/commerceDataContract';
 import { validateRepositoryOperationContext } from '../repositories/repositoryContext';
-import { loadVendorLocationContext, createBranchCommand, updateBranchCommand, createWarehouseCommand, updateWarehouseCommand, createTerminalCommand, updateTerminalCommand } from '../services/vendorLocationService';
+import { loadVendorLocationContext, updateVendorCommand, createBranchCommand, updateBranchCommand, deactivateBranchCommand, createWarehouseCommand, updateWarehouseCommand, deactivateWarehouseCommand, createTerminalCommand, updateTerminalCommand, deactivateTerminalCommand, updateVendorAppAccessCommand } from '../services/vendorLocationService';
 
 export interface UseVendorLocationDataOptions {
   context: RepositoryOperationContext;
@@ -18,14 +18,20 @@ export interface UseVendorLocationDataReturn {
   appAccess: SharedVendorAppAccessRecord[];
   loading: boolean;
   synchronizing: boolean;
+  saving: boolean;
   error: string | null;
   refresh: () => Promise<void>;
+  updateVendor: (changes: Partial<SharedVendorRecord>) => Promise<{ success: boolean; errorMessage?: string }>;
   createBranch: (branch: SharedBranchRecord) => Promise<{ success: boolean; errorMessage?: string }>;
   updateBranch: (branchId: string, changes: Partial<SharedBranchRecord>) => Promise<{ success: boolean; errorMessage?: string }>;
+  deactivateBranch: (branchId: string) => Promise<{ success: boolean; errorMessage?: string }>;
   createWarehouse: (warehouse: SharedWarehouseRecord) => Promise<{ success: boolean; errorMessage?: string }>;
   updateWarehouse: (warehouseId: string, changes: Partial<SharedWarehouseRecord>) => Promise<{ success: boolean; errorMessage?: string }>;
+  deactivateWarehouse: (warehouseId: string) => Promise<{ success: boolean; errorMessage?: string }>;
   createTerminal: (terminal: SharedTerminalRecord) => Promise<{ success: boolean; errorMessage?: string }>;
   updateTerminal: (branchId: string, terminalId: string, changes: Partial<SharedTerminalRecord>) => Promise<{ success: boolean; errorMessage?: string }>;
+  deactivateTerminal: (branchId: string, terminalId: string) => Promise<{ success: boolean; errorMessage?: string }>;
+  updateAppAccess: (appCode: string, changes: Partial<SharedVendorAppAccessRecord>) => Promise<{ success: boolean; errorMessage?: string }>;
 }
 
 export function useVendorLocationData(options: UseVendorLocationDataOptions): UseVendorLocationDataReturn {
@@ -37,32 +43,17 @@ export function useVendorLocationData(options: UseVendorLocationDataOptions): Us
   const [appAccess, setAppAccess] = useState<SharedVendorAppAccessRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [synchronizing, setSynchronizing] = useState(false);
+  const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const bundleRef = useRef<RepositoryBundle | null>(null);
   const subscriptionsRef = useRef<RepositorySubscription[]>([]);
-
-  try {
-    validateRepositoryOperationContext(context);
-  } catch {
-    return {
-      vendor: null,
-      branches: [],
-      warehouses: [],
-      terminals: [],
-      appAccess: [],
-      loading: false,
-      synchronizing: false,
-      error: 'Invalid repository operation context.',
-      refresh: async () => {},
-      createBranch: async () => ({ success: false, errorMessage: 'Invalid context.' }),
-      updateBranch: async () => ({ success: false, errorMessage: 'Invalid context.' }),
-      createWarehouse: async () => ({ success: false, errorMessage: 'Invalid context.' }),
-      updateWarehouse: async () => ({ success: false, errorMessage: 'Invalid context.' }),
-      createTerminal: async () => ({ success: false, errorMessage: 'Invalid context.' }),
-      updateTerminal: async () => ({ success: false, errorMessage: 'Invalid context.' })
-    };
-  }
+  const mountedRef = useRef(false);
+  const operationContext = useMemo<RepositoryOperationContext>(() => ({ ...context }), [context.vendorId, context.branchId, context.warehouseId, context.terminalId, context.staffId, context.actorId, context.actorRole, context.sourceApp, context.correlationId]);
+  const validationMessage = useMemo(() => {
+    try { validateRepositoryOperationContext(operationContext); return null; }
+    catch (reason) { return reason instanceof Error ? reason.message : 'Invalid repository operation context.'; }
+  }, [operationContext]);
 
   const bundle = useMemo(() => {
     if (!bundleRef.current) {
@@ -77,10 +68,14 @@ export function useVendorLocationData(options: UseVendorLocationDataOptions): Us
   }, []);
 
   const refresh = useCallback(async () => {
-    setSynchronizing(true);
-    setError(null);
+    if (validationMessage) {
+      if (mountedRef.current) { setError(validationMessage); setLoading(false); }
+      return;
+    }
+    if (mountedRef.current) { setSynchronizing(true); setError(null); }
     try {
-      const result = await loadVendorLocationContext(context);
+      const result = await loadVendorLocationContext(operationContext);
+      if (!mountedRef.current) return;
       if (result.vendor.success && result.vendor.data) {
         setVendor(result.vendor.data);
       }
@@ -101,52 +96,55 @@ export function useVendorLocationData(options: UseVendorLocationDataOptions): Us
         setError(firstError.errorMessage || 'Failed to load vendor location data.');
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load vendor location data.');
+      if (mountedRef.current) setError(err instanceof Error ? err.message : 'Failed to load vendor location data.');
     } finally {
-      setSynchronizing(false);
-      setLoading(false);
+      if (mountedRef.current) { setSynchronizing(false); setLoading(false); }
     }
-  }, [context]);
+  }, [operationContext, validationMessage]);
 
   useEffect(() => {
     let active = true;
+    mountedRef.current = true;
     setLoading(true);
     setError(null);
 
     void refresh();
 
+    if (validationMessage) return () => { active = false; mountedRef.current = false; unsubscribeAll(); };
     const vendorRepo = bundle.vendors as VendorRepository;
 
-    const sub1 = vendorRepo.subscribeBranches(context, (records) => {
+    const sub1 = vendorRepo.subscribeBranches(operationContext, (records) => {
       if (active) setBranches(records);
     });
     subscriptionsRef.current.push(sub1);
 
-    const sub2 = vendorRepo.subscribeWarehouses(context, (records) => {
+    const sub2 = vendorRepo.subscribeWarehouses(operationContext, (records) => {
       if (active) setWarehouses(records);
     });
     subscriptionsRef.current.push(sub2);
 
-    const sub3 = vendorRepo.subscribeTerminals(context, (records) => {
+    const sub3 = vendorRepo.subscribeTerminals(operationContext, (records) => {
       if (active) setTerminals(records);
     });
     subscriptionsRef.current.push(sub3);
 
-    const sub4 = vendorRepo.subscribeVendorAppAccess(context, (records) => {
+    const sub4 = vendorRepo.subscribeVendorAppAccess(operationContext, (records) => {
       if (active) setAppAccess(records);
     });
     subscriptionsRef.current.push(sub4);
 
     return () => {
       active = false;
+      mountedRef.current = false;
       unsubscribeAll();
     };
-  }, [bundle, context, refresh, unsubscribeAll]);
+  }, [bundle, operationContext, refresh, unsubscribeAll, validationMessage]);
 
   const createBranchHandler = useCallback(async (branch: SharedBranchRecord) => {
-    setSynchronizing(true);
+    if (validationMessage) return { success: false, errorMessage: validationMessage };
+    if (mountedRef.current) { setSynchronizing(true); setSaving(true); setError(null); }
     try {
-      const result = await createBranchCommand(context, branch);
+      const result = await createBranchCommand(operationContext, branch);
       if (!result.success) {
         setError(result.errorMessage || 'Failed to create branch.');
       }
@@ -156,14 +154,15 @@ export function useVendorLocationData(options: UseVendorLocationDataOptions): Us
       setError(message);
       return { success: false, errorMessage: message };
     } finally {
-      setSynchronizing(false);
+      if (mountedRef.current) { setSynchronizing(false); setSaving(false); }
     }
-  }, [context]);
+  }, [operationContext, validationMessage]);
 
   const updateBranchHandler = useCallback(async (branchId: string, changes: Partial<SharedBranchRecord>) => {
-    setSynchronizing(true);
+    if (validationMessage) return { success: false, errorMessage: validationMessage };
+    if (mountedRef.current) { setSynchronizing(true); setSaving(true); setError(null); }
     try {
-      const result = await updateBranchCommand(context, branchId, changes);
+      const result = await updateBranchCommand(operationContext, branchId, changes);
       if (!result.success) {
         setError(result.errorMessage || 'Failed to update branch.');
       }
@@ -173,14 +172,15 @@ export function useVendorLocationData(options: UseVendorLocationDataOptions): Us
       setError(message);
       return { success: false, errorMessage: message };
     } finally {
-      setSynchronizing(false);
+      if (mountedRef.current) { setSynchronizing(false); setSaving(false); }
     }
-  }, [context]);
+  }, [operationContext, validationMessage]);
 
   const createWarehouseHandler = useCallback(async (warehouse: SharedWarehouseRecord) => {
-    setSynchronizing(true);
+    if (validationMessage) return { success: false, errorMessage: validationMessage };
+    if (mountedRef.current) { setSynchronizing(true); setSaving(true); setError(null); }
     try {
-      const result = await createWarehouseCommand(context, warehouse);
+      const result = await createWarehouseCommand(operationContext, warehouse);
       if (!result.success) {
         setError(result.errorMessage || 'Failed to create warehouse.');
       }
@@ -190,14 +190,15 @@ export function useVendorLocationData(options: UseVendorLocationDataOptions): Us
       setError(message);
       return { success: false, errorMessage: message };
     } finally {
-      setSynchronizing(false);
+      if (mountedRef.current) { setSynchronizing(false); setSaving(false); }
     }
-  }, [context]);
+  }, [operationContext, validationMessage]);
 
   const updateWarehouseHandler = useCallback(async (warehouseId: string, changes: Partial<SharedWarehouseRecord>) => {
-    setSynchronizing(true);
+    if (validationMessage) return { success: false, errorMessage: validationMessage };
+    if (mountedRef.current) { setSynchronizing(true); setSaving(true); setError(null); }
     try {
-      const result = await updateWarehouseCommand(context, warehouseId, changes);
+      const result = await updateWarehouseCommand(operationContext, warehouseId, changes);
       if (!result.success) {
         setError(result.errorMessage || 'Failed to update warehouse.');
       }
@@ -207,14 +208,15 @@ export function useVendorLocationData(options: UseVendorLocationDataOptions): Us
       setError(message);
       return { success: false, errorMessage: message };
     } finally {
-      setSynchronizing(false);
+      if (mountedRef.current) { setSynchronizing(false); setSaving(false); }
     }
-  }, [context]);
+  }, [operationContext, validationMessage]);
 
   const createTerminalHandler = useCallback(async (terminal: SharedTerminalRecord) => {
-    setSynchronizing(true);
+    if (validationMessage) return { success: false, errorMessage: validationMessage };
+    if (mountedRef.current) { setSynchronizing(true); setSaving(true); setError(null); }
     try {
-      const result = await createTerminalCommand(context, terminal);
+      const result = await createTerminalCommand(operationContext, terminal);
       if (!result.success) {
         setError(result.errorMessage || 'Failed to create terminal.');
       }
@@ -224,14 +226,15 @@ export function useVendorLocationData(options: UseVendorLocationDataOptions): Us
       setError(message);
       return { success: false, errorMessage: message };
     } finally {
-      setSynchronizing(false);
+      if (mountedRef.current) { setSynchronizing(false); setSaving(false); }
     }
-  }, [context]);
+  }, [operationContext, validationMessage]);
 
   const updateTerminalHandler = useCallback(async (branchId: string, terminalId: string, changes: Partial<SharedTerminalRecord>) => {
-    setSynchronizing(true);
+    if (validationMessage) return { success: false, errorMessage: validationMessage };
+    if (mountedRef.current) { setSynchronizing(true); setSaving(true); setError(null); }
     try {
-      const result = await updateTerminalCommand(context, branchId, terminalId, changes);
+      const result = await updateTerminalCommand(operationContext, branchId, terminalId, changes);
       if (!result.success) {
         setError(result.errorMessage || 'Failed to update terminal.');
       }
@@ -241,9 +244,26 @@ export function useVendorLocationData(options: UseVendorLocationDataOptions): Us
       setError(message);
       return { success: false, errorMessage: message };
     } finally {
-      setSynchronizing(false);
+      if (mountedRef.current) { setSynchronizing(false); setSaving(false); }
     }
-  }, [context]);
+  }, [operationContext, validationMessage]);
+
+  const runMutation = useCallback(async (operation: () => Promise<{ success: boolean; errorMessage?: string }>) => {
+    if (validationMessage) return { success: false, errorMessage: validationMessage };
+    if (mountedRef.current) { setSaving(true); setError(null); }
+    try {
+      const result = await operation();
+      if (!result.success && mountedRef.current) setError(result.errorMessage || 'Vendor location operation failed.');
+      if (result.success) await refresh();
+      return result;
+    } catch (reason) {
+      const message = reason instanceof Error ? reason.message : 'Vendor location operation failed.';
+      if (mountedRef.current) setError(message);
+      return { success: false, errorMessage: message };
+    } finally {
+      if (mountedRef.current) setSaving(false);
+    }
+  }, [refresh, validationMessage]);
 
   return {
     vendor,
@@ -253,13 +273,19 @@ export function useVendorLocationData(options: UseVendorLocationDataOptions): Us
     appAccess,
     loading,
     synchronizing,
+    saving,
     error,
     refresh,
+    updateVendor: (changes) => runMutation(() => updateVendorCommand(operationContext, changes)),
     createBranch: createBranchHandler,
     updateBranch: updateBranchHandler,
+    deactivateBranch: (branchId) => runMutation(() => deactivateBranchCommand(operationContext, branchId)),
     createWarehouse: createWarehouseHandler,
     updateWarehouse: updateWarehouseHandler,
+    deactivateWarehouse: (warehouseId) => runMutation(() => deactivateWarehouseCommand(operationContext, warehouseId)),
     createTerminal: createTerminalHandler,
     updateTerminal: updateTerminalHandler
+    , deactivateTerminal: (branchId, terminalId) => runMutation(() => deactivateTerminalCommand(operationContext, branchId, terminalId))
+    , updateAppAccess: (appCode, changes) => runMutation(() => updateVendorAppAccessCommand(operationContext, appCode, changes))
   };
 }

@@ -279,11 +279,13 @@ function persistVendorRuntimeState(
     socialMediaInformation: clean(profile.website)
   };
 
-  writePosRuntimeValue(POS_RUNTIME_STORAGE_KEYS.businessProfile, businessProfile);
-  writePosRuntimeValue(POS_RUNTIME_STORAGE_KEYS.branches, branches);
-  writePosRuntimeValue(POS_RUNTIME_STORAGE_KEYS.warehouses, warehouses);
-  writePosRuntimeValue(POS_RUNTIME_STORAGE_KEYS.terminals, terminals);
-  writePosRuntimeValue(POS_RUNTIME_STORAGE_KEYS.staff, staff);
+  if (import.meta.env.VITE_STORAGE_MODE !== "firebase") {
+    writePosRuntimeValue(POS_RUNTIME_STORAGE_KEYS.businessProfile, businessProfile);
+    writePosRuntimeValue(POS_RUNTIME_STORAGE_KEYS.branches, branches);
+    writePosRuntimeValue(POS_RUNTIME_STORAGE_KEYS.warehouses, warehouses);
+    writePosRuntimeValue(POS_RUNTIME_STORAGE_KEYS.terminals, terminals);
+    writePosRuntimeValue(POS_RUNTIME_STORAGE_KEYS.staff, staff);
+  }
   writePosRuntimeValue(POS_RUNTIME_STORAGE_KEYS.receiptSetting, receiptSetting);
   localStorage.setItem(POS_RUNTIME_STORAGE_KEYS.receiptHeader, tradingName);
 }

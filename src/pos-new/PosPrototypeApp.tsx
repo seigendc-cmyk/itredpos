@@ -434,6 +434,7 @@ export default function PosPrototypeApp() {
   const [planLimitNotice, setPlanLimitNotice] = useState('');
 
   const [transactions, setTransactions] = useState<Transaction[]>(() => {
+    if (resolveRuntimeStorageMode() === 'firebase') return [];
     return readStoredValue<Transaction[]>(getVendorScopedStorageKey('itred_pos_transactions'), INITIAL_TRANSACTIONS);
   });
 
@@ -484,14 +485,17 @@ export default function PosPrototypeApp() {
 
   // Business Settings States
   const [branches, setBranches] = useState<BranchSetting[]>(() => {
+    if (resolveRuntimeStorageMode() === 'firebase') return [];
     return readStoredValue<BranchSetting[]>('itred_pos_branches', mockBranches);
   });
 
   const [warehouses, setWarehouses] = useState<WarehouseSetting[]>(() => {
+    if (resolveRuntimeStorageMode() === 'firebase') return [];
     return readStoredValue<WarehouseSetting[]>('itred_pos_warehouses', mockWarehouses);
   });
 
   const [terminalsSetting, setTerminalsSetting] = useState<TerminalSetting[]>(() => {
+    if (resolveRuntimeStorageMode() === 'firebase') return [];
     return readStoredValue<TerminalSetting[]>('itred_pos_terminals', mockTerminals);
   });
 
@@ -563,6 +567,7 @@ export default function PosPrototypeApp() {
   }, [activeSession?.vendorId]);
 
   useEffect(() => {
+    if (resolveRuntimeStorageMode() === 'firebase') return;
     writeStoredValue(getVendorScopedStorageKey('itred_pos_transactions', activeSession?.vendorId), transactions);
   }, [activeSession?.vendorId, transactions]);
 
@@ -630,18 +635,22 @@ export default function PosPrototypeApp() {
   }, [activeSession, businessProfile]);
 
   useEffect(() => {
+    if (resolveRuntimeStorageMode() === 'firebase') return;
     writeStoredValue('itred_pos_business_profile', businessProfile);
   }, [businessProfile]);
 
   useEffect(() => {
+    if (resolveRuntimeStorageMode() === 'firebase') return;
     writeStoredValue('itred_pos_branches', branches);
   }, [branches]);
 
   useEffect(() => {
+    if (resolveRuntimeStorageMode() === 'firebase') return;
     writeStoredValue('itred_pos_warehouses', warehouses);
   }, [warehouses]);
 
   useEffect(() => {
+    if (resolveRuntimeStorageMode() === 'firebase') return;
     writeStoredValue('itred_pos_terminals', terminalsSetting);
   }, [terminalsSetting]);
 
@@ -1284,6 +1293,7 @@ export default function PosPrototypeApp() {
 
       {activePage === 'SETTINGS' && (
         <PosSettings 
+          session={activeSession}
           businessProfile={businessProfile}
           onUpdateBusinessProfile={setBusinessProfile}
           branches={branches}

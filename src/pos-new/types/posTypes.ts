@@ -7736,6 +7736,7 @@ export interface ReceiptTaxSummary {
 
 export interface ReceiptRecord {
   id: string;
+  saleId?: string;
   receiptNumber: string;
   vendorId: string;
   businessVendor: string;

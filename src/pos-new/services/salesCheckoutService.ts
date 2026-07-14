@@ -45,6 +45,8 @@ import {
   type CashMovementSyncStatus
 } from './cashMovementService';
 import { readVendorScopedList, writeVendorScopedList } from '../utils/vendorDataMode';
+import { commitSalesTransaction } from './salesTransactionService';
+import type { RepositoryOperationContext } from '../repositories/repositoryContext';
 
 export const SALES_COLLECTIONS = {
   sales: 'pos_sales',
@@ -112,14 +114,19 @@ export interface PosSaleHeader {
   grandTotal: number;
   amountPaid: number;
   balanceDue: number;
-  paymentStatus: 'Paid' | 'Partially Paid' | 'Credit' | 'Unpaid';
-  saleStatus: 'Completed' | 'Posting' | 'Failed' | 'Returned' | 'Partially Returned';
+  paymentStatus: 'Paid' | 'Partially Paid' | 'Credit' | 'Unpaid' | 'Refunded' | 'Partially Refunded' | 'Voided';
+  saleStatus: 'Completed' | 'Posting' | 'Failed' | 'Returned' | 'Partially Returned' | 'Voided';
   postingStatus: 'Posting' | 'Completed' | 'PendingSync' | 'Failed';
   source: 'POS';
   createdAt: string;
   updatedAt: string;
   heldSaleId?: string;
   notes?: string;
+  shiftId?: string;
+  refundedAmount?: number;
+  refundedQuantities?: Record<string, number>;
+  voidedAt?: string;
+  voidReason?: string;
 }
 
 export interface PosSaleLine {
@@ -139,6 +146,7 @@ export interface PosSaleLine {
   vatRate: number;
   vatAmount: number;
   lineTotal: number;
+  stockMovementRequired?: boolean;
 }
 
 export interface PosPaymentRecord {
@@ -154,6 +162,9 @@ export interface PosPaymentRecord {
   receivedAt: string;
   tendered?: number;
   change?: number;
+  recordType?: 'PAYMENT' | 'REFUND' | 'VOID_REVERSAL';
+  originalPaymentId?: string;
+  refundId?: string;
 }
 
 export interface PosCashMovementRecord {
@@ -722,7 +733,40 @@ async function queueCheckoutForSync(input: {
   }
 }
 
+async function completeFirebaseSale(input: CompleteSaleInput): Promise<CompleteSaleResult> {
+  assertCompleteSession(input.session);
+  assertPermissions(input);
+  if (!input.idempotencyKey?.trim()) throw new Error('Checkout idempotency key is required.');
+  if (!input.activeShiftId?.trim()) throw new Error('An open shift is required to complete a Firebase sale.');
+  const session = input.session;
+  const createdAt = nowIso();
+  const saleId = makeId('SALE', input.idempotencyKey);
+  const receiptNumber = makeId('INV', saleId);
+  const canonicalLines = buildCanonicalCartLines({ cartLines: input.cartLines, session, taxSettings: input.taxSettings, cartDiscountAmount: input.adjustments?.cartDiscountAmount });
+  const totals = calculateCanonicalSaleTotals(canonicalLines, input.adjustments);
+  const payment = buildPaymentRecords(input, saleId, totals.grandTotal, createdAt);
+  const cashPayments = payment.paymentRecords.filter((row) => row.paymentMethod === 'Cash');
+  const cashApplied = roundMoney(cashPayments.reduce((sum, row) => sum + row.amount, 0));
+  const cashReceived = roundMoney(cashPayments.reduce((sum, row) => sum + (row.tendered ?? row.amount), 0));
+  const customerId = text(input.customer.customerId || input.customer.record?.customerId, 'WALK-IN');
+  const customerName = text(input.customer.customerName || input.customer.record?.customerName, 'Walk-In Customer');
+  const saleHeader: PosSaleHeader = { saleId, saleNumber: receiptNumber, receiptNumber, vendorId: session.vendorId, branchId: session.branchId, warehouseId: session.warehouseId, terminalId: session.terminalId, staffId: session.staffId, staffName: text(session.staffName, session.staffId), customerId, customerName, saleDate: createdAt, subtotal: totals.subtotal, discountTotal: totals.discountTotal, taxableAmount: totals.taxableAmount, vatTotal: totals.vatTotal, grandTotal: totals.grandTotal, amountPaid: payment.amountPaid, balanceDue: payment.balanceDue, paymentStatus: payment.balanceDue > 0 ? 'Credit' : payment.amountPaid > 0 ? 'Paid' : 'Unpaid', saleStatus: 'Completed', postingStatus: 'Completed', source: 'POS', createdAt, updatedAt: createdAt, heldSaleId: input.heldSaleId, notes: input.notes, shiftId: input.activeShiftId };
+  const saleLines: PosSaleLine[] = canonicalLines.map((line, index) => ({ saleLineId: cleanId(`${saleId}_${index + 1}_${line.productId}`), saleId, vendorId: session.vendorId, branchId: session.branchId, warehouseId: session.warehouseId, productId: line.productId, sku: line.sku, productName: line.productName, quantity: line.quantity, unitPrice: line.unitPrice, unitCost: line.unitCost, discountAmount: line.discountAmount, taxableAmount: line.taxableAmount, vatRate: line.vatRate, vatAmount: line.lineVat, lineTotal: line.lineTotal, stockMovementRequired: isInventoryLine(line.sourceCartItem) }));
+  const cashMovement: PosCashMovementRecord | undefined = cashApplied > 0 ? { cashMovementId: cleanId(`${saleId}_cash`), vendorId: session.vendorId, branchId: session.branchId, terminalId: session.terminalId, shiftId: input.activeShiftId, staffId: session.staffId, movementType: 'CASH_SALE', amount: cashApplied, referenceType: 'SALE', referenceId: saleId, reason: `Cash received for ${receiptNumber}`, approvalStatus: 'NotRequired', direction: 'IN', syncStatus: 'Synchronized', createdAt } : undefined;
+  const auditLog = { auditLogId: cleanId(`${saleId}_completed`), vendorId: session.vendorId, branchId: session.branchId, terminalId: session.terminalId, staffId: session.staffId, actorId: session.staffId, action: 'COMPLETE_SALE', entityType: 'SALE', entityId: saleId, eventType: 'SALE_COMPLETED', referenceType: 'SALE', referenceId: saleId, message: `Sale ${receiptNumber} completed.`, sourceApp: 'ITRED_POS', correlationId: input.idempotencyKey, createdAt };
+  const biEvent = { eventId: cleanId(`${saleId}_bi`), vendorId: session.vendorId, branchId: session.branchId, terminalId: session.terminalId, staffId: session.staffId, eventType: payment.balanceDue > 0 ? 'CREDIT_SALE_COMPLETED' : 'SALE_COMPLETED', sourceApp: 'ITRED_POS', entityType: 'SALE', entityId: saleId, correlationId: input.idempotencyKey, severity: 'INFO', actionRequired: false, metadata: { receiptNumber, total: saleHeader.grandTotal, paymentStatus: saleHeader.paymentStatus }, timestamp: createdAt };
+  const context: RepositoryOperationContext = { vendorId: session.vendorId, branchId: session.branchId, warehouseId: session.warehouseId, terminalId: session.terminalId, staffId: session.staffId, actorId: session.staffId, actorRole: input.permissions.role || session.role, sourceApp: 'ITRED_POS', correlationId: input.idempotencyKey };
+  const committed = await commitSalesTransaction(context, { idempotencyKey: input.idempotencyKey, sale: saleHeader, saleLines, payments: payment.paymentRecords, inventoryLines: canonicalLines.filter((line) => isInventoryLine(line.sourceCartItem)).map((line) => ({ productId: line.productId, quantity: line.quantity, unitCost: line.unitCost, branchId: line.branchId, warehouseId: line.warehouseId })), shiftId: input.activeShiftId, cashMovement, auditRecord: auditLog, biEvent });
+  const sale: Sale = { id: committed.sale.saleId, invoiceNo: committed.sale.receiptNumber || committed.sale.saleNumber, date: committed.sale.saleDate, operator: committed.sale.staffName, customerName: committed.sale.customerName, customerId: committed.sale.customerId === 'WALK-IN' ? undefined : committed.sale.customerId, customerCode: input.customer.record?.customerCode, customerPhone: input.customer.phone || input.customer.record?.phone, branch: text(session.branch, session.branchId), terminal: text(session.terminal, session.terminalId), items: canonicalLines.map((line) => ({ productId: line.productId, name: line.productName, code: line.sku, quantity: line.quantity, price: line.unitPrice, total: line.lineTotal, unitCost: line.unitCost, costPrice: line.unitCost, lineType: line.sourceCartItem.lineType, isInventoryAsset: line.sourceCartItem.isInventoryAsset !== false, requiresManagementReview: line.sourceCartItem.requiresManagementReview, biFlagged: line.sourceCartItem.biFlagged })), subtotal: committed.sale.subtotal, tax: committed.sale.vatTotal, discount: committed.sale.discountTotal, total: committed.sale.grandTotal, paymentMethod: salePaymentMethod(input.paymentLines[0]?.method || input.selectedPaymentMethod), cashReceived, changeGiven: payment.change, status: 'COMPLETED' };
+  const receipt = await createReceiptFromSale({ sale, saleId: committed.sale.saleId, vendorId: session.vendorId, businessVendor: text(session.vendor, session.vendorId), branchId: session.branchId, branch: text(session.branch, session.branchId), terminalId: session.terminalId, terminal: text(session.terminal, session.terminalId), cashierId: session.staffId, cashier: text(session.staffName, session.staffId), customerId: customerId === 'WALK-IN' ? undefined : customerId, customerName, customerPhone: input.customer.phone || input.customer.record?.phone, customerWhatsApp: input.customer.whatsapp || input.customer.record?.whatsapp, customerTaxNumber: input.customer.taxNumber || input.customer.record?.taxNumber, customerBillingAddress: input.customer.billingAddress || input.customer.record?.billingAddress, customerDeliveryAddress: input.deliveryDetails?.address || input.customer.deliveryAddress || input.customer.record?.deliveryAddress, customerCreditStatus: input.customer.record?.creditStatus, paymentMode: payment.creditAmount > 0 ? 'Credit Sale' : receiptPaymentMode(input.paymentLines[0]?.method || input.selectedPaymentMethod), paymentLines: committed.payments.map((row) => ({ method: row.paymentMethod, amount: row.amount, reference: row.reference })), vatMode: input.taxSettings.vatEnabled && input.taxSettings.vatRegistered ? (input.taxSettings.pricesIncludeVat ? 'Inclusive' : 'Exclusive') : 'Not VAT Registered', vatRate: input.taxSettings.defaultVatRate, receiptNumber: committed.sale.receiptNumber || committed.sale.saleNumber, persistLocally: false });
+  const receiptLines = committed.saleLines.map((line) => ({ id: `RL-${receipt.receiptNumber}-${line.saleLineId}`, receiptNumber: receipt.receiptNumber, productId: line.productId, sku: line.sku, productName: line.productName, quantity: line.quantity, unitPrice: line.unitPrice, discountAmount: line.discountAmount, lineNetAmount: line.taxableAmount, vatAmount: line.vatAmount, lineTotal: line.lineTotal }));
+  const receiptPreview: ReceiptPrintPreview = { receipt, lines: receiptLines, payments: committed.payments.map((row) => ({ id: `RP-${row.paymentId}`, receiptNumber: receipt.receiptNumber, paymentMode: receipt.paymentMode, amount: row.amount, reference: row.reference, confirmed: true })), taxSummary: { receiptNumber: receipt.receiptNumber, vatMode: input.taxSettings.vatEnabled && input.taxSettings.vatRegistered ? (input.taxSettings.pricesIncludeVat ? 'Inclusive' : 'Exclusive') : 'Not VAT Registered', vatRate: input.taxSettings.defaultVatRate, taxableAmount: committed.sale.taxableAmount, vatAmount: committed.sale.vatTotal, nonTaxableAmount: Math.max(0, committed.sale.subtotal - committed.sale.taxableAmount), taxLabel: input.taxSettings.vatEnabled ? 'VAT' : 'Tax' }, format: '80mm', isReprint: false };
+  const inventoryMovements: InventoryMovementRecord[] = committed.inventoryMovements.map((movement) => { const line = canonicalLines.find((item) => item.productId === movement.productId); return { movementId: movement.movementId, vendorId: movement.vendorId, branchId: movement.branchId, warehouseId: movement.warehouseId || session.warehouseId, productId: movement.productId, sku: line?.sku, productName: line?.productName, movementType: 'SALE', quantityIn: 0, quantityOut: Math.abs(movement.quantityDelta), balanceBefore: movement.quantityBefore, balanceAfter: movement.quantityAfter, unitCost: movement.unitCost || 0, totalCost: Math.abs(movement.valueImpact || 0), referenceType: movement.referenceType, referenceId: movement.referenceId, staffId: movement.staffId || movement.actorId, terminalId: session.terminalId, createdAt: movement.createdAt, syncStatus: 'Synced' }; });
+  return { sale, saleHeader: committed.sale, saleLines: committed.saleLines, paymentRecords: committed.payments, inventoryMovements, cashMovement: committed.cashMovement, cashDrawerMovement: null, receipt, receiptPreview, offlineQueued: false, message: committed.duplicate ? 'Sale already committed; existing result returned.' : 'Sale completed successfully.' };
+}
+
 export async function completeSale(input: CompleteSaleInput): Promise<CompleteSaleResult> {
+  if (import.meta.env.VITE_STORAGE_MODE === 'firebase') return completeFirebaseSale(input);
   assertCompleteSession(input.session);
   assertPermissions(input);
   const session = input.session;
@@ -772,7 +816,8 @@ export async function completeSale(input: CompleteSaleInput): Promise<CompleteSa
     createdAt,
     updatedAt: createdAt,
     heldSaleId: input.heldSaleId,
-    notes: input.notes
+    notes: input.notes,
+    shiftId: input.activeShiftId
   };
   saveSaleStage(saleHeader);
 
@@ -793,6 +838,7 @@ export async function completeSale(input: CompleteSaleInput): Promise<CompleteSa
     vatRate: line.vatRate,
     vatAmount: line.lineVat,
     lineTotal: line.lineTotal
+    , stockMovementRequired: isInventoryLine(line.sourceCartItem)
   }));
 
   const sale: Sale = {

@@ -27,6 +27,7 @@ import {
   BranchSetting,
   HardwareSetting,
   ReceiptSetting,
+  PosSession,
   Role,
   StaffSetting,
   TaxSetting,
@@ -55,8 +56,12 @@ import {
   type VendorTaxSettings
 } from '../services/vendorTaxSettingsService';
 import SubscriptionCommercePage from '../build08072026-subs/pages/SubscriptionCommercePage';
+import { useVendorLocationData } from '../hooks/useVendorLocationData';
+import type { RepositoryOperationContext } from '../repositories/repositoryContext';
+import { COMMERCE_SCHEMA_VERSION, type SharedBranchRecord, type SharedTerminalRecord, type SharedVendorAppAccessRecord, type SharedWarehouseRecord } from '../firebase/commerceDataContract';
 
 interface PosSettingsProps {
+  session?: PosSession | null;
   businessProfile: BusinessProfile;
   onUpdateBusinessProfile: (profile: BusinessProfile) => void;
   branches: BranchSetting[];
@@ -294,6 +299,7 @@ function toTaxDraft(vendorId: string, profile: BusinessProfile, tax: TaxSetting)
 }
 
 export default function PosSettings({
+  session,
   businessProfile,
   onUpdateBusinessProfile,
   branches,
@@ -320,6 +326,19 @@ export default function PosSettings({
   planAccess
 }: PosSettingsProps) {
   const activeVendorId = getActiveVendorId();
+  const firebaseMode = (session?.storageMode || import.meta.env.VITE_STORAGE_MODE) === 'firebase';
+  const locationContext = useMemo<RepositoryOperationContext>(() => ({
+    vendorId: session?.vendorId || activeVendorId,
+    branchId: session?.branchId,
+    warehouseId: session?.warehouseId,
+    terminalId: session?.terminalId,
+    staffId: session?.staffId,
+    actorId: session?.staffId || activeOperatorName || 'Settings',
+    actorRole: session?.role || activeRole,
+    sourceApp: 'ITRED_POS',
+    correlationId: `settings-${session?.vendorId || activeVendorId}-${session?.staffId || 'operator'}`
+  }), [activeOperatorName, activeRole, activeVendorId, session?.branchId, session?.role, session?.staffId, session?.terminalId, session?.vendorId, session?.warehouseId]);
+  const locationData = useVendorLocationData({ context: locationContext });
   const [activeSection, setActiveSection] = useState<SettingsSectionId>('BUSINESS_INFORMATION');
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [profileForm, setProfileForm] = useState<BusinessProfile>({ ...businessProfile });
@@ -348,6 +367,42 @@ export default function PosSettings({
   });
   const [receiptPreviewOpen, setReceiptPreviewOpen] = useState(false);
   const [backupState, setBackupState] = useState<BackupState>(() => readJson('itred_pos_settings_backup_status', defaultBackupState));
+
+  useEffect(() => {
+    if (!firebaseMode || locationData.loading || locationData.error) return;
+    onUpdateBranches(locationData.branches.map((row) => ({ id: row.branchId, vendorId: row.vendorId, name: row.branchName, branchName: row.branchName, status: row.status, updatedAt: row.updatedAt })) as BranchSetting[]);
+    onUpdateWarehouses(locationData.warehouses.map((row) => ({ id: row.warehouseId, vendorId: row.vendorId, branchId: row.branchId || '', name: row.warehouseName, warehouseName: row.warehouseName, status: row.status, updatedAt: row.updatedAt })) as WarehouseSetting[]);
+    onUpdateTerminals(locationData.terminals.map((row) => ({ id: row.terminalId, vendorId: row.vendorId, branchId: row.branchId, name: row.terminalName, type: 'POS Workstation', status: row.status, updatedAt: row.updatedAt })) as TerminalSetting[]);
+    if (locationData.vendor) {
+      const vendor = locationData.vendor;
+      const canonicalProfile: BusinessProfile = {
+        ...businessProfile,
+        businessName: vendor.vendorName,
+        legalName: vendor.legalName || businessProfile.legalName,
+        tradingName: vendor.tradingName || vendor.vendorName,
+        regNo: vendor.registrationNumber || businessProfile.regNo,
+        registrationNumber: vendor.registrationNumber,
+        taxNo: vendor.taxNumber || businessProfile.taxNo,
+        taxNumber: vendor.taxNumber,
+        phone: vendor.phone,
+        businessPhone: vendor.phone,
+        email: vendor.email,
+        primaryEmail: vendor.email,
+        websitePlaceholder: vendor.website,
+        physicalAddress: vendor.physicalAddress,
+        address: vendor.physicalAddress || businessProfile.address,
+        city: vendor.city,
+        cityTown: vendor.city,
+        province: vendor.province,
+        country: vendor.country,
+        currency: vendor.currency || businessProfile.currency,
+        industrialSector: vendor.businessSector,
+        receiptBusinessName: vendor.receiptHeader
+      };
+      setProfileForm(canonicalProfile);
+      onUpdateBusinessProfile(canonicalProfile);
+    }
+  }, [firebaseMode, locationData.branches, locationData.error, locationData.loading, locationData.terminals, locationData.vendor, locationData.warehouses, onUpdateBranches, onUpdateBusinessProfile, onUpdateTerminals, onUpdateWarehouses]);
 
   const canManageStaff = activeRole ? canStaffManageStaff(activeRole) : false;
   const canConfigureHardware = activeRole ? hasPermission(activeRole as Role, 'hardware.configure') : false;
@@ -427,10 +482,14 @@ export default function PosSettings({
   const resetEmployeeForm = () => setEmployeeForm({ id: '', displayName: '', email: '', roleName: 'Cashier', branchId: '', status: 'active', temporaryPin: '' });
   const resetRegisterForm = () => setRegisterForm({ id: '', name: '', branchId: '', device: 'POS Workstation', assignedStaffId: '', status: 'Ready' });
 
-  const handleSaveProfile = (event: React.FormEvent) => {
+  const handleSaveProfile = async (event: React.FormEvent) => {
     event.preventDefault();
     try {
-      const saved = saveBusinessProfile(
+      const saved = firebaseMode ? {
+        ...profileForm,
+        profileLastUpdatedAt: new Date().toISOString(),
+        profileUpdatedBy: activeOperatorName || 'Settings'
+      } : saveBusinessProfile(
         {
           ...profileForm,
           legalName: profileForm.legalName || profileForm.registeredBusinessName || profileForm.businessName || profileForm.tradingName || '',
@@ -447,6 +506,29 @@ export default function PosSettings({
         },
         activeOperatorName || 'Settings'
       );
+      if (firebaseMode) {
+        const result = await locationData.updateVendor({
+          vendorName: saved.tradingName || saved.businessName || saved.legalName || activeVendorId,
+          legalName: saved.legalName,
+          tradingName: saved.tradingName,
+          registrationNumber: saved.registrationNumber || saved.companyRegistrationNumber || saved.regNo,
+          taxNumber: saved.taxNumber || saved.taxIdentificationNumber || saved.taxNo,
+          phone: saved.phone || saved.businessPhone,
+          email: saved.email || saved.primaryEmail,
+          website: saved.websitePlaceholder,
+          physicalAddress: saved.physicalAddress || saved.address,
+          city: saved.city || saved.cityTown,
+          province: saved.province || saved.provinceState,
+          country: saved.country,
+          currency: saved.currency,
+          receiptHeader: saved.receiptBusinessName || saved.tradingName,
+          businessSector: saved.industrialSector || saved.industry || saved.businessType,
+          status: saved.businessStatus || saved.profileStatus || 'ACTIVE',
+          updatedAt: new Date().toISOString(),
+          updatedBy: locationContext.actorId
+        });
+        if (!result.success) throw new Error(result.errorMessage || 'Vendor profile could not be saved.');
+      }
       setProfileForm(saved);
       onUpdateBusinessProfile(saved);
       setProfileSaveState('success');
@@ -457,8 +539,9 @@ export default function PosSettings({
     }
   };
 
-  const handleSaveBranch = (event: React.FormEvent) => {
+  const handleSaveBranch = async (event: React.FormEvent) => {
     event.preventDefault();
+    if (locationData.saving) return;
     if (!branchForm.name.trim()) {
       triggerToast('Branch name is required.');
       return;
@@ -481,6 +564,12 @@ export default function PosSettings({
       status: branchForm.status,
       updatedAt: new Date().toISOString()
     };
+    if (firebaseMode) {
+      const now = new Date().toISOString();
+      const record: SharedBranchRecord = { sciId: id, branchId: id, vendorId: locationContext.vendorId, branchName: nextBranch.name || id, status: nextBranch.status === 'Disabled' ? 'INACTIVE' : 'ACTIVE', schemaVersion: COMMERCE_SCHEMA_VERSION, sourceApp: 'ITRED_POS', createdAt: now, updatedAt: now, createdBy: locationContext.actorId, updatedBy: locationContext.actorId };
+      const result = isNew ? await locationData.createBranch(record) : await locationData.updateBranch(id, record);
+      if (!result.success) { triggerToast(result.errorMessage || 'Branch could not be saved.'); return; }
+    }
     onUpdateBranches([...branches.filter((branch) => branch.id !== id), nextBranch]);
     resetBranchForm();
     triggerToast(isNew ? 'Branch added.' : 'Branch updated.');
@@ -498,13 +587,18 @@ export default function PosSettings({
     setActiveSection('BRANCHES');
   };
 
-  const handleDisableBranch = (branch: BranchSetting) => {
+  const handleDisableBranch = async (branch: BranchSetting) => {
+    if (firebaseMode) {
+      const result = await locationData.deactivateBranch(branch.id);
+      if (!result.success) { triggerToast(result.errorMessage || 'Branch could not be disabled.'); return; }
+    }
     onUpdateBranches(branches.map((row) => row.id === branch.id ? { ...row, status: 'Disabled', updatedAt: new Date().toISOString() } : row));
     triggerToast('Branch disabled.');
   };
 
-  const handleSaveWarehouse = (event: React.FormEvent) => {
+  const handleSaveWarehouse = async (event: React.FormEvent) => {
     event.preventDefault();
+    if (locationData.saving) return;
     if (!warehouseForm.name.trim() || !warehouseForm.branchId) {
       triggerToast('Warehouse name and branch are required.');
       return;
@@ -526,6 +620,12 @@ export default function PosSettings({
       updatedAt: new Date().toISOString(),
       stockCount: Number(warehouseForm.stockCount) || 0
     } as WarehouseSetting & { stockCount?: number };
+    if (firebaseMode) {
+      const now = new Date().toISOString();
+      const record: SharedWarehouseRecord = { sciId: id, warehouseId: id, vendorId: locationContext.vendorId, branchId: nextWarehouse.branchId, warehouseName: nextWarehouse.name || id, status: nextWarehouse.status === 'Disabled' ? 'INACTIVE' : 'ACTIVE', schemaVersion: COMMERCE_SCHEMA_VERSION, sourceApp: 'ITRED_POS', createdAt: now, updatedAt: now, createdBy: locationContext.actorId, updatedBy: locationContext.actorId };
+      const result = isNew ? await locationData.createWarehouse(record) : await locationData.updateWarehouse(id, record);
+      if (!result.success) { triggerToast(result.errorMessage || 'Warehouse could not be saved.'); return; }
+    }
     onUpdateWarehouses([...warehouses.filter((warehouse) => warehouse.id !== id), nextWarehouse]);
     resetWarehouseForm();
     triggerToast(isNew ? 'Warehouse added.' : 'Warehouse updated.');
@@ -543,7 +643,11 @@ export default function PosSettings({
     setActiveSection('WAREHOUSES');
   };
 
-  const handleDisableWarehouse = (warehouse: WarehouseSetting) => {
+  const handleDisableWarehouse = async (warehouse: WarehouseSetting) => {
+    if (firebaseMode) {
+      const result = await locationData.deactivateWarehouse(warehouse.id);
+      if (!result.success) { triggerToast(result.errorMessage || 'Warehouse could not be disabled.'); return; }
+    }
     onUpdateWarehouses(warehouses.map((row) => row.id === warehouse.id ? { ...row, status: 'Disabled', updatedAt: new Date().toISOString() } : row));
     triggerToast('Warehouse disabled.');
   };
@@ -636,8 +740,9 @@ export default function PosSettings({
     }
   };
 
-  const handleSaveRegister = (event: React.FormEvent) => {
+  const handleSaveRegister = async (event: React.FormEvent) => {
     event.preventDefault();
+    if (locationData.saving) return;
     if (!registerForm.name.trim() || !registerForm.branchId) {
       triggerToast('Register name and branch are required.');
       return;
@@ -658,6 +763,12 @@ export default function PosSettings({
       assignedStaffId: registerForm.assignedStaffId,
       updatedAt: new Date().toISOString()
     } as TerminalSetting & { assignedStaffId?: string; lastUsedAt?: string; updatedAt?: string };
+    if (firebaseMode) {
+      const now = new Date().toISOString();
+      const record: SharedTerminalRecord = { sciId: id, terminalId: id, vendorId: locationContext.vendorId, branchId: nextRegister.branchId || locationContext.branchId || '', terminalName: nextRegister.name || id, status: nextRegister.status === 'Disabled' ? 'INACTIVE' : 'ACTIVE', schemaVersion: COMMERCE_SCHEMA_VERSION, sourceApp: 'ITRED_POS', createdAt: now, updatedAt: now, createdBy: locationContext.actorId, updatedBy: locationContext.actorId };
+      const result = isNew ? await locationData.createTerminal(record) : await locationData.updateTerminal(record.branchId, id, record);
+      if (!result.success) { triggerToast(result.errorMessage || 'Register could not be saved.'); return; }
+    }
     onUpdateTerminals([...terminals.filter((terminal) => terminal.id !== id), nextRegister]);
     resetRegisterForm();
     triggerToast(isNew ? 'Register added.' : 'Register renamed.');
@@ -675,7 +786,11 @@ export default function PosSettings({
     setActiveSection('CASH_REGISTERS');
   };
 
-  const handleDisableRegister = (terminal: TerminalSetting) => {
+  const handleDisableRegister = async (terminal: TerminalSetting) => {
+    if (firebaseMode) {
+      const result = await locationData.deactivateTerminal(terminal.branchId || locationContext.branchId || '', terminal.id);
+      if (!result.success) { triggerToast(result.errorMessage || 'Register could not be disabled.'); return; }
+    }
     onUpdateTerminals(terminals.map((row) => row.id === terminal.id ? { ...row, status: 'Disabled' } : row));
     triggerToast('Register disabled.');
   };
@@ -797,6 +912,9 @@ export default function PosSettings({
 
   return (
     <div className="space-y-6 industrial-font-sans text-xs text-[#1e222b]" id="pos-vendor-settings-panel">
+      {firebaseMode && (locationData.loading || locationData.synchronizing) && <div className="sci-pos-alert" role="status">Loading vendor locations…</div>}
+      {firebaseMode && locationData.saving && <div className="sci-pos-alert" role="status">Saving vendor location changes…</div>}
+      {firebaseMode && locationData.error && <div className="sci-pos-error" role="alert">{locationData.error}</div>}
       <div className="border border-slate-700 bg-[#1e222b] p-4 text-white">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
           <div>
@@ -1199,6 +1317,25 @@ export default function PosSettings({
                 planAccess={planAccess}
                 onToast={triggerToast}
               />
+              <section className="settings-panel space-y-3">
+                <div className="flex items-center justify-between gap-3">
+                  <div><p className="text-[9px] font-black uppercase text-orange-600">Shared Access Records</p><h3 className="text-sm font-black uppercase">Vendor App Access</h3></div>
+                  <button type="button" className="settings-button settings-button-secondary" disabled={locationData.synchronizing} onClick={() => void locationData.refresh()}>Reload Access</button>
+                </div>
+                {locationData.appAccess.map((record) => (
+                  <VendorAppAccessEditor
+                    key={record.appCode}
+                    record={record}
+                    saving={locationData.saving}
+                    onSave={async (changes) => {
+                      const result = await locationData.updateAppAccess(record.appCode, changes);
+                      if (!result.success) throw new Error(result.errorMessage || 'App access could not be updated.');
+                      triggerToast(`${record.appCode} access updated.`);
+                    }}
+                  />
+                ))}
+                {!locationData.loading && locationData.appAccess.length === 0 && <Notice tone="info">No shared vendor-app-access records exist for this vendor. The license engine remains unchanged.</Notice>}
+              </section>
             </div>
           )}
 
@@ -1248,17 +1385,51 @@ function FormGrid({ children }: { children: React.ReactNode }) {
   return <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">{children}</div>;
 }
 
-function TextField({ label, value, onChange, type = 'text' }: { label: string; value: string; onChange: (value: string) => void; type?: string }) {
+function TextField({ label, value, onChange, type = 'text', disabled = false }: { label: string; value: string; onChange: (value: string) => void; type?: string; disabled?: boolean }) {
   return (
     <label className="block">
       <span className="block text-[9px] font-black uppercase text-slate-600">{label}</span>
       <input
         type={type}
         value={value}
+        disabled={disabled}
         onChange={(event) => onChange(event.target.value)}
         className="mt-1 w-full border border-[#b1b5c2] bg-white px-2.5 py-2 text-[11px] font-bold text-[#1e222b] outline-none focus:border-orange-500"
       />
     </label>
+  );
+}
+
+function VendorAppAccessEditor({ record, saving, onSave }: { record: SharedVendorAppAccessRecord; saving: boolean; onSave: (changes: Partial<SharedVendorAppAccessRecord>) => Promise<void> }) {
+  const [draft, setDraft] = useState(record);
+  const [featureFlags, setFeatureFlags] = useState(() => JSON.stringify(record.featureFlags || {}, null, 2));
+  const [message, setMessage] = useState('');
+  useEffect(() => { setDraft(record); setFeatureFlags(JSON.stringify(record.featureFlags || {}, null, 2)); }, [record]);
+  const save = async () => {
+    if (saving) return;
+    setMessage('');
+    try {
+      const parsed: unknown = JSON.parse(featureFlags || '{}');
+      if (!parsed || Array.isArray(parsed) || typeof parsed !== 'object') throw new Error('Feature flags must be a JSON object.');
+      await onSave({ enabled: draft.enabled, planCode: draft.planCode.trim(), licenseStatus: draft.licenseStatus.trim(), activatedAt: draft.activatedAt, expiresAt: draft.expiresAt, featureFlags: parsed as Record<string, unknown> });
+      setMessage('Saved and reloading…');
+    } catch (reason) {
+      setMessage(reason instanceof Error ? reason.message : 'App access could not be saved.');
+    }
+  };
+  return (
+    <div className="border border-[#b1b5c2] bg-slate-50 p-3 space-y-3">
+      <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+        <TextField label="App Code" value={draft.appCode} onChange={() => {}} disabled />
+        <TextField label="Plan" value={draft.planCode} onChange={(value) => setDraft((current) => ({ ...current, planCode: value }))} />
+        <TextField label="License Status" value={draft.licenseStatus} onChange={(value) => setDraft((current) => ({ ...current, licenseStatus: value }))} />
+        <TextField label="Activation Date" type="datetime-local" value={draft.activatedAt ? draft.activatedAt.slice(0, 16) : ''} onChange={(value) => setDraft((current) => ({ ...current, activatedAt: value ? new Date(value).toISOString() : '' }))} />
+        <TextField label="Expiry Date" type="datetime-local" value={draft.expiresAt ? draft.expiresAt.slice(0, 16) : ''} onChange={(value) => setDraft((current) => ({ ...current, expiresAt: value ? new Date(value).toISOString() : '' }))} />
+        <ToggleField label="Enabled" checked={draft.enabled} onChange={(enabled) => setDraft((current) => ({ ...current, enabled }))} />
+      </div>
+      <TextareaField label="Feature Flags (JSON)" value={featureFlags} onChange={setFeatureFlags} />
+      <div className="flex items-center gap-3"><button type="button" className="settings-button settings-button-primary" disabled={saving} onClick={() => void save()}>{saving ? 'Saving…' : 'Save App Access'}</button>{message && <span className="text-[10px] font-bold text-slate-700">{message}</span>}</div>
+    </div>
   );
 }
 

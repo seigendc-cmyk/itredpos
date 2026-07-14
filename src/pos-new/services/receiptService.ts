@@ -53,6 +53,7 @@ export interface ReceiptFilters {
 
 export interface ReceiptSalePayload {
   sale: Sale;
+  saleId?: string;
   vendorId: string;
   businessVendor: string;
   branchId: string;
@@ -74,6 +75,8 @@ export interface ReceiptSalePayload {
   creditDetails?: ReceiptRecord["creditDetails"];
   vatMode?: VATMode;
   vatRate?: number;
+  receiptNumber?: string;
+  persistLocally?: boolean;
 }
 
 const RECEIPTS_KEY = "itred_pos_receipts_v1";
@@ -433,10 +436,7 @@ export async function createReceiptFromSale(
   payload: ReceiptSalePayload,
 ): Promise<ReceiptRecord> {
   const blueprint = getActiveReceiptBlueprint();
-  const receiptNumber = await generateReceiptNumber(
-    payload.branchId,
-    payload.terminalId,
-  );
+  const receiptNumber = payload.receiptNumber || await generateReceiptNumber(payload.branchId, payload.terminalId);
   const now = payload.sale.date || new Date().toISOString();
   const taxSettings = taxSettingsFromSalePayload(payload);
   const lines: ReceiptLine[] = payload.sale.items.map((item, index) => {
@@ -462,6 +462,7 @@ export async function createReceiptFromSale(
   );
   const receipt: ReceiptRecord = {
     id: `REC-${receiptNumber}`,
+    saleId: payload.saleId || payload.sale.id,
     receiptNumber,
     vendorId: payload.vendorId,
     businessVendor: payload.businessVendor,
@@ -502,53 +503,40 @@ export async function createReceiptFromSale(
     updatedAt: now,
   };
 
-  const currentReceipts = readList<ReceiptRecord>(
-    RECEIPTS_KEY,
-    mockReceiptRecords,
-  ).filter((currentReceipt) => currentReceipt.receiptNumber !== receiptNumber);
-  saveList(RECEIPTS_KEY, [
-    receipt,
-    ...currentReceipts,
-  ]);
-  const currentLines = readList<ReceiptLine>(LINES_KEY, mockReceiptLines).filter(
-    (line) => line.receiptNumber !== receiptNumber,
-  );
-  saveList(LINES_KEY, [
-    ...lines,
-    ...currentLines,
-  ]);
-  const paymentRows: ReceiptPaymentLine[] = (
-    payload.paymentLines && payload.paymentLines.length > 0
-      ? payload.paymentLines
-      : [
-          {
-            method: payload.paymentMode,
-            amount: payload.sale.total,
-            reference: `${payload.paymentMode}-${payload.terminal}`,
-          },
-        ]
-  ).map((payment, index) => ({
-    id: `RP-${receiptNumber}-${index + 1}`,
-    receiptNumber,
-    paymentMode: normalizePaymentMode(payment.method),
-    amount: payment.amount,
-    reference: payment.reference,
-    confirmed: true,
-  }));
-  const currentPayments = readList<ReceiptPaymentLine>(
-    PAYMENTS_KEY,
-    mockReceiptPayments,
-  ).filter((payment) => payment.receiptNumber !== receiptNumber);
-  saveList(PAYMENTS_KEY, [
-    ...paymentRows,
-    ...currentPayments,
-  ]);
-  addAudit(
-    "RECEIPT_CREATED",
-    receiptNumber,
-    `Receipt ${receiptNumber} created from completed sale.`,
-    payload.cashier,
-  );
+  if (payload.persistLocally !== false) {
+    const currentReceipts = readList<ReceiptRecord>(
+      RECEIPTS_KEY,
+      mockReceiptRecords,
+    ).filter((currentReceipt) => currentReceipt.receiptNumber !== receiptNumber);
+    saveList(RECEIPTS_KEY, [receipt, ...currentReceipts]);
+    const currentLines = readList<ReceiptLine>(LINES_KEY, mockReceiptLines).filter(
+      (line) => line.receiptNumber !== receiptNumber,
+    );
+    saveList(LINES_KEY, [...lines, ...currentLines]);
+    const paymentRows: ReceiptPaymentLine[] = (
+      payload.paymentLines && payload.paymentLines.length > 0
+        ? payload.paymentLines
+        : [{ method: payload.paymentMode, amount: payload.sale.total, reference: `${payload.paymentMode}-${payload.terminal}` }]
+    ).map((payment, index) => ({
+      id: `RP-${receiptNumber}-${index + 1}`,
+      receiptNumber,
+      paymentMode: normalizePaymentMode(payment.method),
+      amount: payment.amount,
+      reference: payment.reference,
+      confirmed: true,
+    }));
+    const currentPayments = readList<ReceiptPaymentLine>(
+      PAYMENTS_KEY,
+      mockReceiptPayments,
+    ).filter((payment) => payment.receiptNumber !== receiptNumber);
+    saveList(PAYMENTS_KEY, [...paymentRows, ...currentPayments]);
+    addAudit(
+      "RECEIPT_CREATED",
+      receiptNumber,
+      `Receipt ${receiptNumber} created from completed sale.`,
+      payload.cashier,
+    );
+  }
   return receipt;
 }
 

@@ -100,6 +100,13 @@ export async function loadVendorLocationContext(context: RepositoryOperationCont
   };
 }
 
+export async function updateVendorCommand(context: RepositoryOperationContext, changes: Partial<SharedVendorRecord>): Promise<VendorLocationResult<SharedVendorRecord>> {
+  const result = await getRepositoryBundle().vendors.updateVendor(context, context.vendorId, changes);
+  const mapped = mapOperationResult(result);
+  if (mapped.success) await appendAuditEvent(context, 'VENDOR_UPDATED', 'vendor', context.vendorId, changes);
+  return mapped;
+}
+
 export async function createBranchCommand(context: RepositoryOperationContext, branch: SharedBranchRecord): Promise<VendorLocationResult<SharedBranchRecord>> {
   const bundle = getRepositoryBundle();
   const result = await bundle.vendors.createBranch(context, branch);
