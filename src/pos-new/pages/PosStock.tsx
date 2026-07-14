@@ -88,6 +88,7 @@ import { normalizeProductNumericNumber } from '../utils/productNumberUtils';
 import { matchesFreeOrderSearch } from '../utils/searchUtils';
 import { loadLocalProducts, saveLocalProducts } from '../utils/localProductStore';
 import { useProductMasterData } from '../hooks/useProductMasterData';
+import { useInventoryData } from '../hooks/useInventoryData';
 import type { SharedProductRecord } from '../firebase/commerceDataContract';
 import type { RepositoryOperationContext } from '../repositories/repositoryContext';
 import { roleHasEffectivePermission } from '../auth/effectivePermissionService';
@@ -368,9 +369,28 @@ export default function PosStock({
     correlationId: `product-master-ui-${vendorId}-${session?.staffId || staffName}`
   }), [session?.branchId, session?.warehouseId, session?.terminalId, session?.staffId, session?.role, staffName, vendorId]);
   const productMasterData = useProductMasterData({ context: productMasterContext });
+  const inventoryData = useInventoryData({
+    context: productMasterContext,
+    balanceFilters: { branchId: session?.branchId, warehouseId: session?.warehouseId }
+  });
   const canonicalLedgerProducts = useMemo(
-    () => productMasterData.products.map(sharedProductToStockProduct),
-    [productMasterData.products]
+    () => productMasterData.products.map((product) => {
+      const stockProduct = sharedProductToStockProduct(product);
+      const balance = inventoryData.balances.find((item) => item.productId === product.productId);
+      if (!balance) return stockProduct;
+      return {
+        ...stockProduct,
+        branchId: balance.branchId,
+        warehouseId: balance.warehouseId,
+        stock: balance.quantityOnHand,
+        qtyOnHand: balance.quantityOnHand,
+        availableStock: balance.quantityAvailable,
+        cost: balance.averageCost || stockProduct.cost,
+        costPrice: balance.averageCost || stockProduct.costPrice,
+        stockStatus: balance.quantityAvailable <= 0 ? 'Out of Stock' as const : 'In Stock' as const
+      };
+    }),
+    [inventoryData.balances, productMasterData.products]
   );
 
   // Tabbed Routing inside Stock Control
@@ -644,6 +664,12 @@ export default function PosStock({
     movementPeriod: 'Last 30 Days',
     includeSerialized: true
   });
+
+  useEffect(() => {
+    if ((session?.storageMode || import.meta.env.VITE_STORAGE_MODE) === 'firebase' && !inventoryData.loading) {
+      setLocalStock(canonicalLedgerProducts);
+    }
+  }, [canonicalLedgerProducts, inventoryData.loading, session?.storageMode]);
   const [reportFilters, setReportFilters] = useState<InventoryReportFilters>({
     vendorId,
     branch: 'ALL',

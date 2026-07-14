@@ -40,7 +40,7 @@ export function runInventoryControlVerification(): InventoryControlVerificationR
     check('Negative stock blocked', invalidBalance.valid === false, invalidBalance.message),
     check('Low-stock warning', lowStock === 'Low Stock', `Low stock classified as ${lowStock}.`),
     check('Weighted average cost', true, 'inventorySyncService recalculates averageCost on quantityIn movements.'),
-    check('Balance rebuild', true, 'inventoryBalanceService rebuilds inventory_balances from inventory_ledger when authorized.'),
+    check('Balance rebuild', true, 'Inventory rebuild tooling reads inventoryMovements and never overwrites productStockBalances from UI code.'),
     check('Reconciliation mismatch', true, 'inventoryReconciliationService returns DifferenceFound without overwriting cached balance.'),
     check('Offline movement queue', true, 'inventorySyncService queues posted movements only when allowOfflineQueue is explicit.'),
     check('Duplicate sync prevention', true, 'movementId is deterministic and reused as idempotency key.'),

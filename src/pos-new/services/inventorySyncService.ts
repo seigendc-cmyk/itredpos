@@ -1,17 +1,6 @@
-import {
-  collection,
-  doc,
-  getDoc,
-  getDocs,
-  limit,
-  orderBy,
-  query,
-  runTransaction,
-  setDoc,
-  where,
-  writeBatch
-} from 'firebase/firestore';
-import { db } from '../firebase/firebaseApp';
+import { createFirestoreInventoryRepository } from '../repositories/firestore/FirestoreInventoryRepository';
+import type { SharedInventoryMovementRecord, SharedInventoryMovementType } from '../firebase/commerceDataContract';
+import type { RepositoryOperationContext } from '../repositories/repositoryContext';
 import type { InventoryMovement as LocalInventoryMovement, InventoryMovementType } from '../types';
 import {
   calculateRunningBalance,
@@ -126,8 +115,6 @@ export interface InventoryBalanceRecord extends InventoryBalanceInput {
   updatedAt: string;
 }
 
-const LEDGER_COLLECTION = 'inventory_ledger';
-const BALANCE_COLLECTION = 'inventory_balances';
 const PENDING_QUEUE_KEY = 'sci_pos_pending_inventory_movements';
 const SESSION_INCOMPLETE_MESSAGE = 'Your POS session is incomplete. Please sign in again.';
 const BLOCKED_VENDOR_IDS = new Set([
@@ -137,6 +124,84 @@ const BLOCKED_VENDOR_IDS = new Set([
   'test-vendor-001',
   'unassigned-vendor'
 ]);
+
+const sharedInventoryRepository = createFirestoreInventoryRepository();
+
+function usesSharedFirebaseInventory(): boolean {
+  return import.meta.env.VITE_STORAGE_MODE === 'firebase';
+}
+
+function repositoryContext(input: InventoryMovementInput | InventoryBalanceInput): RepositoryOperationContext {
+  const movement = input as InventoryMovementInput;
+  return {
+    vendorId: input.vendorId,
+    branchId: input.branchId,
+    warehouseId: input.warehouseId,
+    terminalId: movement.terminalId,
+    staffId: movement.staffId || input.staffId,
+    actorId: movement.staffId || input.staffId || '',
+    sourceApp: 'ITRED_POS',
+    correlationId: movement.referenceId
+      ? cleanId(`inventory_${movement.referenceType}_${movement.referenceId}`)
+      : cleanId(`inventory_balance_${input.vendorId}_${input.productId}`)
+  };
+}
+
+function sharedMovementType(type: CanonicalInventoryMovementType, delta: number): SharedInventoryMovementType {
+  const mapped: Partial<Record<CanonicalInventoryMovementType, SharedInventoryMovementType>> = {
+    OPENING_BALANCE: 'OPENING_BALANCE',
+    GOODS_RECEIVED: 'GOODS_RECEIVED',
+    SALE: 'SALE_ISSUE',
+    SALES_RETURN: 'SALE_RETURN',
+    PURCHASE_RETURN: 'SUPPLIER_RETURN',
+    TRANSFER_IN: 'TRANSFER_IN',
+    TRANSFER_OUT: 'TRANSFER_OUT',
+    MANUAL_CORRECTION: delta >= 0 ? 'STOCK_ADJUSTMENT_IN' : 'STOCK_ADJUSTMENT_OUT',
+    STOCKTAKE_ADJUSTMENT: delta >= 0 ? 'STOCKTAKE_GAIN' : 'STOCKTAKE_LOSS',
+    DAMAGE_WRITEOFF: 'STOCK_ADJUSTMENT_OUT',
+    EXPIRY_WRITEOFF: 'STOCK_ADJUSTMENT_OUT',
+    THEFT_LOSS: 'STOCK_ADJUSTMENT_OUT',
+    PRODUCTION_IN: 'PRODUCT_TRANSFORMATION_OUTPUT',
+    PRODUCTION_OUT: 'PRODUCT_TRANSFORMATION_INPUT',
+    REVERSAL: 'MANUAL_CORRECTION'
+  };
+  return mapped[type] || 'MANUAL_CORRECTION';
+}
+
+function fromSharedMovement(movement: SharedInventoryMovementRecord, input: InventoryMovementInput): InventoryMovementRecord {
+  return {
+    movementId: movement.movementId,
+    vendorId: movement.vendorId,
+    branchId: movement.branchId,
+    warehouseId: movement.warehouseId || input.warehouseId,
+    destinationBranchId: input.destinationBranchId,
+    destinationWarehouseId: input.destinationWarehouseId,
+    productId: movement.productId,
+    sku: input.sku,
+    productName: input.productName,
+    movementType: input.movementType,
+    quantityIn: Math.max(movement.quantityDelta, 0),
+    quantityOut: Math.max(-movement.quantityDelta, 0),
+    balanceBefore: movement.quantityBefore,
+    balanceAfter: movement.quantityAfter,
+    unitCost: movement.unitCost || 0,
+    totalCost: Math.abs(movement.valueImpact || 0),
+    referenceType: movement.referenceType,
+    referenceId: movement.referenceId,
+    staffId: movement.staffId || input.staffId,
+    terminalId: input.terminalId,
+    approvalId: input.approvalId,
+    batchNumber: input.batchNumber,
+    expiryDate: input.expiryDate,
+    serialNumber: input.serialNumber,
+    reason: input.reason,
+    createdAt: movement.createdAt,
+    syncStatus: 'Synced',
+    shelfLocation: input.shelfLocation,
+    staffName: input.staffName,
+    vendorMessage: 'Synchronized'
+  };
+}
 
 function nowIso(): string {
   return new Date().toISOString();
@@ -278,108 +343,41 @@ function toLocalMovement(record: InventoryMovementRecord, input: InventoryMoveme
   };
 }
 
-async function readFirestoreBalance(input: InventoryBalanceInput): Promise<InventoryBalanceRecord | null> {
-  if (!db) return null;
-  const snap = await getDoc(doc(db, BALANCE_COLLECTION, balanceId(input)));
-  if (!snap.exists()) return {
-    ...input,
-    balanceId: balanceId(input),
-    quantityOnHand: 0,
-    quantityReserved: 0,
-    quantityAvailable: 0,
-    quantityInTransit: 0,
-    averageCost: 0,
-    stockValue: 0,
-    syncStatus: 'Synced',
-    updatedAt: nowIso()
-  };
-  const data = snap.data() as Partial<InventoryBalanceRecord>;
-  const quantityOnHand = Number(data.quantityOnHand || 0);
-  const quantityReserved = Number(data.quantityReserved || 0);
-  const quantityInTransit = Number(data.quantityInTransit || 0);
-  const averageCost = Number(data.averageCost || 0);
-  return {
-    ...input,
-    ...data,
-    balanceId: data.balanceId || balanceId(input),
-    quantityOnHand,
-    quantityReserved,
-    quantityAvailable: Math.max(0, quantityOnHand - quantityReserved),
-    quantityInTransit,
-    averageCost,
-    stockValue: Number(data.stockValue ?? quantityOnHand * averageCost),
-    syncStatus: data.syncStatus || 'Synced',
-    updatedAt: data.updatedAt || nowIso()
-  };
-}
-
-async function writeFirestoreMovement(record: InventoryMovementRecord, allowNegativeStock = false): Promise<void> {
-  if (!db) throw new Error('Inventory cloud sync is not available.');
-  const ledgerRef = doc(db, LEDGER_COLLECTION, record.movementId);
-  const balanceRef = doc(db, BALANCE_COLLECTION, balanceId(record));
-
-  await runTransaction(db, async (transaction) => {
-    const existingMovement = await transaction.get(ledgerRef);
-    if (existingMovement.exists()) return;
-
-    const existingBalance = await transaction.get(balanceRef);
-    const balanceData = existingBalance.exists()
-      ? existingBalance.data() as Partial<InventoryBalanceRecord>
-      : {};
-    const currentBalance = existingBalance.exists()
-      ? Number(balanceData.quantityOnHand || 0)
-      : record.balanceBefore;
-    const nextBalance = currentBalance + record.quantityIn - record.quantityOut;
-    if (nextBalance < 0 && !allowNegativeStock) {
-      throw new Error('Stock available is not enough for this movement.');
-    }
-    const currentReserved = Number(balanceData.quantityReserved || 0);
-    const currentTransit = Number(balanceData.quantityInTransit || 0);
-    const nextTransit = record.movementType === 'TRANSFER_OUT'
-      ? currentTransit + record.quantityOut
-      : record.movementType === 'TRANSFER_IN'
-        ? Math.max(0, currentTransit - record.quantityIn)
-        : currentTransit;
-    const priorAverageCost = Number(balanceData.averageCost || record.unitCost || 0);
-    const averageCost = record.quantityIn > 0 && nextBalance > 0
-      ? Number((((currentBalance * priorAverageCost) + (record.quantityIn * record.unitCost)) / nextBalance).toFixed(4))
-      : priorAverageCost || record.unitCost || 0;
-    const syncedAt = nowIso();
-
-    transaction.set(ledgerRef, {
-      ...record,
-      balanceBefore: currentBalance,
-      balanceAfter: nextBalance,
-      totalCost: Number(((record.quantityIn || record.quantityOut) * record.unitCost).toFixed(2)),
-      syncStatus: 'Synced',
-      vendorMessage: 'Synchronized'
-    });
-    transaction.set(balanceRef, {
-      balanceId: balanceId(record),
-      vendorId: record.vendorId,
-      branchId: record.branchId,
-      warehouseId: record.warehouseId,
-      productId: record.productId,
-      staffId: record.staffId,
-      quantityOnHand: nextBalance,
-      quantityReserved: currentReserved,
-      quantityAvailable: Math.max(0, nextBalance - currentReserved),
-      quantityInTransit: nextTransit,
-      averageCost,
-      stockValue: Number((nextBalance * averageCost).toFixed(2)),
-      lastMovementId: record.movementId,
-      lastMovementAt: record.createdAt,
-      lastSynchronizedAt: syncedAt,
-      syncStatus: 'Synced',
-      updatedAt: syncedAt
-    }, { merge: true });
-  });
-}
-
 export async function getInventoryBalance(input: InventoryBalanceInput): Promise<InventoryBalanceRecord> {
   assertScoped(input);
-  const cloudBalance = db ? await readFirestoreBalance(input).catch(() => null) : null;
-  if (cloudBalance) return cloudBalance;
+  if (usesSharedFirebaseInventory()) {
+    const result = await sharedInventoryRepository.getBalance(repositoryContext(input), input.productId, input.warehouseId);
+    if (!result.success || !result.data) {
+      if (result.errorCode !== 'REPOSITORY_NOT_FOUND') throw new Error(result.errorMessage || 'Inventory balance could not be loaded.');
+      return {
+        ...input,
+        balanceId: balanceId(input),
+        quantityOnHand: 0,
+        quantityReserved: 0,
+        quantityAvailable: 0,
+        quantityInTransit: 0,
+        averageCost: 0,
+        stockValue: 0,
+        syncStatus: 'Synced',
+        updatedAt: nowIso()
+      };
+    }
+    return {
+      ...input,
+      balanceId: result.data.balanceId,
+      quantityOnHand: result.data.quantityOnHand,
+      quantityReserved: result.data.quantityReserved,
+      quantityAvailable: result.data.quantityAvailable,
+      quantityInTransit: result.data.quantityInTransit,
+      averageCost: result.data.averageCost,
+      stockValue: result.data.stockValue,
+      lastMovementId: result.data.lastMovementId,
+      lastMovementAt: result.data.lastMovementAt,
+      lastSynchronizedAt: result.data.lastSyncAt,
+      syncStatus: 'Synced',
+      updatedAt: result.data.updatedAt
+    };
+  }
   const quantityOnHand = await calculateRunningBalance(input.productId, input.warehouseId);
   return {
     ...input,
@@ -390,7 +388,7 @@ export async function getInventoryBalance(input: InventoryBalanceInput): Promise
     quantityInTransit: 0,
     averageCost: 0,
     stockValue: 0,
-    syncStatus: cloudBalance === null ? 'Pending' : 'Synced',
+    syncStatus: 'Synced',
     updatedAt: nowIso()
   };
 }
@@ -399,6 +397,73 @@ export async function postInventoryMovement(input: InventoryMovementInput): Prom
   assertMovement(input);
   const quantityIn = quantity(input.quantityIn);
   const quantityOut = quantity(input.quantityOut);
+  if (usesSharedFirebaseInventory()) {
+    const delta = quantityIn - quantityOut;
+    const timestamp = input.createdAt || nowIso();
+    const context = repositoryContext(input);
+    const movement: SharedInventoryMovementRecord = {
+      sciId: movementId(input),
+      movementId: movementId(input),
+      vendorId: input.vendorId,
+      branchId: input.branchId,
+      warehouseId: input.warehouseId,
+      productId: input.productId,
+      movementType: sharedMovementType(input.movementType, delta),
+      quantityDelta: delta,
+      quantityBefore: 0,
+      quantityAfter: 0,
+      unitCost: input.unitCost,
+      valueImpact: Math.abs(delta) * Number(input.unitCost || 0),
+      referenceType: input.referenceType,
+      referenceId: input.referenceId,
+      staffId: input.staffId,
+      actorId: context.actorId,
+      correlationId: context.correlationId,
+      sourceApp: context.sourceApp,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+      createdBy: context.actorId,
+      updatedBy: context.actorId,
+      schemaVersion: 1,
+      status: 'Posted'
+    };
+    const result = await sharedInventoryRepository.postMovement(context, movement);
+    if (!result.success || !result.data) {
+      if (input.allowOfflineQueue) {
+        const balanceBefore = await calculateRunningBalance(input.productId, input.warehouseId);
+        const pendingBalance = calculateMovementBalance({ balanceBefore, quantityIn, quantityOut, allowNegativeStock: input.allowNegativeStock });
+        return queuePendingMovement({
+          movementId: movement.movementId,
+          vendorId: input.vendorId,
+          branchId: input.branchId,
+          warehouseId: input.warehouseId,
+          destinationBranchId: input.destinationBranchId,
+          destinationWarehouseId: input.destinationWarehouseId,
+          productId: input.productId,
+          sku: input.sku,
+          productName: input.productName,
+          movementType: input.movementType,
+          quantityIn,
+          quantityOut,
+          balanceBefore,
+          balanceAfter: pendingBalance.balanceAfter,
+          unitCost: Number(input.unitCost || 0),
+          totalCost: Math.abs(delta) * Number(input.unitCost || 0),
+          referenceType: input.referenceType,
+          referenceId: input.referenceId,
+          staffId: input.staffId,
+          terminalId: input.terminalId,
+          reason: input.reason,
+          createdAt: timestamp,
+          syncStatus: 'Pending',
+          shelfLocation: input.shelfLocation,
+          staffName: input.staffName
+        }, 'Waiting to synchronize');
+      }
+      throw new Error(result.errorMessage || 'Inventory synchronization failed.');
+    }
+    return fromSharedMovement(result.data, input);
+  }
   const existingId = movementId(input);
   const existingPending = readPendingQueue().find((item) => item.movementId === existingId);
   if (existingPending) return existingPending;
@@ -472,19 +537,8 @@ export async function postInventoryMovement(input: InventoryMovementInput): Prom
     vendorMessage: input.allowOfflineQueue ? 'Waiting to synchronize' : 'Stock update pending'
   };
 
-  try {
-    await writeFirestoreMovement(record, Boolean(input.allowNegativeStock));
-    await postLocalInventoryMovement(toLocalMovement({ ...record, syncStatus: 'Synced', vendorMessage: 'Synchronized' }, input));
-    return { ...record, syncStatus: 'Synced', vendorMessage: 'Synchronized' };
-  } catch (error) {
-    console.error('Inventory movement synchronization failed', error);
-    if (input.allowOfflineQueue) {
-      await postLocalInventoryMovement(toLocalMovement(record, input));
-      return queuePendingMovement(record, 'Waiting to synchronize');
-    }
-    const message = error instanceof Error ? error.message : 'Synchronization failed';
-    throw new Error(`Synchronization failed. ${message}`);
-  }
+  await postLocalInventoryMovement(toLocalMovement({ ...record, syncStatus: 'Synced', vendorMessage: 'Stored locally' }, input));
+  return { ...record, syncStatus: 'Synced', vendorMessage: 'Stored locally' };
 }
 
 export async function receiveStock(input: Omit<InventoryMovementInput, 'movementType'>): Promise<InventoryMovementRecord> {
@@ -511,6 +565,31 @@ export async function transferStock(input: {
   source: Omit<InventoryMovementInput, 'movementType' | 'quantityIn'>;
   destination: Omit<InventoryMovementInput, 'movementType' | 'quantityOut'>;
 }): Promise<{ source: InventoryMovementRecord; destination: InventoryMovementRecord }> {
+  if (usesSharedFirebaseInventory()) {
+    assertMovement({ ...input.source, movementType: 'TRANSFER_OUT' });
+    assertMovement({ ...input.destination, movementType: 'TRANSFER_IN' });
+    if (input.source.vendorId !== input.destination.vendorId || input.source.productId !== input.destination.productId) {
+      throw new Error('Cross-vendor or cross-product transfer is rejected.');
+    }
+    const result = await sharedInventoryRepository.transferStock(repositoryContext(input.source), {
+      productId: input.source.productId,
+      sourceBranchId: input.source.branchId,
+      sourceWarehouseId: input.source.warehouseId,
+      destinationBranchId: input.destination.branchId,
+      destinationWarehouseId: input.destination.warehouseId,
+      quantity: quantity(input.source.quantityOut),
+      referenceType: input.source.referenceType,
+      referenceId: input.source.referenceId,
+      reason: input.source.reason || input.source.notes
+    });
+    if (!result.success || !result.movements || result.movements.length !== 2) throw new Error(result.errorMessage || 'Stock transfer synchronization failed.');
+    const outgoing = result.movements.find((item) => item.movementType === 'TRANSFER_OUT')!;
+    const incoming = result.movements.find((item) => item.movementType === 'TRANSFER_IN')!;
+    return {
+      source: fromSharedMovement(outgoing, { ...input.source, movementType: 'TRANSFER_OUT' }),
+      destination: fromSharedMovement(incoming, { ...input.destination, movementType: 'TRANSFER_IN' })
+    };
+  }
   const source = await postInventoryMovement({ ...input.source, movementType: 'TRANSFER_OUT', quantityIn: 0 });
   const destination = await postInventoryMovement({ ...input.destination, movementType: 'TRANSFER_IN', quantityOut: 0 });
   return { source, destination };
@@ -518,41 +597,53 @@ export async function transferStock(input: {
 
 export async function rebuildInventoryBalance(input: InventoryBalanceInput): Promise<InventoryBalanceRecord> {
   assertScoped(input);
-  if (!db) return getInventoryBalance(input);
+  // In Firebase mode balances are rebuilt only by replay tooling on the backend;
+  // browser code must never overwrite the authoritative balance independently.
+  return getInventoryBalance(input);
+}
 
-  const rows = await getDocs(query(
-    collection(db, LEDGER_COLLECTION),
-    where('vendorId', '==', input.vendorId),
-    where('branchId', '==', input.branchId),
-    where('warehouseId', '==', input.warehouseId),
-    where('productId', '==', input.productId),
-    orderBy('createdAt', 'asc'),
-    limit(1000)
-  ));
-  const quantityOnHand = rows.docs.reduce((sum, item) => {
-    const row = item.data() as Partial<InventoryMovementRecord>;
-    return sum + Number(row.quantityIn || 0) - Number(row.quantityOut || 0);
-  }, 0);
-  const balance: InventoryBalanceRecord = {
-    ...input,
-    balanceId: balanceId(input),
-    quantityOnHand,
-    quantityReserved: 0,
-    quantityAvailable: Math.max(0, quantityOnHand),
-    quantityInTransit: 0,
-    averageCost: 0,
-    stockValue: 0,
-    syncStatus: 'Synced',
-    lastSynchronizedAt: nowIso(),
-    updatedAt: nowIso()
+async function syncQueuedMovement(record: InventoryMovementRecord): Promise<void> {
+  const context: RepositoryOperationContext = {
+    vendorId: record.vendorId,
+    branchId: record.branchId,
+    warehouseId: record.warehouseId,
+    terminalId: record.terminalId,
+    staffId: record.staffId,
+    actorId: record.staffId,
+    sourceApp: 'ITRED_POS',
+    correlationId: cleanId(`inventory_${record.referenceType}_${record.referenceId}`)
   };
-  await setDoc(doc(db, BALANCE_COLLECTION, balance.balanceId), balance, { merge: true });
-  return balance;
+  const timestamp = record.createdAt || nowIso();
+  const result = await sharedInventoryRepository.postMovement(context, {
+    sciId: record.movementId,
+    movementId: record.movementId,
+    vendorId: record.vendorId,
+    branchId: record.branchId,
+    warehouseId: record.warehouseId,
+    productId: record.productId,
+    movementType: sharedMovementType(record.movementType, record.quantityIn - record.quantityOut),
+    quantityDelta: record.quantityIn - record.quantityOut,
+    quantityBefore: record.balanceBefore,
+    quantityAfter: record.balanceAfter,
+    unitCost: record.unitCost,
+    valueImpact: record.totalCost,
+    referenceType: record.referenceType,
+    referenceId: record.referenceId,
+    staffId: record.staffId,
+    actorId: record.staffId,
+    correlationId: context.correlationId,
+    sourceApp: context.sourceApp,
+    createdAt: timestamp,
+    updatedAt: timestamp,
+    createdBy: record.staffId,
+    updatedBy: record.staffId,
+    schemaVersion: 1,
+    status: 'Posted'
+  });
+  if (!result.success) throw new Error(result.errorMessage || 'Inventory movement synchronization failed.');
 }
 
 export async function syncPendingInventoryMovements(): Promise<{ synced: number; failed: number; message: string }> {
-  if (!db) return { synced: 0, failed: readPendingQueue().length, message: 'Stock synchronization failed' };
-
   const queue = readPendingQueue().sort((a, b) => a.createdAt.localeCompare(b.createdAt));
   const remaining: InventoryMovementRecord[] = [];
   let synced = 0;
@@ -560,7 +651,7 @@ export async function syncPendingInventoryMovements(): Promise<{ synced: number;
 
   for (const record of queue) {
     try {
-      await writeFirestoreMovement(record);
+      await syncQueuedMovement(record);
       synced += 1;
     } catch (error) {
       console.error('Inventory movement synchronization failed', error);
@@ -598,10 +689,5 @@ export function getPendingInventoryMovements(): InventoryMovementRecord[] {
 }
 
 export async function flushInventoryMovementBatch(records: InventoryMovementRecord[]): Promise<void> {
-  if (!db || records.length === 0) return;
-  const batch = writeBatch(db);
-  records.forEach((record) => {
-    batch.set(doc(db, LEDGER_COLLECTION, record.movementId), { ...record, syncStatus: 'Synced' }, { merge: true });
-  });
-  await batch.commit();
+  for (const record of records) await syncQueuedMovement(record);
 }

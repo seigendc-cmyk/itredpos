@@ -18,7 +18,8 @@ import {
   type InventoryMovementRecord
 } from './inventorySyncService';
 
-export const INVENTORY_LEDGER_COLLECTION = 'inventory_ledger';
+/** @deprecated Collection routing belongs to firestorePaths. */
+export const INVENTORY_LEDGER_COLLECTION = 'inventoryMovements';
 
 export function validateInventoryLedgerMovement(input: Pick<InventoryMovementRecord, 'quantityIn' | 'quantityOut' | 'balanceBefore' | 'balanceAfter'>): { valid: boolean; message: string } {
   if (input.quantityIn > 0 && input.quantityOut > 0) {

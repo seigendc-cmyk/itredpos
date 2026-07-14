@@ -22,6 +22,7 @@ import { postInventoryMovement as postCanonicalInventoryMovement, type Canonical
 import { publishCommerceEvent, writeAuditLog, CommerceOperationContext } from '../../commerce-integration';
 import { getVendorDocumentIdentity } from '../vendor/vendorBootstrapModel';
 import { readVendorScopedList, writeVendorScopedList } from '../utils/vendorDataMode';
+import { createRepositoryBundle } from '../repositories/repositoryFactory';
 
 const ADJUSTMENT_KEY = 'itred_pos_stock_adjustments_v1';
 const ADJUSTMENT_LINE_KEY = 'itred_pos_stock_adjustment_lines_v1';
@@ -442,6 +443,35 @@ export async function approveStockAdjustment(adjustmentId: string, staffId: stri
   });
   if (updated) {
     await recordActivity({ adjustmentId, adjustmentNumber: updated.adjustmentNumber, eventType: 'STOCK_ADJUSTMENT_APPROVED', operator: staffId, message: `${updated.adjustmentNumber} approved for posting.` });
+    if (import.meta.env.VITE_STORAGE_MODE === 'firebase') {
+      const context = {
+        vendorId: updated.vendorId,
+        branchId: updated.branchId,
+        warehouseId: updated.warehouseId,
+        staffId,
+        actorId: staffId,
+        actorRole: 'Stock Approver',
+        sourceApp: 'ITRED_POS' as const,
+        correlationId: `approve-stock-adjustment-${adjustmentId}`
+      };
+      await createRepositoryBundle().audit.appendAuditRecord(context, {
+        vendorId: updated.vendorId,
+        branchId: updated.branchId,
+        terminalId: '',
+        staffId,
+        actorId: staffId,
+        actorRole: 'Stock Approver',
+        action: 'APPROVE_STOCK_ADJUSTMENT',
+        entityType: 'STOCK_ADJUSTMENT',
+        entityId: adjustmentId,
+        before: record,
+        after: updated,
+        reason: notes || 'Stock adjustment approved',
+        sourceApp: 'ITRED_POS',
+        createdAt: nowIso(),
+        correlationId: context.correlationId
+      });
+    }
   }
   return updated;
 }

@@ -97,7 +97,12 @@ function createLocalAdapters(): RepositoryBundle {
       getBalance: () => Promise.resolve({ success: false, errorMessage: 'Local inventory repository is not implemented.' }),
       listBalances: () => Promise.resolve({ success: false, records: [], errorMessage: 'Local inventory repository is not implemented.' }),
       listMovements: () => Promise.resolve({ success: false, records: [], errorMessage: 'Local inventory repository is not implemented.' }),
+      getMovement: () => Promise.resolve({ success: false, errorMessage: 'Local inventory repository is not implemented.' }),
       postMovement: () => Promise.resolve({ success: false, errorMessage: 'Local inventory repository is not implemented.' }),
+      receiveStock: () => Promise.resolve({ success: false, errorMessage: 'Local inventory repository is not implemented.' }),
+      adjustStock: () => Promise.resolve({ success: false, errorMessage: 'Local inventory repository is not implemented.' }),
+      transferStock: () => Promise.resolve({ success: false, errorMessage: 'Local inventory repository is not implemented.' }),
+      postStocktakeVariance: () => Promise.resolve({ success: false, errorMessage: 'Local inventory repository is not implemented.' }),
       subscribeBalances: () => ({ unsubscribe: () => {} })
     } as InventoryRepository,
     biEvents: {
@@ -168,7 +173,12 @@ export function createRepositoryBundle(): RepositoryBundle {
           getBalance: () => Promise.resolve({ success: false, errorCode: 'REPOSITORY_CONFIGURATION_ERROR', errorMessage: 'Firebase is unavailable.' }),
           listBalances: () => Promise.resolve({ success: false, records: [], errorCode: 'REPOSITORY_CONFIGURATION_ERROR', errorMessage: 'Firebase is unavailable.' }),
           listMovements: () => Promise.resolve({ success: false, records: [], errorCode: 'REPOSITORY_CONFIGURATION_ERROR', errorMessage: 'Firebase is unavailable.' }),
+          getMovement: () => Promise.resolve({ success: false, errorCode: 'REPOSITORY_CONFIGURATION_ERROR', errorMessage: 'Firebase is unavailable.' }),
           postMovement: () => Promise.resolve({ success: false, errorCode: 'REPOSITORY_CONFIGURATION_ERROR', errorMessage: 'Firebase is unavailable.' }),
+          receiveStock: () => Promise.resolve({ success: false, errorCode: 'REPOSITORY_CONFIGURATION_ERROR', errorMessage: 'Firebase is unavailable.' }),
+          adjustStock: () => Promise.resolve({ success: false, errorCode: 'REPOSITORY_CONFIGURATION_ERROR', errorMessage: 'Firebase is unavailable.' }),
+          transferStock: () => Promise.resolve({ success: false, errorCode: 'REPOSITORY_CONFIGURATION_ERROR', errorMessage: 'Firebase is unavailable.' }),
+          postStocktakeVariance: () => Promise.resolve({ success: false, errorCode: 'REPOSITORY_CONFIGURATION_ERROR', errorMessage: 'Firebase is unavailable.' }),
           subscribeBalances: () => ({ unsubscribe: () => {} })
         } as InventoryRepository,
         biEvents: {

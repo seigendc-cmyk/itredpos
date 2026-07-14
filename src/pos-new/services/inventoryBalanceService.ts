@@ -5,7 +5,8 @@ import {
   type InventoryBalanceRecord
 } from './inventorySyncService';
 
-export const INVENTORY_BALANCE_COLLECTION = 'inventory_balances';
+/** @deprecated Collection routing belongs to firestorePaths. */
+export const INVENTORY_BALANCE_COLLECTION = 'productStockBalances';
 
 export type AvailableStockStatus =
   | 'In Stock'

@@ -121,28 +121,57 @@ export interface SharedProductRecord extends SharedCommerceDocument {
   lastSyncAt?: string;
 }
 
+export type SharedInventoryMovementType =
+  | 'OPENING_BALANCE'
+  | 'GOODS_RECEIVED'
+  | 'SALE_ISSUE'
+  | 'SALE_RETURN'
+  | 'STOCK_ADJUSTMENT_IN'
+  | 'STOCK_ADJUSTMENT_OUT'
+  | 'TRANSFER_OUT'
+  | 'TRANSFER_IN'
+  | 'STOCKTAKE_GAIN'
+  | 'STOCKTAKE_LOSS'
+  | 'PRODUCT_TRANSFORMATION_INPUT'
+  | 'PRODUCT_TRANSFORMATION_OUTPUT'
+  | 'SUPPLIER_RETURN'
+  | 'DELIVERY_RETURN'
+  | 'MANUAL_CORRECTION'
+  | 'RESERVATION'
+  | 'RELEASE';
+
 export interface SharedInventoryBalanceRecord extends SharedCommerceDocument {
-  vendorId: string;
   balanceId: string;
+  branchId: string;
   productId: string;
-  warehouseId: string;
-  branchId?: string;
+  warehouseId?: string;
   shelfLocation?: string;
-  qtyOnHand: number;
-  qtyAvailable: number;
-  qtyReserved?: number;
-  unitOfMeasure?: string;
+  quantityOnHand: number;
+  quantityReserved: number;
+  quantityInTransit: number;
+  quantityAvailable: number;
+  averageCost: number;
+  stockValue: number;
+  lastMovementId?: string;
+  lastMovementAt?: string;
+  syncStatus: string;
 }
 
 export interface SharedInventoryMovementRecord extends SharedCommerceDocument {
-  vendorId: string;
   movementId: string;
+  branchId: string;
   productId: string;
-  warehouseId: string;
-  branchId?: string;
-  movementType: string;
-  qtyDelta: number;
-  reason?: string;
+  warehouseId?: string;
+  movementType: SharedInventoryMovementType;
+  quantityDelta: number;
+  quantityBefore: number;
+  quantityAfter: number;
+  unitCost?: number;
+  valueImpact?: number;
+  referenceType: string;
+  referenceId: string;
+  actorId: string;
+  correlationId: string;
 }
 
 export interface SharedCustomerRecord extends SharedCommerceDocument {
@@ -178,12 +207,15 @@ export interface SharedBIEventRecord {
   eventType: string;
   vendorId: string;
   branchId: string;
+  warehouseId?: string;
+  productId?: string;
   terminalId: string;
   staffId: string;
   sourceApp: CommerceSourceApp;
   entityType: string;
   entityId: string;
   timestamp: string;
+  correlationId?: string;
   severity: string;
   actionRequired: boolean;
   metadata: Record<string, unknown>;
