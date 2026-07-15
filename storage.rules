@@ -1,0 +1,104 @@
+rules_version = '2';
+
+service firebase.storage {
+  match /b/{bucket}/o {
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function membershipPath() {
+      return /databases/(default)/documents/vendorUsers/$(request.auth.uid);
+    }
+
+    function membership() {
+      return firestore.get(membershipPath()).data;
+    }
+
+    function isActiveVendorMember(vendorId) {
+      return isAuthenticated()
+        && firestore.exists(membershipPath())
+        && membership().vendorId == vendorId
+        && membership().status in ['active', 'Active'];
+    }
+
+    function hasRole(vendorId, roles) {
+      return isActiveVendorMember(vendorId)
+        && roles.hasAny([membership().role]);
+    }
+
+    function canManageProducts(vendorId) {
+      return hasRole(vendorId, ['Owner', 'Admin', 'SysAdmin', 'Manager', 'Inventory Manager']);
+    }
+
+    function canManageBusinessAssets(vendorId) {
+      return hasRole(vendorId, ['Owner', 'Admin', 'SysAdmin', 'Manager']);
+    }
+
+    function isImage() {
+      return request.resource != null
+        && request.resource.contentType in ['image/jpeg', 'image/png', 'image/webp'];
+    }
+
+    function isBusinessDocument() {
+      return request.resource != null
+        && request.resource.contentType in ['application/pdf', 'image/jpeg', 'image/png', 'image/webp'];
+    }
+
+    function isWithinImageLimit() {
+      return request.resource != null
+        && request.resource.size > 0
+        && request.resource.size <= 5 * 1024 * 1024;
+    }
+
+    function isWithinDocumentLimit() {
+      return request.resource != null
+        && request.resource.size > 0
+        && request.resource.size <= 10 * 1024 * 1024;
+    }
+
+    match /vendors/{vendorId}/products/{productId}/{fileName} {
+      allow read: if isActiveVendorMember(vendorId);
+      allow create, update: if canManageProducts(vendorId)
+        && isImage()
+        && isWithinImageLimit();
+      allow delete: if canManageProducts(vendorId);
+    }
+
+    match /vendors/{vendorId}/logos/{fileName} {
+      allow read: if isActiveVendorMember(vendorId);
+      allow create, update: if canManageBusinessAssets(vendorId)
+        && isImage()
+        && isWithinImageLimit();
+      allow delete: if canManageBusinessAssets(vendorId);
+    }
+
+    match /vendors/{vendorId}/receipts/{fileName} {
+      allow read: if isActiveVendorMember(vendorId);
+      allow create, update: if isActiveVendorMember(vendorId)
+        && isImage()
+        && isWithinImageLimit();
+      allow delete: if canManageBusinessAssets(vendorId);
+    }
+
+    // Compatibility for receipt assets already grouped by receipt id.
+    match /vendors/{vendorId}/receipts/{receiptId}/{fileName} {
+      allow read: if isActiveVendorMember(vendorId);
+      allow create, update: if isActiveVendorMember(vendorId)
+        && isImage()
+        && isWithinImageLimit();
+      allow delete: if canManageBusinessAssets(vendorId);
+    }
+
+    match /vendors/{vendorId}/documents/{fileName} {
+      allow read: if isActiveVendorMember(vendorId);
+      allow create, update: if canManageBusinessAssets(vendorId)
+        && isBusinessDocument()
+        && isWithinDocumentLimit();
+      allow delete: if canManageBusinessAssets(vendorId);
+    }
+
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}

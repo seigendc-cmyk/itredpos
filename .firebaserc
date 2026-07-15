@@ -9,6 +9,21 @@
         "itredpos2": [
           "itredpos2"
         ]
+      },
+      "firestore": {
+        "itredpos2": [
+          "itredpos2"
+        ]
+      },
+      "storage": {
+        "itredpos2": [
+          "itredpos2"
+        ]
+      },
+      "auth": {
+        "itredpos2": [
+          "itredpos2"
+        ]
       }
     }
   },
