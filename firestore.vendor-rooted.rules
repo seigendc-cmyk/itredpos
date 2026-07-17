@@ -696,7 +696,7 @@ service cloud.firestore {
 
     match /vendors/{vendorId}/mutationReceipts/{idempotencyKey} {
       allow read: if isActiveVendorUser(vendorId);
-      allow create: if isManager(vendorId)
+      allow create: if (isManager(vendorId)
         && request.resource.data.vendorId == vendorId
         && request.resource.data.receiptDocumentId == idempotencyKey
         && request.resource.data.idempotencyKey is string
@@ -704,8 +704,90 @@ service cloud.firestore {
         && request.resource.data.entityId is string
         && request.resource.data.correlationId is string
         && request.resource.data.requestFingerprint is string
-        && request.resource.data.status == 'completed';
+        && request.resource.data.status == 'completed')
+        || (isActiveVendorUser(vendorId)
+          && request.resource.data.vendorId == vendorId
+          && request.resource.data.receiptDocumentId == idempotencyKey
+          && request.resource.data.operation == 'COMPLETE_SALE'
+          && request.resource.data.entityType == 'SALE'
+          && request.resource.data.entityId is string
+          && request.resource.data.correlationId is string
+          && request.resource.data.requestFingerprint is string
+          && request.resource.data.status == 'completed'
+          && getAfter(/databases/$(database)/documents/vendors/$(vendorId)/salesReceipts/$(request.resource.data.entityId)).data.requestId == request.resource.data.correlationId);
       allow update, delete: if false;
+    }
+
+    // Build 09.2A canonical posted-sales authority. Posted financial records are append-only.
+    match /vendors/{vendorId}/salesReceipts/{saleId} {
+      allow read: if isActiveVendorUser(vendorId);
+      allow create: if isActiveVendorUser(vendorId)
+        && request.resource.data.vendorId == vendorId
+        && request.resource.data.saleId == saleId
+        && request.resource.data.branchId is string
+        && request.resource.data.terminalId is string
+        && request.resource.data.staffId is string
+        && request.resource.data.requestId is string
+        && request.resource.data.saleStatus == 'Completed'
+        && request.resource.data.postingStatus == 'Completed'
+        && getAfter(/databases/$(database)/documents/vendors/$(vendorId)/mutationReceipts/$('sales_complete_' + vendorId + '_' + request.resource.data.branchId + '_' + request.resource.data.requestId)).data.entityId == saleId;
+      allow update, delete: if false;
+    }
+
+    match /vendors/{vendorId}/salesReceiptLines/{lineId} {
+      allow read: if isActiveVendorUser(vendorId);
+      allow create: if isActiveVendorUser(vendorId)
+        && request.resource.data.vendorId == vendorId
+        && request.resource.data.saleLineId == lineId
+        && request.resource.data.saleId is string
+        && request.resource.data.quantity > 0
+        && request.resource.data.status == 'Posted'
+        && getAfter(/databases/$(database)/documents/vendors/$(vendorId)/salesReceipts/$(request.resource.data.saleId)).data.vendorId == vendorId;
+      allow update, delete: if false;
+    }
+
+    match /vendors/{vendorId}/payments/{paymentId} {
+      allow read: if isActiveVendorUser(vendorId);
+      allow create: if isActiveVendorUser(vendorId)
+        && request.resource.data.vendorId == vendorId
+        && request.resource.data.paymentId == paymentId
+        && request.resource.data.saleId is string
+        && request.resource.data.amount >= 0
+        && request.resource.data.status == 'Completed'
+        && getAfter(/databases/$(database)/documents/vendors/$(vendorId)/salesReceipts/$(request.resource.data.saleId)).data.vendorId == vendorId;
+      allow update, delete: if false;
+    }
+
+    match /vendors/{vendorId}/customerLedger/{entryId} {
+      allow read: if isActiveVendorUser(vendorId);
+      allow create: if isActiveVendorUser(vendorId)
+        && request.resource.data.vendorId == vendorId
+        && request.resource.data.entryId == entryId
+        && request.resource.data.saleId is string
+        && request.resource.data.debitMinor > 0
+        && request.resource.data.status == 'Posted'
+        && getAfter(/databases/$(database)/documents/vendors/$(vendorId)/salesReceipts/$(request.resource.data.saleId)).data.customerId == request.resource.data.customerId;
+      allow update, delete: if false;
+    }
+
+    match /vendors/{vendorId}/customerBalances/{customerId} {
+      allow read: if isActiveVendorUser(vendorId);
+      allow create: if isActiveVendorUser(vendorId)
+        && request.resource.data.vendorId == vendorId
+        && request.resource.data.customerId == customerId
+        && request.resource.data.version == 1
+        && request.resource.data.outstandingBalanceMinor >= 0
+        && request.resource.data.lastSaleId is string
+        && getAfter(/databases/$(database)/documents/vendors/$(vendorId)/salesReceipts/$(request.resource.data.lastSaleId)).data.requestId == request.resource.data.lastRequestId;
+      allow update: if isActiveVendorUser(vendorId)
+        && resource.data.vendorId == vendorId
+        && request.resource.data.vendorId == resource.data.vendorId
+        && request.resource.data.customerId == resource.data.customerId
+        && request.resource.data.version == resource.data.version + 1
+        && request.resource.data.outstandingBalanceMinor >= resource.data.outstandingBalanceMinor
+        && request.resource.data.lastSaleId is string
+        && getAfter(/databases/$(database)/documents/vendors/$(vendorId)/salesReceipts/$(request.resource.data.lastSaleId)).data.requestId == request.resource.data.lastRequestId;
+      allow delete: if false;
     }
 
     match /vendors/{vendorId}/supplierReturns/{supplierReturnId} {
@@ -827,7 +909,7 @@ service cloud.firestore {
         && request.resource.data.quantityDelta is number
         && request.resource.data.closingBalance is number
         && request.resource.data.openingBalance + request.resource.data.quantityDelta == request.resource.data.closingBalance
-        && request.resource.data.movementType in ['GOODS_RECEIVED', 'SUPPLIER_RETURN'];
+        && request.resource.data.movementType in ['GOODS_RECEIVED', 'SUPPLIER_RETURN', 'SALE'];
       allow update, delete: if false;
     }
 

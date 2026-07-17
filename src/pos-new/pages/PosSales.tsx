@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { History, MoreVertical, Printer, RotateCcw, ShieldCheck, X } from 'lucide-react';
 import ProductSearchCard from '../components/ProductSearchCard';
 import SalesCartCard, {
@@ -255,6 +255,7 @@ export default function PosSales({
   const [pendingBridgeCustomer, setPendingBridgeCustomer] = useState<SelectedCustomerForSaleBridge | null>(null);
   const [bridgeCustomerChecked, setBridgeCustomerChecked] = useState(false);
   const [isCompletingSale, setIsCompletingSale] = useState(false);
+  const checkoutRequestId = useRef<string | null>(null);
 
   useEffect(() => {
     const baseProducts = products.length > 0 ? products : DEFAULT_PRODUCTS;
@@ -1086,6 +1087,7 @@ export default function PosSales({
 
     setIsCompletingSale(true);
     try {
+      checkoutRequestId.current ||= `checkout-${vendorId}-${branchId}-${terminalId}-${Date.now()}`;
       const checkoutTaxSettings = posTaxSettingToVendorTaxSettings(
         vendorId,
         {
@@ -1141,7 +1143,8 @@ export default function PosSales({
           canNegativeStockOverride: ['Owner', 'SysAdmin', 'Manager'].includes(roleName),
           role: roleName
         },
-        allowNegativeStock: false
+        allowNegativeStock: false,
+        idempotencyKey: checkoutRequestId.current
       });
 
       onAddTransaction({
@@ -1196,6 +1199,7 @@ export default function PosSales({
       setReceiptOutputPreview(result.receiptPreview);
       setRecentSales((current) => [completedSaleForReceipts, ...current].slice(0, 6));
       clearCartState();
+      checkoutRequestId.current = null;
       setStatusMessage(result.message);
       logEvent('SALE_COMPLETED', `Sale ${result.receipt.receiptNumber} completed for ${money(result.sale.total)}.`);
       if (hasMiscellaneousLines) logEvent('SALE_COMPLETED_WITH_MISCELLANEOUS_LINE', `Sale ${result.receipt.receiptNumber} included miscellaneous non-inventory line(s).`);

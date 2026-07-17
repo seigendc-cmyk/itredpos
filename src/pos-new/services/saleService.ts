@@ -38,6 +38,8 @@ export const saleService = {
     saleDraft: Omit<Sale, 'id' | 'date' | 'invoiceNo'>,
     context?: CommerceOperationContext
   ): Promise<Sale> => {
+    throw new Error('Legacy saleService.completeSale is disabled. Use canonicalSalesTransactionService.completeCheckout.');
+    /* istanbul ignore next -- retained only as historical read-model mapping. */
     const freshSale: Sale = {
       ...saleDraft,
       id: `TXN-${Math.floor(10000 + Math.random() * 90000)}`,

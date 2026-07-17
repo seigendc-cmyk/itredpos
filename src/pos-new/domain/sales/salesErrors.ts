@@ -1,0 +1,2 @@
+export type SalesErrorCode = 'SALES_CONTEXT_INVALID' | 'SALES_VALIDATION_FAILED' | 'SALES_STATUS_CONFLICT' | 'SALES_IDEMPOTENCY_CONFLICT' | 'SALES_PERMISSION_DENIED' | 'SALES_STOCK_CONFLICT' | 'SALES_PAYMENT_INVALID' | 'SALES_UNSUPPORTED_OPERATION' | 'SALES_TRANSACTION_FAILED';
+export class CanonicalSalesError extends Error { constructor(public readonly code: SalesErrorCode, message: string, public readonly retryable = false) { super(message); this.name = 'CanonicalSalesError'; } }

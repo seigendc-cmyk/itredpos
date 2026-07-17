@@ -1,5 +1,3 @@
-import { doc, writeBatch } from 'firebase/firestore';
-import { db } from '../firebase/firebaseApp';
 import type { SalesDeliveryPaymentMode, SalesDeliveryPriority, SalesPaymentLine, SalesPaymentMethod } from '../components/SalesCartCard';
 import type { CreditDecision } from './customerCreditService';
 import type {
@@ -19,22 +17,18 @@ import {
   type VendorTaxSettings
 } from './vendorTaxSettingsService';
 import {
-  consumeStockForSale,
   getInventoryBalance,
   restoreStockForReturn,
   type InventoryMovementRecord
 } from './inventorySyncService';
 import { createReceiptFromSale, getReceiptPreview } from './receiptService';
-import { enqueueOfflineAction, getNetworkStatus } from './offlineSyncService';
 import { createDeliveryRequestFromReceipt } from './deliveryService';
-import { biEventService } from './biEventService';
 import { createAccountingPostingPlaceholder } from './accountingService';
 import { recordPaymentReportEvent } from './paymentReportService';
 import { recordCOGSRecoveryFromSale } from './cogsReserveService';
 import {
   createCustomerCreditApprovalRequest,
-  createCustomerCreditBIAdvice,
-  createCustomerDebtFromCreditSale
+  createCustomerCreditBIAdvice
 } from './customerCreditService';
 import {
   recordCashRefundMovement,
@@ -45,6 +39,7 @@ import {
   type CashMovementSyncStatus
 } from './cashMovementService';
 import { readVendorScopedList, writeVendorScopedList } from '../utils/vendorDataMode';
+import { postCanonicalSaleAtomic } from '../repositories/firestore/FirestoreSalesTransactionRepository';
 
 export const SALES_COLLECTIONS = {
   sales: 'pos_sales',
@@ -139,6 +134,7 @@ export interface PosSaleLine {
   vatRate: number;
   vatAmount: number;
   lineTotal: number;
+  isInventoryAsset: boolean;
 }
 
 export interface PosPaymentRecord {
@@ -648,81 +644,8 @@ function saveCheckoutRecords(input: {
   saveLocalRows(SALES_COLLECTIONS.biEvents, input.sale.vendorId, [input.biEvent], 'eventId');
 }
 
-async function writeFirestoreCheckout(input: {
-  sale: PosSaleHeader;
-  saleLines: PosSaleLine[];
-  payments: PosPaymentRecord[];
-  cashMovement?: PosCashMovementRecord;
-  auditLog: Record<string, unknown>;
-  biEvent: Record<string, unknown>;
-}): Promise<void> {
-  if (!db) throw new Error('Cloud checkout is unavailable.');
-  const batch = writeBatch(db);
-  batch.set(doc(db, SALES_COLLECTIONS.sales, input.sale.saleId), input.sale);
-  input.saleLines.forEach((line) => batch.set(doc(db!, SALES_COLLECTIONS.saleItems, line.saleLineId), line));
-  input.payments.forEach((payment) => batch.set(doc(db!, SALES_COLLECTIONS.payments, payment.paymentId), payment));
-  if (input.cashMovement) batch.set(doc(db, SALES_COLLECTIONS.cashMovements, input.cashMovement.cashMovementId), input.cashMovement);
-  batch.set(doc(db, SALES_COLLECTIONS.auditLogs, String(input.auditLog.auditLogId)), input.auditLog);
-  batch.set(doc(db, SALES_COLLECTIONS.biEvents, String(input.biEvent.eventId)), input.biEvent);
-  await batch.commit();
-}
-
-async function queueCheckoutForSync(input: {
-  sale: PosSaleHeader;
-  saleLines: PosSaleLine[];
-  payments: PosPaymentRecord[];
-  cashMovement?: PosCashMovementRecord;
-  receipt: ReceiptRecord;
-  staffName: string;
-}): Promise<void> {
-  const queueStatus = input.sale.postingStatus === 'PendingSync' ? 'Queued' : 'Ready To Sync';
-  await enqueueOfflineAction({
-    vendorId: input.sale.vendorId,
-    branchId: input.sale.branchId,
-    terminalId: input.sale.terminalId,
-    staffId: input.sale.staffId,
-    staffName: input.staffName,
-    entityType: 'Sale',
-    entityId: input.sale.saleId,
-    entityNumber: input.receipt.receiptNumber,
-    operationType: 'CREATE_SALE',
-    payload: { sale: input.sale, lines: input.saleLines },
-    status: queueStatus,
-    notes: input.sale.postingStatus === 'PendingSync' ? 'Sale saved offline' : 'Sale ready to synchronize'
-  });
-  await enqueueOfflineAction({
-    vendorId: input.sale.vendorId,
-    branchId: input.sale.branchId,
-    terminalId: input.sale.terminalId,
-    staffId: input.sale.staffId,
-    staffName: input.staffName,
-    entityType: 'Payment',
-    entityId: `${input.sale.saleId}_payments`,
-    entityNumber: input.receipt.receiptNumber,
-    operationType: 'CREATE_PAYMENT',
-    payload: { payments: input.payments },
-    status: queueStatus,
-    notes: 'Payment ready to synchronize'
-  });
-  if (input.cashMovement) {
-    await enqueueOfflineAction({
-      vendorId: input.sale.vendorId,
-      branchId: input.sale.branchId,
-      terminalId: input.sale.terminalId,
-      staffId: input.sale.staffId,
-      staffName: input.staffName,
-      entityType: 'Payment',
-      entityId: input.cashMovement.cashMovementId,
-      entityNumber: input.receipt.receiptNumber,
-      operationType: 'CREATE_CASH_MOVEMENT',
-      payload: { cashMovement: input.cashMovement },
-      status: queueStatus,
-      notes: 'Cash movement ready to synchronize'
-    });
-  }
-}
-
-export async function completeSale(input: CompleteSaleInput): Promise<CompleteSaleResult> {
+/** Internal execution pipeline. Callers must use canonicalSalesTransactionService. */
+export async function executeCanonicalCheckoutPipeline(input: CompleteSaleInput): Promise<CompleteSaleResult> {
   assertCompleteSession(input.session);
   assertPermissions(input);
   const session = input.session;
@@ -792,7 +715,8 @@ export async function completeSale(input: CompleteSaleInput): Promise<CompleteSa
     taxableAmount: line.taxableAmount,
     vatRate: line.vatRate,
     vatAmount: line.lineVat,
-    lineTotal: line.lineTotal
+    lineTotal: line.lineTotal,
+    isInventoryAsset: isInventoryLine(line.sourceCartItem)
   }));
 
   const sale: Sale = {
@@ -830,49 +754,10 @@ export async function completeSale(input: CompleteSaleInput): Promise<CompleteSa
     status: 'COMPLETED'
   };
 
-  const network = await getNetworkStatus();
-  const allowOfflineInventoryQueue = network === 'Offline' || network === 'Unstable';
-  const inventoryMovements: InventoryMovementRecord[] = [];
-  for (const line of canonicalLines) {
-    if (!isInventoryLine(line.sourceCartItem)) continue;
-    inventoryMovements.push(await consumeStockForSale({
-      movementId: cleanId(`${saleId}_${line.productId}_SALE`),
-      vendorId: session.vendorId,
-      branchId: session.branchId,
-      warehouseId: session.warehouseId,
-      productId: line.productId,
-      sku: line.sku,
-      productName: line.productName,
-      quantityOut: line.quantity,
-      unitCost: line.unitCost,
-      sellingPrice: line.unitPrice,
-      staffId: session.staffId,
-      staffName: text(session.staffName, session.staffId),
-      terminalId: session.terminalId,
-      createdAt,
-      referenceType: 'SALE',
-      referenceId: saleId,
-      allowNegativeStock: input.allowNegativeStock || input.permissions.canNegativeStockOverride,
-      allowOfflineQueue: allowOfflineInventoryQueue,
-      notes: 'Sale completed from Sales Terminal.'
-    }));
-  }
-
+  let inventoryMovements: InventoryMovementRecord[] = [];
   let cashMovement: PosCashMovementRecord | undefined;
   let cashDrawerMovement: CashDrawerMovement | null = null;
-  if (cashApplied > 0) {
-    const recordedCash = await recordCashSaleMovement({
-      saleId,
-      receiptNumber: saleNumber,
-      shiftId: input.activeShiftId!,
-      amount: roundMoney(cashApplied),
-      createdAt
-    }, session);
-    cashMovement = recordedCash.movement as PosCashMovementRecord;
-    cashDrawerMovement = recordedCash.drawerMovement;
-  }
 
-  await recordCOGSRecoveryFromSale(sale).catch(() => undefined);
   const receipt = await createReceiptFromSale({
     sale,
     vendorId: session.vendorId,
@@ -943,37 +828,32 @@ export async function completeSale(input: CompleteSaleInput): Promise<CompleteSa
     createdAt
   };
 
-  let offlineQueued = false;
-  try {
-    if (network === 'Offline' || network === 'Unstable') throw new Error('Waiting to synchronize');
-    await writeFirestoreCheckout({ sale: completedSale, saleLines, payments: payment.paymentRecords, cashMovement, auditLog, biEvent });
-  } catch {
-    offlineQueued = true;
-    completedSale.postingStatus = 'PendingSync';
-    completedSale.updatedAt = nowIso();
+  const atomicPosting = await postCanonicalSaleAtomic({
+    sale: completedSale,
+    lines: saleLines,
+    payments: payment.paymentRecords,
+    requestId: input.idempotencyKey!,
+    currency: 'USD',
+    customerCreditAmount: payment.creditAmount
+  });
+  inventoryMovements = atomicPosting.inventoryMovements;
+  const offlineQueued = false;
+  await recordCOGSRecoveryFromSale(sale).catch(() => undefined);
+
+  if (cashApplied > 0) {
+    const recordedCash = await recordCashSaleMovement({
+      saleId,
+      receiptNumber: receipt.receiptNumber,
+      shiftId: input.activeShiftId!,
+      amount: roundMoney(cashApplied),
+      createdAt
+    }, session);
+    cashMovement = recordedCash.movement as PosCashMovementRecord;
+    cashDrawerMovement = recordedCash.drawerMovement;
   }
   saveCheckoutRecords({ sale: completedSale, saleLines, payments: payment.paymentRecords, cashMovement, auditLog, biEvent });
-  await queueCheckoutForSync({ sale: completedSale, saleLines, payments: payment.paymentRecords, cashMovement, receipt, staffName: text(session.staffName, session.staffId) });
 
   if (payment.creditAmount > 0 && input.customer.record && input.customer.creditDecision) {
-    await createCustomerDebtFromCreditSale({
-      customerId: input.customer.record.customerId,
-      customerName,
-      receiptId: receipt.id,
-      receiptNumber: receipt.receiptNumber,
-      saleId,
-      saleDate: createdAt,
-      saleTotal: completedSale.grandTotal,
-      paidAmount: payment.amountPaid,
-      creditAmount: payment.creditAmount,
-      branchId: session.branchId,
-      branchName: text(session.branch, session.branchId),
-      terminalId: session.terminalId,
-      shiftId: input.activeShiftId,
-      cashierStaffId: session.staffId,
-      paymentTermsDays: input.customer.creditDecision.profile.paymentTermsDays,
-      notes: input.customer.creditOverrideApproved ? 'Credit sale completed with manager override.' : 'Credit sale completed within account rules.'
-    });
     if (input.customer.creditOverrideApproved) {
       await createCustomerCreditApprovalRequest({
         customerName,
@@ -1032,22 +912,7 @@ export async function completeSale(input: CompleteSaleInput): Promise<CompleteSa
       })),
       session
     });
-    if (delivery && offlineQueued) {
-      await enqueueOfflineAction({
-        vendorId: session.vendorId,
-        branchId: session.branchId,
-        terminalId: session.terminalId,
-        staffId: session.staffId,
-        staffName: text(session.staffName, session.staffId),
-        entityType: 'Delivery Request',
-        entityId: delivery.deliveryId,
-        entityNumber: delivery.deliveryNumber,
-        operationType: 'CREATE_DELIVERY_REQUEST',
-        payload: { deliveryId: delivery.deliveryId, deliveryNumber: delivery.deliveryNumber, receiptNumber: receipt.receiptNumber },
-        status: 'Queued',
-        notes: 'Delivery request queued after offline sale.'
-      });
-    }
+    void delivery;
   }
 
   await createAccountingPostingPlaceholder({
@@ -1057,14 +922,6 @@ export async function completeSale(input: CompleteSaleInput): Promise<CompleteSa
     amount: completedSale.grandTotal
   }).catch(() => undefined);
   await recordPaymentReportEvent('PAYMENT_BREAKDOWN_VIEWED', text(session.staffName, session.staffId)).catch(() => undefined);
-  await biEventService.recordBIEvent({
-    eventType: offlineQueued ? 'SALE_COMPLETED_OFFLINE' : 'SALE_COMPLETED',
-    operator: text(session.staffName, session.staffId),
-    terminal: text(session.terminal, session.terminalId),
-    severity: 'INFO',
-    payload: { receiptNumber: receipt.receiptNumber, total: completedSale.grandTotal, paymentStatus: completedSale.paymentStatus }
-  }).catch(() => undefined);
-
   return {
     sale: { ...sale, invoiceNo: receipt.receiptNumber },
     saleHeader: completedSale,
@@ -1076,11 +933,12 @@ export async function completeSale(input: CompleteSaleInput): Promise<CompleteSa
     receipt,
     receiptPreview: preview,
     offlineQueued,
-    message: offlineQueued ? 'Sale saved offline. Waiting to synchronize.' : 'Sale completed successfully.'
+    message: 'Sale completed successfully.'
   };
 }
 
-export async function createSaleReturn(input: SaleReturnInput): Promise<{ returnId: string; restoredMovements: InventoryMovementRecord[]; cashRefund?: PosCashMovementRecord }> {
+/** Internal return pipeline. Callers must use canonicalSalesTransactionService. */
+async function executeCanonicalSaleReturnPipeline(input: SaleReturnInput): Promise<{ returnId: string; restoredMovements: InventoryMovementRecord[]; cashRefund?: PosCashMovementRecord }> {
   assertCompleteSession(input.session);
   if (!input.permissions.canReturn) throw new Error('Return requires approval.');
   if (!text(input.reason)) throw new Error('Return requires a reason.');
@@ -1136,5 +994,17 @@ export async function createSaleReturn(input: SaleReturnInput): Promise<{ return
     createdBy: input.session.staffId
   }], 'returnId');
   return { returnId, restoredMovements, cashRefund };
+}
+
+/** Compatibility adapter: all checkout posting delegates to the canonical sales authority. */
+export async function completeSale(input: CompleteSaleInput): Promise<CompleteSaleResult> {
+  const { canonicalSalesTransactionService } = await import('./sales/canonicalSalesTransactionService');
+  return canonicalSalesTransactionService.completeCheckout(input);
+}
+
+/** Compatibility adapter: all supported returns delegate to the canonical sales authority. */
+export async function createSaleReturn(input: SaleReturnInput): Promise<{ returnId: string; restoredMovements: InventoryMovementRecord[]; cashRefund?: PosCashMovementRecord }> {
+  const { canonicalSalesTransactionService } = await import('./sales/canonicalSalesTransactionService');
+  return canonicalSalesTransactionService.returnCheckoutSale(input);
 }
 import { normalizeOperationalRole } from '../auth/roleNormalization';

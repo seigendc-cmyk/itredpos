@@ -1,0 +1,3 @@
+export const canonicalSaleId = (vendorId: string, branchId: string, requestId: string): string => `sale_${vendorId}_${branchId}_${requestId}`.replace(/[^A-Za-z0-9_-]/g, '_');
+export const canonicalSalesReceiptId = (vendorId: string, branchId: string, command: string, requestId: string): string => `sales:${encodeURIComponent(command)}:${encodeURIComponent(vendorId)}:${encodeURIComponent(branchId)}:${encodeURIComponent(requestId)}`;
+export const canonicalSaleMovementId = (vendorId: string, saleId: string, lineId: string): string => `sale_${vendorId}_${saleId}_${lineId}`.replace(/[^A-Za-z0-9_-]/g, '_');

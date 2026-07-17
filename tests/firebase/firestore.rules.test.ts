@@ -39,6 +39,11 @@ beforeAll(async () => {
       setDoc(doc(db, 'vendors', VENDOR_A, 'purchaseOrders', 'po-1'), { poId: 'po-1', poNumber: 'PO-1', vendorId: VENDOR_A, supplierId: 'supplier-a', branchId: 'branch-a', warehouseId: 'warehouse-a', status: 'Pending Approval' }),
       setDoc(doc(db, 'vendors', VENDOR_A, 'goodsReceivingNotes', 'grn-1'), { grnId: 'grn-1', vendorId: VENDOR_A, supplierId: 'supplier-a', branchId: 'branch-a', warehouseId: 'warehouse-a', receivingStatus: 'Posted', postingStatus: 'Posted' }),
       setDoc(doc(db, 'vendors', VENDOR_A, 'supplierPayments', 'payment-1'), { paymentId: 'payment-1', vendorId: VENDOR_A, supplierId: 'supplier-a', invoiceId: 'invoice-1', amount: 10, status: 'POSTED' })
+      ,setDoc(doc(db, 'pos_sales', 'sale-posted'), { saleId: 'sale-posted', vendorId: VENDOR_A, branchId: 'branch-a', warehouseId: 'warehouse-a', terminalId: 'terminal-a', staffId: CASHIER, subtotal: 10, discountTotal: 0, taxableAmount: 10, vatTotal: 0, grandTotal: 10, amountPaid: 10, balanceDue: 0, saleStatus: 'Completed' })
+      ,setDoc(doc(db, 'pos_payments', 'sale-payment'), { paymentId: 'sale-payment', saleId: 'sale-posted', vendorId: VENDOR_A, branchId: 'branch-a', terminalId: 'terminal-a', staffId: CASHIER, amount: 10 })
+      ,setDoc(doc(db, 'vendors', VENDOR_A, 'salesReceipts', 'sale-posted'), { saleId: 'sale-posted', vendorId: VENDOR_A, branchId: 'branch-a', warehouseId: 'warehouse-a', terminalId: 'terminal-a', staffId: CASHIER, requestId: 'request-1', subtotal: 10, discountTotal: 0, taxableAmount: 10, vatTotal: 0, grandTotal: 10, amountPaid: 10, balanceDue: 0, saleStatus: 'Completed', postingStatus: 'Completed' })
+      ,setDoc(doc(db, 'vendors', VENDOR_A, 'payments', 'sale-payment'), { paymentId: 'sale-payment', saleId: 'sale-posted', vendorId: VENDOR_A, branchId: 'branch-a', terminalId: 'terminal-a', staffId: CASHIER, amount: 10, status: 'Completed' })
+      ,setDoc(doc(db, 'vendors', VENDOR_A, 'customerLedger', 'ledger-posted'), { entryId: 'ledger-posted', saleId: 'sale-posted', customerId: 'customer-a', vendorId: VENDOR_A, debitMinor: 1000, status: 'Posted' })
     ]);
   });
 }, 30_000);
@@ -151,6 +156,26 @@ describe('purchasing migration security', () => {
     await assertSucceeds(setDoc(ref, { vendorId: VENDOR_A, status: 'pending', sourceFingerprint: 'record-fp', legacySourceType: 'browserStorage', legacyRecordId: 'legacy-1', destinationId: 'destination-1', migrationRunId: 'migration-run-1' }));
     await assertFails(updateDoc(ref, { legacyRecordId: 'legacy-rewritten' }));
     await assertFails(updateDoc(ref, { destinationId: 'destination-rewritten' }));
+  });
+});
+
+describe('canonical sales security', () => {
+  test('cross-vendor and unauthenticated sale access is denied', async () => {
+    await env.withSecurityRulesDisabled(async context => setDoc(doc(context.firestore(), 'vendors', VENDOR_B, 'salesReceipts', 'sale-vendor-b'), { saleId: 'sale-vendor-b', vendorId: VENDOR_B }));
+    await assertFails(getDoc(doc(dbFor(MANAGER), 'vendors', VENDOR_B, 'salesReceipts', 'sale-vendor-b')));
+    await assertFails(getDoc(doc(env.unauthenticatedContext().firestore(), 'vendors', VENDOR_A, 'salesReceipts', 'sale-posted')));
+  });
+  test('posted sale cannot be financially edited or deleted', async () => {
+    await assertFails(updateDoc(doc(dbFor(CASHIER), 'vendors', VENDOR_A, 'salesReceipts', 'sale-posted'), { grandTotal: 999 }));
+    await assertFails(deleteDoc(doc(dbFor(CASHIER), 'vendors', VENDOR_A, 'salesReceipts', 'sale-posted')));
+  });
+  test('completed payment is immutable', async () => {
+    await assertFails(updateDoc(doc(dbFor(CASHIER), 'vendors', VENDOR_A, 'payments', 'sale-payment'), { amount: 999 }));
+    await assertFails(deleteDoc(doc(dbFor(CASHIER), 'vendors', VENDOR_A, 'payments', 'sale-payment')));
+  });
+  test('posted customer ledger is immutable', async () => {
+    await assertFails(updateDoc(doc(dbFor(CASHIER), 'vendors', VENDOR_A, 'customerLedger', 'ledger-posted'), { debitMinor: 99999 }));
+    await assertFails(deleteDoc(doc(dbFor(CASHIER), 'vendors', VENDOR_A, 'customerLedger', 'ledger-posted')));
   });
 });
 
