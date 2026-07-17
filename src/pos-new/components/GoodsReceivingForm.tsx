@@ -54,6 +54,7 @@ export default function GoodsReceivingForm({
   const [note, setNote] = useState<GoodsReceivingNote | null>(grn);
   const [lines, setLines] = useState<GoodsReceivingLine[]>([]);
   const [feedback, setFeedback] = useState<string | null>(null);
+  const [posting, setPosting] = useState(false);
   const [acquisitionType, setAcquisitionType] = useState<GoodsReceivingAcquisitionType>('Supplier Credit');
   const [paymentSource, setPaymentSource] = useState<GoodsReceivingPaymentSource>('COGSReserve');
   const [paidAmount, setPaidAmount] = useState('0');
@@ -133,6 +134,8 @@ export default function GoodsReceivingForm({
   };
 
   const handlePost = async () => {
+    if (posting) return;
+    setPosting(true);
     try {
       if (!canPost) {
         setFeedback('You do not have permission to perform this action.');
@@ -143,7 +146,7 @@ export default function GoodsReceivingForm({
       onChanged(message);
     } catch (error) {
       setFeedback(error instanceof Error ? error.message : 'Goods receiving could not be posted.');
-    }
+    } finally { setPosting(false); }
   };
 
   const handleCancel = async () => {
@@ -347,7 +350,7 @@ export default function GoodsReceivingForm({
               <button type="button" onClick={handleSaveDraft} className="px-3 py-2 border border-[#b1b5c2] bg-white text-[#1e222b] font-black uppercase text-[9px] rounded-none">Save Draft</button>
               <button type="button" onClick={handleSubmitApproval} className="px-3 py-2 border border-[#b1b5c2] bg-white text-[#1e222b] font-black uppercase text-[9px] rounded-none">Submit for Approval</button>
               <button type="button" onClick={handleApprove} className="px-3 py-2 border border-[#b1b5c2] bg-white text-[#1e222b] font-black uppercase text-[9px] rounded-none">Approve</button>
-              <button type="button" onClick={handlePost} className="px-3 py-2 border border-orange-700 bg-orange-600 hover:bg-orange-700 text-white font-black uppercase text-[9px] rounded-none">Post GRN</button>
+              <button type="button" onClick={handlePost} disabled={posting} className="px-3 py-2 border border-orange-700 bg-orange-600 hover:bg-orange-700 disabled:opacity-50 text-white font-black uppercase text-[9px] rounded-none">{posting ? 'Posting…' : 'Post GRN'}</button>
               <button type="button" onClick={handleCancel} className="px-3 py-2 border border-red-300 bg-white text-red-700 font-black uppercase text-[9px] rounded-none">Cancel GRN</button>
               <button type="button" onClick={handleExport} className="px-3 py-2 border border-[#b1b5c2] bg-white text-[#1e222b] font-black uppercase text-[9px] rounded-none flex items-center gap-1"><Download className="w-3.5 h-3.5" /> Prepare Export</button>
               <button type="button" onClick={onClose} className="px-3 py-2 border border-[#1e222b] bg-[#1e222b] text-white font-black uppercase text-[9px] rounded-none">Close</button>

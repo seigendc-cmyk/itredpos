@@ -5,13 +5,8 @@ import type {
   PurchasingSupplier,
   SupplierInvoice
 } from './PurchasingRepository';
-
-export class PurchasingValidationError extends Error {
-  constructor(message: string, public readonly code = 'PURCHASING_VALIDATION_FAILED') {
-    super(message);
-    this.name = 'PurchasingValidationError';
-  }
-}
+import { PurchasingValidationError } from './purchasingErrors';
+export { PurchasingValidationError } from './purchasingErrors';
 
 const required = (value: unknown, label: string): void => {
   if (typeof value !== 'string' || value.trim().length === 0) throw new PurchasingValidationError(`${label} is required.`);
@@ -20,6 +15,33 @@ const required = (value: unknown, label: string): void => {
 const positive = (value: number, label: string): void => {
   if (!Number.isFinite(value) || value <= 0) throw new PurchasingValidationError(`${label} must be positive.`);
 };
+
+export const MAX_GRN_LINES = 40;
+export const MAX_GRN_TRANSACTION_DOCUMENTS = 450;
+
+export function estimateGRNTransactionDocuments(command: PostGoodsReceiptCommand): number {
+  const activeLines = command.lines.filter((line) => !line.removeFromCurrentGRN && line.qtyAccepted > 0).length;
+  const fixedDocuments = 9 + (command.createSupplierInvoice ? 2 : 0);
+  return fixedDocuments + (activeLines * 5);
+}
+
+export function assertGRNCapacity(command: PostGoodsReceiptCommand): void {
+  if (command.lines.length > MAX_GRN_LINES) throw new PurchasingValidationError(`A GRN may contain at most ${MAX_GRN_LINES} lines. Create separate GRNs.`, 'PURCHASING_TRANSACTION_TOO_LARGE');
+  if (estimateGRNTransactionDocuments(command) > MAX_GRN_TRANSACTION_DOCUMENTS) throw new PurchasingValidationError('The GRN exceeds the safe Firestore transaction document budget.', 'PURCHASING_TRANSACTION_TOO_LARGE');
+  const poLines = command.lines.map((line) => line.poLineId).filter(Boolean);
+  if (new Set(poLines).size !== poLines.length) throw new PurchasingValidationError('A GRN cannot contain duplicate purchase-order line references.', 'DUPLICATE_PO_LINE');
+  const products = command.lines.map((line) => line.productId).filter(Boolean);
+  if (new Set(products).size !== products.length) throw new PurchasingValidationError('A GRN cannot contain duplicate product references.', 'DUPLICATE_PRODUCT_LINE');
+}
+
+export function assertInventoryMovement(opening: number, delta: number, closing: number): void {
+  if (![opening, delta, closing].every(Number.isFinite) || Math.abs(opening + delta - closing) > 0.000001) throw new PurchasingValidationError('Inventory movement arithmetic is invalid.', 'PURCHASING_STOCK_CONFLICT');
+}
+
+export function assertSupplierBalanceProjection(balance: { invoiceTotal: number; paymentTotal: number; reversalTotal: number; creditNoteTotal: number; returnCreditTotal: number; outstandingBalance: number }): void {
+  const expected = balance.invoiceTotal - balance.paymentTotal + balance.reversalTotal - balance.creditNoteTotal - balance.returnCreditTotal;
+  if (Math.abs(expected - balance.outstandingBalance) > 0.01) throw new PurchasingValidationError('Supplier balance projection does not reconcile.', 'SUPPLIER_BALANCE_CONFLICT');
+}
 
 export const normalizeSupplierContact = (value: string | undefined): string => (value || '').trim().toLowerCase().replace(/\s+/g, '');
 

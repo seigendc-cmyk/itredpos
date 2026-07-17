@@ -11,6 +11,7 @@ import {
   updateDoc,
   where,
   type DocumentData,
+  type DocumentSnapshot,
   type QuerySnapshot,
   type Transaction
 } from 'firebase/firestore';
@@ -37,15 +38,20 @@ import type {
 } from '../PurchasingRepository';
 import {
   assertGoodsReceipt,
+  assertGRNCapacity,
+  assertInventoryMovement,
   assertManagerRole,
   assertPurchaseOrder,
   assertPurchaseOrderTransition,
   assertSupplier,
   assertSupplierInvoice,
   assertSupplierReturn,
+  assertSupplierBalanceProjection,
   normalizeSupplierContact,
   PurchasingValidationError
 } from '../purchasingAssertions';
+import { fingerprintPurchasingMutation } from '../../services/purchasingIdempotencyService';
+import { PurchasingIdempotencyError } from '../purchasingErrors';
 import { validatePurchasingMutationContext, validateRepositoryOperationContext, type RepositoryOperationContext } from '../repositoryContext';
 import { mapFirestoreError, REPOSITORY_ERROR_CODES, type RepositoryErrorCode } from './firestoreErrorMapper';
 
@@ -71,9 +77,32 @@ const emptySupplierBalance = (vendorId: string, supplierId: string): SupplierBal
 });
 
 function mappedFailure(error: unknown): Failure {
+  if (error instanceof PurchasingIdempotencyError) return failed(error.message, error.code);
   if (error instanceof PurchasingValidationError) return failed(error.message, error.code);
   const mapped = mapFirestoreError(error);
   return failed(mapped.errorMessage, mapped.errorCode);
+}
+
+interface MutationReceiptRecord {
+  idempotencyKey: string; operation: string; entityType: string; entityId: string; vendorId: string;
+  correlationId: string; actorId: string; actorRole: string; requestFingerprint: string;
+  status: 'processing' | 'completed' | 'failed' | 'conflict'; resultPath: string;
+}
+
+function assertReceipt(snapshot: DocumentSnapshot, fingerprint: string, operation: string, correlationId: string): boolean {
+  if (!snapshot.exists()) return false;
+  const receipt = snapshot.data() as MutationReceiptRecord;
+  if (receipt.requestFingerprint !== fingerprint) throw new PurchasingIdempotencyError('This idempotency key was already used for a different request.', operation, correlationId);
+  return receipt.status === 'completed';
+}
+
+function completeReceipt(transaction: Transaction, context: RepositoryOperationContext, operation: string, entityType: string, entityId: string, fingerprint: string, resultPath: string): void {
+  transaction.set(doc(db!, firestorePaths.mutationReceipt(context.vendorId, context.idempotencyKey!)), withoutUndefined({
+    receiptDocumentId: encodeFirestoreId(context.idempotencyKey!), idempotencyKey: context.idempotencyKey, operation, entityType, entityId, vendorId: context.vendorId,
+    correlationId: context.correlationId, actorId: context.staffId, actorRole: context.actorRole,
+    requestFingerprint: fingerprint, status: 'completed', resultPath, createdAt: serverTimestamp(), completedAt: serverTimestamp(),
+    failureCode: '', failureMessage: '', source: context.source, deviceId: context.deviceId || ''
+  }));
 }
 
 function record<T>(data: DocumentData): T {
@@ -121,7 +150,7 @@ function event(transaction: Transaction, context: RepositoryOperationContext, ty
   transaction.set(doc(db!, firestorePaths.biEvents(context.vendorId), id), withoutUndefined({
     eventId: id, eventType: type, vendorId: context.vendorId, branchId: context.branchId || '', warehouseId: context.warehouseId || '',
     entityType, entityId, staffId: context.staffId || '', actorId: context.actorId, sourceApp: context.sourceApp,
-    timestamp: nowIso(), correlationId: context.correlationId, schemaVersion: COMMERCE_SCHEMA_VERSION, metadata
+    timestamp: serverTimestamp(), postedAt: serverTimestamp(), correlationId: context.correlationId, idempotencyKey: context.idempotencyKey || '', operation: type, schemaVersion: COMMERCE_SCHEMA_VERSION, metadata
   }));
 }
 
@@ -130,7 +159,7 @@ function audit(transaction: Transaction, context: RepositoryOperationContext, ac
   transaction.set(doc(db!, firestorePaths.auditLogs(context.vendorId), id), withoutUndefined({
     auditId: id, vendorId: context.vendorId, branchId: context.branchId || '', warehouseId: context.warehouseId || '',
     staffId: context.staffId || '', actorId: context.actorId, actorRole: context.actorRole || '', action, entityType, entityId,
-    before, after, reason, sourceApp: context.sourceApp, correlationId: context.correlationId, createdAt: nowIso()
+    before, after, reason, sourceApp: context.sourceApp, correlationId: context.correlationId, idempotencyKey: context.idempotencyKey || '', operation: action, createdAt: serverTimestamp(), postedAt: serverTimestamp()
   }));
 }
 
@@ -280,7 +309,8 @@ export function createFirestorePurchasingRepository(): PurchasingRepository {
     },
     async approvePurchaseOrder(context, poId) {
       const invalid = mutationPreflight(context) || manager(context, 'Purchase order approval'); if (invalid) return invalid;
-      try { const next = await runTransaction(db!, async (transaction) => { const ref = doc(db!, firestorePaths.purchaseOrder(context.vendorId, poId)); const snapshot = await transaction.get(ref); if (!snapshot.exists()) throw new PurchasingValidationError('Purchase order not found.'); const current = record<PurchaseOrder>(snapshot.data()); if (current.vendorId !== context.vendorId) throw new PurchasingValidationError('Cross-vendor purchase order access is rejected.', 'VENDOR_MISMATCH'); assertPurchaseOrderTransition(current.status, 'Approved', context.actorRole); const value = { ...current, status: 'Approved' as const, approvedBy: context.staffId, approvedByStaffId: context.staffId, approvedAt: context.occurredAt, updatedAt: context.occurredAt }; transaction.set(ref, value); event(transaction, context, 'PURCHASE_ORDER_APPROVED', 'PURCHASE_ORDER', poId); audit(transaction, context, 'APPROVE_PURCHASE_ORDER', 'PURCHASE_ORDER', poId, current, value); return value; }); return { success: true, data: next }; } catch (error) { return mappedFailure(error); }
+      const operation = 'APPROVE_PURCHASE_ORDER'; const fingerprint = await fingerprintPurchasingMutation(operation, { poId, nextStatus: 'Approved' });
+      try { const next = await runTransaction(db!, async (transaction) => { const ref = doc(db!, firestorePaths.purchaseOrder(context.vendorId, poId)); const receiptRef = doc(db!, firestorePaths.mutationReceipt(context.vendorId, context.idempotencyKey!)); const [snapshot, receiptSnapshot] = await Promise.all([transaction.get(ref), transaction.get(receiptRef)]); if (!snapshot.exists()) throw new PurchasingValidationError('Purchase order not found.'); const current = record<PurchaseOrder>(snapshot.data()); if (assertReceipt(receiptSnapshot, fingerprint, operation, context.correlationId)) return current; if (current.vendorId !== context.vendorId) throw new PurchasingValidationError('Cross-vendor purchase order access is rejected.', 'VENDOR_MISMATCH'); if (current.status !== 'Submitted') throw new PurchasingValidationError('Only a submitted purchase order may be approved.', 'PURCHASING_STATUS_CONFLICT'); assertPurchaseOrderTransition(current.status, 'Approved', context.actorRole); const value = { ...current, status: 'Approved' as const, approvedBy: context.staffId, approvedByStaffId: context.staffId, approvedAt: context.occurredAt, updatedAt: context.occurredAt }; transaction.set(ref, { ...value, approvedAt: serverTimestamp(), updatedAt: serverTimestamp() }); event(transaction, context, 'PURCHASE_ORDER_APPROVED', 'PURCHASE_ORDER', poId); audit(transaction, context, operation, 'PURCHASE_ORDER', poId, current, value); completeReceipt(transaction, context, operation, 'PURCHASE_ORDER', poId, fingerprint, firestorePaths.purchaseOrder(context.vendorId, poId)); return value; }); return { success: true, data: next }; } catch (error) { return mappedFailure(error); }
     },
     async rejectPurchaseOrder(context, poId, reason) {
       const invalid = mutationPreflight(context) || manager(context, 'Purchase order rejection'); if (invalid) return invalid;
@@ -298,16 +328,20 @@ export function createFirestorePurchasingRepository(): PurchasingRepository {
     async listGoodsReceiptLines(context, grnId) { const invalid = preflight(context); if (invalid) return { ...invalid, records: [] }; try { const snap = await getDocs(query(collection(db!, firestorePaths.goodsReceivingLines(context.vendorId)), where('grnId', '==', grnId))); return { success: true, records: snap.docs.map((row) => record<GoodsReceivingLine>(row.data())) }; } catch (error) { return { ...mappedFailure(error), records: [] }; } },
     async postGoodsReceipt(context, command: PostGoodsReceiptCommand) {
       const invalid = mutationPreflight(context); if (invalid) return invalid;
+      if (!context.branchId || !context.warehouseId) return failed('GRN posting requires branch and warehouse context.', 'PURCHASING_CONTEXT_INVALID');
       try {
-        assertGoodsReceipt(command, context.vendorId);
+        assertGoodsReceipt(command, context.vendorId); assertGRNCapacity(command);
         const receipt = command.receipt; const lines = command.lines.filter((line) => !line.removeFromCurrentGRN && line.qtyAccepted > 0);
+        const operation = 'POST_GOODS_RECEIPT'; const fingerprint = await fingerprintPurchasingMutation(operation, { receipt: { grnId: receipt.grnId, poId: receipt.poId, supplierId: receipt.supplierId, branchId: receipt.branchId, warehouseId: receipt.warehouseId, supplierInvoiceNumber: receipt.supplierInvoiceNumber }, lines: lines.map((line) => ({ lineId: line.lineId, poLineId: line.poLineId, productId: line.productId, qtyAccepted: line.qtyAccepted, unitCost: line.receivedUnitCost || line.unitCost })) });
         const result = await runTransaction(db!, async (transaction) => {
           const receiptRef = doc(db!, firestorePaths.goodsReceivingNote(context.vendorId, receipt.grnId));
           const poRef = doc(db!, firestorePaths.purchaseOrder(context.vendorId, receipt.poId!));
           const supplierRef = doc(db!, firestorePaths.supplier(context.vendorId, receipt.supplierId));
-          const receiptSnapshot = await transaction.get(receiptRef);
-          const poSnapshot = await transaction.get(poRef);
-          const supplierSnapshot = await transaction.get(supplierRef);
+          const mutationRef = doc(db!, firestorePaths.mutationReceipt(context.vendorId, context.idempotencyKey!));
+          const supplierBalanceRef = doc(db!, firestorePaths.supplierBalance(context.vendorId, receipt.supplierId));
+          const invoiceId = receipt.supplierInvoiceNumber ? cleanId(receipt.supplierId, receipt.supplierInvoiceNumber) : '';
+          const invoiceRef = invoiceId ? doc(db!, firestorePaths.supplierInvoice(context.vendorId, invoiceId)) : null;
+          const [receiptSnapshot, poSnapshot, supplierSnapshot, mutationSnapshot, invoiceSnapshot, supplierBalanceSnapshot] = await Promise.all([transaction.get(receiptRef), transaction.get(poRef), transaction.get(supplierRef), transaction.get(mutationRef), invoiceRef ? transaction.get(invoiceRef) : Promise.resolve(null), transaction.get(supplierBalanceRef)]);
           const lineSnapshots = await Promise.all(lines.map((line) =>
             transaction.get(doc(db!, firestorePaths.purchaseOrderLine(context.vendorId, line.poLineId!)))
           ));
@@ -315,47 +349,51 @@ export function createFirestorePurchasingRepository(): PurchasingRepository {
           const balanceSnapshots = await Promise.all(lines.map((line) =>
             transaction.get(doc(db!, firestorePaths.productStockBalance(context.vendorId, balanceId(context, receipt.branchId, receipt.warehouseId, line.productId))))
           ));
+          if (assertReceipt(mutationSnapshot, fingerprint, operation, context.correlationId)) {
+            if (!receiptSnapshot.exists()) throw new PurchasingValidationError('Completed receipt result is missing.', 'PURCHASING_STATUS_CONFLICT');
+            return record<GoodsReceivingNote>(receiptSnapshot.data());
+          }
           if (receiptSnapshot.exists() && ['Posted', 'Partially Posted'].includes(String(receiptSnapshot.data().receivingStatus))) throw new PurchasingValidationError('Goods receipt has already been posted.', 'GRN_ALREADY_POSTED');
           if (!poSnapshot.exists() || poSnapshot.data().vendorId !== context.vendorId || !['Approved', 'Sent To Supplier', 'Partially Received'].includes(poSnapshot.data().status)) throw new PurchasingValidationError('Goods receipt requires an approved purchase order in this vendor.');
           if (!supplierSnapshot.exists() || supplierSnapshot.data().vendorId !== context.vendorId || receipt.supplierId !== poSnapshot.data().supplierId) throw new PurchasingValidationError('Goods receipt supplier does not match the purchase order.');
           if (productSnapshots.some((snapshot) => !snapshot.exists() || (snapshot.data().vendorId && snapshot.data().vendorId !== context.vendorId))) throw new PurchasingValidationError('A goods receipt product does not belong to this vendor.');
           if (lineSnapshots.some((snapshot) => !snapshot.exists())) throw new PurchasingValidationError('A purchase order line does not exist.');
-          const timestamp = nowIso();
+          const timestamp = context.occurredAt!;
           let fullyReceived = true;
           lines.forEach((line, index) => {
             const poLine = lineSnapshots[index].data() as PurchaseOrderLine;
             const nextReceived = Number(poLine.qtyReceived || 0) + line.qtyAccepted;
-            if (!command.allowOverReceipt && nextReceived > poLine.qtyOrdered) throw new PurchasingValidationError('Receipt exceeds the ordered quantity.', 'OVER_RECEIPT_NOT_AUTHORIZED');
+            if (nextReceived > poLine.qtyOrdered) throw new PurchasingValidationError('Receipt exceeds the ordered quantity.', 'PURCHASING_OVER_RECEIPT');
             const outstanding = Math.max(poLine.qtyOrdered - nextReceived, 0); if (outstanding > 0) fullyReceived = false;
             transaction.update(lineSnapshots[index].ref, { qtyReceived: nextReceived, quantityReceived: nextReceived, qtyOutstanding: outstanding, lineStatus: outstanding > 0 ? 'Partially Received' : 'Fully Received' });
             const id = balanceId(context, receipt.branchId, receipt.warehouseId, line.productId); const balanceRef = doc(db!, firestorePaths.productStockBalance(context.vendorId, id)); const old = balanceSnapshots[index].exists() ? balanceSnapshots[index].data() : {};
             const beforeQty = Number(old.quantityOnHand || 0); const afterQty = beforeQty + line.qtyAccepted; const oldCost = Number(old.averageCost || 0); const unitCost = Number(line.receivedUnitCost || line.unitCost || 0); const averageCost = afterQty ? ((beforeQty * oldCost) + (line.qtyAccepted * unitCost)) / afterQty : unitCost;
+            assertInventoryMovement(beforeQty, line.qtyAccepted, afterQty);
             transaction.set(balanceRef, { ...old, sciId: id, balanceId: id, vendorId: context.vendorId, branchId: receipt.branchId, warehouseId: receipt.warehouseId, productId: line.productId, quantityOnHand: afterQty, quantityReserved: Number(old.quantityReserved || 0), quantityInTransit: Number(old.quantityInTransit || 0), quantityAvailable: afterQty - Number(old.quantityReserved || 0), averageCost, stockValue: afterQty * averageCost, syncStatus: 'Synced', schemaVersion: COMMERCE_SCHEMA_VERSION, status: 'Active', sourceApp: context.sourceApp, createdAt: old.createdAt || timestamp, updatedAt: timestamp, createdBy: old.createdBy || context.actorId, updatedBy: context.actorId });
             const movementId = cleanId(receipt.grnId, line.lineId, 'GOODS_RECEIVED');
-            transaction.set(doc(db!, firestorePaths.inventoryMovement(context.vendorId, movementId)), { movementId, sciId: movementId, vendorId: context.vendorId, branchId: receipt.branchId, warehouseId: receipt.warehouseId, productId: line.productId, movementType: 'GOODS_RECEIVED', quantityDelta: line.qtyAccepted, quantityBefore: beforeQty, quantityAfter: afterQty, unitCost, valueImpact: line.qtyAccepted * unitCost, referenceType: 'GRN', referenceId: receipt.grnId, actorId: context.actorId, correlationId: context.correlationId, schemaVersion: COMMERCE_SCHEMA_VERSION, status: 'Posted', sourceApp: context.sourceApp, createdAt: timestamp, updatedAt: timestamp, createdBy: context.actorId, updatedBy: context.actorId });
+            transaction.set(doc(db!, firestorePaths.inventoryMovement(context.vendorId, movementId)), { movementId, sciId: movementId, vendorId: context.vendorId, branchId: receipt.branchId, warehouseId: receipt.warehouseId, productId: line.productId, movementType: 'GOODS_RECEIVED', quantityDelta: line.qtyAccepted, openingBalance: beforeQty, closingBalance: afterQty, quantityBefore: beforeQty, quantityAfter: afterQty, sourceType: 'GRN', sourceId: receipt.grnId, sourceLineId: line.lineId, unitCost, valueImpact: line.qtyAccepted * unitCost, referenceType: 'GRN', referenceId: receipt.grnId, actorId: context.actorId, postedBy: context.staffId, correlationId: context.correlationId, idempotencyKey: context.idempotencyKey, postedAt: serverTimestamp(), schemaVersion: COMMERCE_SCHEMA_VERSION, status: 'Posted', sourceApp: context.sourceApp, createdAt: serverTimestamp(), updatedAt: serverTimestamp(), createdBy: context.actorId, updatedBy: context.actorId });
             transaction.set(doc(db!, firestorePaths.goodsReceivingLine(context.vendorId, line.lineId)), { ...line, vendorId: context.vendorId, qtyPosted: line.qtyAccepted, lineStatus: outstanding > 0 ? 'Partially Received' : 'Received' });
           });
           const posted = { ...receipt, receivingStatus: fullyReceived ? 'Posted' as const : 'Partially Posted' as const, status: fullyReceived ? 'Posted' as const : 'Partially Posted' as const, postingStatus: 'Posted' as const, postedAt: timestamp, updatedAt: timestamp };
           transaction.set(receiptRef, posted);
-          transaction.update(poRef, { status: fullyReceived ? 'Fully Received' : 'Partially Received', updatedAt: timestamp });
+          transaction.update(poRef, { status: fullyReceived ? 'Completed' : 'Partially Received', updatedAt: serverTimestamp() });
           if (command.createSupplierInvoice && receipt.supplierInvoiceNumber) {
-            const invoiceId = cleanId(receipt.supplierId, receipt.supplierInvoiceNumber); const total = lines.reduce((sum, line) => sum + line.qtyAccepted * Number(line.receivedUnitCost || 0), 0);
-            if ((await transaction.get(doc(db!, firestorePaths.supplierInvoice(context.vendorId, invoiceId)))).exists()) {
+            const total = lines.reduce((sum, line) => sum + line.qtyAccepted * Number(line.receivedUnitCost || 0), 0);
+            if (invoiceSnapshot?.exists()) {
               throw new PurchasingValidationError('Supplier invoice number already exists for this supplier.', 'DUPLICATE_SUPPLIER_INVOICE');
             }
-            transaction.set(doc(db!, firestorePaths.supplierInvoice(context.vendorId, invoiceId)), { invoiceId, invoiceNumber: receipt.supplierInvoiceNumber, supplierInvoiceNumber: receipt.supplierInvoiceNumber, vendorId: context.vendorId, supplierId: receipt.supplierId, poId: receipt.poId, grnId: receipt.grnId, branchId: receipt.branchId, warehouseId: receipt.warehouseId, currency: 'USD', subtotal: total, taxTotal: 0, grandTotal: total, paidTotal: 0, outstandingBalance: total, status: 'Draft', lines: [], createdAt: timestamp, updatedAt: timestamp, createdBy: context.actorId, updatedBy: context.actorId });
+            transaction.set(invoiceRef!, { invoiceId, invoiceNumber: receipt.supplierInvoiceNumber, supplierInvoiceNumber: receipt.supplierInvoiceNumber, vendorId: context.vendorId, supplierId: receipt.supplierId, poId: receipt.poId, grnId: receipt.grnId, branchId: receipt.branchId, warehouseId: receipt.warehouseId, currency: 'USD', subtotal: total, taxTotal: 0, grandTotal: total, paidTotal: 0, outstandingBalance: total, status: 'Draft', lines: [], createdAt: serverTimestamp(), updatedAt: serverTimestamp(), createdBy: context.actorId, updatedBy: context.actorId });
+            const supplierBalance = supplierBalanceSnapshot.exists() ? record<SupplierBalanceProjection>(supplierBalanceSnapshot.data()) : emptySupplierBalance(context.vendorId, receipt.supplierId); const nextSupplierBalance = { ...supplierBalance, invoiceTotal: supplierBalance.invoiceTotal + total, outstandingBalance: supplierBalance.outstandingBalance + total, version: supplierBalance.version + 1, updatedAt: timestamp, lastCorrelationId: context.correlationId }; assertSupplierBalanceProjection(nextSupplierBalance); transaction.set(supplierBalanceRef, { ...nextSupplierBalance, updatedAt: serverTimestamp() });
             event(transaction, context, 'SUPPLIER_INVOICE_CREATED', 'SUPPLIER_INVOICE', invoiceId);
             audit(transaction, context, 'CREATE_SUPPLIER_INVOICE', 'SUPPLIER_INVOICE', invoiceId, null, { grnId: receipt.grnId, amount: total });
           }
           event(transaction, context, 'GOODS_RECEIVED', 'GOODS_RECEIPT', receipt.grnId, { poId: receipt.poId, supplierId: receipt.supplierId, lineCount: lines.length });
           audit(transaction, context, 'POST_GOODS_RECEIPT', 'GOODS_RECEIPT', receipt.grnId, receiptSnapshot.exists() ? receiptSnapshot.data() : null, posted, command.overReceiptReason || '');
+          completeReceipt(transaction, context, operation, 'GOODS_RECEIPT', receipt.grnId, fingerprint, firestorePaths.goodsReceivingNote(context.vendorId, receipt.grnId));
           return posted;
         });
         return { success: true, data: result };
-      } catch (error) {
-        try { await setDoc(doc(db!, firestorePaths.biEvents(context.vendorId), cleanId('GOODS_RECEIPT_FAILED', context.correlationId, command.receipt.grnId)), { eventId: cleanId('GOODS_RECEIPT_FAILED', context.correlationId, command.receipt.grnId), eventType: 'GOODS_RECEIPT_FAILED', vendorId: context.vendorId, entityId: command.receipt.grnId, sourceApp: context.sourceApp, timestamp: nowIso(), correlationId: context.correlationId, metadata: { message: error instanceof Error ? error.message : 'Unknown failure' } }); } catch { /* primary error is returned */ }
-        return mappedFailure(error);
-      }
+      } catch (error) { return mappedFailure(error); }
     },
 
     getSupplierInvoice,
@@ -375,23 +413,26 @@ export function createFirestorePurchasingRepository(): PurchasingRepository {
       const invalid = mutationPreflight(context); if (invalid) return invalid;
       if (payment.vendorId !== context.vendorId || payment.amount <= 0) return failed('Supplier payment vendor and amount are invalid.');
       if (payment.paymentMethod !== 'CASH' && !payment.paymentReference?.trim()) return failed('Non-cash supplier payments require a reference.');
+      const operation = 'RECORD_SUPPLIER_PAYMENT'; const fingerprint = await fingerprintPurchasingMutation(operation, { paymentId: payment.paymentId, supplierId: payment.supplierId, invoiceId: payment.invoiceId, amount: payment.amount, currency: payment.currency, paymentMethod: payment.paymentMethod, paymentReference: payment.paymentReference || '' });
       try {
         const value = await runTransaction(db!, async (transaction) => {
-          const paymentRef = doc(db!, firestorePaths.supplierPayment(context.vendorId, payment.paymentId)); const invoiceRef = doc(db!, firestorePaths.supplierInvoice(context.vendorId, payment.invoiceId)); const balanceRef = doc(db!, firestorePaths.supplierBalance(context.vendorId, payment.supplierId));
-          const existing = await transaction.get(paymentRef); const invoiceSnapshot = await transaction.get(invoiceRef); const balanceSnapshot = await transaction.get(balanceRef);
+          const paymentRef = doc(db!, firestorePaths.supplierPayment(context.vendorId, payment.paymentId)); const invoiceRef = doc(db!, firestorePaths.supplierInvoice(context.vendorId, payment.invoiceId)); const balanceRef = doc(db!, firestorePaths.supplierBalance(context.vendorId, payment.supplierId)); const receiptRef = doc(db!, firestorePaths.mutationReceipt(context.vendorId, context.idempotencyKey!));
+          const [existing, invoiceSnapshot, balanceSnapshot, receiptSnapshot] = await Promise.all([transaction.get(paymentRef), transaction.get(invoiceRef), transaction.get(balanceRef), transaction.get(receiptRef)]);
+          if (assertReceipt(receiptSnapshot, fingerprint, operation, context.correlationId)) { if (!existing.exists()) throw new PurchasingValidationError('Completed payment result is missing.'); return record<PurchasingSupplierPayment>(existing.data()); }
           if (existing.exists()) throw new PurchasingValidationError('Supplier payment has already been posted.', 'DUPLICATE_PAYMENT');
           if (!invoiceSnapshot.exists()) throw new PurchasingValidationError('Supplier invoice not found.');
           const invoice = record<SupplierInvoice>(invoiceSnapshot.data());
           if (!['Approved', 'PartiallyPaid'].includes(invoice.status)) throw new PurchasingValidationError('An approved supplier invoice is required before payment.');
           if (payment.supplierId !== invoice.supplierId) throw new PurchasingValidationError('Payment supplier does not match the invoice.');
           if (payment.amount > invoice.outstandingBalance) throw new PurchasingValidationError('Supplier payment exceeds the outstanding invoice balance.', 'OVERPAYMENT_NOT_SUPPORTED');
-          const posted = { ...payment, status: 'POSTED' as const, createdAt: nowIso(), createdBy: context.actorId };
+          const posted = { ...payment, status: 'POSTED' as const, createdAt: context.occurredAt!, createdBy: context.staffId! };
           const outstandingBalance = invoice.outstandingBalance - payment.amount; transaction.set(paymentRef, posted); transaction.update(invoiceRef, { paidTotal: invoice.paidTotal + payment.amount, outstandingBalance, status: outstandingBalance <= 0.01 ? 'Paid' : 'PartiallyPaid', updatedAt: nowIso(), updatedBy: context.actorId });
           const balance = balanceSnapshot.exists() ? record<SupplierBalanceProjection>(balanceSnapshot.data()) : emptySupplierBalance(context.vendorId, payment.supplierId);
-          transaction.set(balanceRef, { ...balance, paymentTotal: balance.paymentTotal + payment.amount, outstandingBalance: balance.outstandingBalance - payment.amount, version: balance.version + 1, updatedAt: nowIso(), lastCorrelationId: context.correlationId });
+          const nextBalance = { ...balance, paymentTotal: balance.paymentTotal + payment.amount, outstandingBalance: balance.outstandingBalance - payment.amount, version: balance.version + 1, updatedAt: context.occurredAt!, lastCorrelationId: context.correlationId }; assertSupplierBalanceProjection(nextBalance); transaction.set(balanceRef, { ...nextBalance, updatedAt: serverTimestamp() });
           if (payment.paymentMethod === 'CASH') transaction.set(doc(db!, firestorePaths.posCashMovements(context.vendorId), cleanId(payment.paymentId, 'CASH_OUT')), { movementId: cleanId(payment.paymentId, 'CASH_OUT'), vendorId: context.vendorId, branchId: context.branchId || invoice.branchId, movementType: 'SUPPLIER_PAYMENT', direction: 'OUT', amount: payment.amount, referenceId: payment.paymentId, actorId: context.actorId, correlationId: context.correlationId, createdAt: nowIso() });
           event(transaction, context, 'SUPPLIER_PAYMENT_RECORDED', 'SUPPLIER_PAYMENT', payment.paymentId, { invoiceId: payment.invoiceId, amount: payment.amount });
           audit(transaction, context, 'RECORD_SUPPLIER_PAYMENT', 'SUPPLIER_PAYMENT', payment.paymentId, null, posted);
+          completeReceipt(transaction, context, operation, 'SUPPLIER_PAYMENT', payment.paymentId, fingerprint, firestorePaths.supplierPayment(context.vendorId, payment.paymentId));
           return posted;
         });
         return { success: true, data: value };
@@ -401,6 +442,7 @@ export function createFirestorePurchasingRepository(): PurchasingRepository {
       const invalid = mutationPreflight(context) || manager(context, 'Supplier payment reversal'); if (invalid) return invalid;
       const reversal = command.reversal;
       if (reversal.vendorId !== context.vendorId || !reversal.reason.trim() || reversal.idempotencyKey !== context.idempotencyKey) return failed('Payment reversal context or reason is invalid.');
+      const operation = 'REVERSE_SUPPLIER_PAYMENT'; const fingerprint = await fingerprintPurchasingMutation(operation, { originalPaymentId: reversal.originalPaymentId, supplierId: reversal.supplierId, invoiceId: reversal.invoiceId, amount: reversal.amount, currency: reversal.currency, reason: reversal.reason });
       try {
         const value = await runTransaction(db!, async (transaction) => {
           // One deterministic reversal document per original payment makes the once-only invariant transaction-safe.
@@ -408,7 +450,9 @@ export function createFirestorePurchasingRepository(): PurchasingRepository {
           const paymentRef = doc(db!, firestorePaths.supplierPayment(context.vendorId, reversal.originalPaymentId));
           const invoiceRef = doc(db!, firestorePaths.supplierInvoice(context.vendorId, reversal.invoiceId));
           const balanceRef = doc(db!, firestorePaths.supplierBalance(context.vendorId, reversal.supplierId));
-          const [existing, paymentSnapshot, invoiceSnapshot, balanceSnapshot] = await Promise.all([transaction.get(reversalRef), transaction.get(paymentRef), transaction.get(invoiceRef), transaction.get(balanceRef)]);
+          const receiptRef = doc(db!, firestorePaths.mutationReceipt(context.vendorId, context.idempotencyKey!));
+          const [existing, paymentSnapshot, invoiceSnapshot, balanceSnapshot, receiptSnapshot] = await Promise.all([transaction.get(reversalRef), transaction.get(paymentRef), transaction.get(invoiceRef), transaction.get(balanceRef), transaction.get(receiptRef)]);
+          if (assertReceipt(receiptSnapshot, fingerprint, operation, context.correlationId)) { if (!existing.exists()) throw new PurchasingValidationError('Completed reversal result is missing.'); return record<SupplierPaymentReversal>(existing.data()); }
           if (existing.exists()) throw new PurchasingValidationError('This payment reversal already exists.', 'DUPLICATE_PAYMENT_REVERSAL');
           if (!paymentSnapshot.exists()) throw new PurchasingValidationError('Original supplier payment not found.');
           const payment = record<PurchasingSupplierPayment>(paymentSnapshot.data());
@@ -419,9 +463,10 @@ export function createFirestorePurchasingRepository(): PurchasingRepository {
           const posted: SupplierPaymentReversal = { ...reversal, reversalId: reversal.originalPaymentId, status: 'POSTED', correlationId: context.correlationId, idempotencyKey: context.idempotencyKey!, occurredAt: context.occurredAt!, createdBy: context.staffId! };
           transaction.set(reversalRef, posted);
           transaction.update(invoiceRef, { paidTotal: Math.max(0, invoice.paidTotal - reversal.amount), outstandingBalance: invoice.outstandingBalance + reversal.amount, status: 'Approved', updatedAt: nowIso(), updatedBy: context.actorId });
-          transaction.set(balanceRef, { ...balance, reversalTotal: balance.reversalTotal + reversal.amount, outstandingBalance: balance.outstandingBalance + reversal.amount, version: balance.version + 1, updatedAt: nowIso(), lastCorrelationId: context.correlationId });
+          const nextBalance = { ...balance, reversalTotal: balance.reversalTotal + reversal.amount, outstandingBalance: balance.outstandingBalance + reversal.amount, version: balance.version + 1, updatedAt: context.occurredAt!, lastCorrelationId: context.correlationId }; assertSupplierBalanceProjection(nextBalance); transaction.set(balanceRef, { ...nextBalance, updatedAt: serverTimestamp() });
           event(transaction, context, 'SUPPLIER_PAYMENT_REVERSED', 'SUPPLIER_PAYMENT_REVERSAL', reversal.reversalId, { originalPaymentId: reversal.originalPaymentId });
           audit(transaction, context, 'REVERSE_SUPPLIER_PAYMENT', 'SUPPLIER_PAYMENT_REVERSAL', reversal.reversalId, null, posted, reversal.reason);
+          completeReceipt(transaction, context, operation, 'SUPPLIER_PAYMENT_REVERSAL', reversal.originalPaymentId, fingerprint, firestorePaths.supplierPaymentReversal(context.vendorId, reversal.originalPaymentId));
           return posted;
         });
         return { success: true, data: value };
@@ -431,17 +476,22 @@ export function createFirestorePurchasingRepository(): PurchasingRepository {
       const invalid = mutationPreflight(context); if (invalid) return invalid;
       if (creditNote.vendorId !== context.vendorId || creditNote.amount <= 0 || !creditNote.reason.trim()) return failed('Supplier credit note vendor, amount, or reason is invalid.');
       try {
+        const operation = 'POST_SUPPLIER_CREDIT_NOTE';
+        const fingerprint = await fingerprintPurchasingMutation(operation, { creditNoteId: creditNote.creditNoteId, supplierId: creditNote.supplierId, amount: creditNote.amount, currency: creditNote.currency, reason: creditNote.reason });
         const value = await runTransaction(db!, async (transaction) => {
           const creditRef = doc(db!, firestorePaths.supplierCreditNotes(context.vendorId), creditNote.creditNoteId);
           const balanceRef = doc(db!, firestorePaths.supplierBalance(context.vendorId, creditNote.supplierId));
-          const [existing, balanceSnapshot] = await Promise.all([transaction.get(creditRef), transaction.get(balanceRef)]);
+          const receiptRef = doc(db!, firestorePaths.mutationReceipt(context.vendorId, context.idempotencyKey!));
+          const [existing, balanceSnapshot, receiptSnapshot] = await Promise.all([transaction.get(creditRef), transaction.get(balanceRef), transaction.get(receiptRef)]);
+          if (assertReceipt(receiptSnapshot, fingerprint, operation, context.correlationId)) { if (!existing.exists()) throw new PurchasingValidationError('Completed supplier credit-note result is missing.'); return record<PurchasingSupplierCreditNote>(existing.data()); }
           if (existing.exists()) throw new PurchasingValidationError('Supplier credit note already exists.', 'DUPLICATE_SUPPLIER_CREDIT_NOTE');
           const balance = balanceSnapshot.exists() ? record<SupplierBalanceProjection>(balanceSnapshot.data()) : emptySupplierBalance(context.vendorId, creditNote.supplierId);
           const posted = { ...creditNote, status: 'POSTED' as const, createdAt: context.occurredAt!, createdBy: context.staffId! };
           transaction.set(creditRef, posted);
-          transaction.set(balanceRef, { ...balance, creditNoteTotal: balance.creditNoteTotal + creditNote.amount, outstandingBalance: balance.outstandingBalance - creditNote.amount, version: balance.version + 1, updatedAt: nowIso(), lastCorrelationId: context.correlationId });
+          const nextBalance = { ...balance, creditNoteTotal: balance.creditNoteTotal + creditNote.amount, outstandingBalance: balance.outstandingBalance - creditNote.amount, version: balance.version + 1, updatedAt: context.occurredAt!, lastCorrelationId: context.correlationId }; assertSupplierBalanceProjection(nextBalance); transaction.set(balanceRef, { ...nextBalance, updatedAt: serverTimestamp() });
           event(transaction, context, 'SUPPLIER_CREDIT_NOTE_POSTED', 'SUPPLIER_CREDIT_NOTE', creditNote.creditNoteId, { amount: creditNote.amount });
-          audit(transaction, context, 'POST_SUPPLIER_CREDIT_NOTE', 'SUPPLIER_CREDIT_NOTE', creditNote.creditNoteId, null, posted, creditNote.reason);
+          audit(transaction, context, operation, 'SUPPLIER_CREDIT_NOTE', creditNote.creditNoteId, null, posted, creditNote.reason);
+          completeReceipt(transaction, context, operation, 'SUPPLIER_CREDIT_NOTE', creditNote.creditNoteId, fingerprint, `${firestorePaths.supplierCreditNotes(context.vendorId)}/${encodeFirestoreId(creditNote.creditNoteId)}`);
           return posted;
         });
         return { success: true, data: value };
@@ -453,11 +503,15 @@ export function createFirestorePurchasingRepository(): PurchasingRepository {
     async listSupplierReturnLines(context, supplierReturnId) { const invalid = preflight(context); if (invalid) return { ...invalid, records: [] }; try { const snap = await getDocs(query(collection(db!, firestorePaths.supplierReturnLines(context.vendorId)), where('supplierReturnId', '==', supplierReturnId))); return { success: true, records: snap.docs.map((row) => record<SupplierReturnLine>(row.data())) }; } catch (error) { return { ...mappedFailure(error), records: [] }; } },
     async postSupplierReturn(context, command: PostSupplierReturnCommand) {
       const invalid = mutationPreflight(context); if (invalid) return invalid;
+      if (!context.branchId || !context.warehouseId) return failed('Supplier return posting requires branch and warehouse context.', 'PURCHASING_CONTEXT_INVALID');
+      if (command.allowNegativeStock && !['Manager', 'Owner', 'Admin'].includes(context.actorRole || '')) return failed('Negative-stock return overrides require manager authority.', 'PURCHASING_PERMISSION_DENIED');
       try {
         assertSupplierReturn(command, context.vendorId); const supplierReturn = command.supplierReturn; const lines = command.lines.filter((line) => line.qtyReturnApproved > 0);
+        const operation = 'POST_SUPPLIER_RETURN'; const fingerprint = await fingerprintPurchasingMutation(operation, { supplierReturn: { supplierReturnId: supplierReturn.supplierReturnId, grnId: supplierReturn.grnId, supplierId: supplierReturn.supplierId, branchId: supplierReturn.branchId, warehouseId: supplierReturn.warehouseId }, lines: lines.map((line) => ({ lineId: line.lineId, grnLineId: line.grnLineId, productId: line.productId, quantity: line.qtyReturnApproved, unitCost: line.unitCost })) });
         const posted = await runTransaction(db!, async (transaction) => {
           const returnRef = doc(db!, firestorePaths.supplierReturn(context.vendorId, supplierReturn.supplierReturnId)); const grnRef = doc(db!, firestorePaths.goodsReceivingNote(context.vendorId, supplierReturn.grnId!));
-          const existing = await transaction.get(returnRef); const grn = await transaction.get(grnRef);
+          const receiptRef = doc(db!, firestorePaths.mutationReceipt(context.vendorId, context.idempotencyKey!)); const supplierBalanceRef = doc(db!, firestorePaths.supplierBalance(context.vendorId, supplierReturn.supplierId));
+          const [existing, grn, receiptSnapshot, supplierBalanceSnapshot] = await Promise.all([transaction.get(returnRef), transaction.get(grnRef), transaction.get(receiptRef), transaction.get(supplierBalanceRef)]);
           const sourceLines = await Promise.all(lines.map((line) => {
             if (!line.grnLineId) throw new PurchasingValidationError('Supplier return line requires its original GRN line.', 'GRN_LINE_REQUIRED');
             return transaction.get(doc(db!, firestorePaths.goodsReceivingLine(context.vendorId, line.grnLineId)));
@@ -466,6 +520,7 @@ export function createFirestorePurchasingRepository(): PurchasingRepository {
           const balances = await Promise.all(lines.map((line) =>
             transaction.get(doc(db!, firestorePaths.productStockBalance(context.vendorId, balanceId(context, supplierReturn.branchId, supplierReturn.warehouseId, line.productId))))
           ));
+          if (assertReceipt(receiptSnapshot, fingerprint, operation, context.correlationId)) { if (!existing.exists()) throw new PurchasingValidationError('Completed supplier return result is missing.'); return record<SupplierReturn>(existing.data()); }
           if (existing.exists() && existing.data().status === 'Posted') throw new PurchasingValidationError('Supplier return has already been posted.', 'SUPPLIER_RETURN_ALREADY_POSTED');
           if (!grn.exists() || !['Posted', 'Partially Posted'].includes(grn.data().receivingStatus)) throw new PurchasingValidationError('Supplier return requires an original posted GRN.');
           if (grn.data().vendorId !== context.vendorId || grn.data().supplierId !== supplierReturn.supplierId || grn.data().branchId !== supplierReturn.branchId || grn.data().warehouseId !== supplierReturn.warehouseId) throw new PurchasingValidationError('Supplier return scope does not match the original GRN.', 'SUPPLIER_RETURN_SCOPE_MISMATCH');
@@ -478,16 +533,19 @@ export function createFirestorePurchasingRepository(): PurchasingRepository {
             const alreadyReturned = Number(sourceLine.qtyAlreadyReturned || 0);
             if (alreadyReturned + line.qtyReturnApproved > acceptedQuantity) throw new PurchasingValidationError('Cumulative supplier return quantity cannot exceed the accepted received quantity.', 'RETURN_EXCEEDS_RECEIVED');
             const snapshot = balances[index]; const old = snapshot.exists() ? snapshot.data() : {}; const beforeQty = Number(old.quantityOnHand || 0); const availableQty = Number(old.quantityAvailable ?? beforeQty - Number(old.quantityReserved || 0)); const afterQty = beforeQty - line.qtyReturnApproved;
+            assertInventoryMovement(beforeQty, -line.qtyReturnApproved, afterQty);
             if (line.qtyReturnApproved > availableQty && (!command.allowNegativeStock || !command.negativeStockOverrideReason?.trim())) throw new PurchasingValidationError('Supplier return would reduce stock below available quantity.', 'INSUFFICIENT_STOCK');
             transaction.update(sourceLines[index].ref, { qtyAlreadyReturned: alreadyReturned + line.qtyReturnApproved });
             const id = balanceId(context, supplierReturn.branchId, supplierReturn.warehouseId, line.productId); transaction.set(doc(db!, firestorePaths.productStockBalance(context.vendorId, id)), { ...old, balanceId: id, sciId: id, vendorId: context.vendorId, branchId: supplierReturn.branchId, warehouseId: supplierReturn.warehouseId, productId: line.productId, quantityOnHand: afterQty, quantityAvailable: afterQty - Number(old.quantityReserved || 0), stockValue: afterQty * Number(old.averageCost || line.unitCost || 0), updatedAt: timestamp, updatedBy: context.actorId });
-            const movementId = cleanId(supplierReturn.supplierReturnId, line.lineId, 'SUPPLIER_RETURN'); transaction.set(doc(db!, firestorePaths.inventoryMovement(context.vendorId, movementId)), { movementId, sciId: movementId, vendorId: context.vendorId, branchId: supplierReturn.branchId, warehouseId: supplierReturn.warehouseId, productId: line.productId, movementType: 'SUPPLIER_RETURN', quantityDelta: -line.qtyReturnApproved, quantityBefore: beforeQty, quantityAfter: afterQty, unitCost: line.unitCost, valueImpact: -line.qtyReturnApproved * line.unitCost, referenceType: 'SUPPLIER_RETURN', referenceId: supplierReturn.supplierReturnId, actorId: context.actorId, correlationId: context.correlationId, schemaVersion: COMMERCE_SCHEMA_VERSION, status: 'Posted', sourceApp: context.sourceApp, createdAt: timestamp, updatedAt: timestamp, createdBy: context.actorId, updatedBy: context.actorId });
+            const movementId = cleanId(supplierReturn.supplierReturnId, line.lineId, 'SUPPLIER_RETURN'); transaction.set(doc(db!, firestorePaths.inventoryMovement(context.vendorId, movementId)), { movementId, sciId: movementId, vendorId: context.vendorId, branchId: supplierReturn.branchId, warehouseId: supplierReturn.warehouseId, productId: line.productId, movementType: 'SUPPLIER_RETURN', quantityDelta: -line.qtyReturnApproved, openingBalance: beforeQty, closingBalance: afterQty, quantityBefore: beforeQty, quantityAfter: afterQty, sourceType: 'SUPPLIER_RETURN', sourceId: supplierReturn.supplierReturnId, sourceLineId: line.lineId, unitCost: line.unitCost, valueImpact: -line.qtyReturnApproved * line.unitCost, referenceType: 'SUPPLIER_RETURN', referenceId: supplierReturn.supplierReturnId, actorId: context.actorId, postedBy: context.staffId, correlationId: context.correlationId, idempotencyKey: context.idempotencyKey, postedAt: serverTimestamp(), schemaVersion: COMMERCE_SCHEMA_VERSION, status: 'Posted', sourceApp: context.sourceApp, createdAt: serverTimestamp(), updatedAt: serverTimestamp(), createdBy: context.actorId, updatedBy: context.actorId });
             transaction.set(doc(db!, firestorePaths.supplierReturnLine(context.vendorId, line.lineId)), { ...line, vendorId: context.vendorId, qtyPostedOut: line.qtyReturnApproved, lineStatus: 'Posted' });
           });
           const value = { ...supplierReturn, status: 'Posted' as const, updatedAt: timestamp }; transaction.set(returnRef, value);
           const creditId = cleanId(supplierReturn.supplierReturnId, 'CREDIT_NOTE'); transaction.set(doc(db!, firestorePaths.supplierCreditNotes(context.vendorId), creditId), { creditNoteId: creditId, vendorId: context.vendorId, supplierId: supplierReturn.supplierId, supplierReturnId: supplierReturn.supplierReturnId, supplierCreditNoteNumber: supplierReturn.supplierCreditNoteNumber || '', amount: supplierReturn.totalReturnValue, status: supplierReturn.supplierCreditNoteNumber ? 'RECEIVED' : 'PENDING', createdAt: timestamp });
+          const supplierBalance = supplierBalanceSnapshot.exists() ? record<SupplierBalanceProjection>(supplierBalanceSnapshot.data()) : emptySupplierBalance(context.vendorId, supplierReturn.supplierId); const nextSupplierBalance = { ...supplierBalance, returnCreditTotal: supplierBalance.returnCreditTotal + supplierReturn.totalReturnValue, outstandingBalance: supplierBalance.outstandingBalance - supplierReturn.totalReturnValue, version: supplierBalance.version + 1, updatedAt: timestamp, lastCorrelationId: context.correlationId }; assertSupplierBalanceProjection(nextSupplierBalance); transaction.set(supplierBalanceRef, { ...nextSupplierBalance, updatedAt: serverTimestamp() });
           event(transaction, context, 'SUPPLIER_RETURN_POSTED', 'SUPPLIER_RETURN', supplierReturn.supplierReturnId, { grnId: supplierReturn.grnId, amount: supplierReturn.totalReturnValue });
           audit(transaction, context, 'POST_SUPPLIER_RETURN', 'SUPPLIER_RETURN', supplierReturn.supplierReturnId, existing.exists() ? existing.data() : null, value, command.negativeStockOverrideReason || '');
+          completeReceipt(transaction, context, operation, 'SUPPLIER_RETURN', supplierReturn.supplierReturnId, fingerprint, firestorePaths.supplierReturn(context.vendorId, supplierReturn.supplierReturnId));
           return value;
         });
         return { success: true, data: posted };

@@ -15,6 +15,7 @@ import type {
   SupplierInvoice
 } from '../repositories/PurchasingRepository';
 import { getPurchasingTransactionService, isFirebasePurchasingMode } from '../services/purchasingTransactionService';
+import { createPurchasingCorrelationId, createPurchasingIdempotencyKey } from '../services/purchasingIdempotencyService';
 
 export function usePurchasingData({ context }: { context: RepositoryOperationContext }) {
   const service = useMemo(() => getPurchasingTransactionService(), []);
@@ -32,8 +33,8 @@ export function usePurchasingData({ context }: { context: RepositoryOperationCon
   const [error, setError] = useState<string | null>(null);
   const subscriptions = useRef<RepositorySubscription[]>([]);
   const mutationContext = useCallback((operation: string, entityId: string): RepositoryOperationContext => {
-    const id = globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2)}`;
-    return { ...context, correlationId: `${operation}-${id}`, idempotencyKey: `${operation}:${entityId}:${id}`, occurredAt: new Date().toISOString(), source: 'purchasing-ui' };
+    const stableRequestId = entityId.trim();
+    return { ...context, correlationId: createPurchasingCorrelationId(operation, stableRequestId), idempotencyKey: createPurchasingIdempotencyKey(operation, context.vendorId, stableRequestId), occurredAt: new Date().toISOString(), source: 'purchasing-ui' };
   }, [context]);
 
   const ensure = useCallback(<T extends { success: boolean; errorMessage?: string }>(result: T): T => {

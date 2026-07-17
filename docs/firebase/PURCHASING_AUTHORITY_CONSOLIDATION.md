@@ -26,6 +26,6 @@ Build 09.1A neither imports nor deletes localStorage purchasing records. `detect
 
 ## Remaining work
 
-- Build 09.1B: durable mutation receipts, payload fingerprints, retry/offline conflict handling, and full transaction concurrency tests.
+- Build 09.1B adds durable mutation receipts, stable payload fingerprints, transaction-integrated replay protection, capacity checks, and inventory/supplier-balance invariants. Offline queue orchestration remains part of Build 09.1C.
 - Build 09.1C: reviewed, fingerprinted migration of detected legacy records with explicit operator approval and reconciliation.
 - Remaining legacy draft and reporting imports should be progressively replaced with canonical repository reads; they must not be re-enabled for posting.

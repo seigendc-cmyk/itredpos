@@ -1,0 +1,11 @@
+export type PurchasingErrorCode = 'PURCHASING_VALIDATION_FAILED' | 'PURCHASING_CONTEXT_INVALID' | 'PURCHASING_STATUS_CONFLICT' | 'PURCHASING_OVER_RECEIPT' | 'PURCHASING_RETURN_EXCEEDS_RECEIPT' | 'PURCHASING_IDEMPOTENCY_CONFLICT' | 'PURCHASING_ALREADY_COMPLETED' | 'PURCHASING_PAYMENT_ALREADY_REVERSED' | 'PURCHASING_TRANSACTION_TOO_LARGE' | 'PURCHASING_STOCK_CONFLICT' | 'PURCHASING_PERMISSION_DENIED' | 'PURCHASING_TRANSACTION_FAILED' | string;
+
+export class PurchasingDomainError extends Error {
+  constructor(message: string, public readonly code: PurchasingErrorCode, public readonly operation: string, public readonly correlationId = '', public readonly retryable = false, public readonly cause?: unknown) { super(message); this.name = new.target.name; }
+}
+export class PurchasingPermissionError extends PurchasingDomainError { constructor(message: string, operation: string, correlationId = '', cause?: unknown) { super(message, 'PURCHASING_PERMISSION_DENIED', operation, correlationId, false, cause); } }
+export class PurchasingValidationError extends PurchasingDomainError { constructor(message: string, code: PurchasingErrorCode = 'PURCHASING_VALIDATION_FAILED', operation = 'PURCHASING_VALIDATION', correlationId = '', cause?: unknown) { super(message, code, operation, correlationId, false, cause); } }
+export class PurchasingConflictError extends PurchasingDomainError { constructor(message: string, operation: string, correlationId = '', cause?: unknown) { super(message, 'PURCHASING_STATUS_CONFLICT', operation, correlationId, false, cause); } }
+export class PurchasingIdempotencyError extends PurchasingDomainError { constructor(message: string, operation: string, correlationId = '', cause?: unknown) { super(message, 'PURCHASING_IDEMPOTENCY_CONFLICT', operation, correlationId, false, cause); } }
+export class PurchasingTransactionError extends PurchasingDomainError { constructor(message: string, operation: string, correlationId = '', retryable = true, cause?: unknown) { super(message, 'PURCHASING_TRANSACTION_FAILED', operation, correlationId, retryable, cause); } }
+export class PurchasingCapacityError extends PurchasingDomainError { constructor(message: string, operation: string, correlationId = '') { super(message, 'PURCHASING_TRANSACTION_TOO_LARGE', operation, correlationId, false); } }

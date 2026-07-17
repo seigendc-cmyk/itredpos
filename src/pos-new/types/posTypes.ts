@@ -3847,11 +3847,13 @@ export interface SalesEvent {
 
 export type PurchaseOrderStatus =
   | 'Draft'
+  | 'Submitted'
   | 'Pending Approval'
   | 'Approved'
   | 'Sent To Supplier'
   | 'Partially Received'
   | 'Fully Received'
+  | 'Completed'
   | 'Cancelled'
   | 'Rejected'
   | 'Closed'

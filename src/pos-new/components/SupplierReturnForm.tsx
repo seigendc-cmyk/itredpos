@@ -61,6 +61,7 @@ export default function SupplierReturnForm({
   const [record, setRecord] = useState<SupplierReturn | null>(supplierReturn);
   const [lines, setLines] = useState<SupplierReturnLine[]>([]);
   const [feedback, setFeedback] = useState<string | null>(null);
+  const [posting, setPosting] = useState(false);
   const [dispatchNotes, setDispatchNotes] = useState('');
   const [supplierNotes, setSupplierNotes] = useState('');
 
@@ -140,6 +141,8 @@ export default function SupplierReturnForm({
   };
 
   const handlePost = async () => {
+    if (posting) return;
+    setPosting(true);
     try {
       if (!canPost) {
         setFeedback('You do not have permission to perform this action.');
@@ -150,7 +153,7 @@ export default function SupplierReturnForm({
       onChanged(message);
     } catch (error) {
       setFeedback(error instanceof Error ? error.message : 'Supplier Return could not be posted.');
-    }
+    } finally { setPosting(false); }
   };
 
   const handleDispatch = async () => {
@@ -387,7 +390,7 @@ export default function SupplierReturnForm({
               <button type="button" onClick={handleSaveDraft} className="px-3 py-2 border border-[#b1b5c2] bg-white text-[#1e222b] font-black uppercase text-[9px] rounded-none">Save Draft</button>
               <button type="button" onClick={handleSubmitApproval} className="px-3 py-2 border border-[#b1b5c2] bg-white text-[#1e222b] font-black uppercase text-[9px] rounded-none">Submit for Approval</button>
               <button type="button" onClick={handleApprove} className="px-3 py-2 border border-[#b1b5c2] bg-white text-[#1e222b] font-black uppercase text-[9px] rounded-none">Approve</button>
-              <button type="button" onClick={handlePost} className="px-3 py-2 border border-orange-700 bg-orange-600 hover:bg-orange-700 text-white font-black uppercase text-[9px] rounded-none">Post Return</button>
+              <button type="button" onClick={handlePost} disabled={posting} className="px-3 py-2 border border-orange-700 bg-orange-600 hover:bg-orange-700 disabled:opacity-50 text-white font-black uppercase text-[9px] rounded-none">{posting ? 'Posting…' : 'Post Return'}</button>
               <button type="button" onClick={handleDispatch} className="px-3 py-2 border border-[#b1b5c2] bg-white text-[#1e222b] font-black uppercase text-[9px] rounded-none">Dispatch To Supplier</button>
               <button type="button" onClick={handleCreditNote} className="px-3 py-2 border border-[#b1b5c2] bg-white text-[#1e222b] font-black uppercase text-[9px] rounded-none">Record Credit Note</button>
               <button type="button" onClick={handleReplacement} className="px-3 py-2 border border-[#b1b5c2] bg-white text-[#1e222b] font-black uppercase text-[9px] rounded-none">Record Replacement</button>

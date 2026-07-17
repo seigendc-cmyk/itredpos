@@ -694,6 +694,20 @@ service cloud.firestore {
       allow delete: if false;
     }
 
+    match /vendors/{vendorId}/mutationReceipts/{idempotencyKey} {
+      allow read: if isActiveVendorUser(vendorId);
+      allow create: if isManager(vendorId)
+        && request.resource.data.vendorId == vendorId
+        && request.resource.data.receiptDocumentId == idempotencyKey
+        && request.resource.data.idempotencyKey is string
+        && request.resource.data.operation is string
+        && request.resource.data.entityId is string
+        && request.resource.data.correlationId is string
+        && request.resource.data.requestFingerprint is string
+        && request.resource.data.status == 'completed';
+      allow update, delete: if false;
+    }
+
     match /vendors/{vendorId}/supplierReturns/{supplierReturnId} {
       allow read: if isActiveVendorUser(vendorId);
       allow create: if isActiveVendorUser(vendorId)
@@ -753,6 +767,19 @@ service cloud.firestore {
         && request.resource.data.vendorId == vendorId
         && request.resource.data.movementId == movementId
         && request.resource.data.productId is string
+        && request.resource.data.branchId is string
+        && request.resource.data.warehouseId is string
+        && request.resource.data.sourceType is string
+        && request.resource.data.sourceId is string
+        && request.resource.data.sourceLineId is string
+        && request.resource.data.correlationId is string
+        && request.resource.data.idempotencyKey is string
+        && request.resource.data.postedBy is string
+        && request.resource.data.postedAt is timestamp
+        && request.resource.data.openingBalance is number
+        && request.resource.data.quantityDelta is number
+        && request.resource.data.closingBalance is number
+        && request.resource.data.openingBalance + request.resource.data.quantityDelta == request.resource.data.closingBalance
         && request.resource.data.movementType in ['GOODS_RECEIVED', 'SUPPLIER_RETURN'];
       allow update, delete: if false;
     }
