@@ -11,6 +11,7 @@ const VENDOR_A = 'vendor-a';
 const VENDOR_B = 'vendor-b';
 const MANAGER = 'manager-a';
 const CASHIER = 'cashier-a';
+const OWNER = 'owner-a';
 
 let env: RulesTestEnvironment;
 
@@ -32,6 +33,7 @@ beforeAll(async () => {
       setDoc(doc(db, 'vendors', VENDOR_B), { vendorId: VENDOR_B, ownerUid: 'owner-b', status: 'Active' }),
       setDoc(doc(db, 'vendorUsers', MANAGER), { uid: MANAGER, vendorId: VENDOR_A, role: 'Manager', status: 'active', permissions: ['purchaseOrders.approve'] }),
       setDoc(doc(db, 'vendorUsers', CASHIER), { uid: CASHIER, vendorId: VENDOR_A, role: 'Cashier', status: 'active', permissions: [] }),
+      setDoc(doc(db, 'vendorUsers', OWNER), { uid: OWNER, vendorId: VENDOR_A, role: 'Owner', status: 'active', permissions: ['settings.permissions.edit'] }),
       setDoc(doc(db, 'vendors', VENDOR_A, 'suppliers', 'supplier-a'), { supplierId: 'supplier-a', vendorId: VENDOR_A, supplierCode: 'SA', supplierName: 'Supplier A', status: 'ACTIVE' }),
       setDoc(doc(db, 'vendors', VENDOR_B, 'suppliers', 'supplier-b'), { supplierId: 'supplier-b', vendorId: VENDOR_B, supplierCode: 'SB', supplierName: 'Supplier B', status: 'ACTIVE' }),
       setDoc(doc(db, 'vendors', VENDOR_A, 'purchaseOrders', 'po-1'), { poId: 'po-1', poNumber: 'PO-1', vendorId: VENDOR_A, supplierId: 'supplier-a', branchId: 'branch-a', warehouseId: 'warehouse-a', status: 'Pending Approval' }),
@@ -107,6 +109,33 @@ describe('canonical purchasing security', () => {
 
   test('unauthenticated purchasing access is denied', async () => {
     await assertFails(getDoc(doc(env.unauthenticatedContext().firestore(), 'vendors', VENDOR_A, 'suppliers', 'supplier-a')));
+  });
+});
+
+describe('purchasing migration security', () => {
+  const runPath = ['vendors', VENDOR_A, 'purchasingMigrationRuns', 'migration-run-1'] as const;
+  test('ordinary users cannot approve and cross-vendor migration access is denied', async () => {
+    await assertFails(setDoc(doc(dbFor(MANAGER), ...runPath), { migrationRunId: 'migration-run-1', vendorId: VENDOR_A, status: 'approved', sourceFingerprint: 'fp-1', approvedBy: MANAGER }));
+    await assertFails(getDoc(doc(dbFor(MANAGER), 'vendors', VENDOR_B, 'purchasingMigrationRuns', 'migration-run-b')));
+  });
+
+  test('completed migration history and source fingerprint are immutable', async () => {
+    const ref = doc(dbFor(OWNER), ...runPath);
+    await assertSucceeds(setDoc(ref, { migrationRunId: 'migration-run-1', vendorId: VENDOR_A, status: 'previewed', sourceFingerprint: 'fp-1' }));
+    await assertFails(updateDoc(ref, { sourceFingerprint: 'fp-changed' }));
+    await assertSucceeds(updateDoc(ref, { status: 'completed' }));
+    await assertFails(updateDoc(ref, { status: 'failed' }));
+    await assertFails(deleteDoc(ref));
+  });
+
+  test('migrated record results and completed reconciliations are immutable', async () => {
+    await env.withSecurityRulesDisabled(async context => {
+      const db = context.firestore();
+      await setDoc(doc(db, ...runPath, 'records', 'record-1'), { vendorId: VENDOR_A, status: 'migrated', sourceFingerprint: 'record-fp' });
+      await setDoc(doc(db, ...runPath, 'reconciliations', 'reconciliation-1'), { vendorId: VENDOR_A, completed: true, status: 'matched' });
+    });
+    await assertFails(updateDoc(doc(dbFor(OWNER), ...runPath, 'records', 'record-1'), { status: 'failed' }));
+    await assertFails(updateDoc(doc(dbFor(OWNER), ...runPath, 'reconciliations', 'reconciliation-1'), { status: 'failed' }));
   });
 });
 

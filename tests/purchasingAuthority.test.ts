@@ -5,6 +5,7 @@ import { detectLegacyPurchasingRecords } from '../src/pos-new/services/legacyPur
 import { assertGRNCapacity, assertInventoryMovement, assertPostedDocumentTransition, assertSupplierBalanceProjection, estimateGRNTransactionDocuments, MAX_GRN_LINES, PurchasingValidationError } from '../src/pos-new/repositories/purchasingAssertions';
 import { createPurchasingCorrelationId, createPurchasingIdempotencyKey, fingerprintPurchasingMutation } from '../src/pos-new/services/purchasingIdempotencyService';
 import { recordSupplierAccountEntry } from '../src/pos-new/services/supplierAccountService';
+import { readLegacyPurchasingSource } from '../src/pos-new/services/purchasingMigration/legacySource';
 
 describe('purchasing authority consolidation', () => {
   test('posting forms do not call legacy posting functions', () => {
@@ -46,6 +47,15 @@ describe('purchasing authority consolidation', () => {
     const result = detectLegacyPurchasingRecords(storage);
     expect(result.find((row) => row.entityType === 'goodsReceivingNotes')).toMatchObject({ recordCount: 1, migrationRequired: true });
     expect(values.get('itred_pos_goods_receiving_notes_v1')).toBe(before);
+  });
+
+  test('migration source discovery is read-only and vendor scoped', () => {
+    const source = JSON.stringify([{ supplierId: 'supplier-legacy', supplierName: 'Legacy Supplier' }]);
+    const storage = { getItem: (key: string) => key === 'itred_pos_supplier_records_v1' ? source : null };
+    const records = readLegacyPurchasingSource('vendor-a', 'branch-a', storage as Pick<Storage, 'getItem'>);
+    expect(records).toHaveLength(1);
+    expect(records[0]).toMatchObject({ vendorId: 'vendor-a', branchId: 'branch-a', recordType: 'supplier', legacyRecordId: 'supplier-legacy' });
+    expect(storage.getItem('itred_pos_supplier_records_v1')).toBe(source);
   });
 
   test('purchasing identities and fingerprints are deterministic and ignore volatile timestamps', async () => {

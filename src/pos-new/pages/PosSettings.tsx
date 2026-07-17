@@ -55,6 +55,10 @@ import {
   type VendorTaxSettings
 } from '../services/vendorTaxSettingsService';
 import SubscriptionCommercePage from '../build08072026-subs/pages/SubscriptionCommercePage';
+import { PurchasingMigrationAdminPanel } from '../components/PurchasingMigrationAdminPanel';
+import { readLegacyPurchasingSource } from '../services/purchasingMigration/legacySource';
+import { approvePurchasingMigration, createPurchasingMigrationPreview } from '../services/purchasingMigration/service';
+import type { PurchasingMigrationApproval, PurchasingMigrationPreview, PurchasingMigrationStatus } from '../services/purchasingMigration/types';
 
 interface PosSettingsProps {
   businessProfile: BusinessProfile;
@@ -95,6 +99,7 @@ type SettingsSectionId =
   | 'TAXES'
   | 'RECEIPTS'
   | 'SUBSCRIPTION'
+  | 'PURCHASING_MIGRATION'
   | 'BACKUP_SYNC';
 
 type SaveState = 'idle' | 'success' | 'error';
@@ -163,6 +168,7 @@ const settingSections: Array<{ id: SettingsSectionId; label: string; icon: React
   { id: 'TAXES', label: 'Taxes', icon: Percent },
   { id: 'RECEIPTS', label: 'Receipts', icon: Receipt },
   { id: 'SUBSCRIPTION', label: 'Subscription', icon: Layers },
+  { id: 'PURCHASING_MIGRATION', label: 'Purchasing Migration', icon: RefreshCw },
   { id: 'BACKUP_SYNC', label: 'Backup & Sync', icon: HardDrive }
 ];
 
@@ -321,6 +327,9 @@ export default function PosSettings({
 }: PosSettingsProps) {
   const activeVendorId = getActiveVendorId();
   const [activeSection, setActiveSection] = useState<SettingsSectionId>('BUSINESS_INFORMATION');
+  const [migrationPreview, setMigrationPreview] = useState<PurchasingMigrationPreview>();
+  const [migrationApproval, setMigrationApproval] = useState<PurchasingMigrationApproval>();
+  const [migrationStatus, setMigrationStatus] = useState<PurchasingMigrationStatus>('draft');
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [profileForm, setProfileForm] = useState<BusinessProfile>({ ...businessProfile });
   const [profileSaveState, setProfileSaveState] = useState<SaveState>('idle');
@@ -795,6 +804,24 @@ export default function PosSettings({
     window.dispatchEvent(new PopStateEvent('popstate'));
   };
 
+  const scanPurchasingMigration = async () => {
+    const records = readLegacyPurchasingSource(activeVendorId, branches[0]?.id);
+    const preview = await createPurchasingMigrationPreview(records, { vendorId: activeVendorId, branchId: branches[0]?.id, migrationRunId: `purchasing-${Date.now()}`, previewVersion: '09.1C-1' });
+    setMigrationPreview(preview); setMigrationApproval(undefined); setMigrationStatus('previewed');
+  };
+
+  const approveMigration = (warningIds: string[]) => {
+    if (!migrationPreview || !['Owner', 'SysAdmin'].includes(activeRole || '')) { triggerToast('Purchasing migration approval requires owner authority.'); return; }
+    try { setMigrationApproval(approvePurchasingMigration(migrationPreview, activeOperatorName || 'Settings owner', warningIds, '09.1C', true)); setMigrationStatus('approved'); }
+    catch (error) { triggerToast(error instanceof Error ? error.message : 'Migration approval failed.'); }
+  };
+
+  const executeMigration = () => {
+    if (!migrationApproval) { triggerToast('An unchanged approved preview is required.'); return; }
+    setMigrationStatus('failed');
+    triggerToast('Migration execution is fail-closed until the canonical transaction adapter is available.');
+  };
+
   return (
     <div className="space-y-6 industrial-font-sans text-xs text-[#1e222b]" id="pos-vendor-settings-panel">
       <div className="border border-slate-700 bg-[#1e222b] p-4 text-white">
@@ -897,6 +924,10 @@ export default function PosSettings({
                 </div>
               </div>
             </form>
+          )}
+
+          {activeSection === 'PURCHASING_MIGRATION' && (
+            <PurchasingMigrationAdminPanel preview={migrationPreview} status={migrationStatus} onScan={() => void scanPurchasingMigration()} onApprove={approveMigration} onExecute={executeMigration} onRetry={executeMigration} />
           )}
 
           {activeSection === 'BRANCHES' && (
