@@ -55,10 +55,10 @@ function createUnavailablePurchasingRepository(errorMessage: string, errorCode?:
   return {
     getSupplier: one, listSuppliers: many, createSupplier: one, updateSupplier: one, deactivateSupplier: one,
     getPurchaseRequisition: one, listPurchaseRequisitions: many, createPurchaseRequisition: one, approvePurchaseRequisition: one, rejectPurchaseRequisition: one,
-    getPurchaseOrder: one, listPurchaseOrders: many, listPurchaseOrderLines: many, createPurchaseOrder: one, approvePurchaseOrder: one, cancelPurchaseOrder: one,
+    getPurchaseOrder: one, listPurchaseOrders: many, listPurchaseOrderLines: many, createPurchaseOrder: one, approvePurchaseOrder: one, rejectPurchaseOrder: one, cancelPurchaseOrder: one,
     getGoodsReceipt: one, listGoodsReceipts: many, listGoodsReceiptLines: many, postGoodsReceipt: one,
     getSupplierInvoice: one, listSupplierInvoices: many, createSupplierInvoice: one, approveSupplierInvoice: one,
-    listSupplierPayments: many, recordSupplierPayment: one, reverseSupplierPayment: one, getSupplierBalance: one,
+    listSupplierPayments: many, recordSupplierPayment: one, reverseSupplierPayment: one, postSupplierCreditNote: one, getSupplierBalance: one,
     getSupplierReturn: one, listSupplierReturns: many, listSupplierReturnLines: many, postSupplierReturn: one,
     getSupplierStatement: one, listSupplierStatements: many,
     subscribeSuppliers: subscription, subscribePurchaseOrders: subscription, subscribeGoodsReceipts: subscription

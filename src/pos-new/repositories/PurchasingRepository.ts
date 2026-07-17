@@ -150,6 +150,11 @@ export interface SupplierPaymentReversal {
 
 export interface ReverseSupplierPaymentCommand { reversal: SupplierPaymentReversal; }
 
+export interface PurchasingSupplierCreditNote {
+  creditNoteId: string; vendorId: string; supplierId: string; supplierReturnId?: string; invoiceId?: string;
+  amount: number; currency: string; reason: string; status: 'POSTED'; createdAt: string; createdBy: string;
+}
+
 export interface SupplierBalanceProjection {
   supplierId: string;
   vendorId: string;
@@ -236,6 +241,7 @@ export interface PurchasingRepository {
   listPurchaseOrderLines(context: RepositoryOperationContext, poId: string): Promise<RepositoryListResult<PurchaseOrderLine>>;
   createPurchaseOrder(context: RepositoryOperationContext, command: CreatePurchaseOrderCommand): Promise<RepositoryResult<PurchaseOrder>>;
   approvePurchaseOrder(context: RepositoryOperationContext, poId: string): Promise<RepositoryResult<PurchaseOrder>>;
+  rejectPurchaseOrder(context: RepositoryOperationContext, poId: string, reason: string): Promise<RepositoryResult<PurchaseOrder>>;
   cancelPurchaseOrder(context: RepositoryOperationContext, poId: string, reason: string): Promise<RepositoryResult<PurchaseOrder>>;
 
   getGoodsReceipt(context: RepositoryOperationContext, grnId: string): Promise<RepositoryResult<GoodsReceivingNote>>;
@@ -251,6 +257,7 @@ export interface PurchasingRepository {
   listSupplierPayments(context: RepositoryOperationContext, filters?: PurchasingFilters): Promise<RepositoryListResult<PurchasingSupplierPayment>>;
   recordSupplierPayment(context: RepositoryOperationContext, payment: PurchasingSupplierPayment): Promise<RepositoryResult<PurchasingSupplierPayment>>;
   reverseSupplierPayment(context: RepositoryOperationContext, command: ReverseSupplierPaymentCommand): Promise<RepositoryResult<SupplierPaymentReversal>>;
+  postSupplierCreditNote(context: RepositoryOperationContext, creditNote: PurchasingSupplierCreditNote): Promise<RepositoryResult<PurchasingSupplierCreditNote>>;
   getSupplierBalance(context: RepositoryOperationContext, supplierId: string): Promise<RepositoryResult<SupplierBalanceProjection>>;
 
   getSupplierReturn(context: RepositoryOperationContext, supplierReturnId: string): Promise<RepositoryResult<SupplierReturn>>;

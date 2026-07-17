@@ -1,6 +1,6 @@
 import type { GoodsReceivingNote, PurchaseOrder, SupplierReturn } from '../types';
 import { createRepositoryBundle } from '../repositories/repositoryFactory';
-import type { RepositoryOperationContext } from '../repositories/repositoryContext';
+import { validatePurchasingMutationContext, type RepositoryOperationContext } from '../repositories/repositoryContext';
 import type {
   CreatePurchaseOrderCommand,
   PostGoodsReceiptCommand,
@@ -10,6 +10,7 @@ import type {
   PurchasingRepository,
   PurchasingSupplier,
   PurchasingSupplierPayment,
+  PurchasingSupplierCreditNote,
   ReverseSupplierPaymentCommand,
   SupplierInvoice
 } from '../repositories/PurchasingRepository';
@@ -27,6 +28,11 @@ function once<T>(key: string, operation: () => Promise<T>): Promise<T> {
 export class PurchasingTransactionService {
   constructor(private readonly repository: PurchasingRepository) {}
 
+  private mutation<T>(context: RepositoryOperationContext, key: string, operation: () => Promise<T>): Promise<T> {
+    validatePurchasingMutationContext(context);
+    return once(key, operation);
+  }
+
   getSupplier = (context: RepositoryOperationContext, id: string) => this.repository.getSupplier(context, id);
   listSuppliers = (context: RepositoryOperationContext, filters?: PurchasingFilters) => this.repository.listSuppliers(context, filters);
   createSupplier = (context: RepositoryOperationContext, value: PurchasingSupplier) => once(`supplier:create:${context.vendorId}:${value.supplierId}`, () => this.repository.createSupplier(context, value));
@@ -43,13 +49,14 @@ export class PurchasingTransactionService {
   listPurchaseOrders = (context: RepositoryOperationContext, filters?: PurchasingFilters) => this.repository.listPurchaseOrders(context, filters);
   listPurchaseOrderLines = (context: RepositoryOperationContext, id: string) => this.repository.listPurchaseOrderLines(context, id);
   createPurchaseOrder = (context: RepositoryOperationContext, command: CreatePurchaseOrderCommand) => once(`po:create:${context.vendorId}:${command.order.poId}`, () => this.repository.createPurchaseOrder(context, command));
-  approvePurchaseOrder = (context: RepositoryOperationContext, id: string) => once(`po:approve:${context.vendorId}:${id}`, () => this.repository.approvePurchaseOrder(context, id));
+  approvePurchaseOrder = (context: RepositoryOperationContext, id: string) => this.mutation(context, `po:approve:${context.vendorId}:${id}`, () => this.repository.approvePurchaseOrder(context, id));
+  rejectPurchaseOrder = (context: RepositoryOperationContext, id: string, reason: string) => this.mutation(context, `po:reject:${context.vendorId}:${id}`, () => this.repository.rejectPurchaseOrder(context, id, reason));
   cancelPurchaseOrder = (context: RepositoryOperationContext, id: string, reason: string) => once(`po:cancel:${context.vendorId}:${id}`, () => this.repository.cancelPurchaseOrder(context, id, reason));
 
   getGoodsReceipt = (context: RepositoryOperationContext, id: string) => this.repository.getGoodsReceipt(context, id);
   listGoodsReceipts = (context: RepositoryOperationContext, filters?: PurchasingFilters) => this.repository.listGoodsReceipts(context, filters);
   listGoodsReceiptLines = (context: RepositoryOperationContext, id: string) => this.repository.listGoodsReceiptLines(context, id);
-  postGoodsReceipt = (context: RepositoryOperationContext, command: PostGoodsReceiptCommand) => once(`grn:post:${context.vendorId}:${command.receipt.grnId}`, () => this.repository.postGoodsReceipt(context, command));
+  postGoodsReceipt = (context: RepositoryOperationContext, command: PostGoodsReceiptCommand) => this.mutation(context, `grn:post:${context.vendorId}:${command.receipt.grnId}`, () => this.repository.postGoodsReceipt(context, command));
 
   getSupplierInvoice = (context: RepositoryOperationContext, id: string) => this.repository.getSupplierInvoice(context, id);
   listSupplierInvoices = (context: RepositoryOperationContext, filters?: PurchasingFilters) => this.repository.listSupplierInvoices(context, filters);
@@ -57,14 +64,15 @@ export class PurchasingTransactionService {
   approveSupplierInvoice = (context: RepositoryOperationContext, id: string) => once(`invoice:approve:${context.vendorId}:${id}`, () => this.repository.approveSupplierInvoice(context, id));
 
   listSupplierPayments = (context: RepositoryOperationContext, filters?: PurchasingFilters) => this.repository.listSupplierPayments(context, filters);
-  recordSupplierPayment = (context: RepositoryOperationContext, value: PurchasingSupplierPayment) => once(`payment:record:${context.vendorId}:${value.paymentId}`, () => this.repository.recordSupplierPayment(context, value));
-  reverseSupplierPayment = (context: RepositoryOperationContext, command: ReverseSupplierPaymentCommand) => once(`payment:reverse:${context.vendorId}:${command.reversal.originalPaymentId}`, () => this.repository.reverseSupplierPayment(context, command));
+  recordSupplierPayment = (context: RepositoryOperationContext, value: PurchasingSupplierPayment) => this.mutation(context, `payment:record:${context.vendorId}:${value.paymentId}`, () => this.repository.recordSupplierPayment(context, value));
+  reverseSupplierPayment = (context: RepositoryOperationContext, command: ReverseSupplierPaymentCommand) => this.mutation(context, `payment:reverse:${context.vendorId}:${command.reversal.originalPaymentId}`, () => this.repository.reverseSupplierPayment(context, command));
   getSupplierBalance = (context: RepositoryOperationContext, supplierId: string) => this.repository.getSupplierBalance(context, supplierId);
+  postSupplierCreditNote = (context: RepositoryOperationContext, value: PurchasingSupplierCreditNote) => this.mutation(context, `credit-note:post:${context.vendorId}:${value.creditNoteId}`, () => this.repository.postSupplierCreditNote(context, value));
 
   getSupplierReturn = (context: RepositoryOperationContext, id: string) => this.repository.getSupplierReturn(context, id);
   listSupplierReturns = (context: RepositoryOperationContext, filters?: PurchasingFilters) => this.repository.listSupplierReturns(context, filters);
   listSupplierReturnLines = (context: RepositoryOperationContext, id: string) => this.repository.listSupplierReturnLines(context, id);
-  postSupplierReturn = (context: RepositoryOperationContext, command: PostSupplierReturnCommand) => once(`return:post:${context.vendorId}:${command.supplierReturn.supplierReturnId}`, () => this.repository.postSupplierReturn(context, command));
+  postSupplierReturn = (context: RepositoryOperationContext, command: PostSupplierReturnCommand) => this.mutation(context, `return:post:${context.vendorId}:${command.supplierReturn.supplierReturnId}`, () => this.repository.postSupplierReturn(context, command));
 
   getSupplierStatement = (context: RepositoryOperationContext, supplierId: string, from?: string, to?: string) => this.repository.getSupplierStatement(context, supplierId, from, to);
   listSupplierStatements = (context: RepositoryOperationContext, filters?: PurchasingFilters) => this.repository.listSupplierStatements(context, filters);

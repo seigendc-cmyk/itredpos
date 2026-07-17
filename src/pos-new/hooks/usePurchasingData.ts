@@ -9,6 +9,7 @@ import type {
   PurchasingFilters,
   PurchasingSupplier,
   PurchasingSupplierPayment,
+  PurchasingSupplierCreditNote,
   ReverseSupplierPaymentCommand,
   PurchasingSupplierStatement,
   SupplierInvoice
@@ -89,6 +90,7 @@ export function usePurchasingData({ context }: { context: RepositoryOperationCon
     rejectPurchaseRequisition: (id: string, reason: string) => mutate(() => service.rejectPurchaseRequisition(context, id, reason)),
     createPurchaseOrder: (command: CreatePurchaseOrderCommand) => mutate(() => service.createPurchaseOrder(context, command)),
     approvePurchaseOrder: (id: string) => mutate(() => service.approvePurchaseOrder(mutationContext('po-approve', id), id)),
+    rejectPurchaseOrder: (id: string, reason: string) => mutate(() => service.rejectPurchaseOrder(mutationContext('po-reject', id), id, reason)),
     cancelPurchaseOrder: (id: string, reason: string) => mutate(() => service.cancelPurchaseOrder(context, id, reason)),
     postGoodsReceipt: (command: PostGoodsReceiptCommand) => mutate(() => service.postGoodsReceipt(mutationContext('grn-post', command.receipt.grnId), command)),
     createSupplierInvoice: (value: SupplierInvoice) => mutate(() => service.createSupplierInvoice(context, value)),
@@ -99,6 +101,7 @@ export function usePurchasingData({ context }: { context: RepositoryOperationCon
       return service.reverseSupplierPayment(nextContext, { reversal: { ...command.reversal, correlationId: nextContext.correlationId, idempotencyKey: nextContext.idempotencyKey!, occurredAt: nextContext.occurredAt! } });
     }),
     getSupplierBalance: async (supplierId: string) => ensure(await service.getSupplierBalance(context, supplierId)).data,
+    postSupplierCreditNote: (value: PurchasingSupplierCreditNote) => mutate(() => service.postSupplierCreditNote(mutationContext('credit-note-post', value.creditNoteId), value)),
     postSupplierReturn: (command: PostSupplierReturnCommand) => mutate(() => service.postSupplierReturn(mutationContext('return-post', command.supplierReturn.supplierReturnId), command)),
     getSupplierStatement: async (supplierId: string, from?: string, to?: string) => ensure(await service.getSupplierStatement(context, supplierId, from, to)).data,
     setDraftPurchaseOrders: (_rows: PurchaseOrder[]) => undefined,

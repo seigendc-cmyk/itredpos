@@ -24,6 +24,8 @@ import { readVendorScopedList, writeVendorScopedList } from '../utils/vendorData
 import { calculateDocumentTax, getCachedVendorTaxSettings } from './vendorTaxSettingsService';
 import { recordSupplierAccountReturn } from './supplierAccountService';
 import { assertCanonicalPurchaseSession } from './purchaseSessionService';
+import type { RepositoryOperationContext } from '../repositories/repositoryContext';
+import { getPurchasingTransactionService } from './purchasingTransactionService';
 
 const RETURN_KEY = 'itred_pos_supplier_returns_v1';
 const RETURN_LINE_KEY = 'itred_pos_supplier_return_lines_v1';
@@ -475,7 +477,26 @@ export async function approveSupplierReturn(supplierReturnId: string, staffId: s
   return updated;
 }
 
-export async function postSupplierReturn(supplierReturnId: string, staffId: string): Promise<SupplierReturnPostingResult | null> {
+/** @deprecated Compatibility adapter. Authoritative posting is owned by FirestorePurchasingRepository. */
+export async function postSupplierReturn(supplierReturnId: string, staffId: string, context?: RepositoryOperationContext): Promise<SupplierReturnPostingResult | null> {
+  if (!context) throw new Error('Canonical purchasing operation context is required to post a supplier return.');
+  const supplierReturn = await getSupplierReturnById(supplierReturnId);
+  if (!supplierReturn) return null;
+  const canonicalLines = await getSupplierReturnLines(supplierReturnId);
+  const result = await getPurchasingTransactionService().postSupplierReturn(context, { supplierReturn, lines: canonicalLines });
+  if (!result.success || !result.data) throw new Error(result.errorMessage || 'Canonical supplier return posting failed.');
+  return {
+    supplierReturnId: result.data.supplierReturnId,
+    supplierReturnNumber: result.data.supplierReturnNumber,
+    status: result.data.status,
+    stockPosted: true,
+    postedLines: canonicalLines.filter((line) => line.stockWasPosted && line.qtyReturnApproved > 0),
+    noStockImpactLines: canonicalLines.filter((line) => !line.stockWasPosted && line.qtyReturnApproved > 0),
+    message: `${result.data.supplierReturnNumber} posted through the canonical purchasing repository.`
+  };
+
+  /* Legacy implementation below is unreachable and retained temporarily only to keep
+     historical draft/report helpers source-compatible until Build 09.1C removal. */
   const session = assertCanonicalPurchaseSession();
   const record = await getSupplierReturnById(supplierReturnId);
   if (!record || (record.status !== 'Draft' && record.status !== 'Approved')) return null;

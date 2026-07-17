@@ -126,7 +126,6 @@ import {
   submitPurchaseOrderForApproval
 } from '../services/purchaseOrderService';
 import {
-  approveGRN,
   cancelGRN,
   closePOWithOutstanding,
   createGRNDraftFromPO,
@@ -140,7 +139,6 @@ import {
   submitGRNForApproval
 } from '../services/goodsReceivingService';
 import {
-  approveSupplierReturn,
   cancelSupplierReturn,
   closeSupplierReturn,
   createSupplierReturnFromGRN,
@@ -2412,8 +2410,7 @@ export default function StockPanels({
         setGoodsReceivingNotice('You do not have permission to perform this action.');
         return;
       }
-      await approveGRN(note.grnId, staffName, 'Approved from Goods Receiving tab.');
-      setGoodsReceivingNotice(`${note.grnNumber} approved for posting.`);
+      setGoodsReceivingNotice('Canonical GRNs post directly from Draft; the legacy approval-to-Draft transition is disabled.');
     }
     if (action === 'cancel') {
       const reason = window.prompt(`Reason for cancelling ${note.grnNumber}?`);
@@ -2544,8 +2541,7 @@ export default function StockPanels({
         setSupplierReturnNotice('You do not have permission to perform this action.');
         return;
       }
-      await approveSupplierReturn(record.supplierReturnId, staffName, 'Approved from Supplier Returns tab.');
-      setSupplierReturnNotice(`${record.supplierReturnNumber} approved for posting.`);
+      setSupplierReturnNotice('Canonical supplier returns post directly from Draft; legacy approval is disabled.');
     }
     if (action === 'post') {
       if (!canPerformAction(simulatedRole, 'supplierReturns.post')) {

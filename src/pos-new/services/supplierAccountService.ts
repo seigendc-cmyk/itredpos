@@ -172,6 +172,8 @@ export function recordSupplierAccountEntry(
   input: SupplierAccountEntryInput,
   session?: PosSession | CanonicalSupplierContext | null
 ): SupplierAccountEntry {
+  throw new Error('Legacy supplier-account writes are disabled. Use PurchasingTransactionService and the supplierBalances projection.');
+  /* Historical implementation retained for Build 09.1C migration reference only. */
   const context = assertCanonicalSupplierContext(session || {
     vendorId: input.vendorId || '',
     branchId: input.branchId || '',
@@ -259,6 +261,8 @@ export function allocateSupplierPayment(input: {
   supplierId: string;
   allocations: Array<{ supplierAccountEntryId: string; amountAllocated: number }>;
 }, session?: PosSession | CanonicalSupplierContext | null): SupplierPaymentAllocation[] {
+  throw new Error('Legacy supplier-payment allocations are disabled. Use PurchasingTransactionService.');
+  /* Historical implementation retained for Build 09.1C migration reference only. */
   const context = assertCanonicalSupplierContext(session);
   const current = readAllocations(context.vendorId);
   const existingForPayment = current.filter((row) => row.supplierPaymentId === input.supplierPaymentId);

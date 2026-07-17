@@ -181,6 +181,8 @@ export async function recordSupplierPayment(input: {
   allowCashWithoutDrawer?: boolean;
   allowOverpayment?: boolean;
 }, session?: PosSession | CanonicalSupplierContext | null): Promise<{ payment: SupplierCanonicalPayment; allocations: SupplierPaymentAllocation[] }> {
+  throw new Error('Legacy supplier-payment posting is disabled. Use PurchasingTransactionService.recordSupplierPayment.');
+  /* Historical implementation retained for Build 09.1C migration reference only. */
   const context = assertCanonicalSupplierContext(session);
   const amount = roundMoney(input.amount);
   if (amount <= 0) throw new Error('Supplier payment amount must be above zero.');

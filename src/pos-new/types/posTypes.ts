@@ -3853,6 +3853,7 @@ export type PurchaseOrderStatus =
   | 'Partially Received'
   | 'Fully Received'
   | 'Cancelled'
+  | 'Rejected'
   | 'Closed'
   | 'Closed With Outstanding';
 

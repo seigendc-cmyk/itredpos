@@ -29,6 +29,8 @@ import { readVendorScopedList, writeVendorScopedList } from '../utils/vendorData
 import { calculateDocumentTax, getCachedVendorTaxSettings } from './vendorTaxSettingsService';
 import { recordSupplierAccountPayment, recordSupplierAccountPurchase } from './supplierAccountService';
 import { assertCanonicalPurchaseSession, type CanonicalPurchaseSession } from './purchaseSessionService';
+import type { RepositoryOperationContext } from '../repositories/repositoryContext';
+import { getPurchasingTransactionService } from './purchasingTransactionService';
 
 const GRN_KEY = 'itred_pos_goods_receiving_notes_v1';
 const GRN_LINE_KEY = 'itred_pos_goods_receiving_lines_v1';
@@ -620,11 +622,36 @@ export async function approveGRN(grnId: string, staffId: string, notesText = '')
   return updated;
 }
 
+/** @deprecated Compatibility adapter. Authoritative posting is owned by FirestorePurchasingRepository. */
 export async function postGRN(
   grnId: string,
   staffId: string,
   options: GoodsReceivingPostOptions = { acquisitionType: 'Supplier Credit' },
-  context?: CommerceOperationContext): Promise<GoodsReceivingPostingResult | null> {
+  context?: CommerceOperationContext & RepositoryOperationContext): Promise<GoodsReceivingPostingResult | null> {
+  if (!context) throw new Error('Canonical purchasing operation context is required to post a GRN.');
+  const receipt = await getGoodsReceivingNoteById(grnId);
+  if (!receipt) return null;
+  const canonicalLines = await getGoodsReceivingLines(grnId);
+  const result = await getPurchasingTransactionService().postGoodsReceipt(context, {
+    receipt,
+    lines: canonicalLines,
+    createSupplierInvoice: Boolean(receipt.supplierInvoiceNumber)
+  });
+  if (!result.success || !result.data) throw new Error(result.errorMessage || 'Canonical GRN posting failed.');
+  return {
+    grnId: result.data.grnId,
+    grnNumber: result.data.grnNumber,
+    status: result.data.receivingStatus,
+    stockPosted: true,
+    approvalRequired: false,
+    postedLines: canonicalLines.filter((line) => line.qtyAccepted > 0),
+    skippedLines: canonicalLines.filter((line) => line.qtyAccepted <= 0),
+    acquisitionType: options.acquisitionType,
+    message: `${result.data.grnNumber} posted through the canonical purchasing repository.`
+  };
+
+  /* Legacy implementation below is unreachable and retained temporarily only to keep
+     historical draft/report helpers source-compatible until Build 09.1C removal. */
   const session = assertCanonicalPurchaseSession();
   const note = await getGoodsReceivingNoteById(grnId);
   if (!note || note.receivingStatus !== 'Draft') return null;

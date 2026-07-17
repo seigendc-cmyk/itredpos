@@ -1,13 +1,9 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { PosSession } from '../types';
-import SupplierCreditProfilePanel from '../components/SupplierCreditProfilePanel';
-import SupplierBillsPanel from '../components/SupplierBillsPanel';
 import CreditorsAgeingPanel from '../components/CreditorsAgeingPanel';
-import SupplierPaymentsPanel from '../components/SupplierPaymentsPanel';
 import COGSReservePanel from '../components/COGSReservePanel';
 import PurchaseCommitmentsPanel from '../components/PurchaseCommitmentsPanel';
 import SupplierStatementsPanel from '../components/SupplierStatementsPanel';
-import SupplierReturnsCreditNotesPanel from '../components/SupplierReturnsCreditNotesPanel';
 import CreditorBIWarningsPanel from '../components/CreditorBIWarningsPanel';
 import FinancialControlReportsPanel from '../components/FinancialControlReportsPanel';
 import { getSupplierBills, getSupplierCreditProfiles, getSupplierPayments } from '../services/creditorsService';
@@ -63,18 +59,18 @@ export default function PosCreditors({ session }: { session?: PosSession }) {
           {purchasing.suppliers.map((supplier) => <div key={supplier.supplierId} className="creditors-notice"><strong>{supplier.supplierCode} — {supplier.supplierName}</strong><div>{supplier.email || supplier.phone || 'No contact'} · {supplier.status}</div>{supplier.status === 'ACTIVE' && <button type="button" disabled={purchasing.saving} onClick={() => void purchasing.deactivateSupplier(supplier.supplierId)}>Deactivate</button>}</div>)}
         </div></section>
       )}
-      {!purchasing.firebaseMode && (activeTab === 'Supplier List' || activeTab === 'Supplier Credit Profiles') && <SupplierCreditProfilePanel />}
+      {!purchasing.firebaseMode && (activeTab === 'Supplier List' || activeTab === 'Supplier Credit Profiles') && <CanonicalRequiredNotice />}
       {purchasing.firebaseMode && activeTab === 'Supplier Bills / Invoices' && <section className="creditors-panel"><div className="creditors-panel-header"><div><span>Firebase Supplier Invoice</span><h3>Canonical invoices</h3></div></div>{purchasing.supplierInvoices.map((invoice) => <div key={invoice.invoiceId} className="creditors-notice"><strong>{invoice.supplierInvoiceNumber}</strong> · {invoice.currency} {invoice.outstandingBalance.toFixed(2)} · {invoice.status}{['Draft', 'PendingApproval'].includes(invoice.status) && <button type="button" disabled={purchasing.saving} onClick={() => void purchasing.approveSupplierInvoice(invoice.invoiceId)}>Approve</button>}</div>)}</section>}
-      {!purchasing.firebaseMode && activeTab === 'Supplier Bills / Invoices' && <SupplierBillsPanel />}
+      {!purchasing.firebaseMode && activeTab === 'Supplier Bills / Invoices' && <CanonicalRequiredNotice />}
       {activeTab === 'Creditors Ageing' && <CreditorsAgeingPanel />}
       {purchasing.firebaseMode && activeTab === 'Supplier Payments' && <section className="creditors-panel"><div className="creditors-panel-header"><div><span>Firebase Supplier Payment</span><h3>Immutable posted payments</h3></div></div>{purchasing.supplierPayments.map((payment) => <div key={payment.paymentId} className="creditors-notice"><strong>{payment.paymentNumber}</strong> · {payment.currency} {payment.amount.toFixed(2)} · {payment.paymentMethod} · {payment.status}</div>)}</section>}
-      {!purchasing.firebaseMode && activeTab === 'Supplier Payments' && <SupplierPaymentsPanel />}
+      {!purchasing.firebaseMode && activeTab === 'Supplier Payments' && <CanonicalRequiredNotice />}
       {activeTab === 'COGS Reserve' && <COGSReservePanel />}
       {activeTab === 'Purchase Commitments' && <PurchaseCommitmentsPanel />}
       {purchasing.firebaseMode && activeTab === 'Supplier Statements' && <section className="creditors-panel"><div className="creditors-panel-header"><div><span>Firebase Supplier Statement</span><h3>Derived transaction statements</h3></div></div>{purchasing.suppliers.map((supplier) => <button key={supplier.supplierId} type="button" disabled={purchasing.saving} onClick={() => void purchasing.refresh({ supplierId: supplier.supplierId })}>{supplier.supplierName}</button>)}{purchasing.supplierStatements.map((statement) => <div key={statement.statementId} className="creditors-notice">Opening {statement.openingBalance.toFixed(2)} · Closing {statement.closingBalance.toFixed(2)} · {statement.entries.length} entries</div>)}</section>}
       {!purchasing.firebaseMode && activeTab === 'Supplier Statements' && <SupplierStatementsPanel />}
       {purchasing.firebaseMode && activeTab === 'Supplier Returns / Credit Notes' && <section className="creditors-panel"><div className="creditors-panel-header"><div><span>Firebase Supplier Return</span><h3>Canonical returns and credits</h3></div></div>{purchasing.supplierReturns.map((record) => <div key={record.supplierReturnId} className="creditors-notice"><strong>{record.supplierReturnNumber}</strong> · {record.supplierName} · {record.status} · {record.totalReturnValue.toFixed(2)}</div>)}</section>}
-      {!purchasing.firebaseMode && activeTab === 'Supplier Returns / Credit Notes' && <SupplierReturnsCreditNotesPanel />}
+      {!purchasing.firebaseMode && activeTab === 'Supplier Returns / Credit Notes' && <CanonicalRequiredNotice />}
       {activeTab === 'Financial Reports' && <FinancialControlReportsPanel session={session} />}
       {activeTab === 'Creditor BI Warnings' && <CreditorBIWarningsPanel />}
       {activeTab === 'Activity / Audit' && (
@@ -85,4 +81,8 @@ export default function PosCreditors({ session }: { session?: PosSession }) {
       )}
     </div>
   );
+}
+
+function CanonicalRequiredNotice() {
+  return <section className="creditors-panel"><div className="creditors-notice">Authoritative purchasing mutations require the canonical Firestore purchasing repository. Legacy local records remain available for migration detection only.</div></section>;
 }

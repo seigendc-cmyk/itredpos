@@ -309,6 +309,8 @@ export function getSupplierPayments(filters: Partial<{ supplierId: string; statu
 }
 
 export async function createSupplierPayment(payload: Omit<SupplierPayment, 'paymentId' | 'paymentNumber' | 'status'> & Partial<Pick<SupplierPayment, 'paymentId' | 'paymentNumber' | 'status'>>): Promise<SupplierPayment> {
+  throw new Error('Legacy supplier-payment creation is disabled. Use PurchasingTransactionService.recordSupplierPayment.');
+  /* Historical implementation retained for Build 09.1C migration reference only. */
   if (payload.amount <= 0) throw new Error('Supplier payment amount must be greater than zero.');
   const outstanding = getSupplierBills({ supplierId: payload.supplierId }).filter((bill) => bill.outstandingAmount > 0 && !['Cancelled', 'Reversed'].includes(bill.status)).reduce((sum, bill) => sum + bill.outstandingAmount, 0);
   if (payload.amount > outstanding && !payload.notes.toLowerCase().includes('advance')) throw new Error('Supplier payment cannot exceed outstanding unless supplier advance placeholder is explicit.');
@@ -374,6 +376,8 @@ export async function allocateSupplierPayment(paymentId: string, allocationMetho
 }
 
 export async function markSupplierPaymentPaid(paymentId: string, staffId: string): Promise<SupplierPayment | null> {
+  throw new Error('Legacy supplier-payment posting is disabled. Use PurchasingTransactionService.recordSupplierPayment.');
+  /* Historical implementation retained for Build 09.1C migration reference only. */
   let updated: SupplierPayment | null = null;
   saveList(PAYMENT_KEY, getSupplierPayments().map((payment) => payment.paymentId === paymentId ? (updated = { ...payment, status: 'Paid', paidBy: staffId, paidAt: nowIso() }) : payment));
   if (updated) {

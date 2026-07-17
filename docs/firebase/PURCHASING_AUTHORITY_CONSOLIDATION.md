@@ -4,7 +4,9 @@
 
 Production purchasing mutations follow one path: UI → `usePurchasingData` → `PurchasingTransactionService` → `PurchasingRepository` → `FirestorePurchasingRepository` → Firestore. The Firestore repository owns business transactions and their audit/BI events.
 
-The legacy goods-receiving, supplier-return, creditor, supplier-account, and payment services remain compatibility/read or draft surfaces. They are not an authoritative production posting path. Active posting forms require a canonical `onPostRequest`; there is no local posting fallback.
+The legacy goods-receiving and supplier-return posting exports are deprecated compatibility adapters. They require canonical operation context, delegate to `PurchasingTransactionService`, and fail closed when context is absent. Active posting forms require a canonical `onPostRequest`; there is no local posting fallback.
+
+Legacy supplier-account and payment mutation functions fail closed. Their historical bodies remain temporarily as unreachable migration reference for Build 09.1C, while read-only reports can inspect retained legacy records. The creditors UI does not mount local supplier, invoice, payment, or return mutation panels.
 
 ## Mutation context and statuses
 
