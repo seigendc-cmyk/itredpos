@@ -36,6 +36,8 @@ interface SupplierReturnFormProps {
   onPosted: (result: SupplierReturnPostingResult) => void;
   onViewGRN: (grnId?: string) => void;
   onViewLedger: (productId: string) => void;
+  loadLines?: (supplierReturnId: string) => Promise<SupplierReturnLine[]>;
+  onPostRequest?: (record: SupplierReturn, lines: SupplierReturnLine[]) => Promise<string>;
 }
 
 const reasons: SupplierReturnReason[] = ['Damaged', 'Wrong Product', 'Over Supplied', 'Quality Issue', 'Expired', 'Supplier Recall', 'Duplicate Supply', 'Price Dispute', 'Not Ordered', 'Other'];
@@ -54,7 +56,9 @@ export default function SupplierReturnForm({
   onChanged,
   onPosted,
   onViewGRN,
-  onViewLedger
+  onViewLedger,
+  loadLines = getSupplierReturnLines,
+  onPostRequest
 }: SupplierReturnFormProps) {
   const [windowState, setWindowState] = useState<WindowState>('normal');
   const [record, setRecord] = useState<SupplierReturn | null>(supplierReturn);
@@ -69,7 +73,7 @@ export default function SupplierReturnForm({
     setFeedback(null);
     setDispatchNotes('');
     setSupplierNotes('');
-    void getSupplierReturnLines(supplierReturn.supplierReturnId).then(setLines);
+    void loadLines(supplierReturn.supplierReturnId).then(setLines);
   }, [open, supplierReturn]);
 
   const totals = useMemo(() => ({
@@ -153,6 +157,12 @@ export default function SupplierReturnForm({
     try {
       if (!canPost) {
         setFeedback('You do not have permission to perform this action.');
+        return;
+      }
+      if (onPostRequest) {
+        const message = await onPostRequest(record, lines);
+        setFeedback(message);
+        onChanged(message);
         return;
       }
       const result = await postSupplierReturn(record.supplierReturnId, staffName);

@@ -254,6 +254,7 @@ import { matchesFreeOrderSearch } from '../utils/searchUtils';
 import type { UseProductMasterDataReturn } from '../hooks/useProductMasterData';
 import type { SharedProductRecord } from '../firebase/commerceDataContract';
 import type { POProductSearchResult } from '../services/purchaseOrderProductService';
+import { usePurchasingData } from '../hooks/usePurchasingData';
 
 interface StockProduct extends Product {
   riskLevel?: 'Low' | 'Medium' | 'High' | 'Critical';
@@ -491,6 +492,7 @@ export default function StockPanels({
     sourceApp: 'ITRED_POS',
     correlationId: `product-master-ui-${vendorId}-${session?.staffId || staffName}`
   }), [vendorId, session?.branchId, session?.warehouseId, session?.terminalId, session?.staffId, session?.role, staffName]);
+  const purchasingData = usePurchasingData({ context: productMasterContext });
 
   const [migrationOpen, setMigrationOpen] = useState(false);
   const [migrationPreview, setMigrationPreview] = useState<LegacyProductMigrationReport | null>(null);
@@ -1006,6 +1008,30 @@ export default function StockPanels({
   const [openPurchaseOrderMenuId, setOpenPurchaseOrderMenuId] = useState<string | null>(null);
 
   const refreshPurchaseOrders = async (filters = purchaseOrderFilters) => {
+    if (purchasingData.firebaseMode) {
+      const orders = purchasingData.purchaseOrders.filter((order) => !filters.status || filters.status === 'ALL' || order.status === filters.status);
+      const linePairs = await Promise.all(orders.map(async (order) => {
+        const result = await purchasingData.listPurchaseOrderLines(order.poId);
+        return [order.poId, result.success ? result.records : []] as const;
+      }));
+      const lines = Object.values(Object.fromEntries(linePairs)).flat();
+      setPurchaseOrders(orders);
+      setPurchaseOrderLines(Object.fromEntries(linePairs));
+      setPurchaseOrderEvents([]);
+      setPurchaseOrderSummary({
+        totalPOs: orders.length,
+        draftPOs: orders.filter((order) => order.status === 'Draft').length,
+        pendingApproval: orders.filter((order) => order.status === 'Pending Approval').length,
+        approved: orders.filter((order) => order.status === 'Approved').length,
+        sentToSupplier: orders.filter((order) => order.status === 'Sent To Supplier').length,
+        partiallyReceived: orders.filter((order) => order.status === 'Partially Received').length,
+        fullyReceived: orders.filter((order) => order.status === 'Fully Received').length,
+        cancelled: orders.filter((order) => order.status === 'Cancelled').length,
+        estimatedPOValue: orders.reduce((sum, order) => sum + order.grandTotalEstimate, 0),
+        outstandingQty: lines.reduce((sum, line) => sum + line.qtyOutstanding, 0)
+      });
+      return;
+    }
     const [orders, summary, events] = await Promise.all([
       getPurchaseOrders(filters),
       getPurchaseOrderSummary(filters),
@@ -1019,8 +1045,8 @@ export default function StockPanels({
   };
 
   useEffect(() => {
-    refreshPurchaseOrders();
-  }, []);
+    void refreshPurchaseOrders();
+  }, [purchasingData.firebaseMode, purchasingData.purchaseOrders]);
 
   // 2. Goods Receiving Form and Lines State
   const [grnNumber, setGrnNumber] = useState(() => `GRN-2026-${Math.floor(Math.random() * 8999 + 1000)}`);
@@ -1082,6 +1108,17 @@ export default function StockPanels({
   const [outstandingPOSupplier, setOutstandingPOSupplier] = useState('');
 
   const refreshGoodsReceiving = async (filters = goodsReceivingFilters) => {
+    if (purchasingData.firebaseMode) {
+      const notes = purchasingData.goodsReceipts.filter((note) => !filters.status || filters.status === 'ALL' || note.receivingStatus === filters.status);
+      const linePairs = await Promise.all(notes.map(async (note) => {
+        const result = await purchasingData.listGoodsReceiptLines(note.grnId);
+        return [note.grnId, result.success ? result.records : []] as const;
+      }));
+      setGoodsReceivingNotes(notes);
+      setGoodsReceivingEvents([]);
+      setGoodsReceivingLineMap(Object.fromEntries(linePairs));
+      return;
+    }
     const [notes, events] = await Promise.all([
       getGoodsReceivingNotes(filters),
       getGoodsReceivingActivityEvents(filters)
@@ -1093,8 +1130,8 @@ export default function StockPanels({
   };
 
   useEffect(() => {
-    refreshGoodsReceiving();
-  }, []);
+    void refreshGoodsReceiving();
+  }, [purchasingData.firebaseMode, purchasingData.goodsReceipts]);
 
   const goodsReceivingSummary = useMemo(() => {
     const today = new Date().toISOString().slice(0, 10);
@@ -1140,6 +1177,30 @@ export default function StockPanels({
   const [supplierGRNSupplier, setSupplierGRNSupplier] = useState('');
 
   const refreshSupplierReturns = async (filters = supplierReturnFilters) => {
+    if (purchasingData.firebaseMode) {
+      const records = purchasingData.supplierReturns.filter((record) => !filters.status || filters.status === 'ALL' || record.status === filters.status);
+      const linePairs = await Promise.all(records.map(async (record) => {
+        const result = await purchasingData.listSupplierReturnLines(record.supplierReturnId);
+        return [record.supplierReturnId, result.success ? result.records : []] as const;
+      }));
+      const lines = Object.values(Object.fromEntries(linePairs)).flat();
+      setSupplierReturnRecords(records);
+      setSupplierReturnEvents([]);
+      setSupplierReturnLineMap(Object.fromEntries(linePairs));
+      setSupplierReturnSummary({
+        draftReturns: records.filter((record) => record.status === 'Draft').length,
+        pendingApproval: records.filter((record) => record.status === 'Pending Approval').length,
+        postedReturns: records.filter((record) => record.status === 'Posted').length,
+        dispatched: records.filter((record) => record.status === 'Dispatched To Supplier').length,
+        creditNotesPending: records.filter((record) => record.status === 'Credit Note Pending').length,
+        replacementsPending: records.filter((record) => record.status === 'Replacement Pending').length,
+        supplierRejected: records.filter((record) => record.status === 'Supplier Rejected').length,
+        closedReturns: records.filter((record) => record.status === 'Closed').length,
+        returnQty: lines.reduce((sum, line) => sum + line.qtyReturnApproved, 0),
+        returnValueEstimate: lines.reduce((sum, line) => sum + line.lineTotal, 0)
+      });
+      return;
+    }
     const [records, events, summary] = await Promise.all([
       getSupplierReturns(filters),
       getSupplierReturnActivityEvents(filters),
@@ -1153,8 +1214,8 @@ export default function StockPanels({
   };
 
   useEffect(() => {
-    refreshSupplierReturns();
-  }, []);
+    void refreshSupplierReturns();
+  }, [purchasingData.firebaseMode, purchasingData.supplierReturns]);
 
   const [stockAdjustmentRecords, setStockAdjustmentRecords] = useState<StockAdjustment[]>([]);
   const [stockAdjustmentLineMap, setStockAdjustmentLineMap] = useState<Record<string, StockAdjustmentLine[]>>({});
@@ -1200,13 +1261,15 @@ export default function StockPanels({
 
   // 3. Supplier Returns State & Form Binding
   const [supplierReturns, setSupplierReturns] = useState<LegacySupplierReturnRecord[]>(() => {
+    if ((import.meta.env.VITE_STORAGE_MODE || 'local') === 'firebase') return [];
     const cached = localStorage.getItem(supplierReturnsKey);
     return cached ? JSON.parse(cached) : [];
   });
 
   useEffect(() => {
+    if (purchasingData.firebaseMode) return;
     localStorage.setItem(supplierReturnsKey, JSON.stringify(supplierReturns));
-  }, [supplierReturns, supplierReturnsKey]);
+  }, [purchasingData.firebaseMode, supplierReturns, supplierReturnsKey]);
 
   const [retSupplier, setRetSupplier] = useState('');
   const [retGrn, setRetGrn] = useState('');
@@ -2033,6 +2096,10 @@ export default function StockPanels({
   // =========================================================================
 
   const openPurchaseOrderForm = async (po?: PurchaseOrder) => {
+    if (purchasingData.firebaseMode) {
+      setPoFeedback(`Firebase purchase order ${po ? 'editing' : 'creation'} is blocked in the local compatibility form.`);
+      return;
+    }
     setPoFormOrder(po || null);
     setPoFormLines(po ? await getPurchaseOrderLines(po.poId) : []);
     setPoFormOpen(true);
@@ -2040,7 +2107,12 @@ export default function StockPanels({
 
   const handleViewPurchaseOrder = async (po: PurchaseOrder) => {
     setSelectedPO(po);
-    setSelectedPOLines(await getPurchaseOrderLines(po.poId));
+    if (purchasingData.firebaseMode) {
+      const result = await purchasingData.listPurchaseOrderLines(po.poId);
+      setSelectedPOLines(result.success ? result.records : []);
+    } else {
+      setSelectedPOLines(await getPurchaseOrderLines(po.poId));
+    }
   };
 
   // A. RECEIVE PO DISPATCHER: prepares a GRN draft from a PO and switches tab.
@@ -2052,6 +2124,10 @@ export default function StockPanels({
 
   const handlePOStatusAction = async (po: PurchaseOrder, action: 'submit' | 'approve' | 'sent' | 'cancel' | 'close' | 'export' | 'edit' | 'revoke') => {
     try {
+    if (purchasingData.firebaseMode && ['submit', 'sent', 'close'].includes(action)) {
+      setPoFeedback(`${action} is not available through the local compatibility workflow in Firebase mode.`);
+      return;
+    }
     if (action === 'edit') {
       if (!canPerformAction(simulatedRole, 'purchaseOrders.edit')) {
         setPoFeedback('You do not have permission to edit Purchase Orders.');
@@ -2078,7 +2154,8 @@ export default function StockPanels({
         setPoFeedback('You do not have permission to perform this action.');
         return;
       }
-      await approvePurchaseOrder(po.poId, staffName, 'Approved from Purchase Orders tab.');
+      if (purchasingData.firebaseMode) await purchasingData.approvePurchaseOrder(po.poId);
+      else await approvePurchaseOrder(po.poId, staffName, 'Approved from Purchase Orders tab.');
       setPoFeedback(`${po.poNumber} approved. No stock or financial posting was created.`);
     }
     if (action === 'sent') {
@@ -2092,7 +2169,8 @@ export default function StockPanels({
       }
       const reason = window.prompt(`Reason for cancelling ${po.poNumber}?`);
       if (!reason) return;
-      await cancelPurchaseOrder(po.poId, staffName, reason);
+      if (purchasingData.firebaseMode) await purchasingData.cancelPurchaseOrder(po.poId, reason);
+      else await cancelPurchaseOrder(po.poId, staffName, reason);
       setPoFeedback(`${po.poNumber} cancelled.`);
     }
     if (action === 'revoke') {
@@ -2106,7 +2184,8 @@ export default function StockPanels({
       }
       const reason = window.prompt(`Reason for revoking ${po.poNumber}?`);
       if (!reason) return;
-      await cancelPurchaseOrder(po.poId, staffName, `Revoked: ${reason}`);
+      if (purchasingData.firebaseMode) await purchasingData.cancelPurchaseOrder(po.poId, `Revoked: ${reason}`);
+      else await cancelPurchaseOrder(po.poId, staffName, `Revoked: ${reason}`);
       setPoFeedback(`${po.poNumber} revoked.`);
     }
     if (action === 'close') {
@@ -2243,6 +2322,10 @@ export default function StockPanels({
 
   const handleCreateGRNFromPO = async (po?: PurchaseOrder) => {
     try {
+    if (purchasingData.firebaseMode) {
+      setGoodsReceivingNotice('Firebase GRNs must be posted through the canonical receiving transaction; local GRN draft creation is disabled.');
+      return;
+    }
     const targetPO = po || purchaseOrders.find((order) => order.status === 'Approved' || order.status === 'Sent To Supplier' || order.status === 'Partially Received');
     if (!targetPO) {
       setGoodsReceivingNotice('No approved, sent, or partially received Purchase Order is available for GRN draft creation.');
@@ -2308,15 +2391,26 @@ export default function StockPanels({
 
   const handleGoodsReceivingAction = async (note: GoodsReceivingNote, action: 'post' | 'submit' | 'approve' | 'cancel' | 'reverse' | 'export') => {
     try {
+    if (purchasingData.firebaseMode && !['post', 'export'].includes(action)) {
+      setGoodsReceivingNotice(`${action} is not available through the local compatibility workflow in Firebase mode.`);
+      return;
+    }
     if (action === 'post') {
       if (!canPerformAction(simulatedRole, 'goodsReceiving.post')) {
         setGoodsReceivingNotice('You do not have permission to perform this action.');
         return;
       }
-      const result = await postGRN(note.grnId, staffName);
-      if (result) {
-        if (result.stockPosted) applyPostedGRNToLocalStock(result);
-        setGoodsReceivingNotice(result.message);
+      if (purchasingData.firebaseMode) {
+        const lineResult = await purchasingData.listGoodsReceiptLines(note.grnId);
+        if (!lineResult.success) throw new Error(lineResult.errorMessage || 'Goods receipt lines could not be loaded.');
+        await purchasingData.postGoodsReceipt({ receipt: note, lines: lineResult.records, createSupplierInvoice: Boolean(note.supplierInvoiceNumber) });
+        setGoodsReceivingNotice(`${note.grnNumber} posted atomically to Firebase inventory, BI and audit records.`);
+      } else {
+        const result = await postGRN(note.grnId, staffName);
+        if (result) {
+          if (result.stockPosted) applyPostedGRNToLocalStock(result);
+          setGoodsReceivingNotice(result.message);
+        }
       }
     }
     if (action === 'submit') {
@@ -2384,6 +2478,10 @@ export default function StockPanels({
 
   const handleCreateSupplierReturnFromGRN = async (note?: GoodsReceivingNote) => {
     try {
+    if (purchasingData.firebaseMode) {
+      setSupplierReturnNotice('Firebase supplier returns must be created through the canonical transaction workflow; local draft creation is disabled.');
+      return;
+    }
     if (!canPerformAction(simulatedRole, 'supplierReturns.create')) {
       setSupplierReturnNotice('You do not have permission to perform this action.');
       return;
@@ -2443,6 +2541,10 @@ export default function StockPanels({
     action: 'submit' | 'approve' | 'post' | 'dispatch' | 'credit' | 'replacement' | 'close' | 'cancel' | 'export'
   ) => {
     try {
+    if (purchasingData.firebaseMode && !['post', 'export'].includes(action)) {
+      setSupplierReturnNotice(`${action} is not available through the local compatibility workflow in Firebase mode.`);
+      return;
+    }
     if (action === 'submit') {
       await submitSupplierReturnForApproval(record.supplierReturnId);
       setSupplierReturnNotice(`${record.supplierReturnNumber} submitted for approval. Stock not reduced.`);
@@ -2460,10 +2562,17 @@ export default function StockPanels({
         setSupplierReturnNotice('You do not have permission to perform this action.');
         return;
       }
-      const result = await postSupplierReturn(record.supplierReturnId, staffName);
-      if (result) {
-        applyPostedSupplierReturnToLocalStock(result);
-        setSupplierReturnNotice(result.message);
+      if (purchasingData.firebaseMode) {
+        const lineResult = await purchasingData.listSupplierReturnLines(record.supplierReturnId);
+        if (!lineResult.success) throw new Error(lineResult.errorMessage || 'Supplier return lines could not be loaded.');
+        await purchasingData.postSupplierReturn({ supplierReturn: record, lines: lineResult.records });
+        setSupplierReturnNotice(`${record.supplierReturnNumber} posted atomically to Firebase inventory, supplier account, BI and audit records.`);
+      } else {
+        const result = await postSupplierReturn(record.supplierReturnId, staffName);
+        if (result) {
+          applyPostedSupplierReturnToLocalStock(result);
+          setSupplierReturnNotice(result.message);
+        }
       }
     }
     if (action === 'dispatch') {
@@ -3869,6 +3978,15 @@ export default function StockPanels({
               refreshGoodsReceiving();
             }}
             onPosted={handleGRNPosted}
+            loadLines={purchasingData.firebaseMode ? async (grnId) => {
+              const result = await purchasingData.listGoodsReceiptLines(grnId);
+              if (!result.success) throw new Error(result.errorMessage || 'Goods receipt lines could not be loaded.');
+              return result.records;
+            } : undefined}
+            onPostRequest={purchasingData.firebaseMode ? async (receipt, lines) => {
+              await purchasingData.postGoodsReceipt({ receipt, lines, createSupplierInvoice: Boolean(receipt.supplierInvoiceNumber) });
+              return `${receipt.grnNumber} posted atomically to Firebase inventory, BI and audit records.`;
+            } : undefined}
             onViewLedger={() => setGoodsReceivingNotice('Product Ledger can be opened from the Inventory Product Ledger tab; posted GRN movements are recorded as GOODS_RECEIVED.')}
           />
         </div>
@@ -4511,6 +4629,15 @@ export default function StockPanels({
               refreshSupplierReturns();
             }}
             onPosted={handleSupplierReturnPosted}
+            loadLines={purchasingData.firebaseMode ? async (supplierReturnId) => {
+              const result = await purchasingData.listSupplierReturnLines(supplierReturnId);
+              if (!result.success) throw new Error(result.errorMessage || 'Supplier return lines could not be loaded.');
+              return result.records;
+            } : undefined}
+            onPostRequest={purchasingData.firebaseMode ? async (supplierReturn, lines) => {
+              await purchasingData.postSupplierReturn({ supplierReturn, lines });
+              return `${supplierReturn.supplierReturnNumber} posted atomically to Firebase inventory, supplier account, BI and audit records.`;
+            } : undefined}
             onViewGRN={(grnId) => {
               const note = goodsReceivingNotes.find((item) => item.grnId === grnId);
               if (note) {

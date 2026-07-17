@@ -8,12 +8,14 @@ import { createFirestoreCustomerRepository } from './firestore/FirestoreCustomer
 import { createFirestoreInventoryRepository } from './firestore/FirestoreInventoryRepository';
 import { createFirestoreBIEventRepository } from './firestore/FirestoreBIEventRepository';
 import { createFirestoreAuditRepository } from './firestore/FirestoreAuditRepository';
+import { createFirestorePurchasingRepository } from './firestore/FirestorePurchasingRepository';
 import type { VendorRepository } from './VendorRepository';
 import type { ProductRepository } from './ProductRepository';
 import type { CustomerRepository } from './CustomerRepository';
 import type { InventoryRepository } from './InventoryRepository';
 import type { BIEventRepository } from './BIEventRepository';
 import type { AuditRepository } from './AuditRepository';
+import type { PurchasingRepository } from './PurchasingRepository';
 
 export type RepositoryStorageMode = 'firebase' | 'local';
 
@@ -43,6 +45,24 @@ export interface RepositoryBundle {
   inventory: InventoryRepository;
   biEvents: BIEventRepository;
   audit: AuditRepository;
+  purchasing: PurchasingRepository;
+}
+
+function createUnavailablePurchasingRepository(errorMessage: string, errorCode?: string): PurchasingRepository {
+  const one = () => Promise.resolve({ success: false, errorCode, errorMessage });
+  const many = () => Promise.resolve({ success: false, records: [], errorCode, errorMessage });
+  const subscription = () => ({ unsubscribe: () => {} });
+  return {
+    getSupplier: one, listSuppliers: many, createSupplier: one, updateSupplier: one, deactivateSupplier: one,
+    getPurchaseRequisition: one, listPurchaseRequisitions: many, createPurchaseRequisition: one, approvePurchaseRequisition: one, rejectPurchaseRequisition: one,
+    getPurchaseOrder: one, listPurchaseOrders: many, listPurchaseOrderLines: many, createPurchaseOrder: one, approvePurchaseOrder: one, cancelPurchaseOrder: one,
+    getGoodsReceipt: one, listGoodsReceipts: many, listGoodsReceiptLines: many, postGoodsReceipt: one,
+    getSupplierInvoice: one, listSupplierInvoices: many, createSupplierInvoice: one, approveSupplierInvoice: one,
+    listSupplierPayments: many, recordSupplierPayment: one,
+    getSupplierReturn: one, listSupplierReturns: many, listSupplierReturnLines: many, postSupplierReturn: one,
+    getSupplierStatement: one, listSupplierStatements: many,
+    subscribeSuppliers: subscription, subscribePurchaseOrders: subscription, subscribeGoodsReceipts: subscription
+  } as PurchasingRepository;
 }
 
 function createUnavailableCustomerRepository(errorMessage: string, errorCode?: string): CustomerRepository {
@@ -121,7 +141,8 @@ function createLocalAdapters(): RepositoryBundle {
     audit: {
       appendAuditRecord: () => Promise.resolve({ success: false, errorMessage: 'Local audit repository is not implemented.' }),
       listAuditRecords: () => Promise.resolve({ success: false, records: [], errorMessage: 'Local audit repository is not implemented.' })
-    } as AuditRepository
+    } as AuditRepository,
+    purchasing: createUnavailablePurchasingRepository('Local purchasing repository is not implemented; local mode uses the existing purchasing services.')
   };
 }
 
@@ -191,7 +212,8 @@ export function createRepositoryBundle(): RepositoryBundle {
         audit: {
           appendAuditRecord: () => Promise.resolve({ success: false, errorCode: 'REPOSITORY_CONFIGURATION_ERROR', errorMessage: 'Firebase is unavailable.' }),
           listAuditRecords: () => Promise.resolve({ success: false, records: [], errorCode: 'REPOSITORY_CONFIGURATION_ERROR', errorMessage: 'Firebase is unavailable.' })
-        } as AuditRepository
+        } as AuditRepository,
+        purchasing: createUnavailablePurchasingRepository('Firebase is unavailable.', 'REPOSITORY_CONFIGURATION_ERROR')
       };
     }
 
@@ -201,7 +223,8 @@ export function createRepositoryBundle(): RepositoryBundle {
       customers: createFirestoreCustomerRepository(),
       inventory: createFirestoreInventoryRepository(),
       biEvents: createFirestoreBIEventRepository(),
-      audit: createFirestoreAuditRepository()
+      audit: createFirestoreAuditRepository(),
+      purchasing: createFirestorePurchasingRepository()
     };
   }
 

@@ -494,6 +494,276 @@ service cloud.firestore {
       allow delete: if isOwner(vendorId);
     }
 
+    // Canonical vendor-scoped purchasing domain. These collection names mirror
+    // src/pos-new/firebase/firestorePaths.ts and intentionally coexist with the
+    // legacy root collections during migration.
+    match /vendors/{vendorId}/suppliers/{supplierId} {
+      allow read: if isActiveVendorUser(vendorId);
+      allow create: if isActiveVendorUser(vendorId)
+        && request.resource.data.vendorId == vendorId
+        && request.resource.data.supplierId == supplierId
+        && request.resource.data.supplierName is string
+        && request.resource.data.supplierCode is string;
+      allow update: if isActiveVendorUser(vendorId)
+        && resource.data.vendorId == vendorId
+        && request.resource.data.vendorId == resource.data.vendorId
+        && request.resource.data.supplierId == resource.data.supplierId;
+      allow delete: if false;
+    }
+
+    match /vendors/{vendorId}/purchaseRequisitions/{requisitionId} {
+      allow read: if isActiveVendorUser(vendorId);
+      allow create: if isActiveVendorUser(vendorId)
+        && request.resource.data.vendorId == vendorId
+        && request.resource.data.requisitionId == requisitionId
+        && request.resource.data.status in ['Draft', 'Submitted'];
+      allow update: if isActiveVendorUser(vendorId)
+        && resource.data.vendorId == vendorId
+        && request.resource.data.vendorId == resource.data.vendorId
+        && request.resource.data.requisitionId == resource.data.requisitionId
+        && (
+          request.resource.data.status == resource.data.status
+          || (
+            request.resource.data.status in ['Approved', 'Rejected']
+            && isManager(vendorId)
+          )
+          || request.resource.data.status in ['Submitted', 'Converted', 'Cancelled']
+        );
+      allow delete: if false;
+    }
+
+    match /vendors/{vendorId}/purchaseRequisitionLines/{lineId} {
+      allow read: if isActiveVendorUser(vendorId);
+      allow create: if isActiveVendorUser(vendorId)
+        && request.resource.data.vendorId == vendorId
+        && request.resource.data.lineId == lineId
+        && request.resource.data.productId is string
+        && request.resource.data.quantityRequested > 0;
+      allow update, delete: if false;
+    }
+
+    match /vendors/{vendorId}/purchaseOrders/{poId} {
+      allow read: if isActiveVendorUser(vendorId);
+      allow create: if isActiveVendorUser(vendorId)
+        && request.resource.data.vendorId == vendorId
+        && request.resource.data.poId == poId
+        && request.resource.data.supplierId is string
+        && request.resource.data.branchId is string
+        && request.resource.data.warehouseId is string
+        && request.resource.data.status == 'Draft';
+      allow update: if isActiveVendorUser(vendorId)
+        && resource.data.vendorId == vendorId
+        && request.resource.data.vendorId == resource.data.vendorId
+        && request.resource.data.poId == resource.data.poId
+        && request.resource.data.supplierId == resource.data.supplierId
+        && request.resource.data.poNumber == resource.data.poNumber
+        && (
+          request.resource.data.status == resource.data.status
+          || (
+            request.resource.data.status == 'Approved'
+            && isManager(vendorId)
+          )
+          || request.resource.data.status in ['Pending Approval', 'Sent To Supplier', 'Partially Received', 'Fully Received', 'Cancelled', 'Closed', 'Closed With Outstanding']
+        );
+      allow delete: if false;
+    }
+
+    match /vendors/{vendorId}/purchaseOrderLines/{lineId} {
+      allow read: if isActiveVendorUser(vendorId);
+      allow create: if isActiveVendorUser(vendorId)
+        && request.resource.data.vendorId == vendorId
+        && request.resource.data.lineId == lineId
+        && request.resource.data.poId is string
+        && request.resource.data.productId is string
+        && request.resource.data.qtyOrdered > 0
+        && request.resource.data.estimatedUnitCost > 0;
+      allow update: if isActiveVendorUser(vendorId)
+        && resource.data.vendorId == vendorId
+        && request.resource.data.vendorId == resource.data.vendorId
+        && request.resource.data.lineId == resource.data.lineId
+        && request.resource.data.poId == resource.data.poId
+        && request.resource.data.productId == resource.data.productId
+        && request.resource.data.qtyOrdered == resource.data.qtyOrdered
+        && request.resource.data.estimatedUnitCost == resource.data.estimatedUnitCost;
+      allow delete: if false;
+    }
+
+    match /vendors/{vendorId}/goodsReceivingNotes/{grnId} {
+      allow read: if isActiveVendorUser(vendorId);
+      allow create: if isActiveVendorUser(vendorId)
+        && request.resource.data.vendorId == vendorId
+        && request.resource.data.grnId == grnId
+        && request.resource.data.supplierId is string
+        && request.resource.data.branchId is string
+        && request.resource.data.warehouseId is string
+        && request.resource.data.receivingStatus in ['Draft', 'Pending Approval', 'Posted', 'Partially Posted'];
+      allow update: if isActiveVendorUser(vendorId)
+        && resource.data.vendorId == vendorId
+        && request.resource.data.vendorId == resource.data.vendorId
+        && request.resource.data.grnId == resource.data.grnId
+        && resource.data.postingStatus != 'Posted';
+      allow delete: if false;
+    }
+
+    match /vendors/{vendorId}/goodsReceivingLines/{lineId} {
+      allow read: if isActiveVendorUser(vendorId);
+      allow create: if isActiveVendorUser(vendorId)
+        && request.resource.data.vendorId == vendorId
+        && request.resource.data.lineId == lineId
+        && request.resource.data.grnId is string
+        && request.resource.data.productId is string;
+      allow update: if isActiveVendorUser(vendorId)
+        && resource.data.vendorId == vendorId
+        && request.resource.data.vendorId == resource.data.vendorId
+        && request.resource.data.lineId == resource.data.lineId
+        && request.resource.data.grnId == resource.data.grnId
+        && request.resource.data.productId == resource.data.productId
+        && request.resource.data.qtyAccepted == resource.data.qtyAccepted
+        && request.resource.data.qtyAlreadyReturned >= resource.data.qtyAlreadyReturned
+        && request.resource.data.qtyAlreadyReturned <= resource.data.qtyAccepted;
+      allow delete: if false;
+    }
+
+    match /vendors/{vendorId}/supplierInvoices/{invoiceId} {
+      allow read: if isActiveVendorUser(vendorId);
+      allow create: if isActiveVendorUser(vendorId)
+        && request.resource.data.vendorId == vendorId
+        && request.resource.data.invoiceId == invoiceId
+        && request.resource.data.supplierId is string
+        && request.resource.data.grandTotal > 0;
+      allow update: if isActiveVendorUser(vendorId)
+        && resource.data.vendorId == vendorId
+        && request.resource.data.vendorId == resource.data.vendorId
+        && request.resource.data.invoiceId == resource.data.invoiceId
+        && request.resource.data.supplierId == resource.data.supplierId
+        && request.resource.data.supplierInvoiceNumber == resource.data.supplierInvoiceNumber
+        && request.resource.data.grandTotal == resource.data.grandTotal
+        && (
+          request.resource.data.status == resource.data.status
+          || (request.resource.data.status == 'Approved' && isManager(vendorId))
+          || request.resource.data.status in ['PartiallyPaid', 'Paid', 'Disputed', 'Cancelled']
+        );
+      allow delete: if false;
+    }
+
+    match /vendors/{vendorId}/supplierInvoiceLines/{lineId} {
+      allow read: if isActiveVendorUser(vendorId);
+      allow create: if isActiveVendorUser(vendorId)
+        && request.resource.data.vendorId == vendorId
+        && request.resource.data.lineId == lineId
+        && request.resource.data.invoiceId is string;
+      allow update, delete: if false;
+    }
+
+    match /vendors/{vendorId}/supplierPayments/{paymentId} {
+      allow read: if isActiveVendorUser(vendorId);
+      allow create: if isActiveVendorUser(vendorId)
+        && request.resource.data.vendorId == vendorId
+        && request.resource.data.paymentId == paymentId
+        && request.resource.data.supplierId is string
+        && request.resource.data.invoiceId is string
+        && request.resource.data.amount > 0
+        && request.resource.data.status == 'POSTED';
+      allow update, delete: if false;
+    }
+
+    match /vendors/{vendorId}/supplierPaymentReversals/{reversalId} {
+      allow read: if isActiveVendorUser(vendorId);
+      allow create: if isManager(vendorId)
+        && request.resource.data.vendorId == vendorId
+        && request.resource.data.reversalId == reversalId
+        && request.resource.data.paymentId is string;
+      allow update, delete: if false;
+    }
+
+    match /vendors/{vendorId}/supplierReturns/{supplierReturnId} {
+      allow read: if isActiveVendorUser(vendorId);
+      allow create: if isActiveVendorUser(vendorId)
+        && request.resource.data.vendorId == vendorId
+        && request.resource.data.supplierReturnId == supplierReturnId
+        && request.resource.data.supplierId is string
+        && request.resource.data.grnId is string;
+      allow update: if isActiveVendorUser(vendorId)
+        && resource.data.vendorId == vendorId
+        && request.resource.data.vendorId == resource.data.vendorId
+        && request.resource.data.supplierReturnId == resource.data.supplierReturnId
+        && resource.data.status != 'Posted';
+      allow delete: if false;
+    }
+
+    match /vendors/{vendorId}/supplierReturnLines/{lineId} {
+      allow read: if isActiveVendorUser(vendorId);
+      allow create: if isActiveVendorUser(vendorId)
+        && request.resource.data.vendorId == vendorId
+        && request.resource.data.lineId == lineId
+        && request.resource.data.supplierReturnId is string
+        && request.resource.data.productId is string
+        && request.resource.data.qtyReturnApproved > 0;
+      allow update, delete: if false;
+    }
+
+    match /vendors/{vendorId}/supplierCreditNotes/{creditNoteId} {
+      allow read: if isActiveVendorUser(vendorId);
+      allow create: if isActiveVendorUser(vendorId)
+        && request.resource.data.vendorId == vendorId
+        && request.resource.data.creditNoteId == creditNoteId
+        && request.resource.data.supplierId is string;
+      allow update, delete: if false;
+    }
+
+    // Shared records written in the same atomic purchasing transactions.
+    match /vendors/{vendorId}/productMaster/{productId} {
+      allow read: if isActiveVendorUser(vendorId);
+      allow create, update: if isActiveVendorUser(vendorId)
+        && request.resource.data.vendorId == vendorId
+        && request.resource.data.productId == productId;
+      allow delete: if false;
+    }
+
+    match /vendors/{vendorId}/productStockBalances/{balanceId} {
+      allow read: if isActiveVendorUser(vendorId);
+      allow create, update: if isActiveVendorUser(vendorId)
+        && request.resource.data.vendorId == vendorId
+        && request.resource.data.balanceId == balanceId
+        && request.resource.data.productId is string;
+      allow delete: if false;
+    }
+
+    match /vendors/{vendorId}/inventoryMovements/{movementId} {
+      allow read: if isActiveVendorUser(vendorId);
+      allow create: if isActiveVendorUser(vendorId)
+        && request.resource.data.vendorId == vendorId
+        && request.resource.data.movementId == movementId
+        && request.resource.data.productId is string
+        && request.resource.data.movementType in ['GOODS_RECEIVED', 'SUPPLIER_RETURN'];
+      allow update, delete: if false;
+    }
+
+    match /vendors/{vendorId}/pos_cash_movements/{movementId} {
+      allow read: if isActiveVendorUser(vendorId);
+      allow create: if isActiveVendorUser(vendorId)
+        && request.resource.data.vendorId == vendorId
+        && request.resource.data.movementId == movementId
+        && request.resource.data.amount > 0;
+      allow update, delete: if false;
+    }
+
+    match /vendors/{vendorId}/biEvents/{eventId} {
+      allow read: if isActiveVendorUser(vendorId);
+      allow create: if isActiveVendorUser(vendorId)
+        && request.resource.data.vendorId == vendorId
+        && request.resource.data.eventId == eventId;
+      allow update, delete: if false;
+    }
+
+    match /vendors/{vendorId}/audit_logs/{auditId} {
+      allow read: if isActiveVendorUser(vendorId);
+      allow create: if isActiveVendorUser(vendorId)
+        && request.resource.data.vendorId == vendorId
+        && (request.resource.data.auditId == auditId || request.resource.data.auditLogId == auditId);
+      allow update, delete: if false;
+    }
+
     match /vendorUsers/{uid} {
       allow get: if signedIn()
         && uid == request.auth.uid

@@ -33,6 +33,8 @@ interface GoodsReceivingFormProps {
   onChanged: (message: string) => void;
   onPosted: (result: GoodsReceivingPostingResult) => void;
   onViewLedger: (productId: string) => void;
+  loadLines?: (grnId: string) => Promise<GoodsReceivingLine[]>;
+  onPostRequest?: (note: GoodsReceivingNote, lines: GoodsReceivingLine[]) => Promise<string>;
 }
 
 function fieldClass(extra = ''): string {
@@ -47,7 +49,9 @@ export default function GoodsReceivingForm({
   onClose,
   onChanged,
   onPosted,
-  onViewLedger
+  onViewLedger,
+  loadLines = getGoodsReceivingLines,
+  onPostRequest
 }: GoodsReceivingFormProps) {
   const [windowState, setWindowState] = useState<WindowState>('normal');
   const [note, setNote] = useState<GoodsReceivingNote | null>(grn);
@@ -62,7 +66,7 @@ export default function GoodsReceivingForm({
     if (!open || !grn) return;
     setNote(grn);
     setFeedback(null);
-    void getGoodsReceivingLines(grn.grnId).then(setLines);
+    void loadLines(grn.grnId).then(setLines);
   }, [grn, open]);
 
   const totals = useMemo(() => {
@@ -147,6 +151,12 @@ export default function GoodsReceivingForm({
     try {
       if (!canPost) {
         setFeedback('You do not have permission to perform this action.');
+        return;
+      }
+      if (onPostRequest) {
+        const message = await onPostRequest(note, lines);
+        setFeedback(message);
+        onChanged(message);
         return;
       }
       const parsedPaidAmount = Math.max(0, Number(paidAmount) || 0);

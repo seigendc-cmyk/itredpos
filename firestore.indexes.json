@@ -1,0 +1,21 @@
+{
+  "indexes": [
+    {
+      "collectionGroup": "supplierInvoices",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "supplierId", "order": "ASCENDING" },
+        { "fieldPath": "supplierInvoiceNumber", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "purchaseOrderLines",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "vendorId", "order": "ASCENDING" },
+        { "fieldPath": "poId", "order": "ASCENDING" }
+      ]
+    }
+  ],
+  "fieldOverrides": []
+}
