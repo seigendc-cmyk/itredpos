@@ -743,6 +743,46 @@ service cloud.firestore {
       allow update, delete: if false;
     }
 
+    // Build 09.1C migration control-plane. Only the vendor owner may mutate it;
+    // completed history, approved fingerprints, and successful results are sealed.
+    match /vendors/{vendorId}/purchasingMigrationRuns/{migrationRunId} {
+      allow read: if isManager(vendorId);
+      allow create: if isOwner(vendorId)
+        && request.resource.data.vendorId == vendorId
+        && request.resource.data.migrationRunId == migrationRunId
+        && request.resource.data.status in ['draft', 'previewed'];
+      allow update: if isOwner(vendorId)
+        && resource.data.vendorId == vendorId
+        && request.resource.data.vendorId == resource.data.vendorId
+        && request.resource.data.migrationRunId == resource.data.migrationRunId
+        && request.resource.data.sourceFingerprint == resource.data.sourceFingerprint
+        && resource.data.status != 'completed';
+      allow delete: if isOwner(vendorId) && resource.data.status in ['draft', 'previewed', 'cancelled'];
+
+      match /records/{recordId} {
+        allow read: if isManager(vendorId);
+        allow create: if isOwner(vendorId) && request.resource.data.vendorId == vendorId;
+        allow update: if isOwner(vendorId)
+          && request.resource.data.vendorId == resource.data.vendorId
+          && request.resource.data.sourceFingerprint == resource.data.sourceFingerprint
+          && resource.data.status != 'migrated';
+        allow delete: if false;
+      }
+      match /issues/{issueId} {
+        allow read: if isManager(vendorId);
+        allow create, update: if isOwner(vendorId) && request.resource.data.vendorId == vendorId;
+        allow delete: if false;
+      }
+      match /reconciliations/{reconciliationId} {
+        allow read: if isManager(vendorId);
+        allow create: if isOwner(vendorId) && request.resource.data.vendorId == vendorId;
+        allow update: if isOwner(vendorId)
+          && request.resource.data.vendorId == resource.data.vendorId
+          && resource.data.completed != true;
+        allow delete: if false;
+      }
+    }
+
     // Shared records written in the same atomic purchasing transactions.
     match /vendors/{vendorId}/productMaster/{productId} {
       allow read: if isActiveVendorUser(vendorId);

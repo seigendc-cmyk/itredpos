@@ -29,3 +29,6 @@ Build 09.1A neither imports nor deletes localStorage purchasing records. `detect
 - Build 09.1B adds durable mutation receipts, stable payload fingerprints, transaction-integrated replay protection, capacity checks, and inventory/supplier-balance invariants. Offline queue orchestration remains part of Build 09.1C.
 - Build 09.1C: reviewed, fingerprinted migration of detected legacy records with explicit operator approval and reconciliation.
 - Remaining legacy draft and reporting imports should be progressively replaced with canonical repository reads; they must not be re-enabled for posting.
+# Build 09.1C migration boundary
+
+Legacy purchasing migration and cutover are governed by [PURCHASING_MIGRATION_RECONCILIATION_AND_CUTOVER.md](./PURCHASING_MIGRATION_RECONCILIATION_AND_CUTOVER.md). Migration orchestrates approved canonical repository calls and does not become a second posting authority.

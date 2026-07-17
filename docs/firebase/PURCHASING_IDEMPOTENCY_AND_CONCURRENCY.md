@@ -33,3 +33,6 @@ A GRN is limited to 40 unique PO-line references and an estimated 450 transactio
 UI submission locking is a convenience control. Durable receipts remain authoritative across retries, terminals, browser restarts, and eventual offline replay. Validation, permission, over-receipt, return-limit, already-reversed, and fingerprint-conflict errors are non-retryable. Firestore unavailable, deadline, and transaction-abort failures may be retried with the original key.
 
 Operational troubleshooting starts with the mutation receipt, then its `resultPath`, correlation-matched audit/BI events, and source inventory movements. Never delete a completed receipt to force re-execution.
+# Build 09.1C migration idempotency
+
+Migration adds source SHA-256 fingerprints and deterministic legacy ID mapping ahead of the existing repository mutation receipts. Resumption never retries successful record results; repository transactions remain authoritative for inventory and supplier-balance exactly-once behavior. See [PURCHASING_MIGRATION_RECONCILIATION_AND_CUTOVER.md](./PURCHASING_MIGRATION_RECONCILIATION_AND_CUTOVER.md).
