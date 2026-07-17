@@ -57,8 +57,12 @@ import {
 import SubscriptionCommercePage from '../build08072026-subs/pages/SubscriptionCommercePage';
 import { PurchasingMigrationAdminPanel } from '../components/PurchasingMigrationAdminPanel';
 import { readLegacyPurchasingSource } from '../services/purchasingMigration/legacySource';
-import { approvePurchasingMigrationWithPermission, createPurchasingMigrationPreview } from '../services/purchasingMigration/service';
+import { approvePurchasingMigrationWithPermission, createPurchasingMigrationPreview, executePurchasingMigration } from '../services/purchasingMigration/service';
+import { CanonicalAdapterMigrationWriter, LiveCanonicalPurchasingMigrationAdapter } from '../services/purchasingMigration/canonicalAdapter';
+import { deterministicMigrationId } from '../services/purchasingMigration/fingerprint';
+import { getPurchasingTransactionService } from '../services/purchasingTransactionService';
 import type { PurchasingMigrationApproval, PurchasingMigrationPreview, PurchasingMigrationStatus } from '../services/purchasingMigration/types';
+import type { PurchasingMigrationRecordResult } from '../services/purchasingMigration/types';
 
 interface PosSettingsProps {
   businessProfile: BusinessProfile;
@@ -331,6 +335,7 @@ export default function PosSettings({
   const [migrationApproval, setMigrationApproval] = useState<PurchasingMigrationApproval>();
   const [migrationStatus, setMigrationStatus] = useState<PurchasingMigrationStatus>('draft');
   const [migrationPreparedBy, setMigrationPreparedBy] = useState('');
+  const [migrationResults, setMigrationResults] = useState<PurchasingMigrationRecordResult[]>([]);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [profileForm, setProfileForm] = useState<BusinessProfile>({ ...businessProfile });
   const [profileSaveState, setProfileSaveState] = useState<SaveState>('idle');
@@ -817,10 +822,17 @@ export default function PosSettings({
     catch (error) { triggerToast(error instanceof Error ? error.message : 'Migration approval failed.'); }
   };
 
-  const executeMigration = () => {
+  const executeMigration = async () => {
     if (!migrationApproval) { triggerToast('An unchanged approved preview is required.'); return; }
-    setMigrationStatus('failed');
-    triggerToast('Migration execution is fail-closed until the canonical transaction adapter is available.');
+    if (!migrationPreview) { triggerToast('An approved migration preview is required.'); return; }
+    setMigrationStatus('running');
+    try {
+      const migratedIdentities = new Set(migrationPreview.records.map(record => `${record.recordType}:${record.legacyRecordId}`));
+      const writer = new CanonicalAdapterMigrationWriter(new LiveCanonicalPurchasingMigrationAdapter(getPurchasingTransactionService()), activeOperatorName || 'Settings owner', migrationApproval.approvedBy, activeRole || 'Owner', (type, legacyId) => migratedIdentities.has(`${type}:${legacyId}`) ? deterministicMigrationId(activeVendorId, 'browserStorage', type, legacyId) : legacyId);
+      const results = await executePurchasingMigration(migrationPreview, migrationApproval, writer, activeOperatorName || 'Settings owner', migrationResults);
+      setMigrationResults(results); const failures = results.filter(row => row.status === 'failed' || row.status === 'invalid'); setMigrationStatus(failures.length ? 'partiallyCompleted' : 'completed');
+      triggerToast(failures.length ? `${failures.length} migration records require review.` : 'Canonical migration writes completed; reconciliation is still required.');
+    } catch (error) { setMigrationStatus('failed'); triggerToast(error instanceof Error ? error.message : 'Canonical migration execution failed closed.'); }
   };
 
   return (
@@ -928,7 +940,7 @@ export default function PosSettings({
           )}
 
           {activeSection === 'PURCHASING_MIGRATION' && (
-            <PurchasingMigrationAdminPanel preview={migrationPreview} status={migrationStatus} onScan={() => void scanPurchasingMigration()} onApprove={approveMigration} onExecute={executeMigration} onRetry={executeMigration} />
+            <PurchasingMigrationAdminPanel preview={migrationPreview} status={migrationStatus} onScan={() => void scanPurchasingMigration()} onApprove={approveMigration} onExecute={() => void executeMigration()} onRetry={() => void executeMigration()} />
           )}
 
           {activeSection === 'BRANCHES' && (

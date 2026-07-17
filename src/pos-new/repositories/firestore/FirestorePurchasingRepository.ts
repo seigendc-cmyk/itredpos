@@ -186,6 +186,8 @@ export function createFirestorePurchasingRepository(): PurchasingRepository {
       const invalid = preflight(context); if (invalid) return invalid;
       try {
         assertSupplier(supplier, context.vendorId);
+        const migrationOperation = 'CREATE_SUPPLIER'; const migrationFingerprint = context.idempotencyKey ? await fingerprintPurchasingMutation(migrationOperation, supplier) : '';
+        if (context.idempotencyKey) { const [receipt, existing] = await Promise.all([getDoc(doc(db!, firestorePaths.mutationReceipt(context.vendorId, context.idempotencyKey))), getDoc(doc(db!, firestorePaths.supplier(context.vendorId, supplier.supplierId)))]); if (assertReceipt(receipt, migrationFingerprint, migrationOperation, context.correlationId)) { if (!existing.exists()) throw new PurchasingValidationError('Completed supplier result is missing.'); return { success: true, data: record<PurchasingSupplier>(existing.data()), warnings: [] }; } }
         const codeMatch = await getDocs(query(collection(db!, firestorePaths.suppliers(context.vendorId)), where('supplierCode', '==', supplier.supplierCode.trim().toUpperCase())));
         if (!codeMatch.empty) return failed('Supplier code already exists.', 'DUPLICATE_SUPPLIER_CODE');
         const normalizedPhone = normalizeSupplierContact(supplier.phone);
@@ -196,10 +198,13 @@ export function createFirestorePurchasingRepository(): PurchasingRepository {
         const value = { ...supplier, supplierCode: supplier.supplierCode.trim().toUpperCase(), normalizedPhone, normalizedEmail, status: supplier.status || 'ACTIVE', sourceApp: context.sourceApp, schemaVersion: COMMERCE_SCHEMA_VERSION, createdBy: context.actorId, updatedBy: context.actorId, createdAt: nowIso(), updatedAt: nowIso() };
         await runTransaction(db!, async (transaction) => {
           const ref = doc(db!, firestorePaths.supplier(context.vendorId, supplier.supplierId));
-          if ((await transaction.get(ref)).exists()) throw new PurchasingValidationError('Supplier ID already exists.', 'DUPLICATE_SUPPLIER_ID');
+          const existing = await transaction.get(ref); const receipt = context.idempotencyKey ? await transaction.get(doc(db!, firestorePaths.mutationReceipt(context.vendorId, context.idempotencyKey))) : null;
+          if (receipt && assertReceipt(receipt, migrationFingerprint, migrationOperation, context.correlationId)) { if (!existing.exists()) throw new PurchasingValidationError('Completed supplier result is missing.'); return; }
+          if (existing.exists()) throw new PurchasingValidationError('Supplier ID already exists.', 'DUPLICATE_SUPPLIER_ID');
           transaction.set(ref, value);
           event(transaction, context, 'SUPPLIER_CREATED', 'SUPPLIER', supplier.supplierId);
           audit(transaction, context, 'CREATE_SUPPLIER', 'SUPPLIER', supplier.supplierId, null, value);
+          if (context.idempotencyKey) completeReceipt(transaction, context, migrationOperation, 'SUPPLIER', supplier.supplierId, migrationFingerprint, firestorePaths.supplier(context.vendorId, supplier.supplierId));
         });
         return { success: true, data: value, warnings };
       } catch (error) { return mappedFailure(error); }
@@ -292,17 +297,20 @@ export function createFirestorePurchasingRepository(): PurchasingRepository {
       const invalid = preflight(context); if (invalid) return invalid;
       try {
         assertPurchaseOrder(command, context.vendorId);
+        const migrationOperation = 'CREATE_PURCHASE_ORDER'; const migrationFingerprint = context.idempotencyKey ? await fingerprintPurchasingMutation(migrationOperation, command) : '';
+        if (context.idempotencyKey) { const [receipt, existing] = await Promise.all([getDoc(doc(db!, firestorePaths.mutationReceipt(context.vendorId, context.idempotencyKey))), getDoc(doc(db!, firestorePaths.purchaseOrder(context.vendorId, command.order.poId)))]); if (assertReceipt(receipt, migrationFingerprint, migrationOperation, context.correlationId)) { if (!existing.exists()) throw new PurchasingValidationError('Completed purchase order result is missing.'); return { success: true, data: record<PurchaseOrder>(existing.data()) }; } }
         const supplier = await getSupplier(context, command.order.supplierId); if (!supplier.success) return failed('Purchase order supplier does not belong to this vendor.', 'SUPPLIER_VENDOR_MISMATCH');
         const duplicate = await getDocs(query(collection(db!, firestorePaths.purchaseOrders(context.vendorId)), where('poNumber', '==', command.order.poNumber))); if (!duplicate.empty) return failed('Purchase order number already exists.', 'DUPLICATE_PO_NUMBER');
         const products = await Promise.all(command.lines.map((line) => getDoc(doc(db!, firestorePaths.productMaster(context.vendorId), line.productId)))); if (products.some((snapshot) => !snapshot.exists() || (snapshot.data().vendorId && snapshot.data().vendorId !== context.vendorId))) return failed('A purchase order product does not belong to this vendor.', 'PRODUCT_VENDOR_MISMATCH');
         const order = { ...command.order, subtotal: command.order.subtotal ?? command.order.subtotalEstimate, taxTotal: command.order.vatTotal ?? command.order.taxEstimate, grandTotal: command.order.grandTotal ?? command.order.grandTotalEstimate, status: 'Draft' as const, createdBy: context.actorId, createdAt: nowIso(), updatedAt: nowIso() };
         await runTransaction(db!, async (transaction) => {
-          const ref = doc(db!, firestorePaths.purchaseOrder(context.vendorId, order.poId)); if ((await transaction.get(ref)).exists()) throw new PurchasingValidationError('Purchase order ID already exists.', 'DUPLICATE_PO_ID');
+          const ref = doc(db!, firestorePaths.purchaseOrder(context.vendorId, order.poId)); const existing = await transaction.get(ref); const receipt = context.idempotencyKey ? await transaction.get(doc(db!, firestorePaths.mutationReceipt(context.vendorId, context.idempotencyKey))) : null; if (receipt && assertReceipt(receipt, migrationFingerprint, migrationOperation, context.correlationId)) { if (!existing.exists()) throw new PurchasingValidationError('Completed purchase order result is missing.'); return; } if (existing.exists()) throw new PurchasingValidationError('Purchase order ID already exists.', 'DUPLICATE_PO_ID');
           transaction.set(ref, order);
           for (const line of command.lines) transaction.set(doc(db!, firestorePaths.purchaseOrderLine(context.vendorId, line.lineId)), { ...line, vendorId: context.vendorId, quantityOrdered: line.qtyOrdered, quantityReceived: line.qtyReceived, unitCost: line.unitCost ?? line.estimatedUnitCost, taxAmount: line.vatAmount ?? 0, lineTotal: line.lineTotal ?? line.estimatedLineTotal });
           if (command.requisitionId) transaction.update(doc(db!, firestorePaths.purchaseRequisition(context.vendorId, command.requisitionId)), { status: 'Converted', convertedPurchaseOrderIds: [order.poId], updatedAt: nowIso(), updatedBy: context.actorId });
           event(transaction, context, 'PURCHASE_ORDER_CREATED', 'PURCHASE_ORDER', order.poId);
           audit(transaction, context, 'CREATE_PURCHASE_ORDER', 'PURCHASE_ORDER', order.poId, null, order);
+          if (context.idempotencyKey) completeReceipt(transaction, context, migrationOperation, 'PURCHASE_ORDER', order.poId, migrationFingerprint, firestorePaths.purchaseOrder(context.vendorId, order.poId));
         });
         return { success: true, data: order };
       } catch (error) { return mappedFailure(error); }

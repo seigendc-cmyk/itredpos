@@ -2,6 +2,8 @@
 
 Build 09.1D operational guarantees, selective retry, diagnostics, explicit readiness blockers, and separation-of-duties details are documented in [PURCHASING_MIGRATION_OPERATIONAL_HARDENING.md](./PURCHASING_MIGRATION_OPERATIONAL_HARDENING.md).
 
+The production transaction adapter and supported translation rules are documented in [PURCHASING_MIGRATION_CANONICAL_ADAPTER.md](./PURCHASING_MIGRATION_CANONICAL_ADAPTER.md).
+
 ## Authority boundary
 
 Migration is a control-plane orchestrator, never a purchasing transaction authority. Canonical writes remain `UI -> usePurchasingData -> PurchasingTransactionService -> PurchasingRepository -> FirestorePurchasingRepository -> Firestore`. The migration writer adapter must call that chain; it may not write inventory movements, supplier balances, receipts, or posted documents directly.

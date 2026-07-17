@@ -2,6 +2,8 @@
 
 Build 09.1D makes the Build 09.1C controls observable and explicitly testable without changing the purchasing authority chain.
 
+Build 09.1E connects these controls to the live authority through [PURCHASING_MIGRATION_CANONICAL_ADAPTER.md](./PURCHASING_MIGRATION_CANONICAL_ADAPTER.md).
+
 ## Approval and warning controls
 
 Warnings use stable issue IDs and every ID must be acknowledged before approval. The approval stores the vendor, preparer, approver, preview version, source fingerprint, warning IDs, and migration version. An explicit effective-permission context is mandatory. Self-approval is denied unless that context explicitly grants it. Any preview, fingerprint, version, or vendor change invalidates the approval and its acknowledgements. Approval identity and warning IDs are sealed by Firestore rules after approval.
