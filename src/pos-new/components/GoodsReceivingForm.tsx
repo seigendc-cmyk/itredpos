@@ -9,13 +9,10 @@ import {
   Role
 } from '../types';
 import {
-  approveGRN,
   cancelGRN,
   exportGRNPlaceholder,
   getGoodsReceivingLines,
-  postGRN,
   removeLineFromCurrentGRN,
-  submitGRNForApproval,
   updateGRNDraft,
   updateGRNLine,
   markLineNotSupplied
@@ -34,7 +31,7 @@ interface GoodsReceivingFormProps {
   onPosted: (result: GoodsReceivingPostingResult) => void;
   onViewLedger: (productId: string) => void;
   loadLines?: (grnId: string) => Promise<GoodsReceivingLine[]>;
-  onPostRequest?: (note: GoodsReceivingNote, lines: GoodsReceivingLine[]) => Promise<string>;
+  onPostRequest: (note: GoodsReceivingNote, lines: GoodsReceivingLine[]) => Promise<string>;
 }
 
 function fieldClass(extra = ''): string {
@@ -124,14 +121,7 @@ export default function GoodsReceivingForm({
   };
 
   const handleSubmitApproval = async () => {
-    const updated = await submitGRNForApproval(note.grnId);
-    if (updated) {
-      setNote(updated);
-      setFeedback(`${updated.grnNumber} submitted for approval. Stock not updated.`);
-      onChanged('GRN submitted for approval.');
-    } else {
-      setFeedback('GRN could not be submitted for approval.');
-    }
+    setFeedback('Canonical GRNs post directly from Draft. Governed posting permission is checked by the repository.');
   };
 
   const handleApprove = async () => {
@@ -139,12 +129,7 @@ export default function GoodsReceivingForm({
       setFeedback('You do not have permission to perform this action.');
       return;
     }
-    const updated = await approveGRN(note.grnId, staffName, 'Approved in build-development receiving flow.');
-    if (updated) {
-      setNote(updated);
-      setFeedback(`${updated.grnNumber} approved. You can now post accepted quantities.`);
-      onChanged('GRN approved.');
-    }
+    setFeedback('Canonical GRNs cannot be returned to Draft through a legacy approval workflow.');
   };
 
   const handlePost = async () => {
@@ -153,39 +138,9 @@ export default function GoodsReceivingForm({
         setFeedback('You do not have permission to perform this action.');
         return;
       }
-      if (onPostRequest) {
-        const message = await onPostRequest(note, lines);
-        setFeedback(message);
-        onChanged(message);
-        return;
-      }
-      const parsedPaidAmount = Math.max(0, Number(paidAmount) || 0);
-      if (acquisitionType === 'Part Paid + Supplier Credit' && parsedPaidAmount <= 0) {
-        setFeedback('Enter the paid portion before posting a part-paid supplier credit GRN.');
-        return;
-      }
-      const result = await postGRN(note.grnId, staffName, {
-        acquisitionType,
-        paidAmount: parsedPaidAmount,
-        paymentSource,
-        supplierInvoiceNumber: note.supplierInvoiceNumber,
-        linkedSupplierBillId: linkedSupplierBillId.trim() || undefined
-      });
-      if (!result) {
-        setFeedback('Only Draft GRNs can be posted.');
-        return;
-      }
-      if (!result.stockPosted) {
-        setFeedback(result.message);
-        onChanged(result.message);
-        if (result.status === 'Pending Approval') {
-          const refreshed = await updateGRNDraft(note.grnId, {});
-          if (refreshed) setNote(refreshed);
-        }
-        return;
-      }
-      setFeedback(result.message);
-      onPosted(result);
+      const message = await onPostRequest(note, lines);
+      setFeedback(message);
+      onChanged(message);
     } catch (error) {
       setFeedback(error instanceof Error ? error.message : 'Goods receiving could not be posted.');
     }

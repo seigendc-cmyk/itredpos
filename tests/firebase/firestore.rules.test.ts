@@ -64,6 +64,23 @@ describe('canonical purchasing security', () => {
     await assertFails(updateDoc(doc(dbFor(MANAGER), 'vendors', VENDOR_A, 'supplierPayments', 'payment-1'), { amount: 999 }));
   });
 
+  test('manager can create one immutable payment reversal referencing the original payment', async () => {
+    const ref = doc(dbFor(MANAGER), 'vendors', VENDOR_A, 'supplierPaymentReversals', 'payment-1');
+    await assertSucceeds(setDoc(ref, { reversalId: 'payment-1', vendorId: VENDOR_A, supplierId: 'supplier-a', originalPaymentId: 'payment-1', invoiceId: 'invoice-1', amount: 10, reason: 'Duplicate bank settlement', status: 'POSTED', correlationId: 'corr-1', idempotencyKey: 'reverse-1' }));
+    await assertFails(updateDoc(ref, { reason: 'Changed reason' }));
+  });
+
+  test('cross-vendor supplier balance access is denied', async () => {
+    await env.withSecurityRulesDisabled(async (context) => setDoc(doc(context.firestore(), 'vendors', VENDOR_B, 'supplierBalances', 'supplier-b'), { vendorId: VENDOR_B, supplierId: 'supplier-b', version: 1 }));
+    await assertFails(getDoc(doc(dbFor(MANAGER), 'vendors', VENDOR_B, 'supplierBalances', 'supplier-b')));
+  });
+
+  test('supplier balance projection is versioned and immutable by identity', async () => {
+    const ref = doc(dbFor(MANAGER), 'vendors', VENDOR_A, 'supplierBalances', 'supplier-a');
+    await assertSucceeds(setDoc(ref, { vendorId: VENDOR_A, supplierId: 'supplier-a', version: 1, outstandingBalance: 10 }));
+    await assertFails(updateDoc(ref, { vendorId: VENDOR_B, version: 2 }));
+  });
+
   test('supplier vendor identity cannot change', async () => {
     await assertFails(updateDoc(doc(dbFor(MANAGER), 'vendors', VENDOR_A, 'suppliers', 'supplier-a'), { vendorId: VENDOR_B }));
   });

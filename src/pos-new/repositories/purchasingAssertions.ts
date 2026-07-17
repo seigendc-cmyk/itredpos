@@ -106,3 +106,22 @@ export function assertManagerRole(actorRole: string | undefined, operation: stri
     throw new PurchasingValidationError(`${operation} requires an authorized manager.`, 'PERMISSION_DENIED');
   }
 }
+
+export function assertPostedDocumentTransition(currentStatus: string, nextStatus: string, entity = 'Posted document'): void {
+  if (['Posted', 'POSTED', 'Partially Posted'].includes(currentStatus) && ['Draft', 'DRAFT'].includes(nextStatus)) {
+    throw new PurchasingValidationError(`${entity} cannot transition back to Draft.`, 'POSTED_DOCUMENT_IMMUTABLE');
+  }
+}
+
+export function assertPurchaseOrderTransition(currentStatus: string, nextStatus: string, actorRole?: string): void {
+  const allowed: Record<string, string[]> = {
+    Draft: ['Submitted', 'Cancelled'],
+    'Pending Approval': ['Approved', 'Rejected'],
+    Submitted: ['Approved', 'Rejected'],
+    Approved: ['Partially Received', 'PartiallyReceived', 'Fully Received', 'Completed'],
+    PartiallyReceived: ['Completed'],
+    'Partially Received': ['Fully Received', 'Completed']
+  };
+  if (!allowed[currentStatus]?.includes(nextStatus)) throw new PurchasingValidationError(`Purchase order cannot transition from ${currentStatus} to ${nextStatus}.`, 'INVALID_STATUS_TRANSITION');
+  if (['Approved', 'Rejected'].includes(nextStatus)) assertManagerRole(actorRole, `Purchase order ${nextStatus.toLowerCase()}`);
+}

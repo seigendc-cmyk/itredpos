@@ -58,7 +58,7 @@ function createUnavailablePurchasingRepository(errorMessage: string, errorCode?:
     getPurchaseOrder: one, listPurchaseOrders: many, listPurchaseOrderLines: many, createPurchaseOrder: one, approvePurchaseOrder: one, cancelPurchaseOrder: one,
     getGoodsReceipt: one, listGoodsReceipts: many, listGoodsReceiptLines: many, postGoodsReceipt: one,
     getSupplierInvoice: one, listSupplierInvoices: many, createSupplierInvoice: one, approveSupplierInvoice: one,
-    listSupplierPayments: many, recordSupplierPayment: one,
+    listSupplierPayments: many, recordSupplierPayment: one, reverseSupplierPayment: one, getSupplierBalance: one,
     getSupplierReturn: one, listSupplierReturns: many, listSupplierReturnLines: many, postSupplierReturn: one,
     getSupplierStatement: one, listSupplierStatements: many,
     subscribeSuppliers: subscription, subscribePurchaseOrders: subscription, subscribeGoodsReceipts: subscription

@@ -135,7 +135,6 @@ import {
   getGoodsReceivingLines,
   getGoodsReceivingNotes,
   getPOReceivingSummary,
-  postGRN,
   reopenPOPlaceholder,
   reverseGRNPlaceholder,
   submitGRNForApproval
@@ -151,7 +150,6 @@ import {
   getSupplierReturns,
   getSupplierReturnSummary,
   markDispatchedToSupplier,
-  postSupplierReturn,
   recordReplacementExpected,
   recordSupplierCreditNotePlaceholder,
   submitSupplierReturnForApproval,
@@ -2400,18 +2398,10 @@ export default function StockPanels({
         setGoodsReceivingNotice('You do not have permission to perform this action.');
         return;
       }
-      if (purchasingData.firebaseMode) {
-        const lineResult = await purchasingData.listGoodsReceiptLines(note.grnId);
-        if (!lineResult.success) throw new Error(lineResult.errorMessage || 'Goods receipt lines could not be loaded.');
-        await purchasingData.postGoodsReceipt({ receipt: note, lines: lineResult.records, createSupplierInvoice: Boolean(note.supplierInvoiceNumber) });
-        setGoodsReceivingNotice(`${note.grnNumber} posted atomically to Firebase inventory, BI and audit records.`);
-      } else {
-        const result = await postGRN(note.grnId, staffName);
-        if (result) {
-          if (result.stockPosted) applyPostedGRNToLocalStock(result);
-          setGoodsReceivingNotice(result.message);
-        }
-      }
+      const lineResult = await purchasingData.listGoodsReceiptLines(note.grnId);
+      if (!lineResult.success) throw new Error(lineResult.errorMessage || 'Goods receipt lines could not be loaded.');
+      await purchasingData.postGoodsReceipt({ receipt: note, lines: lineResult.records, createSupplierInvoice: Boolean(note.supplierInvoiceNumber) });
+      setGoodsReceivingNotice(`${note.grnNumber} posted atomically to Firebase inventory, BI and audit records.`);
     }
     if (action === 'submit') {
       await submitGRNForApproval(note.grnId);
@@ -2562,18 +2552,10 @@ export default function StockPanels({
         setSupplierReturnNotice('You do not have permission to perform this action.');
         return;
       }
-      if (purchasingData.firebaseMode) {
-        const lineResult = await purchasingData.listSupplierReturnLines(record.supplierReturnId);
-        if (!lineResult.success) throw new Error(lineResult.errorMessage || 'Supplier return lines could not be loaded.');
-        await purchasingData.postSupplierReturn({ supplierReturn: record, lines: lineResult.records });
-        setSupplierReturnNotice(`${record.supplierReturnNumber} posted atomically to Firebase inventory, supplier account, BI and audit records.`);
-      } else {
-        const result = await postSupplierReturn(record.supplierReturnId, staffName);
-        if (result) {
-          applyPostedSupplierReturnToLocalStock(result);
-          setSupplierReturnNotice(result.message);
-        }
-      }
+      const lineResult = await purchasingData.listSupplierReturnLines(record.supplierReturnId);
+      if (!lineResult.success) throw new Error(lineResult.errorMessage || 'Supplier return lines could not be loaded.');
+      await purchasingData.postSupplierReturn({ supplierReturn: record, lines: lineResult.records });
+      setSupplierReturnNotice(`${record.supplierReturnNumber} posted atomically to Firebase inventory, supplier account, BI and audit records.`);
     }
     if (action === 'dispatch') {
       if (!canPerformAction(simulatedRole, 'supplierReturns.dispatch')) {
@@ -3983,10 +3965,10 @@ export default function StockPanels({
               if (!result.success) throw new Error(result.errorMessage || 'Goods receipt lines could not be loaded.');
               return result.records;
             } : undefined}
-            onPostRequest={purchasingData.firebaseMode ? async (receipt, lines) => {
+            onPostRequest={async (receipt, lines) => {
               await purchasingData.postGoodsReceipt({ receipt, lines, createSupplierInvoice: Boolean(receipt.supplierInvoiceNumber) });
               return `${receipt.grnNumber} posted atomically to Firebase inventory, BI and audit records.`;
-            } : undefined}
+            }}
             onViewLedger={() => setGoodsReceivingNotice('Product Ledger can be opened from the Inventory Product Ledger tab; posted GRN movements are recorded as GOODS_RECEIVED.')}
           />
         </div>
@@ -4634,10 +4616,10 @@ export default function StockPanels({
               if (!result.success) throw new Error(result.errorMessage || 'Supplier return lines could not be loaded.');
               return result.records;
             } : undefined}
-            onPostRequest={purchasingData.firebaseMode ? async (supplierReturn, lines) => {
+            onPostRequest={async (supplierReturn, lines) => {
               await purchasingData.postSupplierReturn({ supplierReturn, lines });
               return `${supplierReturn.supplierReturnNumber} posted atomically to Firebase inventory, supplier account, BI and audit records.`;
-            } : undefined}
+            }}
             onViewGRN={(grnId) => {
               const note = goodsReceivingNotes.find((item) => item.grnId === grnId);
               if (note) {

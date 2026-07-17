@@ -672,8 +672,26 @@ service cloud.firestore {
       allow create: if isManager(vendorId)
         && request.resource.data.vendorId == vendorId
         && request.resource.data.reversalId == reversalId
-        && request.resource.data.paymentId is string;
+        && request.resource.data.originalPaymentId is string
+        && request.resource.data.reason is string
+        && request.resource.data.correlationId is string
+        && request.resource.data.idempotencyKey is string
+        && request.resource.data.status == 'POSTED';
       allow update, delete: if false;
+    }
+
+    match /vendors/{vendorId}/supplierBalances/{supplierId} {
+      allow read: if isActiveVendorUser(vendorId);
+      allow create: if isManager(vendorId)
+        && request.resource.data.vendorId == vendorId
+        && request.resource.data.supplierId == supplierId
+        && request.resource.data.version == 1;
+      allow update: if isManager(vendorId)
+        && resource.data.vendorId == vendorId
+        && request.resource.data.vendorId == resource.data.vendorId
+        && request.resource.data.supplierId == resource.data.supplierId
+        && request.resource.data.version == resource.data.version + 1;
+      allow delete: if false;
     }
 
     match /vendors/{vendorId}/supplierReturns/{supplierReturnId} {

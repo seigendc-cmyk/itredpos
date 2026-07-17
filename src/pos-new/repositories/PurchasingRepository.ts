@@ -132,6 +132,47 @@ export interface PurchasingSupplierPayment {
   createdBy: string;
 }
 
+export interface SupplierPaymentReversal {
+  reversalId: string;
+  vendorId: string;
+  supplierId: string;
+  originalPaymentId: string;
+  invoiceId: string;
+  amount: number;
+  currency: string;
+  reason: string;
+  status: 'POSTED';
+  correlationId: string;
+  idempotencyKey: string;
+  occurredAt: string;
+  createdBy: string;
+}
+
+export interface ReverseSupplierPaymentCommand { reversal: SupplierPaymentReversal; }
+
+export interface SupplierBalanceProjection {
+  supplierId: string;
+  vendorId: string;
+  invoiceTotal: number;
+  paymentTotal: number;
+  reversalTotal: number;
+  creditNoteTotal: number;
+  returnCreditTotal: number;
+  outstandingBalance: number;
+  version: number;
+  updatedAt: string;
+  lastCorrelationId: string;
+}
+
+export interface PurchasingMigrationMetadata {
+  migrationId: string;
+  legacySource: string;
+  legacyRecordId: string;
+  legacyFingerprint: string;
+  migratedAt?: string;
+  migrationStatus: 'detected' | 'pending' | 'migrated' | 'conflict' | 'failed';
+}
+
 export interface SupplierStatementEntry {
   entryId: string;
   entryType: 'INVOICE' | 'PAYMENT' | 'RETURN' | 'CREDIT_NOTE' | 'ADJUSTMENT';
@@ -209,6 +250,8 @@ export interface PurchasingRepository {
 
   listSupplierPayments(context: RepositoryOperationContext, filters?: PurchasingFilters): Promise<RepositoryListResult<PurchasingSupplierPayment>>;
   recordSupplierPayment(context: RepositoryOperationContext, payment: PurchasingSupplierPayment): Promise<RepositoryResult<PurchasingSupplierPayment>>;
+  reverseSupplierPayment(context: RepositoryOperationContext, command: ReverseSupplierPaymentCommand): Promise<RepositoryResult<SupplierPaymentReversal>>;
+  getSupplierBalance(context: RepositoryOperationContext, supplierId: string): Promise<RepositoryResult<SupplierBalanceProjection>>;
 
   getSupplierReturn(context: RepositoryOperationContext, supplierReturnId: string): Promise<RepositoryResult<SupplierReturn>>;
   listSupplierReturns(context: RepositoryOperationContext, filters?: PurchasingFilters): Promise<RepositoryListResult<SupplierReturn>>;

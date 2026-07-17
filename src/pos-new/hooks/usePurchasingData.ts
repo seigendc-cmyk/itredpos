@@ -9,6 +9,7 @@ import type {
   PurchasingFilters,
   PurchasingSupplier,
   PurchasingSupplierPayment,
+  ReverseSupplierPaymentCommand,
   PurchasingSupplierStatement,
   SupplierInvoice
 } from '../repositories/PurchasingRepository';
@@ -29,6 +30,10 @@ export function usePurchasingData({ context }: { context: RepositoryOperationCon
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const subscriptions = useRef<RepositorySubscription[]>([]);
+  const mutationContext = useCallback((operation: string, entityId: string): RepositoryOperationContext => {
+    const id = globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    return { ...context, correlationId: `${operation}-${id}`, idempotencyKey: `${operation}:${entityId}:${id}`, occurredAt: new Date().toISOString(), source: 'purchasing-ui' };
+  }, [context]);
 
   const ensure = useCallback(<T extends { success: boolean; errorMessage?: string }>(result: T): T => {
     if (!result.success) throw new Error(result.errorMessage || 'Purchasing operation failed.');
@@ -76,20 +81,25 @@ export function usePurchasingData({ context }: { context: RepositoryOperationCon
     listPurchaseOrderLines: (poId: string) => service.listPurchaseOrderLines(context, poId),
     listGoodsReceiptLines: (grnId: string) => service.listGoodsReceiptLines(context, grnId),
     listSupplierReturnLines: (id: string) => service.listSupplierReturnLines(context, id),
-    createSupplier: (value: PurchasingSupplier) => mutate(() => service.createSupplier(context, value)),
-    updateSupplier: (id: string, value: Partial<PurchasingSupplier>) => mutate(() => service.updateSupplier(context, id, value)),
+    createSupplier: (value: PurchasingSupplier) => mutate(() => service.createSupplier(mutationContext('supplier-create', value.supplierId), value)),
+    updateSupplier: (id: string, value: Partial<PurchasingSupplier>) => mutate(() => service.updateSupplier(mutationContext('supplier-update', id), id, value)),
     deactivateSupplier: (id: string) => mutate(() => service.deactivateSupplier(context, id)),
     createPurchaseRequisition: (value: PurchaseRequisition) => mutate(() => service.createPurchaseRequisition(context, value)),
     approvePurchaseRequisition: (id: string) => mutate(() => service.approvePurchaseRequisition(context, id)),
     rejectPurchaseRequisition: (id: string, reason: string) => mutate(() => service.rejectPurchaseRequisition(context, id, reason)),
     createPurchaseOrder: (command: CreatePurchaseOrderCommand) => mutate(() => service.createPurchaseOrder(context, command)),
-    approvePurchaseOrder: (id: string) => mutate(() => service.approvePurchaseOrder(context, id)),
+    approvePurchaseOrder: (id: string) => mutate(() => service.approvePurchaseOrder(mutationContext('po-approve', id), id)),
     cancelPurchaseOrder: (id: string, reason: string) => mutate(() => service.cancelPurchaseOrder(context, id, reason)),
-    postGoodsReceipt: (command: PostGoodsReceiptCommand) => mutate(() => service.postGoodsReceipt(context, command)),
+    postGoodsReceipt: (command: PostGoodsReceiptCommand) => mutate(() => service.postGoodsReceipt(mutationContext('grn-post', command.receipt.grnId), command)),
     createSupplierInvoice: (value: SupplierInvoice) => mutate(() => service.createSupplierInvoice(context, value)),
     approveSupplierInvoice: (id: string) => mutate(() => service.approveSupplierInvoice(context, id)),
-    recordSupplierPayment: (value: PurchasingSupplierPayment) => mutate(() => service.recordSupplierPayment(context, value)),
-    postSupplierReturn: (command: PostSupplierReturnCommand) => mutate(() => service.postSupplierReturn(context, command)),
+    recordSupplierPayment: (value: PurchasingSupplierPayment) => mutate(() => service.recordSupplierPayment(mutationContext('payment-post', value.paymentId), value)),
+    reverseSupplierPayment: (command: ReverseSupplierPaymentCommand) => mutate(() => {
+      const nextContext = mutationContext('payment-reverse', command.reversal.reversalId);
+      return service.reverseSupplierPayment(nextContext, { reversal: { ...command.reversal, correlationId: nextContext.correlationId, idempotencyKey: nextContext.idempotencyKey!, occurredAt: nextContext.occurredAt! } });
+    }),
+    getSupplierBalance: async (supplierId: string) => ensure(await service.getSupplierBalance(context, supplierId)).data,
+    postSupplierReturn: (command: PostSupplierReturnCommand) => mutate(() => service.postSupplierReturn(mutationContext('return-post', command.supplierReturn.supplierReturnId), command)),
     getSupplierStatement: async (supplierId: string, from?: string, to?: string) => ensure(await service.getSupplierStatement(context, supplierId, from, to)).data,
     setDraftPurchaseOrders: (_rows: PurchaseOrder[]) => undefined,
     toGoodsReceiptCommand: (receipt: GoodsReceivingNote, lines: GoodsReceivingLine[]): PostGoodsReceiptCommand => ({ receipt, lines }),

@@ -10,6 +10,7 @@ import type {
   PurchasingRepository,
   PurchasingSupplier,
   PurchasingSupplierPayment,
+  ReverseSupplierPaymentCommand,
   SupplierInvoice
 } from '../repositories/PurchasingRepository';
 
@@ -57,6 +58,8 @@ export class PurchasingTransactionService {
 
   listSupplierPayments = (context: RepositoryOperationContext, filters?: PurchasingFilters) => this.repository.listSupplierPayments(context, filters);
   recordSupplierPayment = (context: RepositoryOperationContext, value: PurchasingSupplierPayment) => once(`payment:record:${context.vendorId}:${value.paymentId}`, () => this.repository.recordSupplierPayment(context, value));
+  reverseSupplierPayment = (context: RepositoryOperationContext, command: ReverseSupplierPaymentCommand) => once(`payment:reverse:${context.vendorId}:${command.reversal.originalPaymentId}`, () => this.repository.reverseSupplierPayment(context, command));
+  getSupplierBalance = (context: RepositoryOperationContext, supplierId: string) => this.repository.getSupplierBalance(context, supplierId);
 
   getSupplierReturn = (context: RepositoryOperationContext, id: string) => this.repository.getSupplierReturn(context, id);
   listSupplierReturns = (context: RepositoryOperationContext, filters?: PurchasingFilters) => this.repository.listSupplierReturns(context, filters);

@@ -8,16 +8,13 @@ import {
   SupplierReturnResolution
 } from '../types';
 import {
-  approveSupplierReturn,
   cancelSupplierReturn,
   closeSupplierReturn,
   exportSupplierReturnPlaceholder,
   getSupplierReturnLines,
   markDispatchedToSupplier,
-  postSupplierReturn,
   recordReplacementExpected,
   recordSupplierCreditNotePlaceholder,
-  submitSupplierReturnForApproval,
   SupplierReturnPostingResult,
   updateSupplierReturnDraft,
   updateSupplierReturnLine
@@ -37,7 +34,7 @@ interface SupplierReturnFormProps {
   onViewGRN: (grnId?: string) => void;
   onViewLedger: (productId: string) => void;
   loadLines?: (supplierReturnId: string) => Promise<SupplierReturnLine[]>;
-  onPostRequest?: (record: SupplierReturn, lines: SupplierReturnLine[]) => Promise<string>;
+  onPostRequest: (record: SupplierReturn, lines: SupplierReturnLine[]) => Promise<string>;
 }
 
 const reasons: SupplierReturnReason[] = ['Damaged', 'Wrong Product', 'Over Supplied', 'Quality Issue', 'Expired', 'Supplier Recall', 'Duplicate Supply', 'Price Dispute', 'Not Ordered', 'Other'];
@@ -131,12 +128,7 @@ export default function SupplierReturnForm({
   };
 
   const handleSubmitApproval = async () => {
-    const updated = await submitSupplierReturnForApproval(record.supplierReturnId);
-    if (updated) {
-      setRecord(updated);
-      setFeedback(`${updated.supplierReturnNumber} submitted for approval. Stock not reduced.`);
-      onChanged('Supplier Return submitted for approval.');
-    }
+    setFeedback('Canonical supplier returns post directly from Draft. Governed posting permission is checked by the repository.');
   };
 
   const handleApprove = async () => {
@@ -144,13 +136,7 @@ export default function SupplierReturnForm({
       setFeedback('You do not have permission to perform this action.');
       return;
     }
-    const updated = await approveSupplierReturn(record.supplierReturnId, staffName, 'Approved in build-development supplier return flow.');
-    if (updated) {
-      setRecord(updated);
-      await reloadLines();
-      setFeedback(`${updated.supplierReturnNumber} approved for posting.`);
-      onChanged('Supplier Return approved.');
-    }
+    setFeedback('Legacy supplier-return approval cannot change the authoritative posting state.');
   };
 
   const handlePost = async () => {
@@ -159,19 +145,9 @@ export default function SupplierReturnForm({
         setFeedback('You do not have permission to perform this action.');
         return;
       }
-      if (onPostRequest) {
-        const message = await onPostRequest(record, lines);
-        setFeedback(message);
-        onChanged(message);
-        return;
-      }
-      const result = await postSupplierReturn(record.supplierReturnId, staffName);
-      if (!result) {
-        setFeedback('Only Draft or Approved Supplier Returns can be posted.');
-        return;
-      }
-      setFeedback(result.message);
-      onPosted(result);
+      const message = await onPostRequest(record, lines);
+      setFeedback(message);
+      onChanged(message);
     } catch (error) {
       setFeedback(error instanceof Error ? error.message : 'Supplier Return could not be posted.');
     }

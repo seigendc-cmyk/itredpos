@@ -11,10 +11,32 @@ export interface RepositoryOperationContext {
   actorRole?: string;
   sourceApp: CommerceSourceApp;
   correlationId: string;
+  idempotencyKey?: string;
+  occurredAt?: string;
+  source?: string;
+  deviceId?: string;
+}
+
+export interface PurchasingMutationContext extends RepositoryOperationContext {
+  staffId: string;
+  actorRole: string;
+  idempotencyKey: string;
+  occurredAt: string;
+  source: string;
 }
 
 export interface RepositorySubscription {
   unsubscribe: () => void;
+}
+
+export function validatePurchasingMutationContext(context: RepositoryOperationContext): asserts context is PurchasingMutationContext {
+  validateRepositoryOperationContext(context);
+  const required: Array<[string | undefined, string]> = [
+    [context.staffId, 'staffId'], [context.actorRole, 'actorRole'], [context.idempotencyKey, 'idempotencyKey'],
+    [context.occurredAt, 'occurredAt'], [context.source, 'source']
+  ];
+  const missing = required.filter(([value]) => blankOrWhitespace(value)).map(([, name]) => name);
+  if (missing.length) throw new Error(`Purchasing mutation context requires ${missing.join(', ')}.`);
 }
 
 const blankOrWhitespace = (value: string | undefined | null): boolean =>

@@ -28,6 +28,9 @@ import type {
   PurchasingSupplier,
   PurchasingSupplierPayment,
   PurchasingSupplierStatement,
+  ReverseSupplierPaymentCommand,
+  SupplierBalanceProjection,
+  SupplierPaymentReversal,
   SupplierInvoice,
   SupplierStatementEntry
 } from '../PurchasingRepository';
@@ -35,13 +38,14 @@ import {
   assertGoodsReceipt,
   assertManagerRole,
   assertPurchaseOrder,
+  assertPurchaseOrderTransition,
   assertSupplier,
   assertSupplierInvoice,
   assertSupplierReturn,
   normalizeSupplierContact,
   PurchasingValidationError
 } from '../purchasingAssertions';
-import { validateRepositoryOperationContext, type RepositoryOperationContext } from '../repositoryContext';
+import { validatePurchasingMutationContext, validateRepositoryOperationContext, type RepositoryOperationContext } from '../repositoryContext';
 import { mapFirestoreError, REPOSITORY_ERROR_CODES, type RepositoryErrorCode } from './firestoreErrorMapper';
 
 type Failure = { success: false; errorCode: string; errorMessage: string };
@@ -54,6 +58,16 @@ function preflight(context: RepositoryOperationContext): Failure | null {
   try { validateRepositoryOperationContext(context); } catch (error) { return failed(error instanceof Error ? error.message : 'Invalid operation context.'); }
   return firebaseReady && db ? null : failed('Firebase is not configured or Firestore is unavailable.', REPOSITORY_ERROR_CODES.UNAVAILABLE);
 }
+
+function mutationPreflight(context: RepositoryOperationContext): Failure | null {
+  try { validatePurchasingMutationContext(context); } catch (error) { return failed(error instanceof Error ? error.message : 'Invalid purchasing mutation context.'); }
+  return firebaseReady && db ? null : failed('Firebase is not configured or Firestore is unavailable.', REPOSITORY_ERROR_CODES.UNAVAILABLE);
+}
+
+const emptySupplierBalance = (vendorId: string, supplierId: string): SupplierBalanceProjection => ({
+  supplierId, vendorId, invoiceTotal: 0, paymentTotal: 0, reversalTotal: 0, creditNoteTotal: 0,
+  returnCreditTotal: 0, outstandingBalance: 0, version: 0, updatedAt: '', lastCorrelationId: ''
+});
 
 function mappedFailure(error: unknown): Failure {
   if (error instanceof PurchasingValidationError) return failed(error.message, error.code);
@@ -264,8 +278,8 @@ export function createFirestorePurchasingRepository(): PurchasingRepository {
       } catch (error) { return mappedFailure(error); }
     },
     async approvePurchaseOrder(context, poId) {
-      const invalid = preflight(context) || manager(context, 'Purchase order approval'); if (invalid) return invalid;
-      try { const current = await getPurchaseOrder(context, poId); if (!current.success || !current.data) return current; if (!['Draft', 'Pending Approval'].includes(current.data.status)) return failed('Purchase order is not awaiting approval.'); const next = { ...current.data, status: 'Approved' as const, approvedBy: context.actorId, approvedByStaffId: context.actorId, approvedAt: nowIso(), updatedAt: nowIso() }; await runTransaction(db!, async (transaction) => { transaction.set(doc(db!, firestorePaths.purchaseOrder(context.vendorId, poId)), next); event(transaction, context, 'PURCHASE_ORDER_APPROVED', 'PURCHASE_ORDER', poId); audit(transaction, context, 'APPROVE_PURCHASE_ORDER', 'PURCHASE_ORDER', poId, current.data, next); }); return { success: true, data: next }; } catch (error) { return mappedFailure(error); }
+      const invalid = mutationPreflight(context) || manager(context, 'Purchase order approval'); if (invalid) return invalid;
+      try { const next = await runTransaction(db!, async (transaction) => { const ref = doc(db!, firestorePaths.purchaseOrder(context.vendorId, poId)); const snapshot = await transaction.get(ref); if (!snapshot.exists()) throw new PurchasingValidationError('Purchase order not found.'); const current = record<PurchaseOrder>(snapshot.data()); if (current.vendorId !== context.vendorId) throw new PurchasingValidationError('Cross-vendor purchase order access is rejected.', 'VENDOR_MISMATCH'); assertPurchaseOrderTransition(current.status, 'Approved', context.actorRole); const value = { ...current, status: 'Approved' as const, approvedBy: context.staffId, approvedByStaffId: context.staffId, approvedAt: context.occurredAt, updatedAt: context.occurredAt }; transaction.set(ref, value); event(transaction, context, 'PURCHASE_ORDER_APPROVED', 'PURCHASE_ORDER', poId); audit(transaction, context, 'APPROVE_PURCHASE_ORDER', 'PURCHASE_ORDER', poId, current, value); return value; }); return { success: true, data: next }; } catch (error) { return mappedFailure(error); }
     },
     async cancelPurchaseOrder(context, poId, reason) {
       const invalid = preflight(context) || manager(context, 'Purchase order cancellation'); if (invalid) return invalid;
@@ -277,7 +291,7 @@ export function createFirestorePurchasingRepository(): PurchasingRepository {
     listGoodsReceipts: (context, filters) => vendorList<GoodsReceivingNote>(context, firestorePaths.goodsReceivingNotes(context.vendorId), filters),
     async listGoodsReceiptLines(context, grnId) { const invalid = preflight(context); if (invalid) return { ...invalid, records: [] }; try { const snap = await getDocs(query(collection(db!, firestorePaths.goodsReceivingLines(context.vendorId)), where('grnId', '==', grnId))); return { success: true, records: snap.docs.map((row) => record<GoodsReceivingLine>(row.data())) }; } catch (error) { return { ...mappedFailure(error), records: [] }; } },
     async postGoodsReceipt(context, command: PostGoodsReceiptCommand) {
-      const invalid = preflight(context); if (invalid) return invalid;
+      const invalid = mutationPreflight(context); if (invalid) return invalid;
       try {
         assertGoodsReceipt(command, context.vendorId);
         const receipt = command.receipt; const lines = command.lines.filter((line) => !line.removeFromCurrentGRN && line.qtyAccepted > 0);
@@ -350,14 +364,15 @@ export function createFirestorePurchasingRepository(): PurchasingRepository {
     },
 
     listSupplierPayments: (context, filters) => vendorList<PurchasingSupplierPayment>(context, firestorePaths.supplierPayments(context.vendorId), filters),
+    getSupplierBalance: (context, supplierId) => vendorGet<SupplierBalanceProjection>(context, firestorePaths.supplierBalance(context.vendorId, supplierId), 'Supplier balance'),
     async recordSupplierPayment(context, payment) {
-      const invalid = preflight(context); if (invalid) return invalid;
+      const invalid = mutationPreflight(context); if (invalid) return invalid;
       if (payment.vendorId !== context.vendorId || payment.amount <= 0) return failed('Supplier payment vendor and amount are invalid.');
       if (payment.paymentMethod !== 'CASH' && !payment.paymentReference?.trim()) return failed('Non-cash supplier payments require a reference.');
       try {
         const value = await runTransaction(db!, async (transaction) => {
-          const paymentRef = doc(db!, firestorePaths.supplierPayment(context.vendorId, payment.paymentId)); const invoiceRef = doc(db!, firestorePaths.supplierInvoice(context.vendorId, payment.invoiceId));
-          const existing = await transaction.get(paymentRef); const invoiceSnapshot = await transaction.get(invoiceRef);
+          const paymentRef = doc(db!, firestorePaths.supplierPayment(context.vendorId, payment.paymentId)); const invoiceRef = doc(db!, firestorePaths.supplierInvoice(context.vendorId, payment.invoiceId)); const balanceRef = doc(db!, firestorePaths.supplierBalance(context.vendorId, payment.supplierId));
+          const existing = await transaction.get(paymentRef); const invoiceSnapshot = await transaction.get(invoiceRef); const balanceSnapshot = await transaction.get(balanceRef);
           if (existing.exists()) throw new PurchasingValidationError('Supplier payment has already been posted.', 'DUPLICATE_PAYMENT');
           if (!invoiceSnapshot.exists()) throw new PurchasingValidationError('Supplier invoice not found.');
           const invoice = record<SupplierInvoice>(invoiceSnapshot.data());
@@ -366,9 +381,41 @@ export function createFirestorePurchasingRepository(): PurchasingRepository {
           if (payment.amount > invoice.outstandingBalance) throw new PurchasingValidationError('Supplier payment exceeds the outstanding invoice balance.', 'OVERPAYMENT_NOT_SUPPORTED');
           const posted = { ...payment, status: 'POSTED' as const, createdAt: nowIso(), createdBy: context.actorId };
           const outstandingBalance = invoice.outstandingBalance - payment.amount; transaction.set(paymentRef, posted); transaction.update(invoiceRef, { paidTotal: invoice.paidTotal + payment.amount, outstandingBalance, status: outstandingBalance <= 0.01 ? 'Paid' : 'PartiallyPaid', updatedAt: nowIso(), updatedBy: context.actorId });
+          const balance = balanceSnapshot.exists() ? record<SupplierBalanceProjection>(balanceSnapshot.data()) : emptySupplierBalance(context.vendorId, payment.supplierId);
+          transaction.set(balanceRef, { ...balance, paymentTotal: balance.paymentTotal + payment.amount, outstandingBalance: balance.outstandingBalance - payment.amount, version: balance.version + 1, updatedAt: nowIso(), lastCorrelationId: context.correlationId });
           if (payment.paymentMethod === 'CASH') transaction.set(doc(db!, firestorePaths.posCashMovements(context.vendorId), cleanId(payment.paymentId, 'CASH_OUT')), { movementId: cleanId(payment.paymentId, 'CASH_OUT'), vendorId: context.vendorId, branchId: context.branchId || invoice.branchId, movementType: 'SUPPLIER_PAYMENT', direction: 'OUT', amount: payment.amount, referenceId: payment.paymentId, actorId: context.actorId, correlationId: context.correlationId, createdAt: nowIso() });
           event(transaction, context, 'SUPPLIER_PAYMENT_RECORDED', 'SUPPLIER_PAYMENT', payment.paymentId, { invoiceId: payment.invoiceId, amount: payment.amount });
           audit(transaction, context, 'RECORD_SUPPLIER_PAYMENT', 'SUPPLIER_PAYMENT', payment.paymentId, null, posted);
+          return posted;
+        });
+        return { success: true, data: value };
+      } catch (error) { return mappedFailure(error); }
+    },
+    async reverseSupplierPayment(context, command: ReverseSupplierPaymentCommand) {
+      const invalid = mutationPreflight(context) || manager(context, 'Supplier payment reversal'); if (invalid) return invalid;
+      const reversal = command.reversal;
+      if (reversal.vendorId !== context.vendorId || !reversal.reason.trim() || reversal.idempotencyKey !== context.idempotencyKey) return failed('Payment reversal context or reason is invalid.');
+      try {
+        const value = await runTransaction(db!, async (transaction) => {
+          // One deterministic reversal document per original payment makes the once-only invariant transaction-safe.
+          const reversalRef = doc(db!, firestorePaths.supplierPaymentReversal(context.vendorId, reversal.originalPaymentId));
+          const paymentRef = doc(db!, firestorePaths.supplierPayment(context.vendorId, reversal.originalPaymentId));
+          const invoiceRef = doc(db!, firestorePaths.supplierInvoice(context.vendorId, reversal.invoiceId));
+          const balanceRef = doc(db!, firestorePaths.supplierBalance(context.vendorId, reversal.supplierId));
+          const [existing, paymentSnapshot, invoiceSnapshot, balanceSnapshot] = await Promise.all([transaction.get(reversalRef), transaction.get(paymentRef), transaction.get(invoiceRef), transaction.get(balanceRef)]);
+          if (existing.exists()) throw new PurchasingValidationError('This payment reversal already exists.', 'DUPLICATE_PAYMENT_REVERSAL');
+          if (!paymentSnapshot.exists()) throw new PurchasingValidationError('Original supplier payment not found.');
+          const payment = record<PurchasingSupplierPayment>(paymentSnapshot.data());
+          if (payment.status !== 'POSTED' || payment.supplierId !== reversal.supplierId || payment.invoiceId !== reversal.invoiceId || payment.amount !== reversal.amount) throw new PurchasingValidationError('Payment reversal does not match an active posted payment.', 'INVALID_PAYMENT_REVERSAL');
+          if (!invoiceSnapshot.exists()) throw new PurchasingValidationError('Supplier invoice not found.');
+          const invoice = record<SupplierInvoice>(invoiceSnapshot.data());
+          const balance = balanceSnapshot.exists() ? record<SupplierBalanceProjection>(balanceSnapshot.data()) : emptySupplierBalance(context.vendorId, reversal.supplierId);
+          const posted: SupplierPaymentReversal = { ...reversal, reversalId: reversal.originalPaymentId, status: 'POSTED', correlationId: context.correlationId, idempotencyKey: context.idempotencyKey!, occurredAt: context.occurredAt!, createdBy: context.staffId! };
+          transaction.set(reversalRef, posted);
+          transaction.update(invoiceRef, { paidTotal: Math.max(0, invoice.paidTotal - reversal.amount), outstandingBalance: invoice.outstandingBalance + reversal.amount, status: 'Approved', updatedAt: nowIso(), updatedBy: context.actorId });
+          transaction.set(balanceRef, { ...balance, reversalTotal: balance.reversalTotal + reversal.amount, outstandingBalance: balance.outstandingBalance + reversal.amount, version: balance.version + 1, updatedAt: nowIso(), lastCorrelationId: context.correlationId });
+          event(transaction, context, 'SUPPLIER_PAYMENT_REVERSED', 'SUPPLIER_PAYMENT_REVERSAL', reversal.reversalId, { originalPaymentId: reversal.originalPaymentId });
+          audit(transaction, context, 'REVERSE_SUPPLIER_PAYMENT', 'SUPPLIER_PAYMENT_REVERSAL', reversal.reversalId, null, posted, reversal.reason);
           return posted;
         });
         return { success: true, data: value };
@@ -379,7 +426,7 @@ export function createFirestorePurchasingRepository(): PurchasingRepository {
     listSupplierReturns: (context, filters) => vendorList<SupplierReturn>(context, firestorePaths.supplierReturns(context.vendorId), filters),
     async listSupplierReturnLines(context, supplierReturnId) { const invalid = preflight(context); if (invalid) return { ...invalid, records: [] }; try { const snap = await getDocs(query(collection(db!, firestorePaths.supplierReturnLines(context.vendorId)), where('supplierReturnId', '==', supplierReturnId))); return { success: true, records: snap.docs.map((row) => record<SupplierReturnLine>(row.data())) }; } catch (error) { return { ...mappedFailure(error), records: [] }; } },
     async postSupplierReturn(context, command: PostSupplierReturnCommand) {
-      const invalid = preflight(context); if (invalid) return invalid;
+      const invalid = mutationPreflight(context); if (invalid) return invalid;
       try {
         assertSupplierReturn(command, context.vendorId); const supplierReturn = command.supplierReturn; const lines = command.lines.filter((line) => line.qtyReturnApproved > 0);
         const posted = await runTransaction(db!, async (transaction) => {
