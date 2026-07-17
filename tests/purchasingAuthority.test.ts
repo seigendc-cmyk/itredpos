@@ -5,7 +5,7 @@ import { detectLegacyPurchasingRecords } from '../src/pos-new/services/legacyPur
 import { assertGRNCapacity, assertInventoryMovement, assertPostedDocumentTransition, assertSupplierBalanceProjection, estimateGRNTransactionDocuments, MAX_GRN_LINES, PurchasingValidationError } from '../src/pos-new/repositories/purchasingAssertions';
 import { createPurchasingCorrelationId, createPurchasingIdempotencyKey, fingerprintPurchasingMutation } from '../src/pos-new/services/purchasingIdempotencyService';
 import { recordSupplierAccountEntry } from '../src/pos-new/services/supplierAccountService';
-import { readLegacyPurchasingSource } from '../src/pos-new/services/purchasingMigration/legacySource';
+import { getLegacyPurchasingWritePathStatus, readLegacyPurchasingSource } from '../src/pos-new/services/purchasingMigration/legacySource';
 
 describe('purchasing authority consolidation', () => {
   test('posting forms do not call legacy posting functions', () => {
@@ -56,6 +56,13 @@ describe('purchasing authority consolidation', () => {
     expect(records).toHaveLength(1);
     expect(records[0]).toMatchObject({ vendorId: 'vendor-a', branchId: 'branch-a', recordType: 'supplier', legacyRecordId: 'supplier-legacy' });
     expect(storage.getItem('itred_pos_supplier_records_v1')).toBe(source);
+  });
+
+  test('legacy purchasing mutation paths are explicitly marked fail-closed for cutover', () => {
+    const paths = getLegacyPurchasingWritePathStatus();
+    expect(paths.length).toBeGreaterThan(0);
+    expect(paths.every(path => path.enabled === false)).toBe(true);
+    expect(paths.map(path => path.path)).toEqual(expect.arrayContaining(['goodsReceivingService.postGRN', 'supplierAccountService.recordSupplierAccountEntry']));
   });
 
   test('purchasing identities and fingerprints are deterministic and ignore volatile timestamps', async () => {

@@ -137,6 +137,21 @@ describe('purchasing migration security', () => {
     await assertFails(updateDoc(doc(dbFor(OWNER), ...runPath, 'records', 'record-1'), { status: 'failed' }));
     await assertFails(updateDoc(doc(dbFor(OWNER), ...runPath, 'reconciliations', 'reconciliation-1'), { status: 'failed' }));
   });
+
+  test('approval identity and warning acknowledgement are immutable after approval', async () => {
+    const ref = doc(dbFor(OWNER), 'vendors', VENDOR_A, 'purchasingMigrationRuns', 'migration-run-approval');
+    await assertSucceeds(setDoc(ref, { migrationRunId: 'migration-run-approval', vendorId: VENDOR_A, status: 'previewed', sourceFingerprint: 'fp-approval', approvedBy: '', acknowledgedWarnings: [] }));
+    await assertSucceeds(updateDoc(ref, { status: 'approved', approvedBy: OWNER, acknowledgedWarnings: ['warning-1'] }));
+    await assertFails(updateDoc(ref, { approvedBy: 'owner-other' }));
+    await assertFails(updateDoc(ref, { acknowledgedWarnings: [] }));
+  });
+
+  test('pending mapping metadata cannot be rewritten', async () => {
+    const ref = doc(dbFor(OWNER), 'vendors', VENDOR_A, 'purchasingMigrationRuns', 'migration-run-1', 'records', 'pending-record');
+    await assertSucceeds(setDoc(ref, { vendorId: VENDOR_A, status: 'pending', sourceFingerprint: 'record-fp', legacySourceType: 'browserStorage', legacyRecordId: 'legacy-1', destinationId: 'destination-1', migrationRunId: 'migration-run-1' }));
+    await assertFails(updateDoc(ref, { legacyRecordId: 'legacy-rewritten' }));
+    await assertFails(updateDoc(ref, { destinationId: 'destination-rewritten' }));
+  });
 });
 
 test('repository assertion rejects cumulative returns above received quantity', () => {

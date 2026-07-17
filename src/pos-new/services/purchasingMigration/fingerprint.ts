@@ -17,4 +17,4 @@ export function fingerprintInput(record: PurchasingMigrationRecord): string {
 }
 export const fingerprintMigrationRecord = async (record: PurchasingMigrationRecord): Promise<string> => sha256(fingerprintInput(record));
 export const fingerprintMigrationSource = async (records: PurchasingMigrationRecord[]): Promise<string> => sha256(stableSerialize(await Promise.all(records.map(async record => ({ id: record.legacyRecordId, fingerprint: await fingerprintMigrationRecord(record) })))));
-export const deterministicMigrationId = (type: string, legacyId: string): string => `migration_${type}_${legacyId}`.replace(/[^A-Za-z0-9_-]/g, '_');
+export const deterministicMigrationId = (vendorId: string, sourceType: string, recordType: string, legacyId: string): string => `migration_${vendorId}_${sourceType}_${recordType}_${legacyId}`.replace(/[^A-Za-z0-9_-]/g, '_');

@@ -756,6 +756,9 @@ service cloud.firestore {
         && request.resource.data.vendorId == resource.data.vendorId
         && request.resource.data.migrationRunId == resource.data.migrationRunId
         && request.resource.data.sourceFingerprint == resource.data.sourceFingerprint
+        && (!(resource.data.status in ['approved', 'running', 'partiallyCompleted'])
+          || (request.resource.data.approvedBy == resource.data.approvedBy
+            && request.resource.data.acknowledgedWarnings == resource.data.acknowledgedWarnings))
         && resource.data.status != 'completed';
       allow delete: if isOwner(vendorId) && resource.data.status in ['draft', 'previewed', 'cancelled'];
 
@@ -765,6 +768,10 @@ service cloud.firestore {
         allow update: if isOwner(vendorId)
           && request.resource.data.vendorId == resource.data.vendorId
           && request.resource.data.sourceFingerprint == resource.data.sourceFingerprint
+          && request.resource.data.legacySourceType == resource.data.legacySourceType
+          && request.resource.data.legacyRecordId == resource.data.legacyRecordId
+          && request.resource.data.destinationId == resource.data.destinationId
+          && request.resource.data.migrationRunId == resource.data.migrationRunId
           && resource.data.status != 'migrated';
         allow delete: if false;
       }

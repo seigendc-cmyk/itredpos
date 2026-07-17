@@ -57,7 +57,7 @@ import {
 import SubscriptionCommercePage from '../build08072026-subs/pages/SubscriptionCommercePage';
 import { PurchasingMigrationAdminPanel } from '../components/PurchasingMigrationAdminPanel';
 import { readLegacyPurchasingSource } from '../services/purchasingMigration/legacySource';
-import { approvePurchasingMigration, createPurchasingMigrationPreview } from '../services/purchasingMigration/service';
+import { approvePurchasingMigrationWithPermission, createPurchasingMigrationPreview } from '../services/purchasingMigration/service';
 import type { PurchasingMigrationApproval, PurchasingMigrationPreview, PurchasingMigrationStatus } from '../services/purchasingMigration/types';
 
 interface PosSettingsProps {
@@ -330,6 +330,7 @@ export default function PosSettings({
   const [migrationPreview, setMigrationPreview] = useState<PurchasingMigrationPreview>();
   const [migrationApproval, setMigrationApproval] = useState<PurchasingMigrationApproval>();
   const [migrationStatus, setMigrationStatus] = useState<PurchasingMigrationStatus>('draft');
+  const [migrationPreparedBy, setMigrationPreparedBy] = useState('');
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [profileForm, setProfileForm] = useState<BusinessProfile>({ ...businessProfile });
   const [profileSaveState, setProfileSaveState] = useState<SaveState>('idle');
@@ -807,12 +808,12 @@ export default function PosSettings({
   const scanPurchasingMigration = async () => {
     const records = readLegacyPurchasingSource(activeVendorId, branches[0]?.id);
     const preview = await createPurchasingMigrationPreview(records, { vendorId: activeVendorId, branchId: branches[0]?.id, migrationRunId: `purchasing-${Date.now()}`, previewVersion: '09.1C-1' });
-    setMigrationPreview(preview); setMigrationApproval(undefined); setMigrationStatus('previewed');
+    setMigrationPreview(preview); setMigrationApproval(undefined); setMigrationPreparedBy(activeOperatorName || 'Settings operator'); setMigrationStatus('previewed');
   };
 
   const approveMigration = (warningIds: string[]) => {
     if (!migrationPreview || !['Owner', 'SysAdmin'].includes(activeRole || '')) { triggerToast('Purchasing migration approval requires owner authority.'); return; }
-    try { setMigrationApproval(approvePurchasingMigration(migrationPreview, activeOperatorName || 'Settings owner', warningIds, '09.1C', true)); setMigrationStatus('approved'); }
+    try { setMigrationApproval(approvePurchasingMigrationWithPermission(migrationPreview, migrationPreparedBy, { actorId: activeOperatorName || 'Settings owner', canApprove: ['Owner', 'SysAdmin'].includes(activeRole || ''), canSelfApprove: false }, warningIds, '09.1D')); setMigrationStatus('approved'); }
     catch (error) { triggerToast(error instanceof Error ? error.message : 'Migration approval failed.'); }
   };
 

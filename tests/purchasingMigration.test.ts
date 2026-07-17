@@ -34,7 +34,7 @@ describe('purchasing migration controls', () => {
     const first = await executePurchasingMigration(preview, approval, { migrate }, 'owner');
     await executePurchasingMigration(preview, approval, { migrate }, 'owner', first);
     expect(migrate).toHaveBeenCalledTimes(1);
-    expect(first[0].destinationId).toBe('migration_supplier_supplier-1');
+    expect(first[0].destinationId).toBe('migration_vendor-a_browserStorage_supplier_supplier-1');
   });
 
   test('missing supplier and product references block dependent documents', async () => {

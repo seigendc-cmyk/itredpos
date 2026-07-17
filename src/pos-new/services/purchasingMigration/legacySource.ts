@@ -1,4 +1,4 @@
-import type { PurchasingMigrationRecord, PurchasingMigrationRecordType } from './types';
+import type { LegacyPurchasingWritePathStatus, PurchasingMigrationRecord, PurchasingMigrationRecordType } from './types';
 
 export interface PurchasingLegacySourceDefinition { storageKey: string; recordType: PurchasingMigrationRecordType; idFields: string[]; parentFields?: string[]; }
 
@@ -12,6 +12,14 @@ export const PURCHASING_LEGACY_SOURCES: readonly PurchasingLegacySourceDefinitio
   { storageKey: 'itred_pos_supplier_payment_reversals_v1', recordType: 'paymentReversal', idFields: ['reversalId', 'id'], parentFields: ['originalPaymentId'] },
   { storageKey: 'itred_pos_supplier_accounts_v1', recordType: 'reconciliationProjection', idFields: ['supplierId', 'id'] }
 ] as const;
+
+/** Operational cutover evidence. These legacy mutation entry points must remain fail-closed. */
+export function getLegacyPurchasingWritePathStatus(): LegacyPurchasingWritePathStatus[] {
+  return [
+    'goodsReceivingService.postGRN', 'supplierReturnService.postSupplierReturn', 'supplierAccountService.recordSupplierAccountEntry',
+    'creditorsService.createSupplierPayment', 'purchaseOrderService.createPurchaseOrder'
+  ].map(path => ({ path, enabled: false }));
+}
 
 const firstString = (value: Record<string, unknown>, fields: readonly string[]): string | undefined => fields.map(field => value[field]).find(item => typeof item === 'string' && item.trim().length > 0) as string | undefined;
 

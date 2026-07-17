@@ -1,5 +1,7 @@
 # Purchasing migration, reconciliation and cutover (Build 09.1C)
 
+Build 09.1D operational guarantees, selective retry, diagnostics, explicit readiness blockers, and separation-of-duties details are documented in [PURCHASING_MIGRATION_OPERATIONAL_HARDENING.md](./PURCHASING_MIGRATION_OPERATIONAL_HARDENING.md).
+
 ## Authority boundary
 
 Migration is a control-plane orchestrator, never a purchasing transaction authority. Canonical writes remain `UI -> usePurchasingData -> PurchasingTransactionService -> PurchasingRepository -> FirestorePurchasingRepository -> Firestore`. The migration writer adapter must call that chain; it may not write inventory movements, supplier balances, receipts, or posted documents directly.
