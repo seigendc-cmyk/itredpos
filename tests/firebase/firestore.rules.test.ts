@@ -193,6 +193,46 @@ describe('canonical sales security', () => {
   });
 });
 
+describe('sales migration security', () => {
+  const receipt = {
+    receiptId: 'sales-migration-receipt-1', migrationRunId: 'sales-run-1', vendorId: VENDOR_A,
+    branchId: 'branch-a', legacyRecordId: 'legacy-sale-1', sourceFingerprint: 'sales-fp-1',
+    destinationSaleId: 'migration-sale-1', status: 'processing', attemptCount: 1,
+    leaseExpiresAt: '2099-01-01T00:00:00.000Z'
+  };
+
+  test('only the vendor owner can create a processing control receipt', async () => {
+    await assertFails(setDoc(doc(dbFor(MANAGER), 'vendors', VENDOR_A, 'salesMigrationReceipts', receipt.receiptId), receipt));
+    await assertFails(setDoc(doc(dbFor(OWNER), 'vendors', VENDOR_A, 'salesMigrationReceipts', 'forged-complete'), { ...receipt, receiptId: 'forged-complete', status: 'completed' }));
+    await assertSucceeds(setDoc(doc(dbFor(OWNER), 'vendors', VENDOR_A, 'salesMigrationReceipts', receipt.receiptId), receipt));
+    await assertFails(getDoc(doc(dbFor(OWNER), 'vendors', VENDOR_B, 'salesMigrationReceipts', receipt.receiptId)));
+  });
+
+  test('completion requires a matching completed canonical mutation receipt and becomes immutable', async () => {
+    const ref = doc(dbFor(OWNER), 'vendors', VENDOR_A, 'salesMigrationReceipts', receipt.receiptId);
+    await assertFails(updateDoc(ref, { status: 'completed', result: { mutationReceiptId: 'missing', canonicalSaleId: 'migration-sale-1' } }));
+    await env.withSecurityRulesDisabled(async context => setDoc(doc(context.firestore(), 'vendors', VENDOR_A, 'mutationReceipts', 'sales-migration-canonical'), {
+      receiptDocumentId: 'sales-migration-canonical', vendorId: VENDOR_A, status: 'completed',
+      migration: { sourceFingerprint: receipt.sourceFingerprint }
+    }));
+    await assertSucceeds(updateDoc(ref, { status: 'completed', result: { mutationReceiptId: 'sales-migration-canonical', canonicalSaleId: 'migration-sale-1' } }));
+    await assertFails(updateDoc(ref, { sourceFingerprint: 'changed' }));
+    await assertFails(deleteDoc(ref));
+  });
+
+  test('runs, quarantine, and reconciliation are owner-controlled and immutable when recorded', async () => {
+    const run = doc(dbFor(OWNER), 'vendors', VENDOR_A, 'salesMigrationRuns', 'sales-run-controls');
+    await assertFails(setDoc(doc(dbFor(MANAGER), 'vendors', VENDOR_A, 'salesMigrationRuns', 'manager-run'), { migrationRunId: 'manager-run', vendorId: VENDOR_A, status: 'draft' }));
+    await assertSucceeds(setDoc(run, { migrationRunId: 'sales-run-controls', vendorId: VENDOR_A, status: 'previewed', sourceFingerprint: 'run-fp' }));
+    const quarantine = doc(run, 'quarantine', 'quarantine-1');
+    await assertSucceeds(setDoc(quarantine, { quarantineId: 'quarantine-1', vendorId: VENDOR_A, status: 'quarantined' }));
+    await assertFails(updateDoc(quarantine, { status: 'resolved' }));
+    const reconciliation = doc(run, 'reconciliations', 'reconciliation-1');
+    await assertSucceeds(setDoc(reconciliation, { migrationRunId: 'sales-run-controls', vendorId: VENDOR_A, status: 'matched' }));
+    await assertFails(updateDoc(reconciliation, { status: 'failed' }));
+  });
+});
+
 test('repository assertion rejects cumulative returns above received quantity', () => {
   const command = {
     supplierReturn: {

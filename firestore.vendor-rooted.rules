@@ -45,6 +45,15 @@ service cloud.firestore {
         && getAfter(vendorPath(vendorId)).data.ownerUid == request.auth.uid;
     }
 
+    function ownerVendorUserAfter(vendorId) {
+      return signedIn()
+        && existsAfter(vendorUserPath())
+        && getAfter(vendorUserPath()).data.uid == request.auth.uid
+        && getAfter(vendorUserPath()).data.vendorId == vendorId
+        && getAfter(vendorUserPath()).data.role == 'Owner'
+        && activeMemberStatus(getAfter(vendorUserPath()).data.status);
+    }
+
     function activeMemberStatus(status) {
       return status in ['active', 'Active'];
     }
@@ -475,17 +484,29 @@ service cloud.firestore {
         && request.resource.data.businessName is string
         && request.resource.data.status == 'Active'
         && request.resource.data.planCode == 'DEMO'
-        && request.resource.data.licenseStatus == 'DEMO'
+        && request.resource.data.licenseStatus == 'Trial'
+        && request.resource.data.activationStatus == 'PendingConsoleVerification'
+        && request.resource.data.verificationStatus == 'Pending'
+        && request.resource.data.accountStatus == 'Trial'
         && request.resource.data.createdAt is string
-        && request.resource.data.updatedAt is string;
+        && request.resource.data.updatedAt is string
+        && ownerVendorUserAfter(vendorId);
 
-      allow get, list: if signedIn()
+      allow get: if signedIn()
         && validId(vendorId)
         && (
+          // A user may inspect only their deterministic bootstrap path so the
+          // client can distinguish missing, partial, and conflicting setup.
+          vendorId == 'vendor-' + request.auth.uid
+          ||
           resource.data.ownerUid == request.auth.uid
           || resource.data.ownerEmail == signedInEmail()
           || isActiveVendorUser(vendorId)
         );
+
+      // Vendor discovery is resolved through the caller's exact
+      // vendorUsers/{uid} mapping. Collection listing is never required.
+      allow list: if false;
 
       allow update: if isOwner(vendorId)
         && request.resource.data.vendorId == vendorId
@@ -947,8 +968,7 @@ service cloud.firestore {
 
     match /vendorUsers/{uid} {
       allow get: if signedIn()
-        && uid == request.auth.uid
-        && activeMemberStatus(resource.data.status);
+        && uid == request.auth.uid;
 
       allow list: if false;
 
@@ -1025,6 +1045,109 @@ service cloud.firestore {
       allow update: if isOwner(resource.data.vendorId)
         && request.resource.data.vendorId == resource.data.vendorId;
       allow delete: if isOwner(resource.data.vendorId);
+    }
+
+    // Build 09.2C sales migration control plane. Canonical business effects
+    // remain owned by mutationReceipts + the canonical sales transaction.
+    match /vendors/{vendorId}/salesMigrationReceipts/{receiptId} {
+      allow read: if isManager(vendorId);
+      allow create: if isOwner(vendorId)
+        && request.resource.data.receiptId == receiptId
+        && request.resource.data.vendorId == vendorId
+        && request.resource.data.status == 'processing'
+        && request.resource.data.sourceFingerprint is string
+        && request.resource.data.destinationSaleId is string;
+      allow update: if isOwner(vendorId)
+        && resource.data.status != 'completed'
+        && request.resource.data.receiptId == resource.data.receiptId
+        && request.resource.data.vendorId == resource.data.vendorId
+        && request.resource.data.branchId == resource.data.branchId
+        && request.resource.data.legacyRecordId == resource.data.legacyRecordId
+        && request.resource.data.sourceFingerprint == resource.data.sourceFingerprint
+        && request.resource.data.destinationSaleId == resource.data.destinationSaleId
+        && request.resource.data.status in ['processing', 'failed', 'completed']
+        && (
+          request.resource.data.status != 'completed'
+          || (
+            request.resource.data.result.mutationReceiptId is string
+            && exists(/databases/$(database)/documents/vendors/$(vendorId)/mutationReceipts/$(request.resource.data.result.mutationReceiptId))
+            && get(/databases/$(database)/documents/vendors/$(vendorId)/mutationReceipts/$(request.resource.data.result.mutationReceiptId)).data.status == 'completed'
+            && get(/databases/$(database)/documents/vendors/$(vendorId)/mutationReceipts/$(request.resource.data.result.mutationReceiptId)).data.migration.sourceFingerprint == resource.data.sourceFingerprint
+          )
+        );
+      allow delete: if false;
+    }
+
+    match /vendors/{vendorId}/salesMigrationRuns/{migrationRunId} {
+      allow read: if isManager(vendorId);
+      allow create: if isOwner(vendorId)
+        && request.resource.data.vendorId == vendorId
+        && request.resource.data.migrationRunId == migrationRunId
+        && request.resource.data.status in ['draft', 'previewed'];
+      allow update: if isOwner(vendorId)
+        && resource.data.status != 'completed'
+        && request.resource.data.vendorId == resource.data.vendorId
+        && request.resource.data.migrationRunId == resource.data.migrationRunId
+        && request.resource.data.sourceFingerprint == resource.data.sourceFingerprint;
+      allow delete: if false;
+
+      match /quarantine/{quarantineId} {
+        allow read: if isManager(vendorId);
+        allow create: if isOwner(vendorId)
+          && request.resource.data.vendorId == vendorId
+          && request.resource.data.status == 'quarantined';
+        allow update, delete: if false;
+      }
+      match /reconciliations/{reconciliationId} {
+        allow read: if isManager(vendorId);
+        allow create: if isOwner(vendorId)
+          && request.resource.data.vendorId == vendorId
+          && request.resource.data.migrationRunId == migrationRunId;
+        allow update, delete: if false;
+      }
+    }
+
+    // Canonical POS runtime license and plan documents. These are keyed by
+    // vendorId so the client never queries across tenants during access checks.
+    match /vendorLicenses/{vendorId} {
+      allow get: if isActiveVendorUser(vendorId);
+      allow list: if false;
+      allow create: if canManageCreatedVendor(vendorId)
+        && request.resource.data.vendorId == vendorId
+        && request.resource.data.licenseId == vendorId
+        && request.resource.data.planCode == 'DEMO'
+        && request.resource.data.licenseStatus == 'Trial'
+        && request.resource.data.activationStatus == 'PendingConsoleVerification'
+        && request.resource.data.licenseMode == 'demo';
+      allow update: if isOwner(vendorId)
+        && resource.data.vendorId == vendorId
+        && request.resource.data.vendorId == vendorId
+        && request.resource.data.licenseId == resource.data.licenseId;
+      allow delete: if false;
+    }
+
+    match /vendorPlans/{vendorId} {
+      allow get: if isActiveVendorUser(vendorId);
+      allow list: if false;
+      allow create: if canManageCreatedVendor(vendorId)
+        && request.resource.data.vendorId == vendorId
+        && request.resource.data.planCode == 'DEMO'
+        && request.resource.data.licenseStatus == 'Trial'
+        && request.resource.data.activationStatus == 'PendingConsoleVerification'
+        && request.resource.data.accountStatus == 'Trial';
+      allow update: if isOwner(vendorId)
+        && resource.data.vendorId == vendorId
+        && request.resource.data.vendorId == vendorId;
+      allow delete: if false;
+    }
+
+    match /vendorAuditLogs/{auditId} {
+      allow get, list: if resource.data.vendorId is string
+        && isManager(resource.data.vendorId);
+      allow create: if request.resource.data.vendorId is string
+        && isOwner(request.resource.data.vendorId)
+        && request.resource.data.auditLogId == auditId;
+      allow update, delete: if false;
     }
 
     match /vendor_settings/{vendorId} {

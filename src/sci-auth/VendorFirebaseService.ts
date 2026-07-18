@@ -1,14 +1,15 @@
 import {
-  collection,
-  getDocs,
-  query,
-  where,
-  limit,
   doc,
   writeBatch
 } from 'firebase/firestore';
 import { db } from '../pos-new/firebase/firebaseApp';
-import { FIRESTORE_COLLECTIONS } from '../shared/backend';
+import {
+  FIRESTORE_COLLECTIONS,
+  createDefaultDemoLicense,
+  createDefaultDemoPlan,
+  createInitialVendorLicenseLifecycle
+} from '../shared/backend';
+import { resolveAuthenticatedVendor } from './VendorResolutionService';
 
 export interface VendorRecord {
   vendorId: string;
@@ -41,46 +42,10 @@ export interface VendorOnboardingDraft {
 }
 
 export async function findVendorByGoogleAccount(profile: { uid: string; email?: string }): Promise<VendorRecord | null> {
-  if (!db) return null;
-
-  const uid = profile.uid;
-  const email = profile.email?.toLowerCase() || '';
-
-  console.log('[VendorFirebaseService] Firestore READ', 'vendors', {
-    operation: 'query',
-    path: 'vendors',
-    uid,
-    email,
-    vendorId: 'unknown',
-    filter: { ownerUid: uid }
-  });
-
-  const q1 = query(collection(db, 'vendors'), where('ownerUid', '==', uid), limit(1));
-  const snap1 = await getDocs(q1);
-  if (!snap1.empty) {
-    const data = snap1.docs[0].data();
-    return mapVendorData(snap1.docs[0].id, data);
-  }
-
-  if (email) {
-    console.log('[VendorFirebaseService] Firestore READ', 'vendors', {
-      operation: 'query',
-      path: 'vendors',
-      uid,
-      email,
-      vendorId: 'unknown',
-      filter: { ownerEmail: email }
-    });
-
-    const q2 = query(collection(db, 'vendors'), where('ownerEmail', '==', email), limit(1));
-    const snap2 = await getDocs(q2);
-    if (!snap2.empty) {
-      const data = snap2.docs[0].data();
-      return mapVendorData(snap2.docs[0].id, data);
-    }
-  }
-
-  return null;
+  const resolution = await resolveAuthenticatedVendor(profile.uid);
+  return resolution.state === 'resolved'
+    ? mapVendorData(resolution.vendorId, resolution.vendor)
+    : null;
 }
 
 export async function createVendorAccount(
@@ -97,6 +62,8 @@ export async function createVendorAccount(
   }
 
   const now = new Date().toISOString();
+  const nowDate = new Date(now);
+  const lifecycle = createInitialVendorLicenseLifecycle(nowDate);
   const vendorId = `vendor-${profile.uid.slice(0, 8)}`;
   const businessName = draft.businessName.trim() || 'New Business';
   const tradingName = draft.tradingName?.trim() || businessName;
@@ -108,7 +75,6 @@ export async function createVendorAccount(
   const warehouseId = `${vendorId}_main_warehouse`;
   const staffId = `${vendorId}_owner`;
   const terminalId = `${vendorId}_main_terminal`;
-  const licenseId = `${vendorId}_demo_license`;
 
   const vendor = {
     vendorId,
@@ -124,8 +90,7 @@ export async function createVendorAccount(
     suburb: draft.suburb || '',
     physicalAddress: draft.physicalAddress || '',
     status: 'Active',
-    planCode: 'DEMO',
-    licenseStatus: 'DEMO',
+    ...lifecycle,
     mode: 'Demo',
     createdAt: now,
     updatedAt: now
@@ -214,15 +179,14 @@ export async function createVendorAccount(
   };
 
   const license = {
-    licenseId,
-    vendorId,
-    planCode: 'DEMO',
-    licenseStatus: 'DEMO',
-    licenseMode: 'demo',
-    status: 'Active',
-    createdAt: now,
-    updatedAt: now
+    ...createDefaultDemoLicense(vendorId, undefined, nowDate),
+    branchId,
+    terminalId,
+    verificationStatus: lifecycle.verificationStatus,
+    accountStatus: lifecycle.accountStatus,
+    status: 'Active'
   };
+  const vendorPlan = createDefaultDemoPlan(vendorId, nowDate);
 
   const vendorSettings = {
     vendorId,
@@ -250,7 +214,8 @@ export async function createVendorAccount(
   phase2Batch.set(doc(db, 'warehouses', warehouseId), warehouse);
   phase2Batch.set(doc(db, 'staff', staffId), staff);
   phase2Batch.set(doc(db, 'pos_terminals', terminalId), terminal);
-  phase2Batch.set(doc(db, 'licenses', licenseId), license);
+  phase2Batch.set(doc(db, FIRESTORE_COLLECTIONS.vendorLicenses, vendorId), license);
+  phase2Batch.set(doc(db, FIRESTORE_COLLECTIONS.vendorPlans, vendorId), vendorPlan);
   phase2Batch.set(doc(db, 'vendor_settings', vendorId), vendorSettings);
   await phase2Batch.commit();
 

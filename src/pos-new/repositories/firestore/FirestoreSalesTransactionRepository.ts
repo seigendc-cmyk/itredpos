@@ -13,6 +13,7 @@ export interface AtomicSalePosting {
   requestId: string;
   currency: string;
   customerCreditAmount: number;
+  migration?: { migrationRunId: string; sourceFingerprint: string; legacyRecordId: string; migrationVersion: string };
 }
 
 export interface AtomicSalePostingResult {
@@ -163,6 +164,7 @@ export async function postCanonicalSaleAtomic(input: AtomicSalePosting): Promise
       status: 'completed', result: durable, resultPath: firestorePaths.salesReceipt(sale.vendorId, sale.saleId),
       correlationId: input.requestId, actorId: sale.staffId, actorRole: 'POS_OPERATOR',
       attemptCount: 1, authorityVersion: 1,
+      migration: input.migration,
       createdAt: serverTimestamp(), updatedAt: serverTimestamp(), completedAt: serverTimestamp()
     });
     return durable;

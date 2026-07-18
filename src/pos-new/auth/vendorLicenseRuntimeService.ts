@@ -16,7 +16,7 @@ import {
 import type { PlanCode } from '../../shared/backend';
 
 export type VendorRuntimeLicenseMode = 'trial' | 'active' | 'demo' | 'blocked';
-export type VendorRuntimeBlockReason = 'LicenseRequired' | 'AccountSuspended' | 'VerificationRejected';
+export type VendorRuntimeBlockReason = 'LicenseRequired' | 'AccountSuspended' | 'VerificationRejected' | 'InvalidLicenseState';
 export type VendorRuntimeNoticeKind = 'trial' | 'pending' | 'offline' | 'blocked' | 'active';
 
 export interface VendorLicenseRuntimeSnapshot {
@@ -119,8 +119,12 @@ function isExpiredTrial(licenseStatus: string, trialExpiresAt: string): boolean 
   return Number.isFinite(expiry) && expiry <= Date.now();
 }
 
-function normalizeLicenseMode(licenseStatus: string, planCode: string): VendorRuntimeLicenseMode {
+function normalizeLicenseMode(licenseStatus: string, planCode: string, configuredMode: unknown): VendorRuntimeLicenseMode {
   const status = compactStatus(licenseStatus);
+  const mode = compactStatus(configuredMode);
+  if (mode === 'demo') return 'demo';
+  if (mode === 'trial') return 'trial';
+  if (mode === 'paid' || mode === 'active') return 'active';
   if (status === 'active') return 'active';
   if (status === 'trial') return 'trial';
   if (status === 'demo' || planCode === DEFAULT_PLAN) return 'demo';
@@ -147,6 +151,13 @@ function makeNotice(snapshot: Omit<VendorLicenseRuntimeSnapshot, 'noticeKind' | 
       noticeKind: 'blocked',
       noticeTitle: 'License Required',
       noticeDetail: 'Contact SCI support to activate POS access.'
+    };
+  }
+  if (snapshot.blockReason === 'InvalidLicenseState') {
+    return {
+      noticeKind: 'blocked',
+      noticeTitle: 'Invalid License State',
+      noticeDetail: 'The assigned plan and license lifecycle are inconsistent. Contact SCI support.'
     };
   }
   if (snapshot.offline) {
@@ -195,6 +206,9 @@ function authContextMessage(snapshot: Omit<VendorLicenseRuntimeSnapshot, 'messag
   if (snapshot.blockReason === 'LicenseRequired') {
     return 'License Required';
   }
+  if (snapshot.blockReason === 'InvalidLicenseState') {
+    return 'Invalid license lifecycle state';
+  }
 
   const act = compactStatus(snapshot.activationStatus);
   const lic = compactStatus(snapshot.licenseStatus);
@@ -209,7 +223,7 @@ function authContextMessage(snapshot: Omit<VendorLicenseRuntimeSnapshot, 'messag
   return '';
 }
 
-function createRuntimeSnapshot(
+export function evaluateVendorLicenseRuntime(
   vendorId: string,
   license: Row,
   vendor: Row,
@@ -265,7 +279,7 @@ function createRuntimeSnapshot(
     !expired &&
     (activeLicense || pendingTrial || options.offline);
 
-  const licenseMode = normalizeLicenseMode(licenseStatus, planCode);
+  const licenseMode = normalizeLicenseMode(licenseStatus, planCode, license.licenseMode);
   const daysRem = daysRemaining(trialExpiresAt);
 
   const blockReason: VendorRuntimeBlockReason | undefined = suspended
@@ -274,7 +288,9 @@ function createRuntimeSnapshot(
       ? 'VerificationRejected'
       : expired
         ? 'LicenseRequired'
-        : undefined;
+        : !allowed && licenseStatusKnown
+          ? 'InvalidLicenseState'
+          : undefined;
 
   const base = {
     vendorId,
@@ -340,7 +356,7 @@ export function readSavedVendorLicenseSnapshot(vendorId: string): VendorLicenseR
 function fallbackOfflineSnapshot(vendorId: string): VendorLicenseRuntimeSnapshot {
   const cached = readSavedVendorLicenseSnapshot(vendorId);
   if (cached) {
-    const offline = createRuntimeSnapshot(
+    const offline = evaluateVendorLicenseRuntime(
       vendorId,
       cached as unknown as Row,
       cached as unknown as Row,
@@ -358,7 +374,7 @@ function fallbackOfflineSnapshot(vendorId: string): VendorLicenseRuntimeSnapshot
   }
 
   return {
-    ...createRuntimeSnapshot(vendorId, {}, {}, {}, { offline: true, source: 'local' }),
+    ...evaluateVendorLicenseRuntime(vendorId, {}, {}, {}, { offline: true, source: 'local' }),
     licenseStatusKnown: false
   };
 }
@@ -385,7 +401,7 @@ export function subscribeToVendorRuntimeLicense(
   const emit = (offline = false) => {
     const snapshot = offline
       ? fallbackOfflineSnapshot(cleanVendorId)
-      : createRuntimeSnapshot(cleanVendorId, licenseData, vendorData, planData, { offline: false, source: 'firestore' });
+      : evaluateVendorLicenseRuntime(cleanVendorId, licenseData, vendorData, planData, { offline: false, source: 'firestore' });
     if (!offline) saveRuntimeSnapshot(snapshot);
     callback(snapshot);
   };
@@ -435,6 +451,7 @@ function authLicenseStatus(snapshot: VendorLicenseRuntimeSnapshot): PosVendorAut
   if (snapshot.blockReason === 'AccountSuspended') return 'Suspended';
   if (snapshot.blockReason === 'VerificationRejected') return 'Rejected';
   if (snapshot.blockReason === 'LicenseRequired') return 'Expired';
+  if (snapshot.blockReason === 'InvalidLicenseState') return 'Expired';
   if (compactStatus(snapshot.licenseStatus) === 'active') return 'Active';
   if (compactStatus(snapshot.licenseStatus) === 'trial') return 'Trial';
   return 'Demo';

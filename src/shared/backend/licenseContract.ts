@@ -1,5 +1,6 @@
 import type { PlanCode, PlanFeatureFlags, PlanLimits } from './planContract';
 import { DEFAULT_PLAN_FEATURE_FLAGS, DEFAULT_PLAN_LIMITS } from './planContract';
+import { createInitialVendorLicenseLifecycle, DEFAULT_VENDOR_TRIAL_DAYS } from './licenseLifecycle';
 
 export type LicenseStatus = 'Trial' | 'Active' | 'Expired' | 'Suspended' | 'Rejected';
 export type ActivationStatus = 'PendingConsoleVerification' | 'Active' | 'Expired' | 'Suspended' | 'Rejected';
@@ -29,19 +30,13 @@ export interface VendorLicenseRecord {
   updatedAt: string;
 }
 
-function nowIso(): string {
-  return new Date().toISOString();
-}
-
-function addDaysIso(baseIso: string, days: number): string {
-  const base = new Date(baseIso);
-  const safeDays = Number.isFinite(days) ? Math.max(0, days) : 0;
-  return new Date(base.getTime() + safeDays * 24 * 60 * 60 * 1000).toISOString();
-}
-
-export function createDefaultDemoLicense(vendorId: string, trialDays: number): VendorLicenseRecord {
-  const now = nowIso();
-  const trialExpiresAt = addDaysIso(now, trialDays);
+export function createDefaultDemoLicense(
+  vendorId: string,
+  trialDays = DEFAULT_VENDOR_TRIAL_DAYS,
+  nowDate = new Date()
+): VendorLicenseRecord {
+  const lifecycle = createInitialVendorLicenseLifecycle(nowDate, trialDays);
+  const now = lifecycle.trialStartedAt;
   return {
     vendorId,
     licenseId: vendorId,
@@ -49,17 +44,17 @@ export function createDefaultDemoLicense(vendorId: string, trialDays: number): V
     planId: 'DEMO',
     planCode: 'DEMO',
     planName: 'Demo Trial',
-    licenseStatus: 'Trial',
-    activationStatus: 'PendingConsoleVerification',
-    licenseMode: 'demo',
+    licenseStatus: lifecycle.licenseStatus,
+    activationStatus: lifecycle.activationStatus,
+    licenseMode: lifecycle.licenseMode,
     storageMode: 'localOnly',
     branchId: 'main-branch',
     terminalId: 'TERM-MAIN-001',
     issuedBy: 'POS_ONBOARDING',
     issuedAt: now,
-    trialStartedAt: now,
-    trialExpiresAt,
-    expiresAt: trialExpiresAt,
+    trialStartedAt: lifecycle.trialStartedAt,
+    trialExpiresAt: lifecycle.trialExpiresAt,
+    expiresAt: lifecycle.expiresAt,
     featureFlags: { ...DEFAULT_PLAN_FEATURE_FLAGS.DEMO },
     limits: { ...DEFAULT_PLAN_LIMITS.DEMO },
     createdAt: now,

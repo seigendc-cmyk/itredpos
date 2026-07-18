@@ -4,7 +4,8 @@ import {
   seedDefaultPricingPlansIfEmpty,
   activatePricingPlan,
   deactivatePricingPlan,
-  assignPlanToVendor
+  assignPlanToVendor,
+  repairLegacyDemoLicense
 } from './pricingPlansService';
 import type {
   PricingPlanRecord,
@@ -91,6 +92,24 @@ export default function PricingPlansManagerPage() {
     }
   };
 
+  const handleRepairLegacyDemo = async () => {
+    const vendorId = prompt('Enter the exact Vendor ID to dry-run legacy DEMO repair:');
+    if (!vendorId) return;
+    try {
+      const dryRun = await repairLegacyDemoLicense(vendorId.trim(), adminName, true);
+      if (!dryRun.eligible) {
+        alert(`Repair refused: ${dryRun.reason}`);
+        return;
+      }
+      const approved = confirm(`${dryRun.reason}\n\nApply the canonical Trial lifecycle to ${dryRun.vendorId}?`);
+      if (!approved) return;
+      const applied = await repairLegacyDemoLicense(vendorId.trim(), adminName, false);
+      alert(applied.reason);
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Legacy DEMO repair failed safely.');
+    }
+  };
+
   // Custom route navigation matching App.tsx
   const navigateTo = (path: string) => {
     window.history.pushState({}, '', path);
@@ -149,6 +168,13 @@ export default function PricingPlansManagerPage() {
             >
               <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} />
               Refresh
+            </button>
+            <button
+              onClick={handleRepairLegacyDemo}
+              className="bg-amber-700 hover:bg-amber-800 text-white border border-amber-600 font-bold text-xs px-4 py-2.5 rounded-lg flex items-center gap-2 transition-all active:scale-[0.98]"
+            >
+              <CheckCircle className="w-4 h-4" />
+              Repair Legacy Demo
             </button>
           </div>
         </div>

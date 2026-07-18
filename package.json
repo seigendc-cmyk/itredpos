@@ -6,7 +6,13 @@
   "scripts": {
     "dev": "vite --port=3000 --host=0.0.0.0",
     "build": "vite build",
-    "firebase:rules:test": "firebase emulators:exec --only firestore \"vitest run tests/firebase/firestore.rules.test.ts\"",
+    "firebase:rules:test": "firebase emulators:exec --only firestore \"vitest run tests/firebase/firestore.rules.test.ts tests/firebase/vendorOnboarding.rules.test.ts\"",
+    "test:vendor-auth-resolution": "vitest run tests/vendorAuthGateResolution.test.ts",
+    "test:vendor-license-lifecycle": "vitest run tests/vendorLicenseLifecycle.test.ts",
+    "test:sales-migration": "vitest run tests/salesMigration.test.ts",
+    "test:vendor-onboarding-authority": "vitest run tests/vendorOnboardingAuthority.test.ts",
+    "test:firestore-rules": "npm run firebase:rules:test",
+    "test:pos-ui-auth": "vitest run tests/posUiAuthCertification.test.ts",
     "preview": "vite preview",
     "clean": "rm -rf dist server.js",
     "lint": "tsc --noEmit"

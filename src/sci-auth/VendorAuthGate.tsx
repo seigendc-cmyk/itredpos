@@ -1,13 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import {
-  collection,
-  getDocs,
-  limit,
-  query,
-  where
-} from "firebase/firestore";
-import { db } from "../pos-new/firebase/firebaseApp";
-import {
   signInWithGooglePlaceholder,
   signOutFirebasePlaceholder,
   subscribeToFirebaseAuthState
@@ -25,6 +17,11 @@ import {
 } from "../pos-new/auth/vendorLicenseRuntimeService";
 import VendorOnboardingForm from "./VendorOnboardingForm";
 import PosStaffAccess from "../pos-new/pages/PosStaffAccess";
+import {
+  resolveAuthenticatedVendor,
+  VendorResolutionError,
+  vendorResolutionMessage
+} from "./VendorResolutionService";
 
 type GoogleProfile = {
   uid: string;
@@ -99,61 +96,9 @@ function saveOwnerSession(vendor: Record<string, unknown>) {
       currency: vendor.currency ? String(vendor.currency) : "USD",
       status: "Active",
       businessStatus: "Trial",
-      licenseStatus: vendor.licenseStatus ? String(vendor.licenseStatus) : "DEMO"
+      licenseStatus: vendor.licenseStatus ? String(vendor.licenseStatus) : "Trial"
     })
   );
-}
-
-async function findVendorByGoogleAccount(
-  profile: GoogleProfile
-): Promise<Record<string, unknown> | null> {
-  if (!db) return null;
-  const uid = profile.uid;
-  const email = profile.email.toLowerCase();
-
-  console.log('[VendorAuthGate] Firestore READ', 'vendors', {
-    operation: 'query',
-    path: 'vendors',
-    uid,
-    email,
-    vendorId: 'unknown',
-    filter: { ownerUid: uid }
-  });
-
-  const q1 = query(
-    collection(db, "vendors"),
-    where("ownerUid", "==", uid),
-    limit(1)
-  );
-  const snap1 = await getDocs(q1);
-  if (!snap1.empty) {
-    const match = snap1.docs[0];
-    return { ...match.data(), vendorId: match.data().vendorId || match.id };
-  }
-
-  console.log('[VendorAuthGate] Firestore READ', 'vendors', {
-    operation: 'query',
-    path: 'vendors',
-    uid,
-    email,
-    vendorId: 'unknown',
-    filter: { ownerEmail: email }
-  });
-
-  if (email) {
-    const q2 = query(
-      collection(db, "vendors"),
-      where("ownerEmail", "==", email),
-      limit(1)
-    );
-    const snap2 = await getDocs(q2);
-    if (!snap2.empty) {
-      const match = snap2.docs[0];
-      return { ...match.data(), vendorId: match.data().vendorId || match.id };
-    }
-  }
-
-  return null;
 }
 
 export default function VendorAuthGate({ children }: VendorAuthGateProps) {
@@ -165,6 +110,36 @@ export default function VendorAuthGate({ children }: VendorAuthGateProps) {
   const [busy, setBusy] = useState(false);
   const [license, setLicense] = useState<VendorLicenseRuntimeSnapshot | null>(null);
   const manualFlow = useRef(false);
+
+  function blockResolution(error: unknown) {
+    clearSciAuthSessions(true);
+    const resolutionError = error instanceof VendorResolutionError
+      ? error
+      : new VendorResolutionError(
+          "UNKNOWN_VENDOR_RESOLUTION_ERROR",
+          error instanceof Error ? error.message : "Vendor authentication could not be validated.",
+          error
+        );
+    const diagnostic = import.meta.env.DEV ? ` [${resolutionError.code}]` : "";
+    setError(`${vendorResolutionMessage(resolutionError)}${diagnostic}`);
+    setStage("blocked");
+  }
+
+  async function resolveProfile(profile: GoogleProfile) {
+    const resolution = await resolveAuthenticatedVendor(profile.uid);
+    if (resolution.state === "onboarding") {
+      clearSciAuthSessions(true);
+      setError(null);
+      setStage("signup");
+      return;
+    }
+    const certification = certifyVendorIdentity(profile, resolution.vendor);
+    if (!certification.certified) {
+      throw new VendorResolutionError("VENDOR_OWNERSHIP_CONFLICT", certification.reason);
+    }
+    saveOwnerSession(resolution.vendor);
+    setStage("license");
+  }
 
   useEffect(() => {
     clearSciAuthSessions();
@@ -183,29 +158,7 @@ export default function VendorAuthGate({ children }: VendorAuthGateProps) {
       };
       setGoogleProfile(authenticatedProfile);
       setStage("checking");
-      void findVendorByGoogleAccount(authenticatedProfile)
-        .then((vendor) => {
-          if (!vendor) {
-            clearSciAuthSessions(true);
-            setError("No registered business was found for this Google account. Please choose Sign Up.");
-            setStage("landing");
-            return;
-          }
-          const result = certifyVendorIdentity(profile, vendor);
-          if (!result.certified) {
-            clearSciAuthSessions(true);
-            setError(result.reason);
-            setStage("blocked");
-            return;
-          }
-          saveOwnerSession(vendor);
-          setStage("license");
-        })
-        .catch((authError) => {
-          clearSciAuthSessions(true);
-          setError(authError instanceof Error ? authError.message : "Vendor authentication could not be validated.");
-          setStage("blocked");
-        });
+      void resolveProfile(authenticatedProfile).catch(blockResolution);
     });
   }, []);
 
@@ -230,7 +183,7 @@ export default function VendorAuthGate({ children }: VendorAuthGateProps) {
     });
   }, [stage]);
 
-  async function startGoogle(mode: "signup" | "signin") {
+  async function startGoogle() {
     setError(null);
     setBusy(true);
     manualFlow.current = true;
@@ -248,39 +201,11 @@ export default function VendorAuthGate({ children }: VendorAuthGateProps) {
         displayName: result.profile.displayName
       };
       setGoogleProfile(profile);
-
-      if (mode === "signup") {
-        setStage("signup");
-        return;
-      }
-
-      const vendor = await findVendorByGoogleAccount(profile);
-      if (!vendor) {
-        console.error("[VendorAuthGate] No vendor resolved for Google account", {
-          uid: profile.uid,
-          email: profile.email
-        });
-        setError(
-          "No registered business was found for this Google account. Please choose Sign Up."
-        );
-        setStage("landing");
-        return;
-      }
-
-      const certification = certifyVendorIdentity(result.profile, vendor);
-      if (!certification.certified) {
-        clearSciAuthSessions(true);
-        setError(certification.reason);
-        setStage("blocked");
-        return;
-      }
-      saveOwnerSession(vendor);
-      setStage("license");
+      setStage("checking");
+      await resolveProfile(profile);
     } catch (err) {
       console.error(err);
-      setError(
-        err instanceof Error ? err.message : "Google sign-in failed."
-      );
+      blockResolution(err);
     } finally {
       setBusy(false);
       manualFlow.current = false;
@@ -291,16 +216,21 @@ export default function VendorAuthGate({ children }: VendorAuthGateProps) {
     if (!googleProfile) return;
     setBusy(true);
     try {
-      const vendor = await findVendorByGoogleAccount(googleProfile);
-      if (!vendor) throw new Error("The provisioned vendor could not be resolved.");
-      const certification = certifyVendorIdentity(googleProfile, vendor);
-      if (!certification.certified) throw new Error(certification.reason);
-      saveOwnerSession(vendor);
+      const resolution = await resolveAuthenticatedVendor(googleProfile.uid);
+      if (resolution.state !== "resolved") {
+        throw new VendorResolutionError(
+          "VENDOR_NOT_FOUND",
+          "The provisioned vendor could not be resolved."
+        );
+      }
+      const certification = certifyVendorIdentity(googleProfile, resolution.vendor);
+      if (!certification.certified) {
+        throw new VendorResolutionError("VENDOR_OWNERSHIP_CONFLICT", certification.reason);
+      }
+      saveOwnerSession(resolution.vendor);
       setStage("license");
     } catch (onboardingError) {
-      clearSciAuthSessions(true);
-      setError(onboardingError instanceof Error ? onboardingError.message : "Vendor provisioning could not be certified.");
-      setStage("blocked");
+      blockResolution(onboardingError);
     } finally {
       setBusy(false);
     }
@@ -433,7 +363,7 @@ export default function VendorAuthGate({ children }: VendorAuthGateProps) {
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           <button
             type="button"
-            onClick={() => void startGoogle("signin")}
+            onClick={() => void startGoogle()}
             disabled={busy}
             className="bg-white border border-slate-300 hover:border-orange-600 p-8 text-left shadow-sm hover:shadow-xl transition-all rounded-none disabled:opacity-60"
           >
@@ -454,7 +384,7 @@ export default function VendorAuthGate({ children }: VendorAuthGateProps) {
 
           <button
             type="button"
-            onClick={() => void startGoogle("signup")}
+            onClick={() => void startGoogle()}
             disabled={busy}
             className="bg-white border border-slate-300 hover:border-orange-600 p-8 text-left shadow-sm hover:shadow-xl transition-all rounded-none disabled:opacity-60"
           >

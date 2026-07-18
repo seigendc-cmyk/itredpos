@@ -1,6 +1,6 @@
 import { Sale, HeldTransaction, CartItem } from '../types/posTypes';
 import { mockHeldTransactions, mockRecentSales } from '../mock/mockPosData';
-import { publishCommerceEvent, writeAuditLog, CommerceOperationContext } from '../../commerce-integration';
+import type { CommerceOperationContext } from '../../commerce-integration';
 import { readVendorScopedList, writeVendorScopedList } from '../utils/vendorDataMode';
 
 const HELD_SALES_KEY = 'itred_pos_held_transactions_v1';
@@ -38,58 +38,8 @@ export const saleService = {
     saleDraft: Omit<Sale, 'id' | 'date' | 'invoiceNo'>,
     context?: CommerceOperationContext
   ): Promise<Sale> => {
+    void saleDraft;
+    void context;
     throw new Error('Legacy saleService.completeSale is disabled. Use canonicalSalesTransactionService.completeCheckout.');
-    /* istanbul ignore next -- retained only as historical read-model mapping. */
-    const freshSale: Sale = {
-      ...saleDraft,
-      id: `TXN-${Math.floor(10000 + Math.random() * 90000)}`,
-      invoiceNo: `INV-${Math.floor(100000 + Math.random() * 900000)}`,
-      date: new Date().toISOString()
-    };
-    writeVendorScopedList(RECENT_SALES_KEY, [freshSale, ...readVendorScopedList<Sale>(RECENT_SALES_KEY, mockRecentSales)]);
-
-    // Eventing and Auditing will only occur if context is provided.
-    if (context) {
-      // Publish SaleCompleted event after the core transaction succeeds.
-      void publishCommerceEvent({
-        eventType: 'SaleCompleted',
-        vendorId: context.vendorId,
-        branchId: context.branchId,
-        terminalId: context.terminalId,
-        staffId: context.staffId,
-        customerId: context.customerId,
-        correlationId: context.correlationId,
-        module: 'Sales',
-        entityType: 'Sale',
-        entityId: freshSale.id,
-        payload: {
-          summary: `Sale ${freshSale.invoiceNo} completed for ${freshSale.customerName}.`,
-          amount: freshSale.total,
-          currency: 'USD',
-          paymentMethod: freshSale.paymentMethod,
-          items: freshSale.items,
-          metadata: { invoiceNo: freshSale.invoiceNo },
-        },
-      });
-
-      // Write an audit log for the sale completion.
-      void writeAuditLog({
-        vendorId: context.vendorId,
-        branchId: context.branchId,
-        terminalId: context.terminalId,
-        staffId: context.staffId,
-        correlationId: context.correlationId,
-        module: 'Sales',
-        action: 'SaleCompleted',
-        entityType: 'Sale',
-        entityId: freshSale.id,
-        after: {
-          status: 'COMPLETED',
-          total: freshSale.total,
-          paymentMethod: freshSale.paymentMethod,
-        },
-      });
-    }
-    return freshSale;
   }
 };
