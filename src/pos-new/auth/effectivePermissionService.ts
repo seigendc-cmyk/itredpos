@@ -87,7 +87,10 @@ export function getEffectiveMenuKeysForRole(roleKey: string): string[] {
 
 export function getEffectiveMenuKeysForSession(session?: PermissionSessionLike | null): string[] {
   if (isOwnerBypassSession(session)) return menuPermissionMap.map((menu) => menu.menuKey);
-  return getEffectiveMenuKeysForRole(session?.role || session?.staffRole || 'Viewer');
+  const permissions = new Set(getEffectivePermissionsForSession(session));
+  return menuPermissionMap
+    .filter((menu) => menu.permissions.some((permission) => isPermissionKey(permission) && permissions.has(permission)))
+    .map((menu) => menu.menuKey);
 }
 
 export function getEffectivePageIdsForRole(roleKey: string): PosPageId[] {
@@ -99,7 +102,8 @@ export function getEffectivePageIdsForRole(roleKey: string): PosPageId[] {
 
 export function getEffectivePageIdsForSession(session?: PermissionSessionLike | null): PosPageId[] {
   if (isOwnerBypassSession(session)) return allPosPageIds;
-  return getEffectivePageIdsForRole(session?.role || session?.staffRole || 'Viewer');
+  const menuKeys = new Set(getEffectiveMenuKeysForSession(session));
+  return Array.from(new Set(menuPermissionMap.filter((menu) => menuKeys.has(menu.menuKey)).map((menu) => menu.pageId)));
 }
 
 export function canCurrentSessionOpenMenu(menuKey: string): boolean {

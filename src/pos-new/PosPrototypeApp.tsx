@@ -52,7 +52,7 @@ import {
   mockBIEvents,
   mockSettings
 } from './mock/mockPosData';
-import { getEffectivePageIdsForRole, normalizeRoleKey } from './auth/effectivePermissionService';
+import { getEffectivePageIdsForSession, normalizeRoleKey } from './auth/effectivePermissionService';
 import { recordSecurityMatrixEvent } from './auth/permissionMatrixService';
 
 import { getSavedPOSSession } from './auth/posActivationService';
@@ -62,11 +62,14 @@ import { loadLocalProducts, POS_PRODUCT_STORE_EVENT, saveLocalProducts } from '.
 import { ENABLE_MOCK_SEED_DATA, getVendorScopedStorageKey, initializeEmptyVendorOperationalStores } from './utils/vendorDataMode';
 import { firebaseReady } from './firebase/firebaseApp';
 import {
-  SCI_POS_STAFF_SESSION_KEY,
+  clearSciAuthSessions,
   LEGACY_POS_ACTIVE_SESSION_KEY,
   adaptSciStaffSessionToPosSession,
-  readSciPosStaffSession
+  readSciPosStaffSession,
+  readSciVendorOwnerSession
 } from '../sci-auth/StaffAuthService';
+import { certifyStaffRuntimeSession } from './auth/posRuntimeCertification';
+import { clearAllCheckoutRequestIds } from './services/salesCheckoutRequestIdentity';
 import {
   mergeVendorLicenseIntoAuthContext,
   readSavedVendorLicenseSnapshot,
@@ -343,25 +346,14 @@ export default function PosPrototypeApp() {
     setPosActivated(null);
   }, []);
 
-  function createPosSessionFromVendorAuthContext(): PosSession | null {
-    const staffSession = readSciPosStaffSession();
-    if (!staffSession) return null;
-    return normalizeSessionForVendorRuntime(
-      adaptSciStaffSessionToPosSession(staffSession),
-      readStoredValue<BusinessProfile | null>('itred_pos_business_profile', null),
-      readPosAuthContext()
-    );
-  }
-
   const [activeSession, setActiveSession] = useState<PosSession | null>(() => {
+    const owner = readSciVendorOwnerSession();
     const vendorAuth = readPosAuthContext();
     const storedBusinessProfile = readStoredValue<BusinessProfile | null>('itred_pos_business_profile', null);
     const sciStaffSession = readSciPosStaffSession();
-    const storedSession = sciStaffSession ? adaptSciStaffSessionToPosSession(sciStaffSession) : null;
-    if (storedSession) {
-      return normalizeSessionForVendorRuntime(storedSession, storedBusinessProfile, vendorAuth);
-    }
-    return createPosSessionFromVendorAuthContext();
+    const cachedLicense = owner?.vendorId ? readSavedVendorLicenseSnapshot(owner.vendorId) : null;
+    if (!certifyStaffRuntimeSession(owner, sciStaffSession, cachedLicense).certified || !sciStaffSession) return null;
+    return normalizeSessionForVendorRuntime(adaptSciStaffSessionToPosSession(sciStaffSession), storedBusinessProfile, vendorAuth);
   });
   const [runtimeLicense, setRuntimeLicense] = useState<VendorLicenseRuntimeSnapshot | null>(() => {
     const vendorId = readPosAuthContext()?.vendorId;
@@ -377,6 +369,9 @@ export default function PosPrototypeApp() {
 
     const staffSession = readSciPosStaffSession();
     if (!staffSession) return;
+    const owner = readSciVendorOwnerSession();
+    const licenseSnapshot = runtimeLicense || (owner?.vendorId ? readSavedVendorLicenseSnapshot(owner.vendorId) : null);
+    if (!certifyStaffRuntimeSession(owner, staffSession, licenseSnapshot).certified) return;
     const vendorAuth = readPosAuthContext();
     const storedBusinessProfile = readStoredValue<BusinessProfile | null>('itred_pos_business_profile', null);
     const bridgedSession = normalizeSessionForVendorRuntime(
@@ -386,7 +381,7 @@ export default function PosPrototypeApp() {
     );
 
     setActiveSession(bridgedSession);
-  }, [activeSession]);
+  }, [activeSession, runtimeLicense]);
 
   useEffect(() => {
     const vendorId = activeSession?.vendorId || readPosAuthContext()?.vendorId;
@@ -394,6 +389,13 @@ export default function PosPrototypeApp() {
 
     return subscribeToVendorLicense(vendorId, (licenseSnapshot) => {
       setRuntimeLicense(licenseSnapshot);
+      const owner = readSciVendorOwnerSession();
+      const staff = readSciPosStaffSession();
+      if (licenseSnapshot.allowed && !certifyStaffRuntimeSession(owner, staff, licenseSnapshot).certified) {
+        clearSciAuthSessions();
+        setActiveSession(null);
+        return;
+      }
       const currentAuth = readPosAuthContext() || {
         stage: licenseSnapshot.allowed ? 'posReady' : 'licenseRequired',
         vendorId
@@ -663,8 +665,7 @@ export default function PosPrototypeApp() {
 
   // Dynamic authorization check & routing redirect logic. Staff Access Rights is the single source.
   useEffect(() => {
-    const userRole = activeSession ? activeSession.role : 'SysAdmin';
-    const allowed = getEffectivePageIdsForRole(userRole);
+    const allowed = getEffectivePageIdsForSession(activeSession);
     if (allowed && !allowed.includes(activePage)) {
       if (allowed.length > 0) {
         setActivePage(allowed[0]);
@@ -921,7 +922,7 @@ export default function PosPrototypeApp() {
       removeStoredValue(key);
       removeStoredValue(getVendorScopedStorageKey(key, activeSession?.vendorId));
     });
-    removeStoredValue(SCI_POS_STAFF_SESSION_KEY);
+    clearSciAuthSessions();
     removeStoredValue(LEGACY_POS_ACTIVE_SESSION_KEY);
 
     setProducts(INITIAL_PRODUCTS);
@@ -961,9 +962,14 @@ export default function PosPrototypeApp() {
     setRuntimeLicense(null);
     localStorage.removeItem('itred_pos_tenant_session');
     localStorage.removeItem('itred_pos_tenant_session_claims');
-    localStorage.removeItem(SCI_POS_STAFF_SESSION_KEY);
+    clearSciAuthSessions();
     localStorage.removeItem(LEGACY_POS_ACTIVE_SESSION_KEY);
     localStorage.removeItem('sci_pos_vendor_auth_context');
+    try {
+      clearAllCheckoutRequestIds(sessionStorage);
+    } catch {
+      // Session storage can be unavailable in hardened browser contexts.
+    }
     setPosActivated(null);
     setActivationSnapshot(null);
     setActivationError(null);
@@ -995,7 +1001,15 @@ export default function PosPrototypeApp() {
   const authContextForUpgrade = readPosAuthContext();
   const upgradeVendorContext = buildUpgradeVendorContext(businessProfile, authContextForUpgrade, activeSession);
 
-  if (false && runtimeLicense && !runtimeLicense.allowed) {
+  if (!runtimeLicense || !runtimeLicense.licenseStatusKnown) {
+    return (
+      <main className="min-h-screen bg-[#f7f5ef] p-6 flex items-center justify-center">
+        <p className="text-sm font-black uppercase text-slate-700">Validating vendor license...</p>
+      </main>
+    );
+  }
+
+  if (!runtimeLicense.allowed) {
     return (
       <main className="min-h-screen bg-[#f7f5ef] p-6">
         <UpgradeRequiredPanel
@@ -1010,7 +1024,7 @@ export default function PosPrototypeApp() {
     );
   }
 
-  const allowedForAccess = getEffectivePageIdsForRole(activeSession.role);
+  const allowedForAccess = getEffectivePageIdsForSession(activeSession);
   const isPageRestricted = !allowedForAccess.includes(activePage);
   const activePagePlanAccess = planAccess.pageAccess[activePage];
   const isPagePlanLocked = false;

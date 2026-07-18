@@ -7,6 +7,7 @@ import {
 } from 'firebase/firestore';
 import { db } from '../pos-new/firebase/firebaseApp';
 import type { PosSession } from '../pos-new/types';
+import { clearAllCheckoutRequestIds } from '../pos-new/services/salesCheckoutRequestIdentity';
 
 export const SCI_VENDOR_OWNER_SESSION_KEY = 'sci_vendor_owner_session';
 export const SCI_POS_STAFF_SESSION_KEY = 'sci_pos_staff_session';
@@ -14,6 +15,7 @@ export const LEGACY_POS_ACTIVE_SESSION_KEY = 'itred_pos_active_session';
 
 export interface SciVendorOwnerSession {
   vendorId: string;
+  ownerUid?: string;
   ownerName: string;
   ownerEmail: string;
   vendorName: string;
@@ -88,6 +90,8 @@ export interface SciPosStaffSession {
   role: string;
   permissions: string[];
   signedInAt: string;
+  validatedAt: string;
+  sessionVersion: 1;
 }
 
 export interface StaffAuthInput {
@@ -131,6 +135,9 @@ function writeJson(key: string, value: unknown): void {
   if (!canUseLocalStorage()) return;
   localStorage.setItem(key, JSON.stringify(value));
 }
+
+let certifiedVendorOwnerSession: SciVendorOwnerSession | null = null;
+let certifiedPosStaffSession: SciPosStaffSession | null = null;
 
 function text(value: unknown, fallback = ''): string {
   const next = String(value ?? '').trim();
@@ -207,25 +214,46 @@ async function queryVendorCollection<T>(
 }
 
 export function readSciVendorOwnerSession(): SciVendorOwnerSession | null {
+  return certifiedVendorOwnerSession;
+}
+
+export function readPersistedSciVendorOwnerSession(): SciVendorOwnerSession | null {
   return readJson<SciVendorOwnerSession>(SCI_VENDOR_OWNER_SESSION_KEY);
 }
 
 export function saveSciVendorOwnerSession(session: SciVendorOwnerSession): void {
+  const previous = certifiedVendorOwnerSession || readPersistedSciVendorOwnerSession();
+  if (previous?.vendorId && previous.vendorId !== session.vendorId) clearSciAuthSessions();
+  certifiedVendorOwnerSession = { ...session };
   writeJson(SCI_VENDOR_OWNER_SESSION_KEY, session);
 }
 
 export function readSciPosStaffSession(): SciPosStaffSession | null {
+  return certifiedPosStaffSession;
+}
+
+export function readPersistedSciPosStaffSession(): SciPosStaffSession | null {
   return readJson<SciPosStaffSession>(SCI_POS_STAFF_SESSION_KEY);
 }
 
 export function saveSciPosStaffSession(session: SciPosStaffSession): void {
+  certifiedPosStaffSession = { ...session };
   writeJson(SCI_POS_STAFF_SESSION_KEY, session);
 }
 
-export function clearSciAuthSessions(): void {
-  if (!canUseLocalStorage()) return;
-  localStorage.removeItem(SCI_POS_STAFF_SESSION_KEY);
-  localStorage.removeItem(LEGACY_POS_ACTIVE_SESSION_KEY);
+export function clearSciAuthSessions(includeVendor = false): void {
+  certifiedPosStaffSession = null;
+  if (includeVendor) certifiedVendorOwnerSession = null;
+  if (canUseLocalStorage()) {
+    localStorage.removeItem(SCI_POS_STAFF_SESSION_KEY);
+    localStorage.removeItem(LEGACY_POS_ACTIVE_SESSION_KEY);
+    if (includeVendor) localStorage.removeItem(SCI_VENDOR_OWNER_SESSION_KEY);
+  }
+  try {
+    if (typeof sessionStorage !== 'undefined') clearAllCheckoutRequestIds(sessionStorage);
+  } catch {
+    // Hardened browser contexts may not expose session storage.
+  }
 }
 
 export async function loadStaffAccessData(vendorId: string): Promise<StaffAccessData> {
@@ -288,11 +316,15 @@ export function authenticateStaffAccess(input: StaffAuthInput): StaffAuthResult 
   if (!warehouse || warehouse.vendorId !== vendorId || warehouse.branchId !== input.branchId || !statusIsActive(warehouse.status)) {
     return { ok: false, message: 'Branch mismatch' };
   }
+  if (terminal.warehouseId && terminal.warehouseId !== warehouse.warehouseId) {
+    return { ok: false, message: 'Terminal warehouse mismatch' };
+  }
 
   if (!staff.pin || staff.pin !== input.pin.trim()) {
     return { ok: false, message: 'Invalid PIN' };
   }
 
+  const signedInAt = new Date().toISOString();
   return {
     ok: true,
     message: 'Access granted.',
@@ -309,7 +341,9 @@ export function authenticateStaffAccess(input: StaffAuthInput): StaffAuthResult 
       staffName: staff.staffName,
       role: staff.role,
       permissions: staff.permissions,
-      signedInAt: new Date().toISOString(),
+      signedInAt,
+      validatedAt: signedInAt,
+      sessionVersion: 1,
     },
   };
 }
@@ -327,6 +361,7 @@ export function adaptSciStaffSessionToPosSession(session: SciPosStaffSession): P
     staffId: session.staffId,
     staffName: session.staffName,
     role: session.role,
+    permissions: [...session.permissions],
     licenseId: `${session.vendorId}-license`,
     planId: 'DEMO',
     licenseMode: 'demo',
@@ -334,5 +369,6 @@ export function adaptSciStaffSessionToPosSession(session: SciPosStaffSession): P
     activationId: `${session.vendorId}-activation`,
     dashboardType: 'POS',
     openedAt: session.signedInAt,
+    signedInAt: session.validatedAt,
   };
 }

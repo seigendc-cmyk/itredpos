@@ -10,6 +10,11 @@ export interface CheckoutRequestStorage {
   removeItem(key: string): void;
 }
 
+export interface EnumerableCheckoutRequestStorage extends CheckoutRequestStorage {
+  readonly length: number;
+  key(index: number): string | null;
+}
+
 export function checkoutRequestStorageKey(scope: CheckoutRequestScope): string {
   return `sci_pos_checkout_request:${encodeURIComponent(scope.vendorId)}:${encodeURIComponent(scope.branchId)}:${encodeURIComponent(scope.terminalId)}`;
 }
@@ -37,4 +42,13 @@ export function saveCheckoutRequestId(storage: CheckoutRequestStorage, scope: Ch
 
 export function clearCheckoutRequestId(storage: CheckoutRequestStorage, scope: CheckoutRequestScope): void {
   storage.removeItem(checkoutRequestStorageKey(scope));
+}
+
+export function clearAllCheckoutRequestIds(storage: EnumerableCheckoutRequestStorage): void {
+  const keys: string[] = [];
+  for (let index = 0; index < storage.length; index += 1) {
+    const key = storage.key(index);
+    if (key?.startsWith('sci_pos_checkout_request:')) keys.push(key);
+  }
+  keys.forEach((key) => storage.removeItem(key));
 }

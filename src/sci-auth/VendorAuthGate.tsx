@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import {
   collection,
   getDocs,
@@ -8,13 +8,21 @@ import {
 } from "firebase/firestore";
 import { db } from "../pos-new/firebase/firebaseApp";
 import {
-  signInWithGooglePlaceholder
+  signInWithGooglePlaceholder,
+  signOutFirebasePlaceholder,
+  subscribeToFirebaseAuthState
 } from "../pos-new/auth/firebaseAuthShell";
 import {
+  clearSciAuthSessions,
   LEGACY_POS_ACTIVE_SESSION_KEY,
   readSciVendorOwnerSession,
   saveSciVendorOwnerSession
 } from "./StaffAuthService";
+import { certifyVendorIdentity } from "../pos-new/auth/posRuntimeCertification";
+import {
+  subscribeToVendorLicense,
+  type VendorLicenseRuntimeSnapshot
+} from "../pos-new/auth/vendorLicenseRuntimeService";
 import VendorOnboardingForm from "./VendorOnboardingForm";
 import PosStaffAccess from "../pos-new/pages/PosStaffAccess";
 
@@ -24,7 +32,7 @@ type GoogleProfile = {
   displayName?: string;
 };
 
-type Stage = "landing" | "signup" | "staff" | "authed";
+type Stage = "checking" | "landing" | "signup" | "license" | "staff" | "authed" | "blocked";
 
 type VendorAuthGateProps = {
   children?: ReactNode;
@@ -42,6 +50,7 @@ function saveOwnerSession(vendor: Record<string, unknown>) {
 
   saveSciVendorOwnerSession({
       vendorId,
+      ownerUid: vendor.ownerUid ? String(vendor.ownerUid) : undefined,
       ownerName,
       ownerEmail,
       vendorName: businessName,
@@ -117,7 +126,10 @@ async function findVendorByGoogleAccount(
     limit(1)
   );
   const snap1 = await getDocs(q1);
-  if (!snap1.empty) return snap1.docs[0].data() as Record<string, unknown>;
+  if (!snap1.empty) {
+    const match = snap1.docs[0];
+    return { ...match.data(), vendorId: match.data().vendorId || match.id };
+  }
 
   console.log('[VendorAuthGate] Firestore READ', 'vendors', {
     operation: 'query',
@@ -135,32 +147,93 @@ async function findVendorByGoogleAccount(
       limit(1)
     );
     const snap2 = await getDocs(q2);
-    if (!snap2.empty) return snap2.docs[0].data() as Record<string, unknown>;
+    if (!snap2.empty) {
+      const match = snap2.docs[0];
+      return { ...match.data(), vendorId: match.data().vendorId || match.id };
+    }
   }
 
   return null;
 }
 
 export default function VendorAuthGate({ children }: VendorAuthGateProps) {
-  const [stage, setStage] = useState<Stage>(
-    readSciVendorOwnerSession() ? "staff" : "landing"
-  );
+  const [stage, setStage] = useState<Stage>("checking");
   const [googleProfile, setGoogleProfile] = useState<GoogleProfile | null>(
     null
   );
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [license, setLicense] = useState<VendorLicenseRuntimeSnapshot | null>(null);
+  const manualFlow = useRef(false);
 
   useEffect(() => {
-    if (stage === "authed") return;
-    if (!readSciVendorOwnerSession()) {
-      setStage("landing");
+    clearSciAuthSessions();
+    return subscribeToFirebaseAuthState((profile) => {
+      if (manualFlow.current) return;
+      if (!profile?.uid) {
+        clearSciAuthSessions(true);
+        setGoogleProfile(null);
+        setStage("landing");
+        return;
+      }
+      const authenticatedProfile: GoogleProfile = {
+        uid: profile.uid,
+        email: profile.email || "",
+        displayName: profile.displayName
+      };
+      setGoogleProfile(authenticatedProfile);
+      setStage("checking");
+      void findVendorByGoogleAccount(authenticatedProfile)
+        .then((vendor) => {
+          if (!vendor) {
+            clearSciAuthSessions(true);
+            setError("No registered business was found for this Google account. Please choose Sign Up.");
+            setStage("landing");
+            return;
+          }
+          const result = certifyVendorIdentity(profile, vendor);
+          if (!result.certified) {
+            clearSciAuthSessions(true);
+            setError(result.reason);
+            setStage("blocked");
+            return;
+          }
+          saveOwnerSession(vendor);
+          setStage("license");
+        })
+        .catch((authError) => {
+          clearSciAuthSessions(true);
+          setError(authError instanceof Error ? authError.message : "Vendor authentication could not be validated.");
+          setStage("blocked");
+        });
+    });
+  }, []);
+
+  useEffect(() => {
+    if (stage !== "license") return undefined;
+    const owner = readSciVendorOwnerSession();
+    if (!owner?.vendorId) {
+      setError("Validated vendor context is missing.");
+      setStage("blocked");
+      return undefined;
     }
+    return subscribeToVendorLicense(owner.vendorId, (snapshot) => {
+      setLicense(snapshot);
+      if (!snapshot.licenseStatusKnown) return;
+      if (!snapshot.allowed) {
+        clearSciAuthSessions();
+        setError(snapshot.message || snapshot.noticeDetail || "Vendor license does not permit POS access.");
+        setStage("blocked");
+        return;
+      }
+      setStage("staff");
+    });
   }, [stage]);
 
   async function startGoogle(mode: "signup" | "signin") {
     setError(null);
     setBusy(true);
+    manualFlow.current = true;
     try {
       const result = await signInWithGooglePlaceholder();
       if (!result.ok || !result.profile?.uid) {
@@ -194,8 +267,15 @@ export default function VendorAuthGate({ children }: VendorAuthGateProps) {
         return;
       }
 
+      const certification = certifyVendorIdentity(result.profile, vendor);
+      if (!certification.certified) {
+        clearSciAuthSessions(true);
+        setError(certification.reason);
+        setStage("blocked");
+        return;
+      }
       saveOwnerSession(vendor);
-      setStage("staff");
+      setStage("license");
     } catch (err) {
       console.error(err);
       setError(
@@ -203,7 +283,35 @@ export default function VendorAuthGate({ children }: VendorAuthGateProps) {
       );
     } finally {
       setBusy(false);
+      manualFlow.current = false;
     }
+  }
+
+  async function finishOnboarding() {
+    if (!googleProfile) return;
+    setBusy(true);
+    try {
+      const vendor = await findVendorByGoogleAccount(googleProfile);
+      if (!vendor) throw new Error("The provisioned vendor could not be resolved.");
+      const certification = certifyVendorIdentity(googleProfile, vendor);
+      if (!certification.certified) throw new Error(certification.reason);
+      saveOwnerSession(vendor);
+      setStage("license");
+    } catch (onboardingError) {
+      clearSciAuthSessions(true);
+      setError(onboardingError instanceof Error ? onboardingError.message : "Vendor provisioning could not be certified.");
+      setStage("blocked");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function returnToSignIn() {
+    await signOutFirebasePlaceholder();
+    clearSciAuthSessions(true);
+    setLicense(null);
+    setError(null);
+    setStage("landing");
   }
 
   function handleStaffSuccess(session: unknown) {
@@ -235,7 +343,7 @@ export default function VendorAuthGate({ children }: VendorAuthGateProps) {
           ownerName: googleProfile.displayName || ""
         }}
         onBack={() => setStage("landing")}
-        onComplete={() => setStage("staff")}
+        onComplete={() => void finishOnboarding()}
       />
     );
   }
@@ -246,6 +354,33 @@ export default function VendorAuthGate({ children }: VendorAuthGateProps) {
         onLoginSuccess={handleStaffSuccess}
         onBackToBios={backToBios}
       />
+    );
+  }
+
+  if (stage === "checking" || stage === "license") {
+    return (
+      <main className="min-h-screen bg-[#f7f5ef] flex items-center justify-center p-6">
+        <section className="w-full max-w-xl bg-white border border-slate-300 p-8 text-center">
+          <h1 className="text-xl font-black uppercase text-[#1e222b]">Validating secure POS access</h1>
+          <p className="mt-3 text-sm text-slate-600">
+            {stage === "license" ? "Checking the vendor license and account status." : "Checking the authenticated vendor identity."}
+          </p>
+        </section>
+      </main>
+    );
+  }
+
+  if (stage === "blocked") {
+    return (
+      <main className="min-h-screen bg-[#f7f5ef] flex items-center justify-center p-6">
+        <section className="w-full max-w-xl bg-white border border-rose-300 p-8 text-center">
+          <h1 className="text-xl font-black uppercase text-rose-700">POS access blocked</h1>
+          <p className="mt-3 text-sm text-slate-700">{error || license?.noticeDetail || "Authentication or license certification failed."}</p>
+          <button type="button" onClick={() => void returnToSignIn()} className="mt-6 bg-[#1e222b] px-6 py-3 text-sm font-black uppercase text-white">
+            Return to sign in
+          </button>
+        </section>
+      </main>
     );
   }
 

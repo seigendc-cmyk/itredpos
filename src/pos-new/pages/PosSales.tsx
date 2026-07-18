@@ -65,7 +65,7 @@ import {
   TerminalControlCheck,
   VATMode
 } from '../types';
-import { canPerformAction } from '../utils/posPermissions';
+import { sessionHasEffectivePermission } from '../auth/effectivePermissionService';
 import { matchesFreeOrderSearch } from '../utils/searchUtils';
 import { calculateDocumentTax, posTaxSettingToVendorTaxSettings } from '../services/vendorTaxSettingsService';
 import { completeSale } from '../services/salesCheckoutService';
@@ -182,6 +182,8 @@ export default function PosSales({
   const staffName = session?.staffName || 'Staff';
   const staffId = session?.staffId || '';
   const roleName = (session?.role || 'Owner') as Role;
+  const canPerformAction = (_role: Role, permission: string): boolean =>
+    sessionHasEffectivePermission(session, permission);
   const branchName = session?.branch || 'Main Branch';
   const branchId = session?.branchId || branchIdFromName(branchName);
   const terminalName = session?.terminal || 'POS-01';
@@ -1143,8 +1145,8 @@ export default function PosSales({
           canDiscount: canPerformAction(roleName, 'sales.discount'),
           canPriceOverride: canPerformAction(roleName, 'sales.priceChange'),
           canCreditSale: canPerformAction(roleName, 'sales.creditSale') || canPerformAction(roleName, 'sales.accountSale'),
-          canCreditOverride: canPerformAction(roleName, 'sales.creditSale.override') || ['Owner', 'SysAdmin', 'Manager'].includes(roleName),
-          canNegativeStockOverride: ['Owner', 'SysAdmin', 'Manager'].includes(roleName),
+          canCreditOverride: canPerformAction(roleName, 'sales.creditSale.override'),
+          canNegativeStockOverride: canPerformAction(roleName, 'sales.priceOverride'),
           role: roleName
         },
         allowNegativeStock: false,
