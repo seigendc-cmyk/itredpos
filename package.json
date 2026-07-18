@@ -10,6 +10,7 @@
     "test:vendor-auth-resolution": "vitest run tests/vendorAuthGateResolution.test.ts",
     "test:vendor-license-lifecycle": "vitest run tests/vendorLicenseLifecycle.test.ts",
     "test:sales-migration": "vitest run tests/salesMigration.test.ts",
+    "test:sales-migration-ui": "vitest run tests/salesMigrationUi.test.ts",
     "test:vendor-onboarding-authority": "vitest run tests/vendorOnboardingAuthority.test.ts",
     "test:firestore-rules": "npm run firebase:rules:test",
     "test:pos-ui-auth": "vitest run tests/posUiAuthCertification.test.ts",

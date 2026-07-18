@@ -1,0 +1,2 @@
+export const CANONICAL_SALES_AUTHORITY_VERSION = 1;
+

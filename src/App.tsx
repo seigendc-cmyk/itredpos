@@ -6,6 +6,7 @@ import FirebaseReadinessPage from './platform/FirebaseReadinessPage';
 import VendorVerificationQueuePage from './platform/VendorVerificationQueuePage';
 import ActivationTokenManagerPage from './platform/ActivationTokenManagerPage';
 import SystemDiagnosticsPage from './platform/SystemDiagnosticsPage';
+import SalesMigrationCutoverPage from './pos-new/pages/SalesMigrationCutoverPage';
 import { Cpu, ShieldCheck, Power, RefreshCw } from 'lucide-react';
 
 export default function App() {
@@ -63,6 +64,14 @@ export default function App() {
     return (
       <VendorAuthGate>
         <PosPrototypeApp />
+      </VendorAuthGate>
+    );
+  }
+
+  if (currentPath === '/admin/sales-migration-cutover') {
+    return (
+      <VendorAuthGate>
+        <SalesMigrationCutoverPage />
       </VendorAuthGate>
     );
   }

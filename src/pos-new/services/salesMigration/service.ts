@@ -8,7 +8,7 @@ import { translateLegacySaleToCanonical } from './canonicalAdapter';
 const number = (value: unknown) => Number(value);
 const moneyMinor = (value: unknown) => Math.round(number(value) * 100);
 const emptyTotals = (): SalesMigrationTotals => ({ saleCount: 0, grossMinor: 0, paidMinor: 0, creditMinor: 0, itemQuantity: 0 });
-function totals(records: SalesMigrationRecord[]): SalesMigrationTotals { return records.reduce((sum, record) => { const p = record.payload; const total = moneyMinor(p.total || 0); const credit = String(p.paymentMethod || '').toUpperCase() === 'CREDIT' ? total : 0; return { saleCount: sum.saleCount + 1, grossMinor: sum.grossMinor + total, paidMinor: sum.paidMinor + total - credit, creditMinor: sum.creditMinor + credit, itemQuantity: sum.itemQuantity + (Array.isArray(p.items) ? p.items.reduce((q, row) => q + number((row as Record<string, unknown>).quantity || 0), 0) : 0) }; }, emptyTotals()); }
+export function calculateSalesMigrationTotals(records: SalesMigrationRecord[]): SalesMigrationTotals { return records.reduce((sum, record) => { const p = record.payload; const total = moneyMinor(p.total || 0); const credit = String(p.paymentMethod || '').toUpperCase() === 'CREDIT' ? total : 0; return { saleCount: sum.saleCount + 1, grossMinor: sum.grossMinor + total, paidMinor: sum.paidMinor + total - credit, creditMinor: sum.creditMinor + credit, itemQuantity: sum.itemQuantity + (Array.isArray(p.items) ? p.items.reduce((q, row) => q + number((row as Record<string, unknown>).quantity || 0), 0) : 0) }; }, emptyTotals()); }
 const quarantine = (run: string, record: SalesMigrationRecord, codes: SalesMigrationQuarantineRecord['codes'], reasons: string[]): SalesMigrationQuarantineRecord => ({ quarantineId: `quarantine_${run}_${record.legacyRecordId || 'unknown'}`.replace(/[^A-Za-z0-9_-]/g, '_'), migrationRunId: run, vendorId: record.vendorId, legacyRecordId: record.legacyRecordId, sourceFingerprint: record.sourceFingerprint, codes, reasons, status: 'quarantined', createdAt: new Date().toISOString() });
 
 export async function createSalesMigrationDryRun(records: SalesMigrationRecord[], context: { migrationRunId: string; vendorId: string; branchId: string; previewVersion: string; existingFingerprints?: ReadonlySet<string> }): Promise<SalesMigrationPreview> {
@@ -31,7 +31,7 @@ export async function createSalesMigrationDryRun(records: SalesMigrationRecord[]
   }
   return { migrationRunId: context.migrationRunId, vendorId: context.vendorId, branchId: context.branchId, previewVersion: context.previewVersion,
     sourceFingerprint: await fingerprintSalesMigrationSource(copied), createdAt: new Date().toISOString(), records: copied, readyRecords: ready,
-    quarantine: quarantined, totals: totals(ready), canApprove: ready.length > 0 && quarantined.length === 0, dryRun: true };
+    quarantine: quarantined, totals: calculateSalesMigrationTotals(ready), canApprove: ready.length > 0 && quarantined.length === 0, dryRun: true };
 }
 
 export function approveSalesMigration(preview: SalesMigrationPreview, approvedBy: string, migrationVersion: string, permitted: boolean): SalesMigrationApproval {
@@ -40,7 +40,7 @@ export function approveSalesMigration(preview: SalesMigrationPreview, approvedBy
 }
 export function assertSalesMigrationApproval(preview: SalesMigrationPreview, approval: SalesMigrationApproval) { if (approval.migrationRunId !== preview.migrationRunId || approval.vendorId !== preview.vendorId || approval.approvedSourceFingerprint !== preview.sourceFingerprint || approval.approvedPreviewVersion !== preview.previewVersion) throw new Error('Sales migration approval is stale or conflicting.'); }
 
-export async function executeSalesMigration(input: { preview: SalesMigrationPreview; approval: SalesMigrationApproval; adapter: CanonicalSalesMigrationAdapter; receiptStore: SalesMigrationReceiptStore; actorId: string; actorRole: string; warehouseId: string; terminalId: string }): Promise<SalesMigrationResult[]> {
+export async function executeSalesMigration(input: { preview: SalesMigrationPreview; approval: SalesMigrationApproval; adapter: CanonicalSalesMigrationAdapter; receiptStore: SalesMigrationReceiptStore; actorId: string; actorRole: string; warehouseId: string; terminalId: string; onProgress?: (completed: number, total: number) => void }): Promise<SalesMigrationResult[]> {
   assertSalesMigrationApproval(input.preview, input.approval); const results: SalesMigrationResult[] = [];
   for (const record of input.preview.readyRecords) {
     const receiptId = salesMigrationReceiptId(record.vendorId, record.legacyRecordId); const now = new Date().toISOString();
@@ -57,6 +57,7 @@ export async function executeSalesMigration(input: { preview: SalesMigrationPrev
       await input.receiptStore.fail(receiptId, record.vendorId, record.sourceFingerprint!, code).catch(() => undefined);
       results.push({ legacyRecordId: record.legacyRecordId, sourceFingerprint: record.sourceFingerprint!, status: 'failed', receiptId, errorCode: code, message: error instanceof Error ? error.message : 'Migration failed.', retryable: !conflict });
     }
+    input.onProgress?.(results.length, input.preview.readyRecords.length);
   } return results;
 }
 

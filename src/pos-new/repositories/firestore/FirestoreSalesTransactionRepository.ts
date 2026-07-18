@@ -1,5 +1,6 @@
 import { doc, runTransaction, serverTimestamp, type DocumentSnapshot } from 'firebase/firestore';
 import { CanonicalSalesError } from '../../domain/sales/salesErrors';
+import { CANONICAL_SALES_AUTHORITY_VERSION } from '../../domain/sales/salesAuthorityContract';
 import { db, firebaseReady } from '../../firebase/firebaseApp';
 import { encodeFirestoreId, firestorePaths } from '../../firebase/firestorePaths';
 import { createSalesMutationReceiptId, fingerprintSalesMutation } from '../../services/salesIdempotencyService';
@@ -22,11 +23,15 @@ export interface AtomicSalePostingResult {
   paymentIds: string[];
   inventoryMovements: InventoryMovementRecord[];
   mutationReceiptId: string;
-  auditEventId: string;
-  biEventId: string;
+  auditEventId?: string;
+  biEventId?: string;
   customerLedgerEntryId?: string;
   customerBalanceProjectionId?: string;
   replayed?: boolean;
+}
+
+export function shouldRepostSalesOperationalEffects(input: Pick<AtomicSalePosting, 'migration'>): boolean {
+  return !input.migration;
 }
 
 const balanceId = (sale: PosSaleHeader, productId: string) =>
@@ -59,8 +64,12 @@ export async function postCanonicalSaleAtomic(input: AtomicSalePosting): Promise
   const biId = encodeFirestoreId(`SALE_COMPLETED_${sale.saleId}`);
 
   return runTransaction(db, async (transaction) => {
-    const inventoryLines = input.lines.filter((line) => line.isInventoryAsset);
-    const customerBalanceRef = input.customerCreditAmount > 0 && sale.customerId !== 'WALK-IN'
+    // Historical migration establishes the canonical sales read model only. The
+    // legacy sale already produced its operational effects, so those effects must
+    // never be posted again during migration.
+    const repostOperationalEffects = shouldRepostSalesOperationalEffects(input);
+    const inventoryLines = repostOperationalEffects ? input.lines.filter((line) => line.isInventoryAsset) : [];
+    const customerBalanceRef = repostOperationalEffects && input.customerCreditAmount > 0 && sale.customerId !== 'WALK-IN'
       ? doc(db!, firestorePaths.customerBalance(sale.vendorId, sale.customerId))
       : undefined;
     const reads = await Promise.all([
@@ -119,9 +128,9 @@ export async function postCanonicalSaleAtomic(input: AtomicSalePosting): Promise
       });
     });
 
-    transaction.set(saleRef, { ...sale, currency: input.currency, authoritativeVersion: 1, requestId: input.requestId, postedAt: serverTimestamp() });
+    transaction.set(saleRef, { ...sale, currency: input.currency, authoritativeVersion: CANONICAL_SALES_AUTHORITY_VERSION, requestId: input.requestId, postedAt: serverTimestamp() });
     input.lines.forEach((line) => transaction.set(doc(db!, firestorePaths.salesReceiptLine(sale.vendorId, line.saleLineId)), { ...line, status: 'Posted' }));
-    input.payments.forEach((payment) => transaction.set(doc(db!, firestorePaths.payment(sale.vendorId, payment.paymentId)), { ...payment, currency: input.currency, status: 'Completed', requestId: input.requestId }));
+    if (repostOperationalEffects) input.payments.forEach((payment) => transaction.set(doc(db!, firestorePaths.payment(sale.vendorId, payment.paymentId)), { ...payment, currency: input.currency, status: 'Completed', requestId: input.requestId }));
 
     let customerLedgerEntryId: string | undefined;
     let customerBalanceProjectionId: string | undefined;
@@ -141,21 +150,25 @@ export async function postCanonicalSaleAtomic(input: AtomicSalePosting): Promise
       });
     }
 
-    transaction.set(doc(db!, `${firestorePaths.auditLogs(sale.vendorId)}/${auditId}`), {
-      auditId, vendorId: sale.vendorId, branchId: sale.branchId, terminalId: sale.terminalId, staffId: sale.staffId,
-      action: 'SALE_COMPLETED', entityType: 'SALE', entityId: sale.saleId, requestId: input.requestId,
-      resultStatus: 'completed', createdAt: serverTimestamp()
-    });
-    transaction.set(doc(db!, `${firestorePaths.biEvents(sale.vendorId)}/${biId}`), {
-      eventId: biId, eventType: 'SALE_COMPLETED', vendorId: sale.vendorId, branchId: sale.branchId, saleId: sale.saleId,
-      currency: input.currency, grossTotal: sale.subtotal + sale.vatTotal, netTotal: sale.grandTotal,
-      taxTotal: sale.vatTotal, discountTotal: sale.discountTotal, paymentStatus: sale.paymentStatus,
-      itemCount: input.lines.length, timestamp: serverTimestamp()
-    });
+    if (repostOperationalEffects) {
+      transaction.set(doc(db!, `${firestorePaths.auditLogs(sale.vendorId)}/${auditId}`), {
+        auditId, vendorId: sale.vendorId, branchId: sale.branchId, terminalId: sale.terminalId, staffId: sale.staffId,
+        action: 'SALE_COMPLETED', entityType: 'SALE', entityId: sale.saleId, requestId: input.requestId,
+        resultStatus: 'completed', createdAt: serverTimestamp()
+      });
+      transaction.set(doc(db!, `${firestorePaths.biEvents(sale.vendorId)}/${biId}`), {
+        eventId: biId, eventType: 'SALE_COMPLETED', vendorId: sale.vendorId, branchId: sale.branchId, saleId: sale.saleId,
+        currency: input.currency, grossTotal: sale.subtotal + sale.vatTotal, netTotal: sale.grandTotal,
+        taxTotal: sale.vatTotal, discountTotal: sale.discountTotal, paymentStatus: sale.paymentStatus,
+        itemCount: input.lines.length, timestamp: serverTimestamp()
+      });
+    }
     const durable: AtomicSalePostingResult = {
-      saleId: sale.saleId, saleLineIds: input.lines.map((line) => line.saleLineId), paymentIds: input.payments.map((payment) => payment.paymentId),
-      inventoryMovements, mutationReceiptId: receiptId, auditEventId: auditId, biEventId: biId,
-      customerLedgerEntryId, customerBalanceProjectionId
+      saleId: sale.saleId, saleLineIds: input.lines.map((line) => line.saleLineId), paymentIds: repostOperationalEffects ? input.payments.map((payment) => payment.paymentId) : [],
+      inventoryMovements, mutationReceiptId: receiptId,
+      ...(repostOperationalEffects ? { auditEventId: auditId, biEventId: biId } : {}),
+      ...(customerLedgerEntryId ? { customerLedgerEntryId } : {}),
+      ...(customerBalanceProjectionId ? { customerBalanceProjectionId } : {})
     };
     transaction.set(mutationRef, {
       receiptDocumentId: receiptId, idempotencyKey: receiptId, vendorId: sale.vendorId, branchId: sale.branchId,
@@ -163,8 +176,8 @@ export async function postCanonicalSaleAtomic(input: AtomicSalePosting): Promise
       operation: 'COMPLETE_SALE', entityType: 'SALE', entityId: sale.saleId, requestFingerprint: fingerprint,
       status: 'completed', result: durable, resultPath: firestorePaths.salesReceipt(sale.vendorId, sale.saleId),
       correlationId: input.requestId, actorId: sale.staffId, actorRole: 'POS_OPERATOR',
-      attemptCount: 1, authorityVersion: 1,
-      migration: input.migration,
+      attemptCount: 1, authorityVersion: CANONICAL_SALES_AUTHORITY_VERSION,
+      ...(input.migration ? { migration: input.migration } : {}),
       createdAt: serverTimestamp(), updatedAt: serverTimestamp(), completedAt: serverTimestamp()
     });
     return durable;

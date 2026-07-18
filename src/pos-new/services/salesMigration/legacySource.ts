@@ -4,7 +4,7 @@ import type { SalesMigrationRecord } from './types';
 export const LEGACY_COMPLETED_SALES_KEY = 'itred_pos_transactions';
 const KNOWN_MOCK_SALE_IDS = new Set(['TXN-88220', 'TXN-88221']);
 
-export interface LegacySalesSourceScan { records: SalesMigrationRecord[]; ignoredMockRecordIds: string[]; sourceKey: string; }
+export interface LegacySalesSourceScan { records: SalesMigrationRecord[]; ignoredMockRecordIds: string[]; sourceKey: string; sourceError?: string; }
 export function readLegacySalesSource(input: {
   vendorId: string;
   branchId: string;
@@ -14,8 +14,9 @@ export function readLegacySalesSource(input: {
   const sourceKey = getVendorScopedStorageKey(LEGACY_COMPLETED_SALES_KEY, input.vendorId);
   if (!input.vendorId || !input.branchId || !input.storage) return { records: [], ignoredMockRecordIds: [], sourceKey };
   let rows: unknown;
-  try { rows = JSON.parse(input.storage.getItem(sourceKey) || '[]'); } catch { rows = []; }
-  if (!Array.isArray(rows)) return { records: [], ignoredMockRecordIds: [], sourceKey };
+  try { rows = JSON.parse(input.storage.getItem(sourceKey) || '[]'); }
+  catch { return { records: [], ignoredMockRecordIds: [], sourceKey, sourceError: 'The vendor-scoped legacy sales source could not be read or parsed.' }; }
+  if (!Array.isArray(rows)) return { records: [], ignoredMockRecordIds: [], sourceKey, sourceError: 'The vendor-scoped legacy sales source is not a valid sales array.' };
   const ignoredMockRecordIds: string[] = [];
   const records: SalesMigrationRecord[] = [];
   rows.forEach(raw => {
