@@ -1,0 +1,68 @@
+name: SCI POS Validation
+
+on:
+  push:
+    branches:
+      - main
+      - develop
+      - "build/**"
+      - "feature/**"
+      - "fix/**"
+
+  pull_request:
+    branches:
+      - main
+      - develop
+
+jobs:
+  validate:
+    name: Lint, Build and Test
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: TypeScript and lint validation
+        run: npm run lint
+
+      - name: Production build
+        run: npm run build
+
+      - name: Firestore rules tests
+        run: npm run firebase:rules:test
+
+      - name: Sales authority tests
+        run: npx vitest run tests/salesAuthority.test.ts
+
+      - name: Sales transaction tests
+        run: npx vitest run tests/salesTransaction.test.ts
+
+      - name: Sales idempotency tests
+        run: npx vitest run tests/salesIdempotency.test.ts
+
+      - name: Durable sales idempotency tests
+        run: |
+          if [ -f tests/salesDurableIdempotency.test.ts ]; then
+            npx vitest run tests/salesDurableIdempotency.test.ts
+          else
+            echo "tests/salesDurableIdempotency.test.ts does not exist."
+            exit 1
+          fi
+
+      - name: Purchasing regression tests
+        run: |
+          npx vitest run tests/purchasingAuthority.test.ts
+          npx vitest run tests/purchasingMigration.test.ts
+          npx vitest run tests/purchasingMigrationOperational.test.ts
+          npx vitest run tests/purchasingMigrationAdapter.test.ts
