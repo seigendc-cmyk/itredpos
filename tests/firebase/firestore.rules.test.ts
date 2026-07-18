@@ -44,6 +44,7 @@ beforeAll(async () => {
       ,setDoc(doc(db, 'vendors', VENDOR_A, 'salesReceipts', 'sale-posted'), { saleId: 'sale-posted', vendorId: VENDOR_A, branchId: 'branch-a', warehouseId: 'warehouse-a', terminalId: 'terminal-a', staffId: CASHIER, requestId: 'request-1', subtotal: 10, discountTotal: 0, taxableAmount: 10, vatTotal: 0, grandTotal: 10, amountPaid: 10, balanceDue: 0, saleStatus: 'Completed', postingStatus: 'Completed' })
       ,setDoc(doc(db, 'vendors', VENDOR_A, 'payments', 'sale-payment'), { paymentId: 'sale-payment', saleId: 'sale-posted', vendorId: VENDOR_A, branchId: 'branch-a', terminalId: 'terminal-a', staffId: CASHIER, amount: 10, status: 'Completed' })
       ,setDoc(doc(db, 'vendors', VENDOR_A, 'customerLedger', 'ledger-posted'), { entryId: 'ledger-posted', saleId: 'sale-posted', customerId: 'customer-a', vendorId: VENDOR_A, debitMinor: 1000, status: 'Posted' })
+      ,setDoc(doc(db, 'vendors', VENDOR_A, 'mutationReceipts', 'sales_complete_vendor-a_branch-a_request-1'), { receiptDocumentId: 'sales_complete_vendor-a_branch-a_request-1', idempotencyKey: 'sales_complete_vendor-a_branch-a_request-1', vendorId: VENDOR_A, branchId: 'branch-a', terminalId: 'terminal-a', requestId: 'request-1', operation: 'COMPLETE_SALE', entityType: 'SALE', entityId: 'sale-posted', correlationId: 'request-1', requestFingerprint: 'sha256:seeded', status: 'completed', attemptCount: 1, authorityVersion: 1 })
     ]);
   });
 }, 30_000);
@@ -176,6 +177,19 @@ describe('canonical sales security', () => {
   test('posted customer ledger is immutable', async () => {
     await assertFails(updateDoc(doc(dbFor(CASHIER), 'vendors', VENDOR_A, 'customerLedger', 'ledger-posted'), { debitMinor: 99999 }));
     await assertFails(deleteDoc(doc(dbFor(CASHIER), 'vendors', VENDOR_A, 'customerLedger', 'ledger-posted')));
+  });
+  test('completed sales mutation receipt cannot be modified or deleted', async () => {
+    const ref = doc(dbFor(CASHIER), 'vendors', VENDOR_A, 'mutationReceipts', 'sales_complete_vendor-a_branch-a_request-1');
+    await assertFails(updateDoc(ref, { requestFingerprint: 'sha256:forged' }));
+    await assertFails(deleteDoc(ref));
+  });
+  test('cashier cannot forge a standalone completed sales receipt', async () => {
+    await assertFails(setDoc(doc(dbFor(CASHIER), 'vendors', VENDOR_A, 'mutationReceipts', 'sales_complete_vendor-a_branch-a_forged'), {
+      receiptDocumentId: 'sales_complete_vendor-a_branch-a_forged', idempotencyKey: 'sales_complete_vendor-a_branch-a_forged',
+      vendorId: VENDOR_A, branchId: 'branch-a', terminalId: 'terminal-a', requestId: 'forged', operation: 'COMPLETE_SALE',
+      entityType: 'SALE', entityId: 'missing-sale', correlationId: 'forged', requestFingerprint: 'sha256:forged',
+      status: 'completed', attemptCount: 1, authorityVersion: 1
+    }));
   });
 });
 

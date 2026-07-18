@@ -158,6 +158,10 @@ export function getCOGSReserveSummary(): COGSReserveSummary {
 
 export async function createCOGSReserveMovement(payload: Omit<COGSReserveMovement, 'movementId' | 'movementNumber' | 'reserveBalanceAfter' | 'createdAt'> & { movementId?: string; movementNumber?: string }): Promise<COGSReserveMovement> {
   const current = getCOGSReserveMovements();
+  if (payload.movementId) {
+    const existing = current.find((movement) => movement.movementId === payload.movementId);
+    if (existing) return existing;
+  }
   const balanceBefore = getCOGSReserveSummary().currentReserveBalance;
   const movement: COGSReserveMovement = {
     ...payload,
@@ -207,6 +211,7 @@ export async function recordCOGSRecoveryFromSale(sale: Sale): Promise<COGSReserv
   if (cogs <= 0) return null;
   const cashReceived = Math.max(0, sale.cashReceived || 0);
   return createCOGSReserveMovement({
+    movementId: `${sale.id}_COGS_RECOVERY`.replace(/[^A-Za-z0-9_-]/g, '_'),
     movementDate: sale.date.slice(0, 10),
     type: 'COGSRecoveredFromSale',
     direction: 'In',

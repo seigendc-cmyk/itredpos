@@ -708,12 +708,19 @@ service cloud.firestore {
         || (isActiveVendorUser(vendorId)
           && request.resource.data.vendorId == vendorId
           && request.resource.data.receiptDocumentId == idempotencyKey
+          && request.resource.data.idempotencyKey == idempotencyKey
           && request.resource.data.operation == 'COMPLETE_SALE'
           && request.resource.data.entityType == 'SALE'
           && request.resource.data.entityId is string
+          && request.resource.data.branchId is string
+          && request.resource.data.terminalId is string
+          && request.resource.data.requestId is string
           && request.resource.data.correlationId is string
+          && request.resource.data.requestId == request.resource.data.correlationId
           && request.resource.data.requestFingerprint is string
           && request.resource.data.status == 'completed'
+          && request.resource.data.attemptCount == 1
+          && request.resource.data.authorityVersion == 1
           && getAfter(/databases/$(database)/documents/vendors/$(vendorId)/salesReceipts/$(request.resource.data.entityId)).data.requestId == request.resource.data.correlationId);
       allow update, delete: if false;
     }

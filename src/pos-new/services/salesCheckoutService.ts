@@ -571,7 +571,7 @@ function buildPaymentRecords(input: CompleteSaleInput, saleId: string, grandTota
     }
     if (method === 'Credit') {
       records.push({
-        paymentId: cleanId(payment.id || `${saleId}_credit`),
+        paymentId: cleanId(`${saleId}_${records.length + 1}_${method}`),
         saleId,
         vendorId: input.session!.vendorId!,
         branchId: input.session!.branchId!,
@@ -594,7 +594,7 @@ function buildPaymentRecords(input: CompleteSaleInput, saleId: string, grandTota
     }
     remaining = roundMoney(Math.max(0, remaining - applied));
     records.push({
-      paymentId: cleanId(payment.id || `${saleId}_${records.length + 1}`),
+      paymentId: cleanId(`${saleId}_${records.length + 1}_${method}`),
       saleId,
       vendorId: input.session!.vendorId!,
       branchId: input.session!.branchId!,
@@ -760,6 +760,7 @@ export async function executeCanonicalCheckoutPipeline(input: CompleteSaleInput)
 
   const receipt = await createReceiptFromSale({
     sale,
+    receiptNumber: saleNumber,
     vendorId: session.vendorId,
     businessVendor: text(session.vendor, session.vendorId),
     branchId: session.branchId,
@@ -933,7 +934,7 @@ export async function executeCanonicalCheckoutPipeline(input: CompleteSaleInput)
     receipt,
     receiptPreview: preview,
     offlineQueued,
-    message: 'Sale completed successfully.'
+    message: atomicPosting.replayed ? 'Sale completion confirmed from the original request.' : 'Sale completed successfully.'
   };
 }
 

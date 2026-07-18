@@ -2,7 +2,7 @@ import { doc, runTransaction, serverTimestamp, type DocumentSnapshot } from 'fir
 import { CanonicalSalesError } from '../../domain/sales/salesErrors';
 import { db, firebaseReady } from '../../firebase/firebaseApp';
 import { encodeFirestoreId, firestorePaths } from '../../firebase/firestorePaths';
-import { fingerprintPurchasingMutation } from '../../services/purchasingIdempotencyService';
+import { createSalesMutationReceiptId, fingerprintSalesMutation } from '../../services/salesIdempotencyService';
 import type { InventoryMovementRecord } from '../../services/inventorySyncService';
 import type { PosPaymentRecord, PosSaleHeader, PosSaleLine } from '../../services/salesCheckoutService';
 
@@ -16,12 +16,16 @@ export interface AtomicSalePosting {
 }
 
 export interface AtomicSalePostingResult {
+  saleId: string;
+  saleLineIds: string[];
+  paymentIds: string[];
   inventoryMovements: InventoryMovementRecord[];
   mutationReceiptId: string;
   auditEventId: string;
   biEventId: string;
   customerLedgerEntryId?: string;
   customerBalanceProjectionId?: string;
+  replayed?: boolean;
 }
 
 const balanceId = (sale: PosSaleHeader, productId: string) =>
@@ -40,9 +44,9 @@ export async function postCanonicalSaleAtomic(input: AtomicSalePosting): Promise
     throw new CanonicalSalesError('SALES_VALIDATION_FAILED', 'A canonical sale may contain only one line per product.');
   }
 
-  const receiptId = encodeFirestoreId(`sales_complete_${sale.vendorId}_${sale.branchId}_${input.requestId}`);
-  const fingerprint = await fingerprintPurchasingMutation('COMPLETE_SALE', {
-    sale: { ...sale, createdAt: undefined, updatedAt: undefined },
+  const receiptId = encodeFirestoreId(createSalesMutationReceiptId('complete', sale.vendorId, sale.branchId, input.requestId));
+  const fingerprint = await fingerprintSalesMutation('COMPLETE_SALE', {
+    sale,
     lines: input.lines,
     payments: input.payments,
     currency: input.currency,
@@ -71,7 +75,7 @@ export async function postCanonicalSaleAtomic(input: AtomicSalePosting): Promise
       const receipt = existingReceipt.data();
       if (receipt.requestFingerprint !== fingerprint) throw new CanonicalSalesError('SALES_IDEMPOTENCY_CONFLICT', 'Sales request identity was reused with different content.');
       if (receipt.status !== 'completed' || !existingSale.exists()) throw new CanonicalSalesError('SALES_STATUS_CONFLICT', 'Sales receipt is not durably completed.');
-      return receipt.result as AtomicSalePostingResult;
+      return { ...(receipt.result as AtomicSalePostingResult), replayed: true };
     }
     if (existingSale.exists()) throw new CanonicalSalesError('SALES_IDEMPOTENCY_CONFLICT', 'Canonical sale identity already exists.');
 
@@ -148,15 +152,18 @@ export async function postCanonicalSaleAtomic(input: AtomicSalePosting): Promise
       itemCount: input.lines.length, timestamp: serverTimestamp()
     });
     const durable: AtomicSalePostingResult = {
+      saleId: sale.saleId, saleLineIds: input.lines.map((line) => line.saleLineId), paymentIds: input.payments.map((payment) => payment.paymentId),
       inventoryMovements, mutationReceiptId: receiptId, auditEventId: auditId, biEventId: biId,
       customerLedgerEntryId, customerBalanceProjectionId
     };
     transaction.set(mutationRef, {
       receiptDocumentId: receiptId, idempotencyKey: receiptId, vendorId: sale.vendorId, branchId: sale.branchId,
+      terminalId: sale.terminalId, requestId: input.requestId,
       operation: 'COMPLETE_SALE', entityType: 'SALE', entityId: sale.saleId, requestFingerprint: fingerprint,
       status: 'completed', result: durable, resultPath: firestorePaths.salesReceipt(sale.vendorId, sale.saleId),
       correlationId: input.requestId, actorId: sale.staffId, actorRole: 'POS_OPERATOR',
-      createdAt: serverTimestamp(), completedAt: serverTimestamp()
+      attemptCount: 1, authorityVersion: 1,
+      createdAt: serverTimestamp(), updatedAt: serverTimestamp(), completedAt: serverTimestamp()
     });
     return durable;
   });

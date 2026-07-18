@@ -58,7 +58,7 @@ import { recordSecurityMatrixEvent } from './auth/permissionMatrixService';
 import { getSavedPOSSession } from './auth/posActivationService';
 
 
-import { loadLocalProducts, POS_PRODUCT_STORE_EVENT, saveLocalProducts, updateLocalProductStock } from './utils/localProductStore';
+import { loadLocalProducts, POS_PRODUCT_STORE_EVENT, saveLocalProducts } from './utils/localProductStore';
 import { ENABLE_MOCK_SEED_DATA, getVendorScopedStorageKey, initializeEmptyVendorOperationalStores } from './utils/vendorDataMode';
 import { firebaseReady } from './firebase/firebaseApp';
 import {
@@ -707,10 +707,6 @@ export default function PosPrototypeApp() {
     setProducts(prev => prev.map(p => p.id === updatedProd.id ? updatedProd : p));
   };
 
-  const handleProductStockChange = (productId: string, quantitySold: number) => {
-    setProducts(updateLocalProductStock(productId, -quantitySold));
-  };
-
   const handleUpdateStockLevel = (productId: string, nextStock: number) => {
     setProducts(prev => 
       prev.map(p => {
@@ -753,18 +749,8 @@ export default function PosPrototypeApp() {
     setProducts(prev => [...prev, { ...newProd, id }]);
   };
 
-  const handleAddTransaction = (newTxData: Omit<Transaction, 'id' | 'invoiceNo' | 'date'>) => {
-    const id = 'TXN-' + Math.floor(Math.random() * 89999 + 10000);
-    const invoiceNo = 'INV-' + Math.floor(Math.random() * 899999 + 100000);
-    const date = new Date().toISOString();
-
-    const completeTx: Transaction = {
-      ...newTxData,
-      id,
-      invoiceNo,
-      date
-    };
-
+  const handleAddTransaction = (completeTx: Transaction) => {
+    if (transactions.some((transaction) => transaction.id === completeTx.id)) return;
     setTransactions(prev => [...prev, completeTx]);
 
     // Also update active shift tally registers if shift is active!
@@ -1158,7 +1144,6 @@ export default function PosPrototypeApp() {
       {activePage === 'SALES' && (
         <PosSales 
           products={products}
-          onProductStockChange={handleProductStockChange}
           onAddTransaction={handleAddTransaction}
           onNavigate={(page) => setActivePage(page as PosPageId)}
           activeShiftOperator={activeShift ? activeShift.operator : null}

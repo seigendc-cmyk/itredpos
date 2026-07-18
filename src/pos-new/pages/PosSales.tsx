@@ -69,11 +69,11 @@ import { canPerformAction } from '../utils/posPermissions';
 import { matchesFreeOrderSearch } from '../utils/searchUtils';
 import { calculateDocumentTax, posTaxSettingToVendorTaxSettings } from '../services/vendorTaxSettingsService';
 import { completeSale } from '../services/salesCheckoutService';
+import { clearCheckoutRequestId, getOrCreateCheckoutRequestId, saveCheckoutRequestId } from '../services/salesCheckoutRequestIdentity';
 
 interface PosSalesProps {
   products: Product[];
-  onProductStockChange: (productId: string, quantitySold: number) => void;
-  onAddTransaction: (transaction: Omit<Sale, 'id' | 'invoiceNo' | 'date'>) => void;
+  onAddTransaction: (transaction: Sale) => void;
   onNavigate: (page: string) => void;
   activeShiftOperator: string | null;
   activeShift?: Shift | null;
@@ -173,7 +173,6 @@ function clearSelectedCustomerForSaleBridge(): void {
 
 export default function PosSales({
   products,
-  onProductStockChange,
   onAddTransaction,
   onNavigate,
   activeShift,
@@ -191,6 +190,7 @@ export default function PosSales({
   const vendorId = session?.vendorId || '';
   const warehouseName = session?.warehouse || 'Main Warehouse';
   const warehouseId = session?.warehouseId || warehouseName;
+  const checkoutRequestScope = { vendorId, branchId, terminalId };
 
   const [localProducts, setLocalProducts] = useState<Product[]>(products.length > 0 ? products : DEFAULT_PRODUCTS);
   const [cart, setCart] = useState<CartItem[]>([]);
@@ -464,6 +464,10 @@ export default function PosSales({
   };
 
   const clearCartState = () => {
+    checkoutRequestId.current = null;
+    if (typeof sessionStorage !== 'undefined' && vendorId && branchId && terminalId) {
+      clearCheckoutRequestId(sessionStorage, checkoutRequestScope);
+    }
     setCart([]);
     setPayments([]);
     setPaymentAmount('');
@@ -1087,7 +1091,7 @@ export default function PosSales({
 
     setIsCompletingSale(true);
     try {
-      checkoutRequestId.current ||= `checkout-${vendorId}-${branchId}-${terminalId}-${Date.now()}`;
+      checkoutRequestId.current ||= getOrCreateCheckoutRequestId(sessionStorage, checkoutRequestScope);
       const checkoutTaxSettings = posTaxSettingToVendorTaxSettings(
         vendorId,
         {
@@ -1147,35 +1151,7 @@ export default function PosSales({
         idempotencyKey: checkoutRequestId.current
       });
 
-      onAddTransaction({
-        operator: result.sale.operator,
-        customerName: result.sale.customerName,
-        customerId: result.sale.customerId,
-        customerCode: result.sale.customerCode,
-        customerPhone: result.sale.customerPhone,
-        branch: result.sale.branch,
-        terminal: result.sale.terminal,
-        items: result.sale.items,
-        subtotal: result.sale.subtotal,
-        tax: result.sale.tax,
-        discount: result.sale.discount,
-        total: result.sale.total,
-        paymentMethod: result.sale.paymentMethod,
-        cashReceived: result.sale.cashReceived,
-        changeGiven: result.sale.changeGiven,
-        status: result.sale.status
-      });
-
-      cart.filter((item) => item.lineType !== 'MiscellaneousItem' && item.isInventoryAsset !== false && item.stockMovementRequired !== false).forEach((item) => onProductStockChange(item.product.id, item.quantity));
-      setLocalProducts((current) => current.map((product) => {
-        const soldLine = cart.find((item) => item.product.id === product.id && item.lineType !== 'MiscellaneousItem' && item.isInventoryAsset !== false && item.stockMovementRequired !== false);
-        return soldLine ? {
-          ...product,
-          stock: Math.max(0, product.stock - soldLine.quantity),
-          qtyOnHand: Math.max(0, (product.qtyOnHand ?? product.stock) - soldLine.quantity),
-          availableStock: Math.max(0, productStock(product) - soldLine.quantity)
-        } : product;
-      }));
+      onAddTransaction(result.sale);
 
       if (hasMiscellaneousLines) {
         await Promise.all(cart.filter((item) => item.lineType === 'MiscellaneousItem' || item.biFlagged).map(async (item) => {
@@ -1199,7 +1175,6 @@ export default function PosSales({
       setReceiptOutputPreview(result.receiptPreview);
       setRecentSales((current) => [completedSaleForReceipts, ...current].slice(0, 6));
       clearCartState();
-      checkoutRequestId.current = null;
       setStatusMessage(result.message);
       logEvent('SALE_COMPLETED', `Sale ${result.receipt.receiptNumber} completed for ${money(result.sale.total)}.`);
       if (hasMiscellaneousLines) logEvent('SALE_COMPLETED_WITH_MISCELLANEOUS_LINE', `Sale ${result.receipt.receiptNumber} included miscellaneous non-inventory line(s).`);
@@ -1273,6 +1248,8 @@ export default function PosSales({
       setStatusMessage('Held sale could not be found.');
       return;
     }
+    const heldCompletionRequestId = `checkout-held-${vendorId}-${branchId}-${record.id}`.replace(/[^A-Za-z0-9_-]/g, '_');
+    checkoutRequestId.current = saveCheckoutRequestId(sessionStorage, checkoutRequestScope, heldCompletionRequestId);
     setCart(record.items);
     setCustomerMode(record.customerMode);
     setSelectedCustomerId(record.selectedCustomerId || '');

@@ -53,6 +53,7 @@ export interface ReceiptFilters {
 
 export interface ReceiptSalePayload {
   sale: Sale;
+  receiptNumber?: string;
   vendorId: string;
   businessVendor: string;
   branchId: string;
@@ -267,13 +268,15 @@ function addAudit(
   receiptNumber: string,
   message: string,
   operator = "Admin User",
+  idempotencyId?: string,
 ): ReceiptAuditEvent[] {
   const current = readList<ReceiptAuditEvent>(
     AUDIT_KEY,
     mockReceiptAuditEvents,
   );
+  if (idempotencyId && current.some((event) => event.id === idempotencyId)) return current;
   const next: ReceiptAuditEvent = {
-    id: `RAE-${Math.floor(10000 + Math.random() * 90000)}`,
+    id: idempotencyId || `RAE-${Math.floor(10000 + Math.random() * 90000)}`,
     timestamp: new Date().toISOString(),
     eventType,
     receiptNumber,
@@ -433,10 +436,7 @@ export async function createReceiptFromSale(
   payload: ReceiptSalePayload,
 ): Promise<ReceiptRecord> {
   const blueprint = getActiveReceiptBlueprint();
-  const receiptNumber = await generateReceiptNumber(
-    payload.branchId,
-    payload.terminalId,
-  );
+  const receiptNumber = payload.receiptNumber || await generateReceiptNumber(payload.branchId, payload.terminalId);
   const now = payload.sale.date || new Date().toISOString();
   const taxSettings = taxSettingsFromSalePayload(payload);
   const lines: ReceiptLine[] = payload.sale.items.map((item, index) => {
@@ -548,6 +548,7 @@ export async function createReceiptFromSale(
     receiptNumber,
     `Receipt ${receiptNumber} created from completed sale.`,
     payload.cashier,
+    `RAE-CREATED-${receiptNumber}`,
   );
   return receipt;
 }
